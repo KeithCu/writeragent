@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "خصوصی ٹاسک ({domain}) مکمل ہوا۔"
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "خصوصی ٹاسک ({domain}) مکمل ہوا۔"
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "غلطی"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"ٹوکن کی رنگ میں موجود ہے لیکن اسے پڑھا نہیں جا سکا؛ اسے دیکھنے کے لیے کی رنگ"
+" کو ان لاک کریں۔"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "{name} نام کا سرور پہلے سے موجود ہے۔"
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "اس سرور کا نام تبدیل کرنے سے پہلے کی رنگ کو ان لاک کریں۔"
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "چیک کیا جا رہا ہے..."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "مربوط: {count} ٹولز"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "ناکام: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -310,6 +342,11 @@ msgstr ""
 msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "کوئی API کلید ترتیب نہیں دی گئی۔ ترتیبات کھولیں اور ایک کلید شامل کریں۔"
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"سسٹم کی رنگ مقفل ہے۔ محفوظ شدہ API کلید استعمال کرنے کے لیے اسے ان لاک کریں۔"
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -640,6 +677,10 @@ msgstr ""
 "Kokoro فونیمائزر انسٹال نہیں ہو سکا؛ اس زبان کو غلط پڑھا جا سکتا ہے۔ اس کے "
 "ساتھ انسٹال کریں: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: قطاریں یا کالم حذف کریں"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -795,16 +836,6 @@ msgid "Images inserted"
 msgstr "تصاویر شامل کی گئیں"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "خرابی: مرکزی تھریڈ پر عمل درآمد کا وقت ختم ہو گیا ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "نامعلوم خرابی"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -819,6 +850,16 @@ msgid ""
 msgstr ""
 "خرابی: Python کا وقت ختم ہو گیا۔ ٹائم آؤٹ بڑھانے کے لیے ترتیبات (Settings) →"
 " Python کھولیں، یا venv کو ٹیسٹ کریں۔"
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "خرابی: مرکزی تھریڈ پر عمل درآمد کا وقت ختم ہو گیا ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "نامعلوم خرابی"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -864,6 +905,26 @@ msgstr "ایک یا زیادہ غیر خالی سیلز منتخب کریں۔"
 msgid "Formula cells are skipped."
 msgstr "فارمولا سیلز کو چھوڑ دیا گیا ہے۔"
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: نامزد رینج میں ترمیم کریں"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Viz معاون نے کوئی تصویری پے لوڈ واپس نہیں کیا۔"
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: HTML داخل کریں"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: نتیجہ درج کریں"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: پیوٹ ٹیبل بنائیں"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -885,6 +946,57 @@ msgstr "تصویر کو سیل کے ساتھ اینکر کریں، اسے منت
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "اندراج کے لیے کوئی ساختی جدول یا متن کے بلاکس موجود نہیں ہیں۔"
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: نکالی گئی ٹیبلز درج کریں"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "تبدیلی نامطابقت کے ساتھ مکمل ہوئی"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} سیل (خانے) تصدیق نہیں ہو سکے۔\n"
+"پہلا: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "کامیابی"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"تبدیلی کامیابی سے مکمل ہوئی!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "فعال دستاویز اسپریڈشیٹ نہیں ہے۔"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "تبدیلی ناکام: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "درآمدی ڈائیلاگ کھولنے میں ناکامی: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1397,7 +1509,7 @@ msgstr "مجموعی"
 msgid "plain"
 msgstr "سادہ"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "سادہ متن"
 
@@ -1622,10 +1734,6 @@ msgstr "ڈیبگ"
 msgid "[No speech detected.]"
 msgstr "[کوئی تقریر نہیں ملی۔]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[صوتی پیغام]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: فارمولا"
@@ -1635,7 +1743,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "/undo سے پہلے موجودہ آپریشن کے مکمل ہونے کا انتظار کریں۔"
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "کوئی دستاویز کھلی نہیں ہے۔"
 
@@ -1670,12 +1777,10 @@ msgstr "(خالی)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "صرف فارمولے کے ساتھ جواب دیں۔ اسے = سے شروع ہونا چاہیے۔ انگریزی فنکشن کے نام"
-" استعمال کریں۔ فنکشن کے دلائل کے درمیان سیمی کولن (;) استعمال کریں (Calc "
-"setFormula API گرامر)۔ کوئی نثر یا مارک ڈاؤن نہیں۔"
+" استعمال کریں۔ کوئی نثر یا مارک ڈاؤن نہیں۔"
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2111,6 +2216,11 @@ msgid "Compaction cancelled."
 msgstr "کمپیکشن منسوخ کر دی گئی۔"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[ایجنٹ بیک اینڈ خرابی: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[کوئی مطابقت پذیر LibreOffice دستاویز نہیں ملی۔]"
 
@@ -2137,11 +2247,6 @@ msgstr "[آڈیو خرابی: ریکارڈنگ بغیر صوتی فائل کے �
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "شروع ہو رہا ہے..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[ایجنٹ بیک اینڈ خرابی: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2405,6 +2510,11 @@ msgstr ""
 "آن کریں۔"
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API کلید ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "آڈیو لائبریری ڈاؤن لوڈ"
 
@@ -2419,6 +2529,15 @@ msgstr "(اس اینڈ پوائنٹ پر کوئی امیج ماڈل نہیں ہ�
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(کنکشن ناکام ہو گیا)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "سسٹم کیرنگ"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "محفوظ کردہ مقام: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2650,7 +2769,7 @@ msgstr ""
 "ذخیرہ شدہ دستاویز کی اسکرپٹس غیر معاون فارمیٹ (ورژن {0}) میں ہیں، اس لیے "
 "انہیں تبدیل نہیں کیا گیا۔"
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "اسکرپٹس محفوظ کرنے کے لیے کوئی دستاویز کھلی نہیں ہے۔"
 
@@ -2694,25 +2813,18 @@ msgstr "یہ دستاویز"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"'{0}' کو اس دستاویز ({1}) میں محفوظ نہیں کیا جا سکا۔ اسے 'My Scripts' میں "
-"محفوظ کر دیا گیا ہے۔"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"'{0}' کو اس دستاویز ({1}) میں محفوظ نہیں کیا جا سکا۔ 'My Scripts' میں '{0}' "
-"نام کی اسکرپٹ پہلے سے موجود ہے۔"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "اسکرپٹ '{0}' 'میرے اسکرپٹس' میں موجود نہیں ہے۔"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "اسکرپٹ '%s' اس دستاویز میں محفوظ کر دی گئی۔"
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "اسکرپٹ '%s' کامیابی کے ساتھ محفوظ ہو گئی۔"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2722,25 +2834,10 @@ msgstr ""
 "اسکرپٹ '{0}' 'میرے اسکرپٹس' یا اس دستاویز میں موجود نہیں ہے، لہذا اسے محفوظ "
 "نہیں کیا گیا۔"
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "اسکرپٹ '{0}' کو اس دستاویز میں محفوظ کر دیا گیا۔"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "اسکرپٹ '{0}' محفوظ کر دی گئی۔"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "دستاویز کی اسکرپٹ '{0}' حذف کر دی گئی۔"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "اسکرپٹ '{0}' حذف کر دی گئی۔"
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "اسکرپٹ '%s' حذف کر دیا گیا۔"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2753,16 +2850,6 @@ msgstr "دستاویز اب کھلی نہیں ہے۔"
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog کو ایکسٹینشن سے لوڈ نہیں کیا جا سکا۔"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "اسکرپٹ '%s' اس دستاویز میں محفوظ کر دی گئی۔"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "اسکرپٹ '%s' کامیابی کے ساتھ محفوظ ہو گئی۔"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2787,11 +2874,6 @@ msgid "Delete Script"
 msgstr "اسکرپٹ حذف کریں"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "اسکرپٹ '%s' حذف کر دیا گیا۔"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "نئی اسکرپٹ"
 
@@ -2808,10 +2890,6 @@ msgstr "اسکرپٹ '%s' کو 'My Scripts' میں تخلیق کر دیا گیا
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "اسکرپٹ کامیابی کے ساتھ چلایا گیا۔"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "کامیابی"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3205,10 +3283,6 @@ msgstr "پلاٹ کے اندراج کے لیے غیر معاون دستاویز 
 msgid "Viz helper failed."
 msgstr "Viz معاون ناکام ہو گیا۔"
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Viz معاون نے کوئی تصویری پے لوڈ واپس نہیں کیا۔"
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3272,15 +3346,6 @@ msgstr "پیش گوئی کے ہیلپرز"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"نوٹ بکس کے لیے Python سیشن کو ری سیٹ کرنا LibreOffice Writer پر لاگو ہوتا "
-"ہے۔ درآمد شدہ Jupyter نوٹ بک کے ساتھ Writer دستاویز کھولیں اور دوبارہ کوشش "
-"کریں۔"
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3302,14 +3367,6 @@ msgstr "Python سیشن کو ری سیٹ نہیں کیا جا سکا۔"
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "اس دستاویز کے لیے نوٹ بک Python سیشن ری سیٹ کر دیا گیا ہے۔"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Python سیشن کو ری سیٹ کرنا Calc اسپریڈ شیٹس پر لاگو ہوتا ہے۔ Calc ورک بک "
-"کھولیں اور دوبارہ کوشش کریں۔"
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3470,9 +3527,8 @@ msgstr ""
 "ہیں!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "نتیجہ داخل کرنے کے لیے غیر معاون دستاویز کی قسم۔ ({time} لگا)"
+msgid "Unsupported document type for result insertion."
+msgstr "نتیجہ اندراج کے لیے غیر معاون دستاویز کی قسم۔"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4273,17 +4329,17 @@ msgstr ""
 "ایجنٹ کو ٹولز (فائلیں پڑھنا، کمانڈز چلانا، وغیرہ) استعمال کرنے کی اجازت دینے"
 " سے پہلے تصدیق طلب کریں"
 
-msgid "Antigravity model"
-msgstr "اینٹی گریویٹی ماڈل"
+msgid "Model"
+msgstr "ماڈل"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId سیشن/new models.availableModels سے، مثال کے طور پر "
-"gemini-4-argon-medium۔ خالی چھوڑنے پر agy کا موجودہ ماڈل برقرار رہے گا۔ "
-"configOptions فیملی آئی ڈیز جیسے کہ gemini-4-argon ماڈل آئی ڈیز نہیں ہیں۔"
+"منتخب کردہ ایجنٹ کا ماڈل آئی ڈی یا نام، مثال کے طور پر gemini-4-argon-"
+"medium، grok-4.6 یا devstral-small۔ خالی چھوڑنے پر ایجنٹ کا موجودہ ماڈل "
+"برقرار رہے گا۔ بلٹ ان (Built-in) کے لیے استعمال نہیں ہوتا۔"
 
 msgid "STT Provider"
 msgstr "STT فراہم کنندہ"
@@ -4422,11 +4478,14 @@ msgid "Speech Speed"
 msgstr "تقریر کی رفتار"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"پلے بیک اسپیڈ ملٹی پلائر (1.0x، 1.1x، 1.25x، 1.5x، 1.75x، 2.0x، یا 0.25x تک "
-"حسب ضرورت)۔"
+"تقریر کی رفتار (1.0x–2.0x، یا 0.25x تک حسب ضرورت)۔ Kokoro (مقامی یا "
+"OpenRouter) اور مقامی Piper اس رفتار سے بولتے ہیں؛ دیگر آن لائن آوازیں پلے "
+"بیک کے دوران تیز کی جاتی ہیں (0.5x–2.0x؛ لینکس پر اس کے لیے ffplay یا mpv "
+"درکار ہے)۔"
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4675,12 +4734,11 @@ msgstr "ایجنٹ ترمیم کا جائزہ"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
 "آف = براہ راست ترامیم۔ ریکارڈ = ٹریک شدہ تبدیلیاں جنہیں آپ خود قبول/مسترد "
-"کرتے ہیں۔ انتظار کریں = apply_document_content بلاک کرتا ہے (چیٹ/MCP ورکر "
-"تھریڈ پر) جب تک آپ جائزہ نہ لیں۔"
+"کرتے ہیں۔ انتظار = apply_content بلاکس (چیٹ/MCP ورکر تھریڈ پر) آپ کے جائزے "
+"تک۔"
 
 msgid "Record (track changes)"
 msgstr "ریکارڈ (تبدیلیوں کو ٹریک کریں)"
@@ -4690,9 +4748,6 @@ msgstr "جائزہ کے لیے انتظار کریں"
 
 msgid "Draw and Impress tools"
 msgstr "Draw اور Impress ٹولز"
-
-msgid "Vector Search"
-msgstr "ویکٹر تلاش"
 
 msgid "Cross-file search"
 msgstr "کراس فائل تلاش"
@@ -4777,15 +4832,14 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"یہ کہ خصوصی ٹولز MCP کلائنٹس کے سامنے کیسے لائے جاتے ہیں۔ delegate=ڈیلیگیٹ "
-"گیٹ وے کے ذریعے پہنچا گیا (آج کا رویہ)؛ direct_flat=تمام MCP تک قابل رسائی "
-"خصوصی ٹولز براہ راست درج ہیں، سوائے سائڈبار والے فلو کے (ان کلائنٹس کے لیے "
-"بہترین جن کے پاس اپنی ٹول سرچ ہے)؛ direct_discovery=چھوٹی بنیادی فہرست جمع "
-"find_tools (ڈومین کیٹلاگ، پھر فی ڈومین ٹول اسکیمہ؛ کسی بھی کلائنٹ کے لیے "
-"بہترین)۔"
+"MCP کلائنٹس کے لیے خصوصی ٹولز کیسے ظاہر ہوتے ہیں۔ delegate=ڈیلیگیٹ گیٹ وے کے"
+" ذریعے رسائی (موجودہ رویہ)؛ direct_flat=تمام MCP-قابل رسائی خصوصی ٹولز براہ "
+"راست درج ہیں، سوائے سائڈبار-صرف فلو کے (ان کلائنٹس کے لیے بہترین جن کے پاس "
+"اپنی ٹول-تلاش ہے)؛ direct_discovery=چھوٹی بنیادی فہرست جمع ٹول-تلاش (ڈومین "
+"کیٹلاگ، پھر فی-ڈومین ٹول اسکیمز؛ کسی بھی کلائنٹ کے لیے بہترین)۔"
 
 msgid "Delegate (default)"
 msgstr "ڈیلیگیٹ (پہلے سے طے شدہ)"
@@ -4793,8 +4847,8 @@ msgstr "ڈیلیگیٹ (پہلے سے طے شدہ)"
 msgid "Direct — list all tools"
 msgstr "براہ راست — تمام ٹولز کی فہرست"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "براہ راست — دریافت (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "براہ راست — دریافت (tool_find)"
 
 msgid "Public tunnel"
 msgstr "عوامی سرنگ (Public tunnel)"
@@ -4849,6 +4903,70 @@ msgstr "کلائنٹ کنفیگریشن (Claude / Hermes-Agent میں کاپی �
 
 msgid "Copy Config"
 msgstr "کنفیگریشن کاپی کریں"
+
+msgid "Integrations"
+msgstr "انضمام"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "سائیڈ بار چیٹ کے لیے MCP سرورز"
+
+msgid "Server"
+msgstr "سرور"
+
+msgid "Add"
+msgstr "شامل کریں"
+
+msgid "Remove"
+msgstr "ہٹائیں"
+
+msgid "Use this MCP server in chat"
+msgstr "اس MCP سرور کو چیٹ میں استعمال کریں"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"صرف سائیڈ بار چیٹ (mcp ڈومین)؛ WriterAgent کے MCP سرور یا اسکرپٹس کے سامنے "
+"کبھی ظاہر نہیں کیا گیا۔"
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr ""
+"اس کے صرف پڑھنے کے قابل (read-only) ٹولز پر بھروسہ کریں (کوئی پرامپٹ نہیں)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"وہ ٹولز جنہیں سرور readOnlyHint کے طور پر نشان زد کرتا ہے وہ قبول / تبدیل / "
+"مسترد کیے بغیر چلتے ہیں؛ ہر دوسری کال اب بھی پوچھتی ہے"
+
+msgid "Name"
+msgstr "نام"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"اس سرور کے ٹول کے ناموں کے لیے سابقہ (مثال کے طور پر home -> "
+"mcp__home__tool)۔"
+
+msgid "Server URL"
+msgstr "سرور کا URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"اسٹریمیبل-HTTP MCP اینڈ پوائنٹ، مثال کے طور پر http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "ٹوکن"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"بیئرر ٹوکن۔ 'Settings OK' اسے سسٹم کیرنگ میں محفوظ کرتا ہے اگر وہ دستیاب ہو،"
+" بصورت دیگر writeragent.json میں۔"
+
+msgid "Status"
+msgstr "حیثیت"
 
 msgid "Notebook"
 msgstr "نوٹ بک"

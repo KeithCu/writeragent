@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Specializēts uzdevums ({domain}) pabeigts."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Specializēts uzdevums ({domain}) pabeigts."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Kļūda"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Marķieris ir atslēgu saišķī, bet to nevarēja nolasīt; atbloķējiet atslēgu "
+"saišķi, lai to redzētu."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Serveris ar nosaukumu {name} jau eksistē."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Atbloķējiet atslēgu saišķi pirms šī servera pārdēvēšanas."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Pārbauda…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Savienots: {count} rīki"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Neizdevās: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -311,6 +343,12 @@ msgstr ""
 msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "Nav konfigurēta API atslēga. Atveriet iestatījumus un pievienojiet atslēgu."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Sistēmas atslēgu saišķis ir bloķēts. Atbloķējiet to, lai izmantotu saglabāto"
+" API atslēgu."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -641,6 +679,10 @@ msgstr ""
 "Neizdevās instalēt Kokoro fonemizētāju; šī valoda var tikt nolasīta "
 "nepareizi. Instalējiet ar: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Dzēst rindas vai kolonnas"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -800,16 +842,6 @@ msgid "Images inserted"
 msgstr "Ievietotie attēli"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Kļūda: galvenā pavediena izpildes noildze ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nezināma kļūda"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -824,6 +856,16 @@ msgid ""
 msgstr ""
 "Kļūda: Python darbības laiks ir beidzies. Atveriet Iestatījumi → Python, lai"
 " palielinātu taimautu, vai pārbaudiet venv."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Kļūda: galvenā pavediena izpildes noildze ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nezināma kļūda"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -869,6 +911,26 @@ msgstr "Atlasiet vienu vai vairākas ne-tukšas šūnas."
 msgid "Formula cells are skipped."
 msgstr "Formulu šūnas tiek izlaistas."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Rediģēt nosauktu apgabalu"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizācijas palīgs neatgrieza attēla datus."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Ievietot HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Ievietot rezultātu"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Izveidot pārskata tabulu"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -890,6 +952,57 @@ msgstr "Noenkurojiet attēlu šūnā, atlasiet to un palaidiet vēlreiz."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Nav strukturētu tabulu vai teksta bloku, ko ievietot."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Ievietot izvilktās tabulas"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Konvertēšana pabeigta ar neatbilstībām"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} šūna(s) netika verificētas.\n"
+"Pirmā: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Veiksmīgi"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Konvertēšana veiksmīgi pabeigta!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Aktīvais dokuments nav izklājlapa."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Konvertēšana neizdevās: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Neizdevās atvērt importēšanas dialoglodziņu: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1401,7 +1514,7 @@ msgstr "kopumā"
 msgid "plain"
 msgstr "vienkāršs"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "vienkāršs teksts"
 
@@ -1628,10 +1741,6 @@ msgstr "Atkļūdot"
 msgid "[No speech detected.]"
 msgstr "[Runas nav konstatētas.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Balss ziņojums]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Formula"
@@ -1641,7 +1750,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Pagaidiet, līdz pašreizējā darbība beidzas, pirms izmantot /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Nav atvērts neviens dokuments."
 
@@ -1677,12 +1785,10 @@ msgstr "(tukšs)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Atbildiet tikai ar formulu. Tai jāsākas ar =. Izmantojiet angļu valodas "
-"funkciju nosaukumus. Starp funkciju argumentiem izmantojiet semikolu (;) "
-"(Calc setFormula API gramatika). Bez teksta vai mārkdauna."
+"funkciju nosaukumus. Bez teksta vai markdown formatējuma."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2117,6 +2223,11 @@ msgid "Compaction cancelled."
 msgstr "Saspiešana atcelta."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Aģenta aizmugursistēmas kļūda: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nav atrasts saderīgs LibreOffice dokuments.]"
 
@@ -2143,11 +2254,6 @@ msgstr "[Audio kļūda: ierakstīšana pārtraukta bez skaņas faila.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Notiek palaišana..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Aģenta aizmugursistēmas kļūda: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2417,6 +2523,11 @@ msgstr ""
 "dzirdētu šo balsi."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API atslēga ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Audio bibliotēkas lejupielāde"
 
@@ -2431,6 +2542,15 @@ msgstr "(Šajā galapunktā nav attēlu modeļu)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Savienojuma kļūda)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "sistēmas atslēgu saišķis"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Saglabāts: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2660,7 +2780,7 @@ msgstr ""
 "Saglabātie dokumenta skripti ir neatbalstītā formātā (versija {0}), tāpēc "
 "tie palika nemainīti."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Nav atvērts neviens dokuments, kurā saglabāt skriptus."
 
@@ -2704,25 +2824,18 @@ msgstr "Šis dokuments"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Neizdevās saglabāt '{0}' šajā dokumentā ({1}). Tā vietā saglabāju to sadaļā "
-"Mani skripti."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Neizdevās saglabāt '{0}' šajā dokumentā ({1}). Skripts ar nosaukumu '{0}' "
-"jau pastāv sadaļā Mani skripti."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skripts '{0}' neeksistē sadaļā Mani skripti."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skripts '%s' saglabāts šajā dokumentā."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skripts '%s' veiksmīgi saglabāts."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2732,25 +2845,10 @@ msgstr ""
 "Skripts '{0}' neatrodas mapē „My Scripts“ vai šajā dokumentā, tāpēc tas "
 "netika saglabāts."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skripts '{0}' saglabāts šajā dokumentā."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skripts '{0}' saglabāts."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Dzēsts dokumenta skripts '{0}'."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Dzēsts skripts '{0}'."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skripts '%s' dzēsts."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2763,16 +2861,6 @@ msgstr "Dokuments vairs nav atvērts."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog nevarēja ielādēt no paplašinājuma."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skripts '%s' saglabāts šajā dokumentā."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skripts '%s' veiksmīgi saglabāts."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2797,11 +2885,6 @@ msgid "Delete Script"
 msgstr "Dzēst skriptu"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skripts '%s' dzēsts."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Jauns skripts"
 
@@ -2818,10 +2901,6 @@ msgstr "Skripts '%s' izveidots mapē \"My Scripts\"."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Skripts veiksmīgi izpildīts."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Veiksmīgi"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3218,10 +3297,6 @@ msgstr "Neatbalstīts dokumenta tips diagrammas ievietošanai."
 msgid "Viz helper failed."
 msgstr "Vizualizācijas palīgs neizdevās."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Vizualizācijas palīgs neatgrieza attēla datus."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3286,15 +3361,6 @@ msgstr "Prognozēšanas palīgi"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer."
-" Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
-"vēlreiz."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3316,14 +3382,6 @@ msgstr "Neizdevās atiestatīt Python sesiju."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Piezīmjdatora Python sesija šim dokumentam ir atiestatīta."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Python sesijas atiestatīšana attiecas uz Calc izklājlapām. Atveriet Calc "
-"darbgrāmatu un mēģiniet vēlreiz."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3485,9 +3543,8 @@ msgstr ""
 "gaidīti!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Neatbalstīts dokumenta tips rezultāta ievietošanai. (aizņēma {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Neatbalstīts dokumenta tips rezultāta ievietošanai."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4291,17 +4348,18 @@ msgstr ""
 "Pieprasīt apstiprinājumu pirms atļaut aģentam izmantot rīkus (lasīt failus, "
 "izpildīt komandas utt.)"
 
-msgid "Antigravity model"
-msgstr "Antigravitācijas modelis"
+msgid "Model"
+msgstr "Modelis"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId no session/new models.availableModels, piemēram, gemini-4-argon-"
-"medium. Tukša vērtība saglabā agy pašreizējo modeli. configOptions saimes "
-"ID, piemēram, gemini-4-argon, nav modelIds."
+"Modeļa ID vai nosaukums, ko piedāvā izvēlētais aģents, piemēram, "
+"gemini-4-argon-medium, grok-4.6 vai devstral-small. Atstājot tukšu, tiek "
+"saglabāts aģenta pašreizējais modelis. Netiek izmantots iebūvētajiem (Built-"
+"in) aģentiem."
 
 msgid "STT Provider"
 msgstr "STT nodrošinātājs"
@@ -4438,11 +4496,14 @@ msgid "Speech Speed"
 msgstr "Runas ātrums"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Atskaņošanas ātruma reizinātājs (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x vai "
-"pielāgots līdz pat 0.25x)."
+"Runas ātrums (1.0x–2.0x vai pielāgots līdz 0.25x). Kokoro (lokālais vai "
+"OpenRouter) un lokālais Piper runā šajā ātrumā; citas tiešsaistes balsis "
+"atskaņošanas laikā tiek paātrinātas (0.5x–2.0x; Linux vidē tam nepieciešams "
+"ffplay vai mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4693,12 +4754,11 @@ msgstr "Aģenta rediģēšanas pārskats"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Izslēgts = tiešās rediģēšanas. Ierakstīt = izmaiņu izsekošana, ko "
-"apstiprināt/noraidīt pašam. Gaidīt = apply_document_content bloķē "
-"(tērzēšanas/MCP darba pavedienā), līdz pārskatāt."
+"Izslēgts (Off) = tiešas rediģēšanas. Ierakstīt (Record) = izmaiņu uzskaite, "
+"kuras jūs pats apstiprināt/noraidāt. Gaidīt (Wait) = apply_content bloki "
+"(tērzēšanas/MCP darba pavedienā), līdz jūs tos pārskatāt."
 
 msgid "Record (track changes)"
 msgstr "Ierakstīt (izsekot izmaiņas)"
@@ -4708,9 +4768,6 @@ msgstr "Gaidīt pārskatīšanu"
 
 msgid "Draw and Impress tools"
 msgstr "Draw un Impress rīki"
-
-msgid "Vector Search"
-msgstr "Vektoru meklēšana"
 
 msgid "Cross-file search"
 msgstr "Meklēšana starp failiem"
@@ -4795,15 +4852,15 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Kā specializētie rīki tiek parādīti MCP klientiem. delegate=sasniedzami caur"
-" starpniekserveri (pašreizējā darbība); direct_flat=visi MCP sasniedzamie "
-"specializētie rīki uzskaitīti tieši, izslēdzot sānjoslas plūsmas (labākais "
-"klientiem ar savu rīku meklēšanu); direct_discovery=mazs pamatsaraksts plus "
-"find_tools (domēna katalogs, tad katra domēna rīku shēmas; labākais jebkuram"
-" klientam)."
+"Kā specializētie rīki tiek parādīti MCP klientiem. delegate = sasniedzami, "
+"izmantojot delegāta vārteju (pašreizējā darbība); direct_flat = visi MCP "
+"sasniedzamie specializētie rīki uzskaitīti tieši, izslēdzot tikai sānjoslas "
+"plūsmas (vislabāk klientiem ar savu rīku meklēšanu); direct_discovery = "
+"neliels pamatsaraksts plus tool_find (domēna katalogs, tad rīku shēmas pa "
+"domēniem; vislabāk jebkuram klientam)."
 
 msgid "Delegate (default)"
 msgstr "Starpnieks (noklusējums)"
@@ -4811,8 +4868,8 @@ msgstr "Starpnieks (noklusējums)"
 msgid "Direct — list all tools"
 msgstr "Tiešais — uzskaitīt visus rīkus"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Tiešais — atklāšana (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Tiešais — atklāšana (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Publisks tunelis"
@@ -4868,6 +4925,69 @@ msgstr "Klienta konfigurācija (kopēt uz Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopēt konfigurāciju"
+
+msgid "Integrations"
+msgstr "Integrācijas"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP serveri sānjoslas tērzēšanai"
+
+msgid "Server"
+msgstr "Serveris"
+
+msgid "Add"
+msgstr "Pievienot"
+
+msgid "Remove"
+msgstr "Noņemt"
+
+msgid "Use this MCP server in chat"
+msgstr "Izmantot šo MCP serveri tērzēšanā"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Tikai sānjoslas tērzēšanai (mcp domēns); nekad netiek atklāts WriterAgent "
+"MCP serverim vai skriptiem."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Uzticēties tā tikai lasāmajiem rīkiem (bez apstiprinājuma)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Rīki, kurus serveris atzīmē kā readOnlyHint, darbojas bez Pieņemt / Mainīt /"
+" Noraidīt; par katru citu izsaukumu joprojām tiek prasīts"
+
+msgid "Name"
+msgstr "Nosaukums"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Pievieno prefiksu šī servera rīku nosaukumiem (piem., home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Servera URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Straumējams HTTP MCP galapunkts, piem., http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Pilnvaras marķieris (Token)"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer marķieris. Iestatījumu apstiprināšana (Settings OK) saglabā to "
+"sistēmas atslēgu saišķī, ja tāds ir pieejams, pretējā gadījumā – failā "
+"writeragent.json."
+
+msgid "Status"
+msgstr "Statuss"
 
 msgid "Notebook"
 msgstr "Piezīmju grāmatiņa"

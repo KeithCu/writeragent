@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Специализираната задача ({domain}) е завършена."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Специализираната задача ({domain}) е завърш
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Грешка"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Токенът е в ключодържателя, но не можа да бъде прочетен; отключете "
+"ключодържателя, за да го видите."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Сървър с име {name} вече съществува."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Отключете ключодържателя, преди да преименувате този сървър."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Проверка…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Свързани: {count} инструмента"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Неуспех: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -312,6 +344,12 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "Няма конфигуриран API ключ. Отворете настройките и добавете ключ."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Системният ключодържател е заключен. Отключете го, за да използвате "
+"записания API ключ."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -641,6 +679,10 @@ msgstr ""
 "Неуспешно инсталиране на Kokoro phonemizer; този език може да бъде разчетен "
 "неправилно. Инсталирайте чрез: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Изтриване на редове или колони"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -804,17 +846,6 @@ msgid "Images inserted"
 msgstr "Вмъкнати изображения"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr ""
-"Грешка: Изпълнението в главната нишка превиши времето за изчакване ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Неизвестна грешка"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -829,6 +860,17 @@ msgid ""
 msgstr ""
 "Грешка: Времето за изпълнение на Python изтече. Отворете Настройки → Python,"
 " за да увеличите лимита, или тествайте venv."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr ""
+"Грешка: Изпълнението в главната нишка превиши времето за изчакване ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Неизвестна грешка"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -874,6 +916,26 @@ msgstr "Изберете една или повече непразни клет�
 msgid "Formula cells are skipped."
 msgstr "Клетките с формули се пропускат."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Редактиране на именуван диапазон"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Помощникът за визуализация не върна изображение."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Вмъкване на HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Вмъкване на резултат"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Създаване на обобщаваща таблица"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -895,6 +957,57 @@ msgstr "Прикответе изображението към клетка, и�
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Няма структурирани таблици или текстови блокове за вмъкване."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Вмъкване на извлечени таблици"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Преобразуването завърши с несъответствия"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} клетка(и) не бяха потвърдени.\n"
+"Първа: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Успех"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Преобразуването завърши успешно!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Активният документ не е електронна таблица."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Преобразуването е неуспешно: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Неуспешно отваряне на диалоговия прозорец за импортиране: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1410,7 +1523,7 @@ msgstr "общ"
 msgid "plain"
 msgstr "обикновен"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "обикновен текст"
 
@@ -1637,10 +1750,6 @@ msgstr "Отстраняване на грешки"
 msgid "[No speech detected.]"
 msgstr "[Не е засегната реч.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Гласово съобщение]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Формула"
@@ -1650,7 +1759,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Изчакайте завършването на текущата операция преди /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Няма отворен документ."
 
@@ -1685,13 +1793,10 @@ msgstr "(празно)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Отговорете само с формулата. Тя трябва да започва с =. Използвайте английски"
-" имена на функциите. Използвайте точка и запетая (;) между аргументите на "
-"функциите (синтаксис на Calc setFormula API). Без обяснителен текст или "
-"маркиране."
+" имена на функциите. Без свободен текст или маркиране."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2133,6 +2238,11 @@ msgid "Compaction cancelled."
 msgstr "Компресирането е отменено."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Грешка в бекенда на агента: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Не е намерен съвместим документ на LibreOffice.]"
 
@@ -2159,11 +2269,6 @@ msgstr "[Аудио грешка: записът спря без звуков ф
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Стартиране..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Грешка в бекенда на агента: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2430,6 +2535,11 @@ msgstr ""
 " да чуете този глас."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API ключ ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Изтегляне на аудио библиотека"
 
@@ -2444,6 +2554,15 @@ msgstr "(Няма модели за изображения в тази край�
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Неуспешна връзка)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "системен ключодържател"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Съхранено в: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2679,7 +2798,7 @@ msgstr ""
 "Съхранените скриптове на документа са в неподдържан формат (версия {0}), "
 "затова бяха оставени непроменени."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Няма отворен документ за записване на скриптове."
 
@@ -2724,25 +2843,18 @@ msgstr "Този документ"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Неуспешно записване на „{0}“ в този документ ({1}). Вместо това беше "
-"записано в „Моите скриптове“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Неуспешно записване на „{0}“ в този документ ({1}). Скрипт с име „{0}“ вече "
-"съществува в „Моите скриптове“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Скриптът „{0}“ не съществува в „Моите скриптове“."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Скриптът „%s“ е записан в този документ."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Скриптът „%s“ е записан успешно."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2752,25 +2864,10 @@ msgstr ""
 "Скриптът „{0}“ не е в „Моите скриптове“ или в този документ, затова не беше "
 "записан."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Скриптът „{0}“ е записан в този документ."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Скриптът „{0}“ е записан."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Изтрит е скрипт на документа „{0}“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Изтрит е скриптът „{0}“."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Скриптът „%s“ е изтрит."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2783,16 +2880,6 @@ msgstr "Документът вече не е отворен."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog не можа да бъде зареден от разширението."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Скриптът „%s“ е записан в този документ."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Скриптът „%s“ е записан успешно."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2817,11 +2904,6 @@ msgid "Delete Script"
 msgstr "Изтриване на скрипт"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Скриптът „%s“ е изтрит."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Нов скрипт"
 
@@ -2838,10 +2920,6 @@ msgstr "Скриптът „%s“ е създаден в „Моите скри�
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Скриптът е изпълнен успешно."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Успех"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3242,10 +3320,6 @@ msgstr "Неподдържан тип документ за вмъкване н�
 msgid "Viz helper failed."
 msgstr "Помощникът за визуализация не успя."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Помощникът за визуализация не върна изображение."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3308,14 +3382,6 @@ msgstr "Помощници за прогнозиране"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Нулирането на Python сесията за бележници се прилага за LibreOffice Writer. "
-"Отворете документ на Writer с импортиран Jupyter бележник и опитайте отново."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3337,14 +3403,6 @@ msgstr "Неуспешно нулиране на Python сесията."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Python сесията на бележника е нулирана за този документ."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Нулирането на Python сесията се прилага за електронни таблици на Calc. "
-"Отворете работна книга на Calc и опитайте отново."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3508,9 +3566,8 @@ msgstr ""
 "добре дошли!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Неподдържан тип документ за вмъкване на резултат. (отне {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Неподдържан тип документ за вмъкване на резултата."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4316,17 +4373,17 @@ msgstr ""
 "Изискване на потвърждение преди разрешаване на агента да използва "
 "инструменти (четене на файлове, изпълнение на команди и т.н.)"
 
-msgid "Antigravity model"
-msgstr "Антигравитационен модел"
+msgid "Model"
+msgstr "Модел"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId от session/new models.availableModels, например gemini-4-argon-"
-"medium. Празно поле запазва текущия модел на agy. Идентификаторите на "
-"фамилиите в configOptions, като например gemini-4-argon, не са modelIds."
+"Идентификатор или име на модела, предлаган от избрания агент, например "
+"gemini-4-argon-medium, grok-4.6 или devstral-small. Ако е празно, се запазва"
+" текущият модел на агента. Не се използва от вградените (Built-in)."
 
 msgid "STT Provider"
 msgstr "Доставчик на STT"
@@ -4467,11 +4524,14 @@ msgid "Speech Speed"
 msgstr "Скорост на речта"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Множител на скоростта на възпроизвеждане (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, "
-"2.0x или потребителска до 0.25x)."
+"Скорост на речта (1.0x–2.0x или персонализирана до 0.25x). Kokoro (локално "
+"или OpenRouter) и локалният Piper говорят с тази скорост; други онлайн "
+"гласове се ускоряват по време на възпроизвеждане (0.5x–2.0x; в Linux това "
+"изисква ffplay или mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4722,12 +4782,11 @@ msgstr "Редактиране от агент"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
 "Изкл. = директни редакции. Запис = проследени промени, които "
-"приемате/отхвърляте сами. Изчакване = apply_document_content блокира (в "
-"нишката на чата/MCP работника), докато прегледате."
+"приемате/отхвърляте сами. Изчакване = блокиране на apply_content (в нишката "
+"за чат/MCP), докато не прегледате."
 
 msgid "Record (track changes)"
 msgstr "Запис (проследяване на промени)"
@@ -4737,9 +4796,6 @@ msgstr "Изчакване за преглед"
 
 msgid "Draw and Impress tools"
 msgstr "Инструменти за Draw и Impress"
-
-msgid "Vector Search"
-msgstr "Векторно търсене"
 
 msgid "Cross-file search"
 msgstr "Търсене в множество файлове"
@@ -4824,16 +4880,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
 "Как специализираните инструменти се представят на MCP клиентите. "
-"delegate=достъп чрез делегиран шлюз (поведение по подразбиране); "
-"direct_flat=всички достъпни чрез MCP специализирани инструменти са изброени "
-"директно, с изключение на потоците само в страничната лента (най-добро за "
-"клиенти със собствено търсене на инструменти); direct_discovery=малък "
-"основен списък плюс find_tools (домейн каталог, след това схеми на "
-"инструменти по домейн; най-добро за всеки клиент)."
+"delegate=достъп чрез делегиран шлюз (поведението досега); direct_flat=всички"
+" достъпни чрез MCP специализирани инструменти са изброени директно, с "
+"изключение на потоците само за страничната лента (най-добро за клиенти със "
+"собствено търсене на инструменти); direct_discovery=малък основен списък "
+"плюс tool_find (домейн каталог, след това схеми на инструменти по домейн; "
+"най-добро за всеки клиент)."
 
 msgid "Delegate (default)"
 msgstr "Делегиран (по подразбиране)"
@@ -4841,8 +4897,8 @@ msgstr "Делегиран (по подразбиране)"
 msgid "Direct — list all tools"
 msgstr "Директен — списък на всички инструменти"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Директен — откриване (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Директно — откриване (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Публичен тунел"
@@ -4898,6 +4954,69 @@ msgstr "Конфигурация на клиента (копирайте в Clau
 
 msgid "Copy Config"
 msgstr "Копиране на конфигурацията"
+
+msgid "Integrations"
+msgstr "Интеграции"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP сървъри за чата в страничната лента"
+
+msgid "Server"
+msgstr "Сървър"
+
+msgid "Add"
+msgstr "Добавяне"
+
+msgid "Remove"
+msgstr "Премахване"
+
+msgid "Use this MCP server in chat"
+msgstr "Използване на този MCP сървър в чата"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Само за чата в страничната лента (mcp домейн); никога не се предоставя на "
+"MCP сървъра на WriterAgent или на скриптове."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Доверяване на инструментите му за четене (без подкана)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Инструментите, които сървърът маркира като readOnlyHint, се изпълняват без "
+"„Приемане / Промяна / Отхвърляне“; всяко друго извикване все още изисква "
+"потвърждение"
+
+msgid "Name"
+msgstr "Име"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Добавя префикс към имената на инструментите на този сървър (напр. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL на сървъра"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "MCP крайна точка за Streamable-HTTP, напр. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Токен"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer токен. При натискане на „OK“ настройките се съхраняват в системния "
+"ключодържател, ако е наличен, в противен случай – във writeragent.json."
+
+msgid "Status"
+msgstr "Състояние"
 
 msgid "Notebook"
 msgstr "Бележник"

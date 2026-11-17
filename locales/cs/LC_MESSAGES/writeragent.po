@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Specializovaná úloha ({domain}) byla dokončena."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Specializovaná úloha ({domain}) byla dokončena."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Chyba"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Token je v klíčence, ale nebylo možné jej přečíst; odemkněte klíčenku, "
+"abyste jej viděli."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Server s názvem {name} již existuje."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Před přejmenováním tohoto serveru odemkněte klíčenku."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Kontroluji…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Připojeno: {count} nástrojů"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Selhalo: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -310,6 +342,12 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "Není nastaven žádný klíč API. Otevřete Nastavení a přidejte klíč."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Systémová klíčenka je uzamčena. Odemkněte ji, abyste mohli použít uložený "
+"klíč API."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -639,6 +677,10 @@ msgstr ""
 "Nepodařilo se nainstalovat fonemizátor Kokoro; tento jazyk může být chybně "
 "přečten. Nainstalujte jej pomocí: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Odstranit řádky nebo sloupce"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -798,16 +840,6 @@ msgid "Images inserted"
 msgstr "Vložené obrázky"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Chyba: Časový limit provádění v hlavním vlákně vypršel ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Neznámá chyba"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -822,6 +854,16 @@ msgid ""
 msgstr ""
 "Chyba: Vypršel časový limit Pythonu. Otevřete Nastavení → Python pro zvýšení"
 " časového limitu nebo otestujte venv."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Chyba: Časový limit provádění v hlavním vlákně vypršel ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Neznámá chyba"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -867,6 +909,26 @@ msgstr "Vyberte jednu nebo více neprázdných buněk."
 msgid "Formula cells are skipped."
 msgstr "Buňky se vzorci jsou přeskočeny."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Upravit pojmenovanou oblast"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizační pomocník nevrátil žádná obrazová data."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Vložit HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Vložit výsledek"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Vytvořit kontingenční tabulku"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -889,6 +951,57 @@ msgstr "Ukotvěte obrázek k buňce, vyberte jej a poté spusťte znovu."
 msgid "No structured tables or text blocks to insert."
 msgstr ""
 "Nebyly nalezeny žádné strukturované tabulky ani textové bloky k vložení."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Vložit extrahované tabulky"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Konverze dokončena s neshodami"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} buňka(ek) neprošla ověřením.\n"
+"První: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Úspěch"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Konverze byla úspěšně dokončena!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Aktivní dokument není tabulkový procesor."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Konverze selhala: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Nepodařilo se otevřít dialogové okno pro import: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1399,7 +1512,7 @@ msgstr "celkový"
 msgid "plain"
 msgstr "prostý"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "prostý text"
 
@@ -1626,10 +1739,6 @@ msgstr "Ladění"
 msgid "[No speech detected.]"
 msgstr "[Nebyla detekována žádná řeč.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Hlasová zpráva]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Vzorec"
@@ -1639,7 +1748,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Před použitím /undo počkejte na dokončení aktuální operace."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Není otevřen žádný dokument."
 
@@ -1674,12 +1782,10 @@ msgstr "(prázdné)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Odpovězte pouze vzorcem. Musí začínat znakem =. Používejte anglické názvy "
-"funkcí. Mezi argumenty funkcí používejte středník (;) (gramatika API Calc "
-"setFormula). Žádný text ani markdown."
+"funkcí. Žádný text ani markdown."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2115,6 +2221,11 @@ msgid "Compaction cancelled."
 msgstr "Kompakce zrušena."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Chyba backendu agenta: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nebyly nalezeny žádné kompatibilní dokumenty LibreOffice.]"
 
@@ -2141,11 +2252,6 @@ msgstr "[Chyba zvuku: nahrávání bylo zastaveno bez zvukového souboru.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Spouští se..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Chyba backendu agenta: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2411,6 +2517,11 @@ msgstr ""
 "tento hlas slyšeli."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "Klíč API ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Stažení zvukové knihovny"
 
@@ -2425,6 +2536,15 @@ msgstr "(Na tomto koncovém bodě nejsou žádné modely obrázků)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Připojení selhalo)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "systémová klíčenka"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Uloženo v: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2651,7 +2771,7 @@ msgstr ""
 "Uložené skripty dokumentu jsou v nepodporovaném formátu (verze {0}), proto "
 "zůstaly beze změny."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Pro uložení skriptů není otevřen žádný dokument."
 
@@ -2695,25 +2815,18 @@ msgstr "Tento dokument"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Nepodařilo se uložit „{0}“ do tohoto dokumentu ({1}). Místo toho bylo "
-"uloženo do Moje skripty."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Nepodařilo se uložit „{0}“ do tohoto dokumentu ({1}). Skript s názvem „{0}“ "
-"již v Moje skripty existuje."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skript '{0}' v sekci Moje skripty neexistuje."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript „%s“ byl uložen do tohoto dokumentu."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ byl úspěšně uložen."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2722,25 +2835,10 @@ msgid ""
 msgstr ""
 "Skript „{0}“ není v Moje skripty ani v tomto dokumentu, proto nebyl uložen."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skript '{0}' byl uložen do tohoto dokumentu."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skript '{0}' byl uložen."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Skript dokumentu „{0}“ byl odstraněn."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Skript „{0}“ byl odstraněn."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript „%s“ byl smazán."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2753,16 +2851,6 @@ msgstr "Dokument již není otevřen."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Dialogové okno PythonScriptDialog se nepodařilo z rozšíření načíst."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skript „%s“ byl uložen do tohoto dokumentu."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skript „%s“ byl úspěšně uložen."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2787,11 +2875,6 @@ msgid "Delete Script"
 msgstr "Smazat skript"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skript „%s“ byl smazán."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Nový skript"
 
@@ -2808,10 +2891,6 @@ msgstr "Skript „%s“ byl vytvořen v Mých skriptech."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Skript byl úspěšně spuštěn."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Úspěch"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3203,10 +3282,6 @@ msgstr "Nepodporovaný typ dokumentu pro vložení grafu."
 msgid "Viz helper failed."
 msgstr "Vizualizační pomocník selhal."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Vizualizační pomocník nevrátil žádná obrazová data."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3270,15 +3345,6 @@ msgstr "Pomocníci pro předpovědi"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer."
-" Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a "
-"zkuste to znovu."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3300,14 +3366,6 @@ msgstr "Relaci Pythonu se nepodařilo resetovat."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Relace Pythonu poznámkového bloku byla pro tento dokument resetována."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Reset relace Pythonu se vztahuje na tabulky Calc. Otevřete sešit Calc a "
-"zkuste to znovu."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3468,9 +3526,8 @@ msgstr ""
 " (PR) jsou vítány!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Nepodporovaný typ dokumentu pro vložení výsledku. (trvalo {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Nepodporovaný typ dokumentu pro vložení výsledku."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4273,17 +4330,17 @@ msgstr ""
 "Před povolením agentovi používat nástroje (čtení souborů, spouštění příkazů "
 "atd.) vyžadovat potvrzení"
 
-msgid "Antigravity model"
-msgstr "Model antigravitace"
+msgid "Model"
+msgstr "Model"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"ID modelu agy ze session/new models.availableModels, například "
-"gemini-4-argon-medium. Prázdná hodnota ponechá aktuální model agy. ID rodin "
-"configOptions, jako je gemini-4-argon, nejsou ID modelů."
+"ID nebo název modelu, který vybraný agent nabízí, například gemini-4-argon-"
+"medium, grok-4.6 nebo devstral-small. Ponechání prázdného pole zachová "
+"aktuální model agenta. U vestavěných modelů se nepoužívá."
 
 msgid "STT Provider"
 msgstr "Poskytovatel převodu řeči na text (STT)"
@@ -4421,11 +4478,14 @@ msgid "Speech Speed"
 msgstr "Rychlost řeči"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Násobitel rychlosti přehrávání (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x nebo "
-"vlastní až do 0.25x)."
+"Rychlost řeči (1,0x–2,0x nebo vlastní až do 0,25x). Kokoro (místní nebo "
+"OpenRouter) a místní Piper mluví touto rychlostí; ostatní online hlasy jsou "
+"během přehrávání zrychleny (0,5x–2,0x; v systému Linux vyžaduje ffplay nebo "
+"mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4676,12 +4736,11 @@ msgstr "Revize úprav agentem"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
 "Vypnuto = přímé úpravy. Záznam = sledované změny, které sami "
-"přijmete/odmítnete. Čekat = apply_document_content blokuje (ve vlákně "
-"chatu/MCP), dokud neprovedete revizi."
+"přijmete/odmítnete. Čekat = bloky apply_content (ve vlákně chatu/MCP) až do "
+"vašeho schválení."
 
 msgid "Record (track changes)"
 msgstr "Záznam (sledovat změny)"
@@ -4691,9 +4750,6 @@ msgstr "Čekat na revizi"
 
 msgid "Draw and Impress tools"
 msgstr "Nástroje pro Draw a Impress"
-
-msgid "Vector Search"
-msgstr "Vektorové vyhledávání"
 
 msgid "Cross-file search"
 msgstr "Vyhledávání napříč soubory"
@@ -4778,16 +4834,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Jak jsou specializované nástroje zpřístupněny klientům MCP. "
-"delegate=dosaženo přes bránu delegáta (dnešní chování); direct_flat=všechny "
-"specializované nástroje dostupné přes MCP jsou vypsány přímo, s výjimkou "
-"postupů pouze pro postranní panel (nejlepší pro klienty s vlastním "
-"vyhledáváním nástrojů); direct_discovery=malý základní seznam plus "
-"find_tools (katalog domén, poté schémata nástrojů pro jednotlivé domény; "
-"nejlepší pro jakéhokoli klienta)."
+"Jak jsou specializované nástroje zpřístupněny klientům MCP. delegate = "
+"dosažitelné přes delegátní bránu (současné chování); direct_flat = všechny "
+"specializované nástroje dostupné přes MCP jsou uvedeny přímo, kromě postupů "
+"pouze pro postranní panel (nejlepší pro klienty s vlastním vyhledáváním "
+"nástrojů); direct_discovery = malý základní seznam plus tool_find (katalog "
+"domén, poté schémata nástrojů pro jednotlivé domény; nejlepší pro jakéhokoli"
+" klienta)."
 
 msgid "Delegate (default)"
 msgstr "Delegát (výchozí)"
@@ -4795,8 +4851,8 @@ msgstr "Delegát (výchozí)"
 msgid "Direct — list all tools"
 msgstr "Přímé — vypsat všechny nástroje"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Přímé — zjišťování (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Přímé — zjišťování (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Veřejný tunel"
@@ -4852,6 +4908,68 @@ msgstr "Konfigurace klienta (zkopírujte do Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopírovat konfiguraci"
+
+msgid "Integrations"
+msgstr "Integrace"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Servery MCP pro chat v postranním panelu"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Přidat"
+
+msgid "Remove"
+msgstr "Odebrat"
+
+msgid "Use this MCP server in chat"
+msgstr "Použít tento server MCP v chatu"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Pouze chat v postranním panelu (doména mcp); nikdy není vystaven serveru MCP"
+" aplikace WriterAgent ani skriptům."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Důvěřovat nástrojům pouze pro čtení (bez dotazu)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Nástroje, které server označí jako readOnlyHint, se spustí bez potvrzení / "
+"změny / odmítnutí; u všech ostatních volání bude stále vyžadováno potvrzení"
+
+msgid "Name"
+msgstr "Název"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Předpony názvů nástrojů tohoto serveru (např. home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL serveru"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Koncový bod MCP pro streamování přes HTTP, např. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer token. Při potvrzení nastavení bude uložen do systémové klíčenky, je-"
+"li dostupná, jinak do souboru writeragent.json."
+
+msgid "Status"
+msgstr "Stav"
 
 msgid "Notebook"
 msgstr "Poznámkový blok"

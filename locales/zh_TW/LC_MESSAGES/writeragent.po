@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "專屬任務 ({domain}) 已完成。"
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,35 @@ msgstr "專屬任務 ({domain}) 已完成。"
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "錯誤"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr "權杖位於鑰匙圈中但無法讀取；請解鎖鑰匙圈以查看它。"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "名為 {name} 的伺服器已存在。"
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "重新命名此伺服器前，請先解鎖鑰匙圈。"
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "檢查中…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "已連線：{count} 個工具"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "失敗：{error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -297,6 +327,10 @@ msgstr "未設定 {0} 的 API 金鑰。請開啟「設定」並新增金鑰。"
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "未設定 API 金鑰。請開啟「設定」並新增金鑰。"
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr "系統鑰匙圈已鎖定。請解鎖以使用儲存的 API 金鑰。"
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -591,6 +625,10 @@ msgid ""
 "Install with: {0}"
 msgstr "無法安裝 Kokoro 音素轉換器；此語言可能無法正確讀取。請使用下列指令安裝：{0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent：刪除列或欄"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -745,16 +783,6 @@ msgid "Images inserted"
 msgstr "已插入影像"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "錯誤：主執行緒執行逾時 ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "未知錯誤"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -765,6 +793,16 @@ msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr "錯誤：Python 執行逾時。請開啟「設定」→「Python」以增加逾時時間，或測試該 venv。"
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "錯誤：主執行緒執行逾時 ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "未知錯誤"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -809,6 +847,26 @@ msgstr "請選擇一個或多個非空白的儲存格。"
 msgid "Formula cells are skipped."
 msgstr "公式儲存格將被略過。"
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent：編輯命名範圍"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "視覺化輔助工具未回傳影像內容。"
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent：插入 HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent：插入結果"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent：建立樞紐分析表"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -828,6 +886,57 @@ msgstr "請將圖片錨定至儲存格，選取它，然後再次執行。"
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "沒有可插入的結構化表格或文字區塊。"
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent：插入擷取的表格"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "轉換完成，但有不符之處"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} 個儲存格未通過驗證。\n"
+"第一個：{1}：{2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "成功"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"轉換成功完成！\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "使用中的文件不是試算表。"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "轉換失敗：{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "無法開啟匯入對話方塊：{0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1312,7 +1421,7 @@ msgstr "整體"
 msgid "plain"
 msgstr "純文字"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "純文字"
 
@@ -1537,10 +1646,6 @@ msgstr "除錯"
 msgid "[No speech detected.]"
 msgstr "[未偵測到語音。]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[語音訊息]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent：公式"
@@ -1550,7 +1655,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "請等待目前的操作完成後再執行 /undo。"
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "沒有開啟任何文件。"
 
@@ -1585,11 +1689,8 @@ msgstr "(空)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
-msgstr ""
-"僅回覆公式。必須以 = 開頭。請使用英文函數名稱。函數引數之間請使用分號 (;)（Calc setFormula API 語法）。不要包含任何說明文字或"
-" Markdown 格式。"
+"names. No prose or markdown."
+msgstr "僅回覆公式。必須以 = 開頭。請使用英文函數名稱。不要包含任何說明文字或 Markdown 格式。"
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2007,6 +2108,11 @@ msgid "Compaction cancelled."
 msgstr "壓縮已取消。"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[代理後端錯誤：{0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[找不到相容的 LibreOffice 文件。]"
 
@@ -2031,11 +2137,6 @@ msgstr "[音訊錯誤：錄製已停止，未產生聲音檔案。]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "正在啟動…"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[代理後端錯誤：{0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2286,6 +2387,11 @@ msgid ""
 msgstr "語音輸出已關閉。請開啟「啟用語音輸出 (TTS)」以聆聽此語音。"
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API 金鑰 ({where})："
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "音訊庫下載"
 
@@ -2300,6 +2406,15 @@ msgstr "(此端點無影像模型)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "（連線失敗）"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "系統金鑰環"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "儲存於：{where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2513,7 +2628,7 @@ msgid ""
 "were left unchanged."
 msgstr "儲存的文件指令碼格式不受支援（版本 {0}），因此保持不變。"
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "沒有開啟任何文件以儲存指令碼。"
 
@@ -2554,21 +2669,18 @@ msgstr "本文件"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr "無法將「{0}」儲存至此文件（{1}）。已改為儲存至「我的指令碼」。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr "無法將「{0}」儲存至此文件（{1}）。「我的指令碼」中已存在名為「{0}」的指令碼。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "「我的指令碼」中不存在指令碼「{0}」。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "指令碼「%s」已儲存至此文件。"
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "指令碼「%s」已成功儲存。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2576,25 +2688,10 @@ msgid ""
 "Script '{0}' is not in My Scripts or this document, so it was not saved."
 msgstr "指令稿「{0}」不在「我的指令稿」或本文件中，因此未儲存。"
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "已將指令碼「{0}」儲存至本文件。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "已儲存指令碼「{0}」。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "已刪除文件指令碼「{0}」。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "已刪除指令碼「{0}」。"
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "指令碼「%s」已刪除。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2607,16 +2704,6 @@ msgstr "文件已關閉。"
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "無法從擴充功能載入 PythonScriptDialog。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "指令碼「%s」已儲存至此文件。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "指令碼「%s」已成功儲存。"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2641,11 +2728,6 @@ msgid "Delete Script"
 msgstr "刪除指令碼"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "指令碼「%s」已刪除。"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "新增指令碼"
 
@@ -2662,10 +2744,6 @@ msgstr "指令碼 '%s' 已在「我的指令碼」中建立。"
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "指令碼執行成功。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "成功"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3043,10 +3121,6 @@ msgstr "不支援此文件類型進行圖表插入。"
 msgid "Viz helper failed."
 msgstr "視覺化輔助工具失敗。"
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "視覺化輔助工具未回傳影像內容。"
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3107,14 +3181,6 @@ msgstr "預測輔助工具"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 Jupyter 筆記本的 Writer "
-"文件後再試一次。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr "本 Writer 文件未匯入筆記本登錄檔。請先執行「檔案」→「開啟 Jupyter 筆記本 (.ipynb)」。"
@@ -3132,12 +3198,6 @@ msgstr "無法重設 Python 工作階段。"
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "已為此文件重設筆記本 Python 工作階段。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr "「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一次。"
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3277,9 +3337,8 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "尚不支援將結果插入 Draw/Impress。歡迎提交 PR！"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "不支援此文件類型以插入結果。（耗時 {time}）"
+msgid "Unsupported document type for result insertion."
+msgstr "不支援此文件類型以插入結果。"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4065,16 +4124,16 @@ msgid ""
 "execute commands, etc.)"
 msgstr "在允許代理程式使用工具（讀取檔案、執行指令等）前先詢問確認"
 
-msgid "Antigravity model"
-msgstr "反重力模型"
+msgid "Model"
+msgstr "模型"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId 來自 session/new models.availableModels，例如 gemini-4-argon-"
-"medium。留空則保留 agy 目前的模型。configOptions 系列 ID（例如 gemini-4-argon）並非 modelId。"
+"所選代理程式提供的模型 ID 或名稱，例如 gemini-4-argon-medium、grok-4.6 或 devstral-"
+"small。留空則保留代理程式目前的模型。內建 (Built-in) 模式不使用此項。"
 
 msgid "STT Provider"
 msgstr "語音轉文字 (STT) 提供者"
@@ -4197,9 +4256,12 @@ msgid "Speech Speed"
 msgstr "語音速度"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr "播放速度倍率（1.0x、1.1x、1.25x、1.5x、1.75x、2.0x，或自訂最低至 0.25x）。"
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
+msgstr ""
+"語音速度（1.0x–2.0x，或自訂低至 0.25x）。Kokoro（本機或 OpenRouter）與本機 Piper "
+"會以此速度朗讀；其他線上語音會在播放期間加速（0.5x–2.0x；在 Linux 上需要 ffplay 或 mpv）。"
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4421,11 +4483,8 @@ msgstr "Agent 編輯審閱"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
-msgstr ""
-"關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = apply_document_content 會封鎖（在聊天/MCP "
-"工作執行緒上），直到您審閱為止。"
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
+msgstr "關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = 應用內容區塊（在聊天/MCP 工作執行緒上），直到您審閱為止。"
 
 msgid "Record (track changes)"
 msgstr "記錄（追蹤修訂）"
@@ -4435,9 +4494,6 @@ msgstr "等待審閱"
 
 msgid "Draw and Impress tools"
 msgstr "Draw 和 Impress 工具"
-
-msgid "Vector Search"
-msgstr "向量搜尋"
 
 msgid "Cross-file search"
 msgstr "跨檔案搜尋"
@@ -4514,12 +4570,12 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"專用工具如何呈現給 MCP 客戶端。delegate=透過委派閘道存取（目前行為）；direct_flat=所有可透過 MCP "
-"存取的專用工具直接列出，排除僅限側邊欄的流程（最適合擁有自身工具搜尋功能的客戶端）；direct_discovery=小型核心列表加上 "
-"find_tools（領域目錄，然後是各領域的工具架構；最適合任何客戶端）。"
+"專業工具如何呈現給 MCP 用戶端。delegate = 透過委派閘道存取（目前行為）；direct_flat = 列出所有可透過 MCP "
+"存取的專業工具，排除僅限側邊欄的流程（最適合擁有自有工具搜尋功能的用戶端）；direct_discovery = 小型核心清單加上 "
+"tool_find（網域目錄，然後是每個網域的工具結構描述；最適合任何用戶端）。"
 
 msgid "Delegate (default)"
 msgstr "委派 (預設)"
@@ -4527,8 +4583,8 @@ msgstr "委派 (預設)"
 msgid "Direct — list all tools"
 msgstr "直接 — 列出所有工具"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "直接 — 探索 (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "直接 — 探索 (tool_find)"
 
 msgid "Public tunnel"
 msgstr "公開通道"
@@ -4579,6 +4635,60 @@ msgstr "用戶端設定（複製到 Claude / Hermes-Agent）："
 
 msgid "Copy Config"
 msgstr "複製設定"
+
+msgid "Integrations"
+msgstr "整合"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "用於側邊欄聊天的 MCP 伺服器"
+
+msgid "Server"
+msgstr "伺服器"
+
+msgid "Add"
+msgstr "新增"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Use this MCP server in chat"
+msgstr "在聊天中使用此 MCP 伺服器"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr "僅限側邊欄聊天 (mcp 網域)；絕不會暴露給 WriterAgent 的 MCP 伺服器或指令碼。"
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "信任其唯讀工具 (無需提示)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr "伺服器標記為 readOnlyHint 的工具執行時不會出現「接受 / 變更 / 拒絕」提示；其他所有呼叫仍會詢問"
+
+msgid "Name"
+msgstr "名稱"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "為此伺服器的工具名稱加上字首（例如：home -> mcp__home__tool）。"
+
+msgid "Server URL"
+msgstr "伺服器 URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "可串流的 HTTP MCP 端點，例如 http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "權杖"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr "Bearer 權杖。按下「確定」後，若系統金鑰環可用，將儲存於其中，否則儲存於 writeragent.json。"
+
+msgid "Status"
+msgstr "狀態"
 
 msgid "Notebook"
 msgstr "筆記本"

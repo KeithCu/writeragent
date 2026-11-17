@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Portuguese <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Tarefa especializada ({domain}) concluída."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Tarefa especializada ({domain}) concluída."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Erro"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"O token está no porta-chaves, mas não pôde ser lido; desbloqueie o porta-"
+"chaves para o ver."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Já existe um servidor com o nome {name}."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Desbloqueie o porta-chaves antes de mudar o nome deste servidor."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "A verificar…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Ligado: {count} ferramentas"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Falha: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -312,6 +344,12 @@ msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "Nenhuma chave de API configurada. Abra as Configurações e adicione uma "
 "chave."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"O porta-chaves do sistema está bloqueado. Desbloqueie-o para utilizar a "
+"chave de API guardada."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -647,6 +685,10 @@ msgstr ""
 "Não foi possível instalar o fonemizador Kokoro; este idioma poderá ser lido "
 "incorretamente. Instale com: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Eliminar linhas ou colunas"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -808,17 +850,6 @@ msgid "Images inserted"
 msgstr "Imagens inseridas"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr ""
-"Erro: O tempo limite de execução da thread principal foi excedido ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Erro desconhecido"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -833,6 +864,17 @@ msgid ""
 msgstr ""
 "Erro: Tempo limite do Python excedido. Abra Configurações → Python para "
 "aumentar o tempo limite ou Teste a venv."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr ""
+"Erro: O tempo limite de execução da thread principal foi excedido ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Erro desconhecido"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -879,6 +921,26 @@ msgstr "Selecione uma ou mais células não vazias."
 msgid "Formula cells are skipped."
 msgstr "Células com fórmulas são ignoradas."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Editar intervalo nomeado"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "O assistente de visualização não retornou conteúdo de imagem."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Inserir HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Inserir resultado"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Criar tabela dinâmica"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -900,6 +962,57 @@ msgstr "Ancore a imagem a uma célula, selecione-a e execute novamente."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Não existem tabelas ou blocos de texto estruturados para inserir."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Inserir tabelas extraídas"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Conversão concluída com divergências"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} célula(s) não verificada(s).\n"
+"Primeira: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Sucesso"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Conversão concluída com sucesso!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "O documento ativo não é uma planilha."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Falha na conversão: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Falha ao abrir a caixa de diálogo de importação: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1419,7 +1532,7 @@ msgstr "geral"
 msgid "plain"
 msgstr "simples"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "texto simples"
 
@@ -1647,10 +1760,6 @@ msgstr "Depurar"
 msgid "[No speech detected.]"
 msgstr "[Nenhuma fala detectada.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Mensagem de voz]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Fórmula"
@@ -1660,7 +1769,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Aguarde a conclusão da operação atual antes de /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Nenhum documento está aberto."
 
@@ -1697,12 +1805,10 @@ msgstr "(vazio)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
-"Responda apenas com a fórmula. Deve começar com =. Utilize nomes de funções "
-"em inglês. Utilize ponto e vírgula (;) entre os argumentos da função "
-"(gramática da API setFormula do Calc). Sem texto explicativo ou markdown."
+"Responda apenas com a fórmula. Deve começar com =. Use nomes de funções em "
+"inglês. Sem texto explicativo ou markdown."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2143,6 +2249,11 @@ msgid "Compaction cancelled."
 msgstr "Compactação cancelada."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Erro de backend do agente: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nenhum documento LibreOffice compatível encontrado.]"
 
@@ -2169,11 +2280,6 @@ msgstr "[Erro de áudio: a gravação parou sem um arquivo de som.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "A iniciar..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Erro de backend do agente: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2442,6 +2548,11 @@ msgstr ""
 " ouvir esta voz."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "Chave de API ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Transferir biblioteca de áudio"
 
@@ -2456,6 +2567,15 @@ msgstr "(Sem modelos de imagem neste endpoint)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Falha na conexão)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "porta-chaves do sistema"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Armazenado em: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2688,7 +2808,7 @@ msgstr ""
 "Os scripts do documento armazenado estão num formato não suportado (versão "
 "{0}), pelo que foram deixados inalterados."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Não existe nenhum documento aberto para guardar scripts."
 
@@ -2734,25 +2854,18 @@ msgstr "Este documento"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Não foi possível guardar '{0}' neste documento ({1}). Guardou-se em Os Meus "
-"Scripts."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Não foi possível guardar '{0}' neste documento ({1}). Já existe um script "
-"com o nome '{0}' em Os Meus Scripts."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "O script '{0}' não existe em Os Meus Scripts."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Script '%s' salvo neste documento."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Script '%s' salvo com sucesso."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2762,25 +2875,10 @@ msgstr ""
 "O script '{0}' não está em \"Meus Scripts\" ou neste documento, por isso não"
 " foi salvo."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Script '{0}' guardado neste documento."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Script '{0}' guardado."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Script de documento '{0}' excluído."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Script '{0}' excluído."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Script '%s' eliminado."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2793,16 +2891,6 @@ msgstr "O documento já não está aberto."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "O PythonScriptDialog não pôde ser carregado a partir da extensão."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Script '%s' salvo neste documento."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Script '%s' salvo com sucesso."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2827,11 +2915,6 @@ msgid "Delete Script"
 msgstr "Eliminar script"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Script '%s' eliminado."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Novo script"
 
@@ -2848,10 +2931,6 @@ msgstr "Script '%s' criado em Meus Scripts."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Script executado com sucesso."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Sucesso"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3252,10 +3331,6 @@ msgstr "Tipo de documento não suportado para inserção de gráfico."
 msgid "Viz helper failed."
 msgstr "O assistente de visualização falhou."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "O assistente de visualização não retornou conteúdo de imagem."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3319,15 +3394,6 @@ msgstr "Auxiliares de previsão"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"A redefinição da Sessão Python para notebooks aplica-se ao LibreOffice "
-"Writer. Abra um documento do Writer com um notebook Jupyter importado e "
-"tente novamente."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3349,14 +3415,6 @@ msgstr "Não foi possível redefinir a sessão Python."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Sessão Python do notebook redefinida para este documento."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"A redefinição da Sessão Python aplica-se a planilhas do Calc. Abra uma pasta"
-" de trabalho do Calc e tente novamente."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3519,10 +3577,8 @@ msgstr ""
 "requests são bem-vindos!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-"Tipo de documento não suportado para inserção de resultado. (levou {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Tipo de documento não suportado para inserção de resultados."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4325,17 +4381,17 @@ msgstr ""
 "Pedir confirmação antes de permitir que o agente use ferramentas (ler "
 "arquivos, executar comandos, etc.)"
 
-msgid "Antigravity model"
-msgstr "Modelo de antigravidade"
+msgid "Model"
+msgstr "Modelo"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId a partir de session/new models.availableModels, por exemplo "
-"gemini-4-argon-medium. Vazio mantém o modelo atual do agy. IDs de família de"
-" configOptions, como gemini-4-argon, não são modelIds."
+"ID ou nome do modelo que o agente selecionado oferece, por exemplo, "
+"gemini-4-argon-medium, grok-4.6 ou devstral-small. Vazio mantém o modelo "
+"atual do agente. Não utilizado pelo Integrado."
 
 msgid "STT Provider"
 msgstr "Provedor de STT"
@@ -4476,11 +4532,14 @@ msgid "Speech Speed"
 msgstr "Velocidade da fala"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Multiplicador de velocidade de reprodução (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, "
-"2.0x ou personalizado até 0.25x)."
+"Velocidade da fala (1.0x–2.0x, ou personalizado até 0.25x). Kokoro (local ou"
+" OpenRouter) e Piper local falam a esta velocidade; outras vozes online são "
+"aceleradas durante a reprodução (0.5x–2.0x; no Linux, isto requer ffplay ou "
+"mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4729,12 +4788,11 @@ msgstr "Revisão de edição do Agente"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Desligado = edições diretas. Gravar = alterações rastreadas que você mesmo "
-"aceita/rejeita. Aguardar = apply_document_content bloqueia (no thread de "
-"chat/trabalhador MCP) até que você revise."
+"Desligado = edições diretas. Gravar = alterações registadas que "
+"aceita/rejeita manualmente. Aguardar = blocos apply_content (na thread de "
+"chat/MCP) até que reveja."
 
 msgid "Record (track changes)"
 msgstr "Gravar (rastrear alterações)"
@@ -4744,9 +4802,6 @@ msgstr "Aguardar revisão"
 
 msgid "Draw and Impress tools"
 msgstr "Ferramentas do Draw e Impress"
-
-msgid "Vector Search"
-msgstr "Pesquisa vetorial"
 
 msgid "Cross-file search"
 msgstr "Pesquisa entre arquivos"
@@ -4831,16 +4886,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
 "Como as ferramentas especializadas são apresentadas aos clientes MCP. "
-"delegate=alcançadas via gateway delegado (comportamento atual); "
+"delegate=alcançadas através do gateway de delegação (comportamento atual); "
 "direct_flat=todas as ferramentas especializadas acessíveis via MCP listadas "
-"diretamente, excluindo fluxos apenas da barra lateral (ideal para clientes "
-"com sua própria pesquisa de ferramentas); direct_discovery=lista principal "
-"pequena mais find_tools (catálogo de domínio, depois esquemas de ferramentas"
-" por domínio; ideal para qualquer cliente)."
+"diretamente, excluindo fluxos apenas da barra lateral (melhor para clientes "
+"com a sua própria pesquisa de ferramentas); direct_discovery=pequena lista "
+"principal mais tool_find (catálogo de domínios, depois esquemas de "
+"ferramentas por domínio; melhor para qualquer cliente)."
 
 msgid "Delegate (default)"
 msgstr "Delegado (padrão)"
@@ -4848,8 +4903,8 @@ msgstr "Delegado (padrão)"
 msgid "Direct — list all tools"
 msgstr "Direto — listar todas as ferramentas"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Direto — descoberta (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Direto — descoberta (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Túnel público"
@@ -4905,6 +4960,69 @@ msgstr "Configuração do cliente (copie para o Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Copiar configuração"
+
+msgid "Integrations"
+msgstr "Integrações"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Servidores MCP para o chat da barra lateral"
+
+msgid "Server"
+msgstr "Servidor"
+
+msgid "Add"
+msgstr "Adicionar"
+
+msgid "Remove"
+msgstr "Remover"
+
+msgid "Use this MCP server in chat"
+msgstr "Usar este servidor MCP no chat"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Apenas chat da barra lateral (domínio mcp); nunca exposto ao servidor MCP do"
+" WriterAgent ou a scripts."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Confiar nas suas ferramentas somente leitura (sem aviso)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Ferramentas que o servidor marca como readOnlyHint são executadas sem "
+"Aceitar / Alterar / Rejeitar; todas as outras chamadas ainda solicitam "
+"confirmação"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Prefixa os nomes das ferramentas deste servidor (ex: home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL do servidor"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Endpoint MCP HTTP transmissível, ex: http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Token Bearer. O botão OK armazena-o no porta-chaves do sistema quando "
+"disponível, caso contrário, no ficheiro writeragent.json."
+
+msgid "Status"
+msgstr "Estado"
 
 msgid "Notebook"
 msgstr "Bloco de notas"

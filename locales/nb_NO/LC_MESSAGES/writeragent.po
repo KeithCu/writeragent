@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Bokmål <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Spesialisert oppgave ({domain}) fullført."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Spesialisert oppgave ({domain}) fullført."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Feil"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Tokenet finnes i nøkkelringen, men kunne ikke leses; lås opp nøkkelringen "
+"for å se det."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "En tjener med navnet {name} finnes allerede."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Lås opp nøkkelringen før du gir nytt navn til denne tjeneren."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Kontrollerer…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Tilkoblet: {count} verktøy"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Mislyktes: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -311,6 +343,12 @@ msgstr ""
 msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "Ingen API-nøkkel konfigurert. Åpne Innstillinger og legg til en nøkkel."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Systemets nøkkelring er låst. Lås den opp for å bruke den lagrede API-"
+"nøkkelen."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -638,6 +676,10 @@ msgstr ""
 "Kunne ikke installere Kokoro-fonemisering; dette språket kan bli lest feil. "
 "Installer med: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Slett rader eller kolonner"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -796,16 +838,6 @@ msgid "Images inserted"
 msgstr "Bilder satt inn"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Feil: Tidsavbrudd for utførelse i hovedtråd ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Ukjent feil"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -820,6 +852,16 @@ msgid ""
 msgstr ""
 "Feil: Python-tidsavbrudd. Åpne Innstillinger → Python for å øke "
 "tidsavbruddet, eller test venv-en."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Feil: Tidsavbrudd for utførelse i hovedtråd ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Ukjent feil"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -865,6 +907,26 @@ msgstr "Velg én eller flere celler som ikke er tomme."
 msgid "Formula cells are skipped."
 msgstr "Formelceller blir hoppet over."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Rediger navngitt område"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseringshjelper returnerte ingen bilde-nyttelast."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Sett inn HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Sett inn resultat"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Opprett pivottabell"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -886,6 +948,57 @@ msgstr "Forankre bildet til en celle, velg det, og kjør på nytt."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Ingen strukturerte tabeller eller tekstblokker å sette inn."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Sett inn uttrekte tabeller"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Konvertering fullført med avvik"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} celle(r) ble ikke bekreftet.\n"
+"Første: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Suksess"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Konvertering fullført!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Aktivt dokument er ikke et regneark."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Konvertering mislyktes: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Kunne ikke åpne importdialogen: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1400,7 +1513,7 @@ msgstr "overordnet"
 msgid "plain"
 msgstr "vanlig"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "ren tekst"
 
@@ -1626,10 +1739,6 @@ msgstr "Feilsøking"
 msgid "[No speech detected.]"
 msgstr "[Ingen tale oppdaget.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Talemelding]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Formel"
@@ -1639,7 +1748,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Vent til gjeldende operasjon er fullført før /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Ingen dokumenter er åpne."
 
@@ -1675,12 +1783,10 @@ msgstr "(tom)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Svar kun med formelen. Den må starte med =. Bruk engelske funksjonsnavn. "
-"Bruk semikolon (;) mellom funksjonsargumenter (Calc setFormula API-"
-"grammatikk). Ingen tekst eller markdown."
+"Ingen tekst eller markdown."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2116,6 +2222,11 @@ msgid "Compaction cancelled."
 msgstr "Komprimering avbrutt."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Agent-backend-feil: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Ingen kompatibelt LibreOffice-dokument funnet.]"
 
@@ -2142,11 +2253,6 @@ msgstr "[Lydfeil: opptak stoppet uten en lydfil.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Starter..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Agent-backend-feil: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2411,6 +2517,11 @@ msgstr ""
 "Taleutdata er av. Slå på Aktiver taleutdata (TTS) for å høre denne stemmen."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API-nøkkel ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Nedlasting av lydbibliotek"
 
@@ -2425,6 +2536,15 @@ msgstr "(Ingen bildemodeller på dette endepunktet)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Tilkobling mislyktes)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "systemnøkkelring"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Lagret i: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2653,7 +2773,7 @@ msgstr ""
 "Lagrede dokumentskript er i et format som ikke støttes (versjon {0}), så de "
 "ble stående uendret."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Ingen dokumenter er åpne for å lagre skript."
 
@@ -2696,25 +2816,18 @@ msgstr "Dette dokumentet"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Kunne ikke lagre «{0}» i dette dokumentet ({1}). Lagret det i Mine skript i "
-"stedet."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Kunne ikke lagre «{0}» i dette dokumentet ({1}). Et skript med navnet «{0}» "
-"finnes allerede i Mine skript."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skriptet «{0}» finnes ikke i Mine skript."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skriptet «%s» er lagret i dette dokumentet."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skriptet «%s» ble lagret."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2724,25 +2837,10 @@ msgstr ""
 "Skriptet «{0}» finnes ikke i Mine skript eller i dette dokumentet, så det "
 "ble ikke lagret."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Lagret skript «{0}» i dette dokumentet."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Lagret skript «{0}»."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Slettet dokumentskriptet «{0}»."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Slettet skriptet «{0}»."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skriptet «%s» er slettet."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2755,16 +2853,6 @@ msgstr "Dokumentet er ikke lenger åpent."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog kunne ikke lastes fra utvidelsen."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skriptet «%s» er lagret i dette dokumentet."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skriptet «%s» ble lagret."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2789,11 +2877,6 @@ msgid "Delete Script"
 msgstr "Slett skript"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skriptet «%s» er slettet."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Nytt skript"
 
@@ -2810,10 +2893,6 @@ msgstr "Skriptet «%s» er opprettet i Mine skript."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Skript utført."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Suksess"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3206,10 +3285,6 @@ msgstr "Dokumenttypen støttes ikke for innsetting av plott."
 msgid "Viz helper failed."
 msgstr "Visualiseringshjelper feilet."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Visualiseringshjelper returnerte ingen bilde-nyttelast."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3272,15 +3347,6 @@ msgstr "Prognosehjelpere"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Tilbakestilling av Python-økt for notatblokker gjelder for LibreOffice "
-"Writer. Åpne et Writer-dokument med en importert Jupyter-notatblokk og prøv "
-"igjen."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3302,14 +3368,6 @@ msgstr "Kunne ikke tilbakestille Python-økten."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Python-økt for notatblokk er tilbakestilt for dette dokumentet."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Tilbakestilling av Python-økt gjelder for Calc-regneark. Åpne en Calc-"
-"arbeidsbok og prøv igjen."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3470,9 +3528,8 @@ msgstr ""
 "forespørsler er velkomne!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Dokumenttypen støttes ikke for innsetting av resultat. (tok {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Dokumenttypen støttes ikke for innsetting av resultat."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4271,17 +4328,17 @@ msgstr ""
 "Be om bekreftelse før agenten får bruke verktøy (lese filer, utføre "
 "kommandoer, osv.)"
 
-msgid "Antigravity model"
-msgstr "Antigravitasjonsmodell"
+msgid "Model"
+msgstr "Modell"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId fra session/new models.availableModels, for eksempel "
-"gemini-4-argon-medium. Tom verdi beholder agys nåværende modell. "
-"configOptions-familie-ID-er som gemini-4-argon er ikke modelIds."
+"Modell-ID eller navn som den valgte agenten tilbyr, for eksempel "
+"gemini-4-argon-medium, grok-4.6 eller devstral-small. Tomt felt beholder "
+"agentens gjeldende modell. Ikke brukt av innebygd."
 
 msgid "STT Provider"
 msgstr "STT-leverandør"
@@ -4417,11 +4474,14 @@ msgid "Speech Speed"
 msgstr "Talehastighet"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Multiplikator for avspillingshastighet (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x"
-" eller egendefinert ned til 0.25x)."
+"Taletempo (1.0x–2.0x, eller egendefinert ned til 0.25x). Kokoro (lokal eller"
+" OpenRouter) og lokal Piper snakker i dette tempoet; andre nettbaserte "
+"stemmer blir fremskyndet under avspilling (0.5x–2.0x; på Linux krever dette "
+"ffplay eller mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4668,12 +4728,11 @@ msgstr "Agent-redigeringsgjennomgang"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Av = direkte redigering. Registrer = sporede endringer du godtar/avviser "
-"selv. Vent = apply_document_content blokkerer (i chat/MCP-arbeidstråd) til "
-"du har sett gjennom."
+"Av = direkte redigeringer. Opptak = sporede endringer du selv "
+"godtar/avviser. Vent = apply_content-blokker (i chat/MCP-arbeidstråd) til du"
+" har sett over."
 
 msgid "Record (track changes)"
 msgstr "Registrer (spore endringer)"
@@ -4683,9 +4742,6 @@ msgstr "Vent på gjennomgang"
 
 msgid "Draw and Impress tools"
 msgstr "Verktøy for Draw og Impress"
-
-msgid "Vector Search"
-msgstr "Vektorsøk"
 
 msgid "Cross-file search"
 msgstr "Søk på tvers av filer"
@@ -4770,15 +4826,15 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Hvordan spesialiserte verktøy gjøres tilgjengelige for MCP-klienter. "
-"delegate=nås via delegat-gateway (dagens virkemåte); direct_flat=alle MCP-"
-"tilgjengelige spesialiserte verktøy listes direkte, ekskludert arbeidsflyter"
-" kun for sidepanelet (best for klienter med eget verktøysøk); "
-"direct_discovery=liten kjerne-liste pluss find_tools (domenekatalog, "
-"deretter verktøyskjemaer per domene; best for alle klienter)."
+"Hvordan spesialiserte verktøy vises for MCP-klienter. delegate=nås via "
+"delegat-gateway (dagens virkemåte); direct_flat=alle MCP-tilgjengelige "
+"spesialiserte verktøy listes direkte, ekskludert flyter kun for sidepanelet "
+"(best for klienter med eget verktøysøk); direct_discovery=liten kjerneliste "
+"pluss tool_find (domenekatalog, deretter verktøyskjemaer per domene; best "
+"for alle klienter)."
 
 msgid "Delegate (default)"
 msgstr "Delegat (standard)"
@@ -4786,8 +4842,8 @@ msgstr "Delegat (standard)"
 msgid "Direct — list all tools"
 msgstr "Direkte – list alle verktøy"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Direkte – oppdagelse (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Direkte — oppdagelse (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Offentlig tunnel"
@@ -4842,6 +4898,68 @@ msgstr "Klientkonfigurasjon (kopier inn i Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopier konfigurasjon"
+
+msgid "Integrations"
+msgstr "Integrasjoner"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-tjenere for sidepanelchat"
+
+msgid "Server"
+msgstr "Tjener"
+
+msgid "Add"
+msgstr "Legg til"
+
+msgid "Remove"
+msgstr "Fjern"
+
+msgid "Use this MCP server in chat"
+msgstr "Bruk denne MCP-tjeneren i chat"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Kun sidepanelchat (mcp-domene); blir aldri eksponert for WriterAgents MCP-"
+"tjener eller skript."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Stol på skrivebeskyttede verktøy (ingen spørsmål)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Verktøy som tjeneren merker som readOnlyHint kjøres uten Godta / Endre / "
+"Avvis; alle andre kall krever fortsatt bekreftelse"
+
+msgid "Name"
+msgstr "Navn"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Legger til prefiks for denne tjenerens verktøynavn (f.eks. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Tjener-URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP-endepunkt, f.eks. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-token. «Innstillinger OK» lagrer det i systemets nøkkelring hvis "
+"tilgjengelig, ellers i writeragent.json."
+
+msgid "Status"
+msgstr "Status"
 
 msgid "Notebook"
 msgstr "Notatblokk"

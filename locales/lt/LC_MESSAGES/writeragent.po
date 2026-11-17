@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Specializuota užduotis ({domain}) baigta."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Specializuota užduotis ({domain}) baigta."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Klaida"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Prieigos rakte yra prieigos raktas, bet jo nepavyko nuskaityti; atrakinkite "
+"prieigos raktą, kad jį pamatytumėte."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Serveris pavadinimu {name} jau egzistuoja."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Prieš pervadindami šį serverį, atrakinkite prieigos raktą."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Tikrinama…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Prijungta: {count} įrankių"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Nepavyko: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -307,6 +339,12 @@ msgstr "Nenustatytas {0} API raktas. Atverkite nuostatas ir pridėkite raktą."
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "Nenustatytas API raktas. Atverkite nuostatas ir pridėkite raktą."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Sistemos prieigos raktas užrakintas. Atrakinkite jį, kad galėtumėte naudoti "
+"įrašytą API raktą."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -638,6 +676,10 @@ msgstr ""
 "Nepavyko įdiegti „Kokoro“ fonemizuotojo; ši kalba gali būti neteisingai "
 "perskaityta. Įdiekite naudodami: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: šalinti eilutes arba stulpelius"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -798,16 +840,6 @@ msgid "Images inserted"
 msgstr "Įterpti paveikslėliai"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Klaida: pagrindinės gijos vykdymo laikas baigėsi ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Nežinoma klaida"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -822,6 +854,16 @@ msgid ""
 msgstr ""
 "Klaida: Python baigėsi laikas. Atverkite Nustatymai → Python, kad "
 "padidintumėte skirtą laiką, arba patikrinkite venv."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Klaida: pagrindinės gijos vykdymo laikas baigėsi ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nežinoma klaida"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -867,6 +909,26 @@ msgstr "Pasirinkite vieną ar daugiau netuščių langelių."
 msgid "Formula cells are skipped."
 msgstr "Formulių langeliai praleidžiami."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: redaguoti įvardytą sritį"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Vizualizacijos pagalbininkas nepateikė vaizdo duomenų."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: įterpti HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Įterpti rezultatą"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Sukurti suvestinę lentelę"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -891,6 +953,57 @@ msgstr ""
 msgid "No structured tables or text blocks to insert."
 msgstr ""
 "Nėra struktūrizuotų lentelių ar teksto blokų, kuriuos būtų galima įterpti."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Įterpti išskirtas lenteles"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Konvertavimas baigtas su neatitikimais"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} langelis (-iai) nepatvirtintas (-i).\n"
+"Pirmas: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Sėkmė"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Konvertavimas sėkmingai baigtas!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Aktyvus dokumentas nėra skaičiuoklė."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Konvertavimas nepavyko: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Nepavyko atidaryti importavimo dialogo: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1403,7 +1516,7 @@ msgstr "bendra"
 msgid "plain"
 msgstr "paprastas"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "paprastas tekstas"
 
@@ -1630,10 +1743,6 @@ msgstr "Derinimas"
 msgid "[No speech detected.]"
 msgstr "[Kalba neaptikta.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Balso pranešimas]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: formulė"
@@ -1643,7 +1752,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Prieš naudodami /undo, palaukite, kol bus baigta dabartinė operacija."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Nėra atidaryto dokumento."
 
@@ -1678,12 +1786,10 @@ msgstr "(tuščia)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Atsakykite tik formule. Ji turi prasidėti =. Naudokite angliškus funkcijų "
-"pavadinimus. Naudokite kabliataškį (;) tarp funkcijų argumentų („Calc“ "
-"setFormula API gramatika). Jokio teksto ar „markdown“."
+"pavadinimus. Jokių paaiškinimų ar „markdown“ žymėjimo."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2122,6 +2228,11 @@ msgid "Compaction cancelled."
 msgstr "Glaudinimas atšauktas."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Agento serverio klaida: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nerastas suderinamas „LibreOffice“ dokumentas.]"
 
@@ -2148,11 +2259,6 @@ msgstr "[Garso klaida: įrašymas sustabdytas be garso failo.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Paleidžiama..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Agento serverio klaida: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2419,6 +2525,11 @@ msgstr ""
 "išgirstumėte šį balsą."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API raktas ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Garso bibliotekos atsisiuntimas"
 
@@ -2433,6 +2544,15 @@ msgstr "(Šiame galiniame punkte nėra vaizdų modelių)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Nepavyko prisijungti)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "sistemos raktinė"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Saugoma: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2661,7 +2781,7 @@ msgstr ""
 "Saugomi dokumento scenarijai yra nepalaikomo formato ({0} versija), todėl "
 "jie liko nepakeisti."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Nėra atidaryto dokumento scenarijams įrašyti."
 
@@ -2704,24 +2824,18 @@ msgstr "Šis dokumentas"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Nepavyko įrašyti „{0}“ šiame dokumente ({1}). Įrašyta į „Mano scenarijus“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Nepavyko įrašyti „{0}“ šiame dokumente ({1}). Scenarijus pavadinimu „{0}“ "
-"jau yra „Mano scenarijuose“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skriptas „{0}“ neegzistuoja „Mano skriptuose“."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Scenarijus „%s“ sėkmingai įrašytas."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2731,25 +2845,10 @@ msgstr ""
 "Scenarijus „{0}“ nėra „Mano scenarijuose“ arba šiame dokumente, todėl jis "
 "nebuvo įrašytas."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Scenarijus „{0}“ įrašytas į šį dokumentą."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Scenarijus „{0}“ įrašytas."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Pašalintas dokumento scenarijus „{0}“."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Pašalintas scenarijus „{0}“."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Scenarijus „%s“ pašalintas."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2762,16 +2861,6 @@ msgstr "Dokumentas nebėra atidarytas."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Nepavyko įkelti „PythonScriptDialog“ iš plėtinio."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Scenarijus „%s“ sėkmingai įrašytas."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2796,11 +2885,6 @@ msgid "Delete Script"
 msgstr "Pašalinti scenarijų"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Scenarijus „%s“ pašalintas."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Naujas scenarijus"
 
@@ -2817,10 +2901,6 @@ msgstr "Scenarijus „%s“ sukurtas „My Scripts“."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Scriptas sėkmingai įvykdytas."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Sėkmė"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3218,10 +3298,6 @@ msgstr "Nepalaikomas dokumento tipas diagramai įterpti."
 msgid "Viz helper failed."
 msgstr "Vizualizacijos pagalbininko klaida."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Vizualizacijos pagalbininkas nepateikė vaizdo duomenų."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3285,15 +3361,6 @@ msgstr "Prognozavimo pagalbininkai"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Python seanso nustatymas iš naujo užrašų knygelėms taikomas „LibreOffice "
-"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele"
-" ir bandykite dar kartą."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3315,14 +3382,6 @@ msgstr "Nepavyko nustatyti Python seanso iš naujo."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Užrašų knygelės Python seansas šiam dokumentui nustatytas iš naujo."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Python seanso nustatymas iš naujo taikomas „Calc“ skaičiuoklėms. Atverkite "
-"„Calc“ darbaknygę ir bandykite dar kartą."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3488,9 +3547,8 @@ msgstr ""
 "„PR“!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Nepalaikomas dokumento tipas rezultatui įterpti. (truko {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Nepalaikomas dokumento tipas rezultatui įterpti."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4295,17 +4353,17 @@ msgstr ""
 "Prašyti patvirtinimo prieš leidžiant agentui naudoti įrankius (skaityti "
 "failus, vykdyti komandas ir kt.)"
 
-msgid "Antigravity model"
-msgstr "Antigravitacijos modelis"
+msgid "Model"
+msgstr "Modelis"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId iš session/new models.availableModels, pavyzdžiui, "
-"gemini-4-argon-medium. Tuščia reikšmė palieka esamą agy modelį. "
-"configOptions šeimos ID, tokie kaip gemini-4-argon, nėra modelIds."
+"Pasirinkto agento siūlomas modelio ID arba pavadinimas, pavyzdžiui, "
+"gemini-4-argon-medium, grok-4.6 arba devstral-small. Palikus tuščią, "
+"išlaikomas esamas agento modelis. Nenaudojama „Built-in“ atveju."
 
 msgid "STT Provider"
 msgstr "STT teikėjas"
@@ -4444,11 +4502,14 @@ msgid "Speech Speed"
 msgstr "Kalbos greitis"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Atkūrimo greičio daugiklis (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x arba "
-"pasirinktinis iki 0.25x)."
+"Kalbos greitis (1.0x–2.0x arba tinkintas iki 0.25x). „Kokoro“ (vietinis arba"
+" „OpenRouter“) ir vietinis „Piper“ kalba šiuo greičiu; kiti internetiniai "
+"balsai atkūrimo metu pagreitinami (0.5x–2.0x; sistemoje „Linux“ tam reikia "
+"„ffplay“ arba „mpv“)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4703,12 +4764,11 @@ msgstr "Agento redagavimo peržiūra"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Išjungta = tiesioginis redagavimas. Įrašyti = sekami pakeitimai, kuriuos "
-"patys priimate arba atmetate. Laukti = apply_document_content blokuojamas "
-"(pokalbio / MCP darbinėje gijoje), kol peržiūrėsite."
+"Išjungta = tiesioginis redagavimas. Įrašymas = sekami pakeitimai, kuriuos "
+"patys priimate / atmetate. Laukimas = „apply_content“ blokai (pokalbio / MCP"
+" darbinėje gijoje), kol peržiūrėsite."
 
 msgid "Record (track changes)"
 msgstr "Įrašyti (sekti pakeitimus)"
@@ -4718,9 +4778,6 @@ msgstr "Laukti peržiūros"
 
 msgid "Draw and Impress tools"
 msgstr "„Draw“ ir „Impress“ įrankiai"
-
-msgid "Vector Search"
-msgstr "Vektorinė paieška"
 
 msgid "Cross-file search"
 msgstr "Paieška tarp failų"
@@ -4805,15 +4862,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Kaip specializuoti įrankiai pateikiami MCP klientams. delegate=pasiekiama "
-"per tarpinį šliuzą (dabartinė elgsena); direct_flat=visi MCP pasiekiami "
-"specializuoti įrankiai išvardyti tiesiogiai, išskyrus šoninės juostos "
-"srautus (geriausia klientams, turintiems savo įrankių paiešką); "
-"direct_discovery=nedidelis pagrindinis sąrašas plius find_tools (domenų "
-"katalogas, tada domenų įrankių schemos; geriausia bet kuriam klientui)."
+"Kaip specializuoti įrankiai pateikiami MCP klientams. „delegate“ = "
+"pasiekiama per „delegate“ šliuzą (dabartinė elgsena); „direct_flat“ = visi "
+"MCP pasiekiami specializuoti įrankiai išvardyti tiesiogiai, neįtraukiant tik"
+" šoninės juostos srautų (geriausia klientams, turintiems savo įrankių "
+"paiešką); „direct_discovery“ = nedidelis pagrindinis sąrašas plius "
+"„tool_find“ (domenų katalogas, tada kiekvieno domeno įrankių schemos; "
+"geriausia bet kuriam klientui)."
 
 msgid "Delegate (default)"
 msgstr "Tarpinis (numatytasis)"
@@ -4821,8 +4879,8 @@ msgstr "Tarpinis (numatytasis)"
 msgid "Direct — list all tools"
 msgstr "Tiesioginis — išvardyti visus įrankius"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Tiesioginis — aptikimas (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Tiesioginis — aptikimas („tool_find“)"
 
 msgid "Public tunnel"
 msgstr "Viešas tunelis"
@@ -4878,6 +4936,70 @@ msgstr "Kliento konfigūracija (nukopijuokite į „Claude“ / „Hermes-Agent�
 
 msgid "Copy Config"
 msgstr "Kopijuoti konfigūraciją"
+
+msgid "Integrations"
+msgstr "Integracijos"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP serveriai šoninės juostos pokalbiams"
+
+msgid "Server"
+msgstr "Serveris"
+
+msgid "Add"
+msgstr "Pridėti"
+
+msgid "Remove"
+msgstr "Pašalinti"
+
+msgid "Use this MCP server in chat"
+msgstr "Naudoti šį MCP serverį pokalbiuose"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Tik šoninės juostos pokalbiams (mcp domenas); niekada neatskleidžiama "
+"„WriterAgent“ MCP serveriui ar scenarijams."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Pasitikėti tik skaitymui skirtais įrankiais (be raginimo)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Serverio pažymėti tik skaitymui skirti įrankiai (readOnlyHint) vykdomi be "
+"„Priimti“ / „Keisti“ / „Atmesti“; visi kiti iškvietimai vis tiek reikalauja "
+"patvirtinimo"
+
+msgid "Name"
+msgstr "Pavadinimas"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Prideda prefiksą prie šio serverio įrankių pavadinimų (pvz., home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Serverio URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"„Streamable-HTTP“ MCP galinis punktas, pvz., http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Prieigos raktas"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"„Bearer“ prieigos raktas. Paspaudus „Gerai“, nustatymai įrašomi į sistemos "
+"raktinę, jei ji pasiekiama, kitu atveju – į writeragent.json failą."
+
+msgid "Status"
+msgstr "Būsena"
 
 msgid "Notebook"
 msgstr "Užrašinė"

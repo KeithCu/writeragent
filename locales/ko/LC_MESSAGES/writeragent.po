@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "특수 작업({domain})이 완료되었습니다."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,35 @@ msgstr "특수 작업({domain})이 완료되었습니다."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "오류"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr "토큰이 키링에 있지만 읽을 수 없습니다. 키링을 잠금 해제하여 확인하십시오."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "{name}이라는 이름의 서버가 이미 존재합니다."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "이 서버의 이름을 변경하기 전에 키링을 잠금 해제하십시오."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "확인 중…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "연결됨: {count}개의 도구"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "실패: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -297,6 +327,10 @@ msgstr "{0}에 대해 구성된 API 키가 없습니다. 설정을 열고 키를
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "구성된 API 키가 없습니다. 설정을 열고 키를 추가하세요."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr "시스템 키링이 잠겨 있습니다. 저장된 API 키를 사용하려면 잠금을 해제하십시오."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -594,6 +628,10 @@ msgid ""
 "Install with: {0}"
 msgstr "Kokoro phonemizer를 설치할 수 없습니다. 이 언어는 잘못 읽힐 수 있습니다. 다음 명령어로 설치하세요: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: 행 또는 열 삭제"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -748,16 +786,6 @@ msgid "Images inserted"
 msgstr "이미지 삽입됨"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "오류: 메인 스레드 실행 시간이 초과되었습니다 ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "알 수 없는 오류"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -768,6 +796,16 @@ msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr "오류: Python 시간 초과가 발생했습니다. 설정 → Python을 열어 제한 시간을 늘리거나 venv를 테스트하십시오."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "오류: 메인 스레드 실행 시간이 초과되었습니다 ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "알 수 없는 오류"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -812,6 +850,26 @@ msgstr "비어 있지 않은 셀을 하나 이상 선택하십시오."
 msgid "Formula cells are skipped."
 msgstr "수식 셀은 건너뜁니다."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: 이름 정의된 범위 편집"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "시각화 도우미가 이미지 페이로드를 반환하지 않았습니다."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: HTML 삽입"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: 결과 삽입"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: 피벗 테이블 만들기"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -832,6 +890,57 @@ msgstr "이미지를 셀에 고정하고 선택한 후 다시 실행하십시오
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "삽입할 구조화된 표나 텍스트 블록이 없습니다."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: 추출된 표 삽입"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "변환이 완료되었으나 불일치가 발생했습니다"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0}개의 셀을 확인할 수 없습니다.\n"
+"첫 번째: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "성공"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"변환이 성공적으로 완료되었습니다!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "활성 문서가 스프레드시트가 아닙니다."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "변환 실패: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "가져오기 대화 상자를 여는 데 실패했습니다: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1327,7 +1436,7 @@ msgstr "전반적인"
 msgid "plain"
 msgstr "일반"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "일반 텍스트"
 
@@ -1552,10 +1661,6 @@ msgstr "디버그"
 msgid "[No speech detected.]"
 msgstr "[음성이 감지되지 않았습니다.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[음성 메시지]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: 수식"
@@ -1565,7 +1670,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "/undo 명령을 실행하기 전에 현재 작업이 완료될 때까지 기다려 주십시오."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "문서가 열려 있지 않습니다."
 
@@ -1600,11 +1704,8 @@ msgstr "(비어 있음)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
-msgstr ""
-"수식으로만 답변하십시오. =로 시작해야 합니다. 영어 함수 이름을 사용하십시오. 함수 인수 사이에는 세미콜론(;)을 사용하십시오(Calc"
-" setFormula API 문법). 설명이나 마크다운은 포함하지 마십시오."
+"names. No prose or markdown."
+msgstr "수식으로만 답변하십시오. =로 시작해야 합니다. 영어 함수 이름을 사용하십시오. 서술이나 마크다운은 포함하지 마십시오."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2027,6 +2128,11 @@ msgid "Compaction cancelled."
 msgstr "압축이 취소되었습니다."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[에이전트 백엔드 오류: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[호환되는 LibreOffice 문서를 찾을 수 없습니다.]"
 
@@ -2051,11 +2157,6 @@ msgstr "[오디오 오류: 소리 파일 없이 녹음이 중지되었습니다.
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "시작 중..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[에이전트 백엔드 오류: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2313,6 +2414,11 @@ msgid ""
 msgstr "음성 출력이 꺼져 있습니다. 이 음성을 들으려면 '음성 출력 활성화(TTS)'를 켜세요."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API 키 ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "오디오 라이브러리 다운로드"
 
@@ -2327,6 +2433,15 @@ msgstr "(이 엔드포인트에 이미지 모델 없음)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(연결 실패)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "시스템 키링"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "저장 위치: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2543,7 +2658,7 @@ msgid ""
 "were left unchanged."
 msgstr "저장된 문서 스크립트가 지원되지 않는 형식(버전 {0})이므로 변경되지 않은 상태로 두었습니다."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "저장할 문서가 열려 있지 않습니다."
 
@@ -2584,22 +2699,18 @@ msgstr "이 문서"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr "'{0}'을(를) 이 문서({1})에 저장할 수 없습니다. 대신 '내 스크립트'에 저장했습니다."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"'{0}'을(를) 이 문서({1})에 저장할 수 없습니다. '내 스크립트'에 '{0}'이라는 이름의 스크립트가 이미 존재합니다."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "내 스크립트에 '{0}' 스크립트가 존재하지 않습니다."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "스크립트 '%s'이(가) 이 문서에 저장되었습니다."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "스크립트 '%s'이(가) 성공적으로 저장되었습니다."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2607,25 +2718,10 @@ msgid ""
 "Script '{0}' is not in My Scripts or this document, so it was not saved."
 msgstr "스크립트 '{0}'이(가) '내 스크립트' 또는 이 문서에 없으므로 저장되지 않았습니다."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "'{0}' 스크립트를 이 문서에 저장했습니다."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "'{0}' 스크립트를 저장했습니다."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "문서 스크립트 '{0}'을(를) 삭제했습니다."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "스크립트 '{0}'을(를) 삭제했습니다."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "스크립트 '%s'이(가) 삭제되었습니다."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2638,16 +2734,6 @@ msgstr "문서가 더 이상 열려 있지 않습니다."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "확장 기능에서 PythonScriptDialog를 로드할 수 없습니다."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "스크립트 '%s'이(가) 이 문서에 저장되었습니다."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "스크립트 '%s'이(가) 성공적으로 저장되었습니다."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2672,11 +2758,6 @@ msgid "Delete Script"
 msgstr "스크립트 삭제"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "스크립트 '%s'이(가) 삭제되었습니다."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "새 스크립트"
 
@@ -2693,10 +2774,6 @@ msgstr "스크립트 '%s'(이)가 내 스크립트에 생성되었습니다."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "스크립트가 성공적으로 실행되었습니다."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "성공"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3078,10 +3155,6 @@ msgstr "플롯 삽입을 지원하지 않는 문서 형식입니다."
 msgid "Viz helper failed."
 msgstr "시각화 도우미가 실패했습니다."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "시각화 도우미가 이미지 페이로드를 반환하지 않았습니다."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3143,14 +3216,6 @@ msgstr "예측 도우미"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"노트북용 Python 세션 재설정은 LibreOffice Writer에 적용됩니다. Jupyter 노트북을 가져온 Writer 문서를 "
-"열고 다시 시도하십시오."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3169,12 +3234,6 @@ msgstr "Python 세션을 재설정할 수 없습니다."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "이 문서에 대한 노트북 Python 세션이 재설정되었습니다."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr "Python 세션 재설정은 Calc 스프레드시트에 적용됩니다. Calc 통합 문서를 열고 다시 시도하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3320,9 +3379,8 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "Draw/Impress에 대한 결과 삽입은 아직 지원되지 않습니다. PR을 환영합니다!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "결과를 삽입할 수 없는 지원되지 않는 문서 형식입니다. ({time} 소요)"
+msgid "Unsupported document type for result insertion."
+msgstr "결과를 삽입할 수 없는 문서 형식입니다."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4109,17 +4167,16 @@ msgid ""
 "execute commands, etc.)"
 msgstr "에이전트가 도구(파일 읽기, 명령 실행 등)를 사용하기 전에 확인 요청"
 
-msgid "Antigravity model"
-msgstr "반중력 모델"
+msgid "Model"
+msgstr "모델"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId는 session/new models.availableModels에서 가져옵니다(예: gemini-4-argon-"
-"medium). 비워두면 agy의 현재 모델이 유지됩니다. gemini-4-argon과 같은 configOptions 제품군 ID는 "
-"modelId가 아닙니다."
+"선택한 에이전트가 제공하는 모델 ID 또는 이름(예: gemini-4-argon-medium, grok-4.6, devstral-"
+"small). 비워두면 에이전트의 현재 모델이 유지됩니다. 내장(Built-in) 모델에서는 사용되지 않습니다."
 
 msgid "STT Provider"
 msgstr "STT 공급자"
@@ -4244,9 +4301,12 @@ msgid "Speech Speed"
 msgstr "말하기 속도"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr "재생 속도 배율 (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x 또는 0.25x까지 사용자 지정)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
+msgstr ""
+"음성 속도(1.0x~2.0x, 또는 0.25x까지 사용자 지정). Kokoro(로컬 또는 OpenRouter) 및 로컬 Piper는 이 "
+"속도로 말하며, 다른 온라인 음성은 재생 중에 속도가 조정됩니다(0.5x~2.0x; Linux에서는 ffplay 또는 mpv 필요)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4473,11 +4533,10 @@ msgstr "에이전트 편집 검토"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"끄기 = 직접 편집. 기록 = 직접 수락/거부하는 변경 내용 추적. 대기 = 검토할 때까지 apply_document_content "
-"차단(채팅/MCP 작업자 스레드에서)."
+"끄기(Off) = 직접 편집. 기록(Record) = 직접 수락/거부할 수 있는 변경 내용 추적. 대기(Wait) = 검토할 때까지 "
+"(채팅/MCP 작업자 스레드에서) apply_content 블록 적용."
 
 msgid "Record (track changes)"
 msgstr "기록 (변경 내용 추적)"
@@ -4487,9 +4546,6 @@ msgstr "검토 대기"
 
 msgid "Draw and Impress tools"
 msgstr "Draw 및 Impress 도구"
-
-msgid "Vector Search"
-msgstr "벡터 검색"
 
 msgid "Cross-file search"
 msgstr "파일 간 검색"
@@ -4569,13 +4625,13 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"특화 도구가 MCP 클라이언트에 표시되는 방식입니다. delegate=델리게이트 게이트웨이를 통해 도달(현재 동작); "
-"direct_flat=사이드바 전용 흐름을 제외하고 MCP로 접근 가능한 모든 특화 도구를 직접 나열(자체 도구 검색 기능이 있는 "
-"클라이언트에 적합); direct_discovery=소규모 핵심 목록과 find_tools 사용(도메인 카탈로그, 이후 도메인별 도구 "
-"스키마; 모든 클라이언트에 적합)."
+"특수 도구가 MCP 클라이언트에 표시되는 방식. delegate=델리게이트 게이트웨이를 통해 도달(현재 동작); "
+"direct_flat=사이드바 전용 흐름을 제외하고 MCP로 도달 가능한 모든 특수 도구를 직접 나열(자체 도구 검색 기능이 있는 "
+"클라이언트에 최적); direct_discovery=소규모 핵심 목록과 tool_find(도메인 카탈로그, 도메인별 도구 스키마 순)를 "
+"결합(모든 클라이언트에 최적)."
 
 msgid "Delegate (default)"
 msgstr "델리게이트 (기본값)"
@@ -4583,8 +4639,8 @@ msgstr "델리게이트 (기본값)"
 msgid "Direct — list all tools"
 msgstr "직접 — 모든 도구 나열"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "직접 — 검색 (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "직접 — 검색(tool_find)"
 
 msgid "Public tunnel"
 msgstr "공용 터널"
@@ -4637,6 +4693,62 @@ msgstr "클라이언트 구성 (Claude / Hermes-Agent에 복사):"
 
 msgid "Copy Config"
 msgstr "설정 복사"
+
+msgid "Integrations"
+msgstr "통합"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "사이드바 채팅용 MCP 서버"
+
+msgid "Server"
+msgstr "서버"
+
+msgid "Add"
+msgstr "추가"
+
+msgid "Remove"
+msgstr "제거"
+
+msgid "Use this MCP server in chat"
+msgstr "채팅에서 이 MCP 서버 사용"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr "사이드바 채팅 전용(mcp 도메인); WriterAgent의 MCP 서버나 스크립트에 노출되지 않음."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "읽기 전용 도구 신뢰(프롬프트 없음)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr "서버가 readOnlyHint로 표시한 도구는 수락/변경/거부 없이 실행됨; 그 외 모든 호출은 여전히 확인을 요청함"
+
+msgid "Name"
+msgstr "이름"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "이 서버의 도구 이름에 접두사를 붙입니다(예: home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "서버 URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP 엔드포인트(예: http://localhost:8000/mcp)"
+
+msgid "Token"
+msgstr "토큰"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer 토큰입니다. 설정 확인 시 시스템 키링을 사용할 수 있으면 키링에 저장하고, 그렇지 않으면 writeragent.json에 "
+"저장합니다."
+
+msgid "Status"
+msgstr "상태"
 
 msgid "Notebook"
 msgstr "노트북"

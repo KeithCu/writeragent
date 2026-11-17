@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Russian <LL@li.org>\n"
@@ -53,6 +53,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Специализированная задача ({domain}) выполнена."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -60,6 +61,37 @@ msgstr "Специализированная задача ({domain}) выпол�
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Ошибка"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Токен находится в связке ключей, но не может быть прочитан; разблокируйте "
+"связку ключей, чтобы увидеть его."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Сервер с именем {name} уже существует."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Разблокируйте связку ключей перед переименованием этого сервера."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Проверка…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Подключено: {count} инструментов"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Ошибка: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -310,6 +342,12 @@ msgstr "API-ключ для {0} не настроен. Откройте наст
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "API-ключ не настроен. Откройте настройки и добавьте ключ."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Системная связка ключей заблокирована. Разблокируйте её, чтобы использовать "
+"сохранённый API-ключ."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -643,6 +681,10 @@ msgstr ""
 "Не удалось установить фонемизатор Kokoro; этот язык может быть прочитан "
 "некорректно. Установите с помощью: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Удалить строки или столбцы"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -807,16 +849,6 @@ msgid "Images inserted"
 msgstr "Изображения вставлены"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Ошибка: время выполнения в основном потоке истекло ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Неизвестная ошибка"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -831,6 +863,16 @@ msgid ""
 msgstr ""
 "Ошибка: время ожидания Python истекло. Откройте «Настройки» → «Python», "
 "чтобы увеличить время ожидания, или протестируйте виртуальное окружение."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Ошибка: время выполнения в основном потоке истекло ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Неизвестная ошибка"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -876,6 +918,26 @@ msgstr "Выберите одну или несколько непустых я�
 msgid "Formula cells are skipped."
 msgstr "Ячейки с формулами пропускаются."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Изменить именованный диапазон"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Помощник визуализации не вернул изображение."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Вставить HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Вставить результат"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Создать сводную таблицу"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -897,6 +959,57 @@ msgstr "Привяжите изображение к ячейке, выбери�
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Нет структурированных таблиц или текстовых блоков для вставки."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Вставить извлеченные таблицы"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Преобразование завершено с несоответствиями"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} ячеек не прошли проверку.\n"
+"Первая: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Успешно"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Преобразование успешно завершено!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Активный документ не является электронной таблицей."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Ошибка преобразования: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Не удалось открыть диалоговое окно импорта: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1412,7 +1525,7 @@ msgstr "общий"
 msgid "plain"
 msgstr "обычный"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "обычный текст"
 
@@ -1640,10 +1753,6 @@ msgstr "Отладка"
 msgid "[No speech detected.]"
 msgstr "[Речь не распознана.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Голосовое сообщение]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Формула"
@@ -1653,7 +1762,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Дождитесь завершения текущей операции перед использованием /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Нет открытых документов."
 
@@ -1688,13 +1796,10 @@ msgstr "(пусто)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
-"Отвечайте только формулой. Она должна начинаться с =. Используйте английские"
-" имена функций. Используйте точку с запятой (;) в качестве разделителя "
-"аргументов (синтаксис API setFormula в Calc). Без пояснительного текста и "
-"разметки."
+"Ответьте только формулой. Она должна начинаться с =. Используйте английские "
+"имена функций. Без пояснительного текста и разметки."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2136,6 +2241,11 @@ msgid "Compaction cancelled."
 msgstr "Сжатие отменено."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Ошибка серверной части агента: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Совместимый документ LibreOffice не найден.]"
 
@@ -2162,11 +2272,6 @@ msgstr "[Ошибка аудио: запись остановлена без ф�
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Запуск..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Ошибка серверной части агента: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2431,6 +2536,11 @@ msgstr ""
 "услышать этот голос."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API-ключ ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Загрузка аудиобиблиотеки"
 
@@ -2445,6 +2555,15 @@ msgstr "(На этой конечной точке нет моделей изо�
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Ошибка подключения)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "системная связка ключей"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Хранится в: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2678,7 +2797,7 @@ msgstr ""
 "Сохраненные скрипты документа имеют неподдерживаемый формат (версия {0}), "
 "поэтому они остались без изменений."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Нет открытого документа для сохранения скриптов."
 
@@ -2722,25 +2841,18 @@ msgstr "Этот документ"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Не удалось сохранить «{0}» в этот документ ({1}). Вместо этого файл сохранён"
-" в «Мои скрипты»."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Не удалось сохранить «{0}» в этот документ ({1}). Скрипт с именем «{0}» уже "
-"существует в «Моих скриптах»."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Скрипт '{0}' не существует в «Моих скриптах»."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Скрипт «%s» сохранен в этом документе."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Скрипт «%s» успешно сохранен."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2750,25 +2862,10 @@ msgstr ""
 "Скрипт «{0}» отсутствует в «Моих скриптах» или в этом документе, поэтому он "
 "не был сохранён."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Скрипт «{0}» сохранен в этом документе."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Скрипт «{0}» сохранен."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Скрипт документа «{0}» удален."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Скрипт «{0}» удален."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Скрипт «%s» удален."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2781,16 +2878,6 @@ msgstr "Документ больше не открыт."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Не удалось загрузить PythonScriptDialog из расширения."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Скрипт «%s» сохранен в этом документе."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Скрипт «%s» успешно сохранен."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2815,11 +2902,6 @@ msgid "Delete Script"
 msgstr "Удалить скрипт"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Скрипт «%s» удален."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Новый скрипт"
 
@@ -2836,10 +2918,6 @@ msgstr "Скрипт «%s» создан в «Мои скрипты»."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Скрипт успешно выполнен."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Успешно"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3235,10 +3313,6 @@ msgstr "Неподдерживаемый тип документа для вст
 msgid "Viz helper failed."
 msgstr "Ошибка помощника визуализации."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Помощник визуализации не вернул изображение."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3303,14 +3377,6 @@ msgstr "Вспомогательные инструменты прогнозир
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Сброс сессии Python для блокнотов применяется к LibreOffice Writer. Откройте"
-" документ Writer с импортированным блокнотом Jupyter и повторите попытку."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3332,14 +3398,6 @@ msgstr "Не удалось сбросить сессию Python."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Сессия Python для блокнота в этом документе сброшена."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Сброс сессии Python применяется к электронным таблицам Calc. Откройте книгу "
-"Calc и повторите попытку."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3504,10 +3562,8 @@ msgstr ""
 "приветствуются!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-"Неподдерживаемый тип документа для вставки результата. (заняло {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Неподдерживаемый тип документа для вставки результата."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4315,18 +4371,17 @@ msgstr ""
 "Запрашивать подтверждение перед тем, как разрешить агенту использовать "
 "инструменты (чтение файлов, выполнение команд и т. д.)"
 
-msgid "Antigravity model"
-msgstr "Модель антигравитации"
+msgid "Model"
+msgstr "Модель"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"Идентификатор модели agy из session/new models.availableModels, например "
-"gemini-4-argon-medium. Если оставить пустым, сохранится текущая модель agy. "
-"Идентификаторы семейства configOptions, такие как gemini-4-argon, не "
-"являются идентификаторами моделей."
+"Идентификатор или имя модели, предлагаемой выбранным агентом, например "
+"gemini-4-argon-medium, grok-4.6 или devstral-small. Если оставить пустым, "
+"сохранится текущая модель агента. Не используется для встроенных моделей."
 
 msgid "STT Provider"
 msgstr "Провайдер STT"
@@ -4464,11 +4519,14 @@ msgid "Speech Speed"
 msgstr "Скорость речи"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Множитель скорости воспроизведения (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x или"
-" пользовательское значение до 0.25x)."
+"Скорость речи (1.0x–2.0x или пользовательская до 0.25x). Kokoro (локально "
+"или через OpenRouter) и локальный Piper говорят с этой скоростью; другие "
+"онлайн-голоса ускоряются при воспроизведении (0.5x–2.0x; в Linux требуется "
+"ffplay или mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4721,12 +4779,11 @@ msgstr "Редактирование агентом"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Выкл = прямые правки. Запись = отслеживаемые изменения, которые вы "
-"принимаете/отклоняете сами. Ожидание = блокировка apply_document_content (в "
-"потоке чата/MCP) до вашего подтверждения."
+"Off = прямые правки. Record = отслеживаемые изменения, которые вы "
+"принимаете/отклоняете самостоятельно. Wait = блоки apply_content (в потоке "
+"чата/MCP) до вашего подтверждения."
 
 msgid "Record (track changes)"
 msgstr "Запись (отслеживание изменений)"
@@ -4736,9 +4793,6 @@ msgstr "Ожидание проверки"
 
 msgid "Draw and Impress tools"
 msgstr "Инструменты Draw и Impress"
-
-msgid "Vector Search"
-msgstr "Векторный поиск"
 
 msgid "Cross-file search"
 msgstr "Поиск по файлам"
@@ -4824,16 +4878,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Как специализированные инструменты отображаются для клиентов MCP. "
-"delegate=через шлюз делегирования (текущее поведение); direct_flat=все "
-"доступные через MCP инструменты перечислены напрямую, исключая потоки только"
-" для боковой панели (лучший вариант для клиентов с собственным поиском "
-"инструментов); direct_discovery=небольшой основной список плюс find_tools "
-"(каталог доменов, затем схемы инструментов для каждого домена; лучший "
-"вариант для любого клиента)."
+"Способ отображения специализированных инструментов для MCP-клиентов. "
+"delegate = через шлюз делегирования (текущее поведение); direct_flat = все "
+"доступные через MCP специализированные инструменты перечислены напрямую, "
+"исключая потоки только для боковой панели (лучше для клиентов с собственным "
+"поиском инструментов); direct_discovery = небольшой основной список плюс "
+"tool_find (каталог доменов, затем схемы инструментов для каждого домена; "
+"лучше для любого клиента)."
 
 msgid "Delegate (default)"
 msgstr "Делегирование (по умолчанию)"
@@ -4841,8 +4895,8 @@ msgstr "Делегирование (по умолчанию)"
 msgid "Direct — list all tools"
 msgstr "Прямой — список всех инструментов"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Прямой — обнаружение (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Direct — discovery (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Публичный туннель"
@@ -4898,6 +4952,70 @@ msgstr "Конфигурация клиента (скопируйте в Claude 
 
 msgid "Copy Config"
 msgstr "Копировать конфигурацию"
+
+msgid "Integrations"
+msgstr "Интеграции"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-серверы для чата на боковой панели"
+
+msgid "Server"
+msgstr "Сервер"
+
+msgid "Add"
+msgstr "Добавить"
+
+msgid "Remove"
+msgstr "Удалить"
+
+msgid "Use this MCP server in chat"
+msgstr "Использовать этот MCP-сервер в чате"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Только для чата на боковой панели (домен mcp); никогда не передается на MCP-"
+"сервер WriterAgent или в скрипты."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Доверять инструментам только для чтения (без подтверждения)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Инструменты, помеченные сервером как readOnlyHint, запускаются без "
+"подтверждения «Принять / Изменить / Отклонить»; для всех остальных вызовов "
+"подтверждение по-прежнему требуется"
+
+msgid "Name"
+msgstr "Имя"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Добавляет префикс к именам инструментов сервера (например, home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL сервера"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Конечная точка Streamable-HTTP MCP, например http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Токен"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-токен. При нажатии «ОК» он сохраняется в системной связке ключей "
+"(если она доступна), в противном случае — в файле writeragent.json."
+
+msgid "Status"
+msgstr "Статус"
 
 msgid "Notebook"
 msgstr "Блокнот"

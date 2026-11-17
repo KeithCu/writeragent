@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Özelleştirilmiş görev ({domain}) tamamlandı."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Özelleştirilmiş görev ({domain}) tamamlandı."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Hata"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Belirteç anahtarlıkta ancak okunamadı; görmek için anahtarlığın kilidini "
+"açın."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "{name} adında bir sunucu zaten var."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Bu sunucuyu yeniden adlandırmadan önce anahtarlığın kilidini açın."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Denetleniyor…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Bağlandı: {count} araç"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Başarısız: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -310,6 +342,12 @@ msgstr ""
 msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "Yapılandırılmış API anahtarı yok. Ayarları açın ve bir anahtar ekleyin."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Sistem anahtarlığı kilitli. Kayıtlı API anahtarını kullanmak için kilidini "
+"açın."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -638,6 +676,10 @@ msgid ""
 msgstr ""
 "Kokoro fonemleyici kurulamadı; bu dil yanlış okunabilir. Şununla kurun: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Satırları veya sütunları sil"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -797,16 +839,6 @@ msgid "Images inserted"
 msgstr "Görseller eklendi"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Hata: Ana iş parçacığı yürütme zaman aşımına uğradı ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Bilinmeyen hata"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -821,6 +853,16 @@ msgid ""
 msgstr ""
 "Hata: Python zaman aşımına uğradı. Zaman aşımını artırmak için Ayarlar → "
 "Python'u açın veya venv'yi Test edin."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Hata: Ana iş parçacığı yürütme zaman aşımına uğradı ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Bilinmeyen hata"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -866,6 +908,26 @@ msgstr "Boş olmayan bir veya daha fazla hücre seçin."
 msgid "Formula cells are skipped."
 msgstr "Formül hücreleri atlandı."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Adlandırılmış aralığı düzenle"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Görsel yardımcısı görüntü verisi döndürmedi."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: HTML ekle"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Sonucu ekle"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Özet tablo oluştur"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -887,6 +949,57 @@ msgstr "Resmi bir hücreye sabitleyin, seçin ve ardından tekrar Çalıştırı
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Eklenecek yapılandırılmış tablo veya metin bloğu yok."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Çıkarılan tabloları ekle"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Dönüştürme uyumsuzluklarla tamamlandı"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} hücre doğrulanamadı.\n"
+"İlk: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Başarılı"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Dönüştürme başarıyla tamamlandı!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Etkin belge bir hesap tablosu değil."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Dönüştürme başarısız: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "İçe aktarma iletişim kutusu açılamadı: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1398,7 +1511,7 @@ msgstr "genel"
 msgid "plain"
 msgstr "düz"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "düz metin"
 
@@ -1626,10 +1739,6 @@ msgstr "Hata Ayıklama"
 msgid "[No speech detected.]"
 msgstr "[Konuşma algılanmadı.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Sesli mesaj]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Formül"
@@ -1639,7 +1748,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "/undo komutundan önce mevcut işlemin bitmesini bekleyin."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Açık bir belge yok."
 
@@ -1674,12 +1782,10 @@ msgstr "(boş)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Yalnızca formülle yanıt verin. = ile başlamalıdır. İngilizce işlev adlarını "
-"kullanın. İşlev bağımsız değişkenleri arasında noktalı virgül (;) kullanın "
-"(Calc setFormula API dil bilgisi). Düz yazı veya markdown kullanmayın."
+"kullanın. Düz yazı veya markdown kullanmayın."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2117,6 +2223,11 @@ msgid "Compaction cancelled."
 msgstr "Sıkıştırma iptal edildi."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Aracı arka uç hatası: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Uyumlu bir LibreOffice belgesi bulunamadı.]"
 
@@ -2143,11 +2254,6 @@ msgstr "[Ses hatası: kayıt bir ses dosyası olmadan durduruldu.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Başlatılıyor..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Aracı arka uç hatası: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2413,6 +2519,11 @@ msgstr ""
 "(TTS) seçeneğini açın."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API Anahtarı ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Ses Kütüphanesi İndir"
 
@@ -2427,6 +2538,15 @@ msgstr "(Bu uç noktada görüntü modeli yok)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Bağlantı başarısız)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "sistem anahtarlığı"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Depolandığı yer: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2656,7 +2776,7 @@ msgstr ""
 "Depolanan belge betikleri desteklenmeyen bir biçimde ({0} sürümü), bu yüzden"
 " değiştirilmeden bırakıldılar."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Betikleri kaydetmek için açık bir belge yok."
 
@@ -2699,24 +2819,18 @@ msgstr "Bu Belge"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"'{0}' bu belgeye kaydedilemedi ({1}). Bunun yerine Betiklerim'e kaydedildi."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"'{0}' bu belgeye kaydedilemedi ({1}). '{0}' adında bir betik zaten "
-"Betiklerim'de mevcut."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "'{0}' betiği Betiklerim'de mevcut değil."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "'%s' betiği bu belgeye kaydedildi."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "'%s' betiği başarıyla kaydedildi."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2726,25 +2840,10 @@ msgstr ""
 "'{0}' betiği 'Betiğim' içinde veya bu belgede bulunmuyor, bu yüzden "
 "kaydedilmedi."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "'{0}' betiği bu belgeye kaydedildi."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "'{0}' betiği kaydedildi."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Belge betiği '{0}' silindi."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "'{0}' betiği silindi."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "'%s' betiği silindi."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2757,16 +2856,6 @@ msgstr "Belge artık açık değil."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog eklentiden yüklenemedi."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "'%s' betiği bu belgeye kaydedildi."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "'%s' betiği başarıyla kaydedildi."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2791,11 +2880,6 @@ msgid "Delete Script"
 msgstr "Betik Sil"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "'%s' betiği silindi."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Yeni Betik"
 
@@ -2812,10 +2896,6 @@ msgstr "'%s' betiği Betiklerim'de oluşturuldu."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Betik başarıyla çalıştırıldı."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Başarılı"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3219,10 +3299,6 @@ msgstr "Grafik ekleme için desteklenmeyen belge türü."
 msgid "Viz helper failed."
 msgstr "Görsel yardımcısı başarısız oldu."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Görsel yardımcısı görüntü verisi döndürmedi."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3286,15 +3362,6 @@ msgstr "Tahmin Yardımcıları"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
-"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
-" açın ve tekrar deneyin."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3316,14 +3383,6 @@ msgstr "Python oturumu sıfırlanamadı."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Bu belge için not defteri Python oturumu sıfırlandı."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Python Oturumunu Sıfırla işlemi Calc elektronik tabloları için geçerlidir. "
-"Bir Calc çalışma kitabı açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3485,9 +3544,8 @@ msgstr ""
 "bekliyoruz!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Sonuç ekleme için desteklenmeyen belge türü. ({time} sürdü)"
+msgid "Unsupported document type for result insertion."
+msgstr "Sonuç ekleme için desteklenmeyen belge türü."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4291,17 +4349,17 @@ msgstr ""
 "Ajanın araçları kullanmasına (dosya okuma, komut çalıştırma vb.) izin "
 "vermeden önce onay iste"
 
-msgid "Antigravity model"
-msgstr "Antigravity modeli"
+msgid "Model"
+msgstr "Model"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId, session/new models.availableModels'den alınır, örneğin "
-"gemini-4-argon-medium. Boş bırakılması agy'nin mevcut modelini korur. "
-"gemini-4-argon gibi configOptions aile kimlikleri modelId değildir."
+"Seçili aracın sunduğu model kimliği veya adı; örneğin gemini-4-argon-medium,"
+" grok-4.6 veya devstral-small. Boş bırakılması aracın mevcut modelini korur."
+" Yerleşik (Built-in) tarafından kullanılmaz."
 
 msgid "STT Provider"
 msgstr "STT Sağlayıcısı"
@@ -4439,11 +4497,13 @@ msgid "Speech Speed"
 msgstr "Konuşma Hızı"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Oynatma hızı çarpanı (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x veya 0.25x'e "
-"kadar özel)."
+"Konuşma hızı (1.0x–2.0x veya 0.25x'e kadar özel). Kokoro (yerel veya "
+"OpenRouter) ve yerel Piper bu hızda konuşur; diğer çevrimiçi sesler oynatma "
+"sırasında hızlandırılır (0.5x–2.0x; Linux'ta ffplay veya mpv gerektirir)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4697,12 +4757,11 @@ msgstr "Ajan düzenleme incelemesi"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği"
-" izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
-"(sohbet/MCP işçi iş parçacığında) engeller."
+"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edip reddettiği "
+"izlenen değişiklikler. Bekle = siz inceleyene kadar (sohbet/MCP iş "
+"parçacığında) apply_content bloklarını uygula."
 
 msgid "Record (track changes)"
 msgstr "Kayıt (değişiklikleri izle)"
@@ -4712,9 +4771,6 @@ msgstr "İnceleme için bekle"
 
 msgid "Draw and Impress tools"
 msgstr "Draw ve Impress araçları"
-
-msgid "Vector Search"
-msgstr "Vektör Arama"
 
 msgid "Cross-file search"
 msgstr "Dosyalar arası arama"
@@ -4799,16 +4855,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Özelleştirilmiş araçların MCP istemcilerine nasıl sunulacağı. "
-"delegate=temsilci ağ geçidi üzerinden ulaşılır (mevcut davranış); "
-"direct_flat=kenar çubuğu akışları hariç, tüm MCP ile erişilebilir "
-"özelleştirilmiş araçlar doğrudan listelenir (kendi araç arama özelliği olan "
-"istemciler için en iyisi); direct_discovery=küçük bir çekirdek liste artı "
-"find_tools (etki alanı kataloğu, ardından etki alanı başına araç şemaları; "
-"her istemci için en iyisi)."
+"Özelleşmiş araçların MCP istemcilerine nasıl sunulacağı. delegate=temsilci "
+"ağ geçidi üzerinden erişilir (bugünkü davranış); direct_flat=kenar çubuğu "
+"akışları hariç, tüm MCP ile erişilebilir özelleşmiş araçlar doğrudan "
+"listelenir (kendi araç arama özelliği olan istemciler için en iyisi); "
+"direct_discovery=küçük bir çekirdek liste artı tool_find (etki alanı "
+"kataloğu, ardından etki alanı başına araç şemaları; her istemci için en "
+"iyisi)."
 
 msgid "Delegate (default)"
 msgstr "Temsilci (varsayılan)"
@@ -4816,8 +4872,8 @@ msgstr "Temsilci (varsayılan)"
 msgid "Direct — list all tools"
 msgstr "Doğrudan — tüm araçları listele"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Doğrudan — keşif (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Doğrudan — keşif (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Genel tünel"
@@ -4873,6 +4929,67 @@ msgstr "İstemci yapılandırması (Claude / Hermes-Agent içine kopyalayın):"
 
 msgid "Copy Config"
 msgstr "Yapılandırmayı Kopyala"
+
+msgid "Integrations"
+msgstr "Entegrasyonlar"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Kenar çubuğu sohbeti için MCP sunucuları"
+
+msgid "Server"
+msgstr "Sunucu"
+
+msgid "Add"
+msgstr "Ekle"
+
+msgid "Remove"
+msgstr "Kaldır"
+
+msgid "Use this MCP server in chat"
+msgstr "Bu MCP sunucusunu sohbette kullan"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Yalnızca kenar çubuğu sohbeti (mcp etki alanı); WriterAgent'ın MCP "
+"sunucusuna veya betiklere asla maruz bırakılmaz."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Salt okunur araçlarına güven (istemi yok)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Sunucunun saltOkunurİpucu (readOnlyHint) olarak işaretlediği araçlar Kabul "
+"Et / Değiştir / Reddet olmadan çalışır; diğer tüm çağrılar yine de onay "
+"ister"
+
+msgid "Name"
+msgstr "Ad"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "Bu sunucunun araç adlarına önek ekler (ör. home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Sunucu URL'si"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Akış destekli HTTP MCP uç noktası, ör. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Belirteç"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer belirteci. Ayarlar Tamamlandığında, sistem anahtarlığında mevcutsa "
+"oraya, değilse writeragent.json dosyasına kaydedilir."
+
+msgid "Status"
+msgstr "Durum"
 
 msgid "Notebook"
 msgstr "Not Defteri"

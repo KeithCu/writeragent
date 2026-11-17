@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Tugas khusus ({domain}) selesai."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Tugas khusus ({domain}) selesai."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Galat"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Token ada di dalam keyring tetapi tidak dapat dibaca; buka kunci keyring "
+"untuk melihatnya."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Server bernama {name} sudah ada."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Buka kunci keyring sebelum mengganti nama server ini."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Memeriksa…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Terhubung: {count} alat"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Gagal: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -311,6 +343,12 @@ msgstr ""
 msgid "No API key configured. Open Settings and add a key."
 msgstr ""
 "Tidak ada kunci API yang dikonfigurasi. Buka Pengaturan dan tambahkan kunci."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Keyring sistem terkunci. Buka kuncinya untuk menggunakan kunci API yang "
+"tersimpan."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -640,6 +678,10 @@ msgstr ""
 "Tidak dapat memasang phonemizer Kokoro; bahasa ini mungkin salah dibaca. "
 "Pasang dengan: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Hapus baris atau kolom"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -796,16 +838,6 @@ msgid "Images inserted"
 msgstr "Gambar disisipkan"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Galat: Eksekusi utas utama habis waktu ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Kesalahan tidak dikenal"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -820,6 +852,16 @@ msgid ""
 msgstr ""
 "Kesalahan: Python kehabisan waktu. Buka Pengaturan → Python untuk menambah "
 "batas waktu, atau Uji venv tersebut."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Galat: Eksekusi utas utama habis waktu ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Kesalahan tidak dikenal"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -865,6 +907,26 @@ msgstr "Pilih satu atau beberapa sel yang tidak kosong."
 msgid "Formula cells are skipped."
 msgstr "Sel rumus dilewati."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Edit rentang bernama"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Pembantu Viz tidak mengembalikan payload gambar."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Sisipkan HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Sisipkan hasil"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Buat tabel pivot"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -886,6 +948,57 @@ msgstr "Jangkar gambar ke sel, pilih gambar tersebut, lalu Jalankan lagi."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Tidak ada tabel atau blok teks terstruktur untuk disisipkan."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Sisipkan tabel yang diekstrak"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Konversi selesai dengan ketidakcocokan"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} sel tidak terverifikasi.\n"
+"Pertama: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Berhasil"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Konversi berhasil diselesaikan!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Dokumen aktif bukan lembar kerja."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Konversi gagal: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Gagal membuka dialog impor: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1400,7 +1513,7 @@ msgstr "keseluruhan"
 msgid "plain"
 msgstr "polos"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "teks polos"
 
@@ -1626,10 +1739,6 @@ msgstr "Debug"
 msgid "[No speech detected.]"
 msgstr "[Tidak ada ucapan terdeteksi.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Pesan suara]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Rumus"
@@ -1639,7 +1748,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Tunggu operasi saat ini selesai sebelum /undo."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Tidak ada dokumen yang terbuka."
 
@@ -1674,12 +1782,10 @@ msgstr "(kosong)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Balas hanya dengan rumus. Harus dimulai dengan =. Gunakan nama fungsi bahasa"
-" Inggris. Gunakan titik koma (;) di antara argumen fungsi (tata bahasa API "
-"setFormula Calc). Tanpa prosa atau markdown."
+" Inggris. Tanpa prosa atau markdown."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2119,6 +2225,11 @@ msgid "Compaction cancelled."
 msgstr "Pemadatan dibatalkan."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Kesalahan backend agen: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Tidak ada dokumen LibreOffice yang kompatibel ditemukan.]"
 
@@ -2145,11 +2256,6 @@ msgstr "[Kesalahan audio: perekaman dihentikan tanpa berkas suara.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Memulai..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Kesalahan backend agen: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2414,6 +2520,11 @@ msgstr ""
 "mendengar suara ini."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "Kunci API ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Unduh Pustaka Audio"
 
@@ -2428,6 +2539,15 @@ msgstr "(Tidak ada model gambar pada titik akhir ini)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Koneksi gagal)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "gantungan kunci sistem"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Disimpan di: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2655,7 +2775,7 @@ msgstr ""
 "Skrip dokumen yang disimpan dalam format yang tidak didukung (versi {0}), "
 "sehingga dibiarkan tidak berubah."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Tidak ada dokumen yang terbuka untuk menyimpan skrip."
 
@@ -2698,25 +2818,18 @@ msgstr "Dokumen Ini"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Tidak dapat menyimpan '{0}' ke dokumen ini ({1}). Menyimpannya ke My Scripts"
-" sebagai gantinya."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Tidak dapat menyimpan '{0}' ke dokumen ini ({1}). Skrip bernama '{0}' sudah "
-"ada di My Scripts."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skrip '{0}' tidak ada di Skrip Saya."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skrip '%s' disimpan ke dokumen ini."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrip '%s' berhasil disimpan."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2726,25 +2839,10 @@ msgstr ""
 "Skrip '{0}' tidak ada di Skrip Saya atau dokumen ini, sehingga tidak "
 "disimpan."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skrip '{0}' disimpan ke dokumen ini."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skrip '{0}' disimpan."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Skrip dokumen '{0}' telah dihapus."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Skrip '{0}' telah dihapus."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrip '%s' telah dihapus."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2757,16 +2855,6 @@ msgstr "Dokumen tidak lagi terbuka."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog tidak dapat dimuat dari ekstensi."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skrip '%s' disimpan ke dokumen ini."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skrip '%s' berhasil disimpan."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2791,11 +2879,6 @@ msgid "Delete Script"
 msgstr "Hapus Skrip"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skrip '%s' telah dihapus."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Skrip Baru"
 
@@ -2812,10 +2895,6 @@ msgstr "Skrip '%s' dibuat di Skrip Saya."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Skrip berhasil dijalankan."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Berhasil"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3207,10 +3286,6 @@ msgstr "Tipe dokumen tidak didukung untuk penyisipan plot."
 msgid "Viz helper failed."
 msgstr "Pembantu Viz gagal."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Pembantu Viz tidak mengembalikan payload gambar."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3275,14 +3350,6 @@ msgstr "Pembantu Perkiraan"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Atur Ulang Sesi Python untuk buku catatan berlaku untuk LibreOffice Writer. "
-"Buka dokumen Writer dengan buku catatan Jupyter yang diimpor dan coba lagi."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3304,14 +3371,6 @@ msgstr "Tidak dapat mengatur ulang sesi Python."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Sesi Python buku catatan diatur ulang untuk dokumen ini."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc"
-" dan coba lagi."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3470,10 +3529,8 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "Penyisipan hasil ke Draw/Impress belum didukung. PR diterima!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-"Tipe dokumen tidak didukung untuk penyisipan hasil. (memakan waktu {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan hasil."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4278,17 +4335,17 @@ msgstr ""
 "Minta konfirmasi sebelum mengizinkan agen menggunakan alat (membaca berkas, "
 "menjalankan perintah, dll.)"
 
-msgid "Antigravity model"
-msgstr "Model antigravitasi"
+msgid "Model"
+msgstr "Model"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId dari session/new models.availableModels, contohnya "
-"gemini-4-argon-medium. Dikosongkan akan mempertahankan model agy saat ini. "
-"ID keluarga configOptions seperti gemini-4-argon bukanlah modelId."
+"ID atau nama model yang ditawarkan agen terpilih, contohnya gemini-4-argon-"
+"medium, grok-4.6, atau devstral-small. Dikosongkan berarti tetap menggunakan"
+" model agen saat ini. Tidak digunakan oleh Bawaan (Built-in)."
 
 msgid "STT Provider"
 msgstr "Penyedia STT"
@@ -4426,11 +4483,14 @@ msgid "Speech Speed"
 msgstr "Kecepatan Bicara"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Pengali kecepatan pemutaran (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, atau "
-"kustom hingga 0.25x)."
+"Kecepatan bicara (1.0x–2.0x, atau kustom hingga 0.25x). Kokoro (lokal atau "
+"OpenRouter) dan Piper lokal berbicara pada kecepatan ini; suara daring "
+"lainnya dipercepat selama pemutaran (0.5x–2.0x; di Linux ini memerlukan "
+"ffplay atau mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4678,12 +4738,11 @@ msgstr "Tinjauan suntingan Agen"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Mati = suntingan langsung. Rekam = perubahan terlacak yang Anda terima/tolak"
-" sendiri. Tunggu = apply_document_content memblokir (pada utas pekerja "
-"chat/MCP) sampai Anda meninjau."
+"Mati = edit langsung. Rekam = perubahan terlacak yang Anda terima/tolak "
+"sendiri. Tunggu = blokir apply_content (pada utas obrolan/pekerja MCP) "
+"hingga Anda meninjau."
 
 msgid "Record (track changes)"
 msgstr "Rekam (lacak perubahan)"
@@ -4693,9 +4752,6 @@ msgstr "Tunggu tinjauan"
 
 msgid "Draw and Impress tools"
 msgstr "Alat Draw dan Impress"
-
-msgid "Vector Search"
-msgstr "Pencarian Vektor"
 
 msgid "Cross-file search"
 msgstr "Pencarian lintas berkas"
@@ -4780,15 +4836,15 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Bagaimana alat khusus dimunculkan ke klien MCP. delegate=dijangkau melalui "
+"Bagaimana alat khusus ditampilkan ke klien MCP. delegate=dijangkau melalui "
 "gateway delegasi (perilaku saat ini); direct_flat=semua alat khusus yang "
 "dapat dijangkau MCP dicantumkan secara langsung, tidak termasuk alur khusus "
 "bilah sisi (terbaik untuk klien dengan pencarian alat sendiri); "
-"direct_discovery=daftar inti kecil ditambah find_tools (katalog domain, lalu"
-" skema alat per domain; terbaik untuk klien mana pun)."
+"direct_discovery=daftar inti kecil ditambah tool_find (katalog domain, lalu "
+"skema alat per domain; terbaik untuk klien mana pun)."
 
 msgid "Delegate (default)"
 msgstr "Delegasi (default)"
@@ -4796,8 +4852,8 @@ msgstr "Delegasi (default)"
 msgid "Direct — list all tools"
 msgstr "Langsung — cantumkan semua alat"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Langsung — penemuan (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Langsung — penemuan (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Terowong publik"
@@ -4853,6 +4909,68 @@ msgstr "Konfigurasi klien (salin ke Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Salin Konfigurasi"
+
+msgid "Integrations"
+msgstr "Integrasi"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Server MCP untuk obrolan bilah samping"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Tambah"
+
+msgid "Remove"
+msgstr "Hapus"
+
+msgid "Use this MCP server in chat"
+msgstr "Gunakan server MCP ini dalam obrolan"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Hanya obrolan bilah samping (domain mcp); tidak pernah diekspos ke server "
+"MCP WriterAgent atau ke skrip."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Percayai alat baca-saja miliknya (tanpa prompt)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Alat yang ditandai readOnlyHint oleh server dijalankan tanpa Terima / Ubah /"
+" Tolak; setiap panggilan lainnya tetap akan meminta konfirmasi"
+
+msgid "Name"
+msgstr "Nama"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Memberi awalan pada nama alat server ini (contoh: home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL Server"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Titik akhir MCP HTTP yang dapat dialirkan, contoh: http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Token Bearer. Pengaturan OK akan menyimpannya di keyring sistem jika "
+"tersedia, jika tidak, akan disimpan di writeragent.json."
+
+msgid "Status"
+msgstr "Status"
 
 msgid "Notebook"
 msgstr "Buku Catatan"

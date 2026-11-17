@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-11 14:14-0500\n"
+"POT-Creation-Date: 2026-11-16 21:02-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -52,6 +52,7 @@ msgid "Specialized task ({domain}) completed."
 msgstr "Spetsialiseeritud ülesanne ({domain}) on lõpetatud."
 
 #: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/spreadsheet_import/import_dialog.py
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
 #: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
@@ -59,6 +60,37 @@ msgstr "Spetsialiseeritud ülesanne ({domain}) on lõpetatud."
 #: plugin/scripting/python_runner.py
 msgid "Error"
 msgstr "Viga"
+
+#: plugin/mcp_client/settings_ui.py
+msgid ""
+"The token is in the keyring but could not be read; unlock the keyring to see"
+" it."
+msgstr ""
+"Luba on võtmehoidjas, kuid seda ei saanud lugeda; avage võtmehoidja selle "
+"nägemiseks."
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "A server named {name} already exists."
+msgstr "Server nimega {name} on juba olemas."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Unlock the keyring before renaming this server."
+msgstr "Avage võtmehoidja enne selle serveri ümbernimetamist."
+
+#: plugin/mcp_client/settings_ui.py
+msgid "Checking…"
+msgstr "Kontrollin…"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Connected: {count} tools"
+msgstr "Ühendatud: {count} tööriista"
+
+#: plugin/mcp_client/settings_ui.py
+#, python-brace-format
+msgid "Failed: {error}"
+msgstr "Nurjus: {error}"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -309,6 +341,11 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
 msgstr "API-võtit pole konfigureeritud. Avage seaded ja lisage võti."
+
+#: plugin/framework/errors.py
+msgid "The system keyring is locked. Unlock it to use the saved API key."
+msgstr ""
+"Süsteemi võtmehoidja on lukus. Salvestatud API-võtme kasutamiseks avage see."
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -636,6 +673,10 @@ msgstr ""
 "Kokoro foneemimootorit ei õnnestunud installida; seda keelt võidakse valesti"
 " lugeda. Installige käsuga: {0}"
 
+#: plugin/calc/manipulator.py
+msgid "WriterAgent: Delete rows or columns"
+msgstr "WriterAgent: Kustuta read või veerud"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/_manifest.py
@@ -793,16 +834,6 @@ msgid "Images inserted"
 msgstr "Pildid lisatud"
 
 #: plugin/calc/python/addin_values.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Viga: pealõime täitmine aegus ({0})"
-
-#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Tundmatu viga"
-
-#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -817,6 +848,16 @@ msgid ""
 msgstr ""
 "Viga: Pythoni ajapiirang ületati. Ava Sätted → Python, et ajapiirangut "
 "suurendada, või testi venv-i."
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Viga: pealõime täitmine aegus ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Tundmatu viga"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -862,6 +903,26 @@ msgstr "Vali üks või mitu mittetühja lahtrit."
 msgid "Formula cells are skipped."
 msgstr "Valemilahtreid eiratakse."
 
+#: plugin/calc/named_ranges.py
+msgid "WriterAgent: Edit named range"
+msgstr "WriterAgent: Muuda nimega vahemikku"
+
+#: plugin/calc/viz.py plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseerimise abivahend ei tagastanud pildiandmeid."
+
+#: plugin/calc/rich_html.py
+msgid "WriterAgent: Insert HTML"
+msgstr "WriterAgent: Lisa HTML"
+
+#: plugin/calc/tabular_egress.py
+msgid "WriterAgent: Insert result"
+msgstr "WriterAgent: Sisesta tulemus"
+
+#: plugin/calc/pivot.py
+msgid "WriterAgent: Create pivot table"
+msgstr "WriterAgent: Loo liigendtabel"
+
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
 #, python-brace-format
@@ -883,6 +944,57 @@ msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
 #: plugin/calc/vision_egress.py
 msgid "No structured tables or text blocks to insert."
 msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
+
+#: plugin/calc/vision_egress.py
+msgid "WriterAgent: Insert extracted tables"
+msgstr "WriterAgent: Sisesta eraldatud tabelid"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Conversion finished with mismatches"
+msgstr "Teisendamine lõpetati mittevastavustega"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"{0} cell(s) did not verify.\n"
+"First: {1}: {2}\n"
+"\n"
+"{3}"
+msgstr ""
+"{0} lahter/lahtrit ei läbinud kontrolli.\n"
+"Esimene: {1}: {2}\n"
+"\n"
+"{3}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Edu"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid ""
+"Conversion completed successfully!\n"
+"\n"
+"{0}"
+msgstr ""
+"Teisendamine õnnestus!\n"
+"\n"
+"{0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+msgid "Active document is not a spreadsheet."
+msgstr "Aktiivne dokument ei ole arvutustabel."
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Conversion failed: {0}"
+msgstr "Teisendamine ebaõnnestus: {0}"
+
+#: plugin/calc/spreadsheet_import/import_dialog.py
+#, python-brace-format
+msgid "Failed to open import dialog: {0}"
+msgstr "Impordidialoogi avamine ebaõnnestus: {0}"
 
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
@@ -1398,7 +1510,7 @@ msgstr "üldine"
 msgid "plain"
 msgstr "lihtne"
 
-#: plugin/chatbot/research_cache_fluff.py
+#: plugin/chatbot/research_cache_fluff.py plugin/chatbot/settings_fields.py
 msgid "plain text"
 msgstr "lihttekst"
 
@@ -1624,10 +1736,6 @@ msgstr "Silumine"
 msgid "[No speech detected.]"
 msgstr "[Kõnet ei tuvastatud.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
-msgid "[Voice message]"
-msgstr "[Häälsõnum]"
-
 #: plugin/chatbot/slash_undo_formula.py
 msgid "WriterAgent: Formula"
 msgstr "WriterAgent: Valem"
@@ -1637,7 +1745,6 @@ msgid "Wait for the current operation to finish before /undo."
 msgstr "Oodake enne /undo käsku praeguse toimingu lõpetamist."
 
 #: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py
 msgid "No document is open."
 msgstr "Ükski dokument pole avatud."
 
@@ -1673,12 +1780,10 @@ msgstr "(tühi)"
 #: plugin/chatbot/slash_undo_formula.py
 msgid ""
 "Reply with the formula only. It must start with =. Use English function "
-"names. Use semicolon (;) between function arguments (Calc setFormula API "
-"grammar). No prose or markdown."
+"names. No prose or markdown."
 msgstr ""
 "Vasta ainult valemiga. See peab algama märgiga =. Kasuta ingliskeelseid "
-"funktsiooninimesid. Kasuta funktsiooni argumentide vahel semikoolonit (;) "
-"(Calc setFormula API süntaks). Ära lisa selgitavat teksti ega markdowni."
+"funktsiooninimesid. Ilma selgitava teksti ja markdownita."
 
 #: plugin/chatbot/slash_undo_formula.py
 msgid "Could not insert the formula."
@@ -2113,6 +2218,11 @@ msgid "Compaction cancelled."
 msgstr "Tihendamine tühistati."
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Agendi taustaprogrammi viga: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Ühilduvat LibreOffice'i dokumenti ei leitud.]"
 
@@ -2139,11 +2249,6 @@ msgstr "[Heliviga: salvestamine peatati ilma helifailita.]"
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Käivitamine..."
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid "[Agent backend error: {0}]"
-msgstr "[Agendi taustaprogrammi viga: {0}]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -2408,6 +2513,11 @@ msgstr ""
 "(TTS)\"."
 
 #: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "API Key ({where}):"
+msgstr "API-võti ({where}):"
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Audioteegi allalaadimine"
 
@@ -2422,6 +2532,15 @@ msgstr "(Selles lõpp-punktis puuduvad pildimudelid)"
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
 msgstr "(Ühendus nurjus)"
+
+#: plugin/chatbot/settings_fields.py
+msgid "system keyring"
+msgstr "süsteemi võtmehoidja"
+
+#: plugin/chatbot/settings_fields.py
+#, python-brace-format
+msgid "Stored in: {where}"
+msgstr "Salvestatud asukohta: {where}"
 
 #: plugin/chatbot/panel_voice.py
 msgid "Hands-free off"
@@ -2650,7 +2769,7 @@ msgstr ""
 "Salvestatud dokumendi skriptid on toetamata vormingus (versioon {0}), "
 "seetõttu jäeti need muutmata."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/document_scripts.py
 msgid "No document is open to save scripts."
 msgstr "Skriptide salvestamiseks pole ühtegi dokumenti avatud."
 
@@ -2693,25 +2812,18 @@ msgstr "See dokument"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). Saved it to My Scripts instead."
-msgstr ""
-"Ei saanud '{0}' sellesse dokumenti salvestada ({1}). Salvestasin selle "
-"hoopis asukohta Minu skriptid."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid ""
-"Could not save '{0}' to this document ({1}). A script named '{0}' already "
-"exists in My Scripts."
-msgstr ""
-"Ei saanud '{0}' sellesse dokumenti salvestada ({1}). Skript nimega '{0}' on "
-"juba asukohas Minu skriptid olemas."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
 msgid "Script '{0}' does not exist in My Scripts."
 msgstr "Skripti '{0}' jaotises „Minu skriptid“ ei eksisteeri."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript '%s' on sellesse dokumenti salvestatud."
+
+#: plugin/scripting/document_scripts.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ on edukalt salvestatud."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2721,25 +2833,10 @@ msgstr ""
 "Skripti „{0}“ ei ole jaotises „Minu skriptid“ ega selles dokumendis, "
 "seetõttu seda ei salvestatud."
 
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skript '{0}' salvestati sellesse dokumenti."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skript '{0}' on salvestatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Dokumendi skript '{0}' on kustutatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Skript '{0}' on kustutatud."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript '%s' on kustutatud."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/text_analytics_ui.py
 msgid "The document was closed."
@@ -2752,16 +2849,6 @@ msgstr "Dokument pole enam avatud."
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialogi ei saanud laiendusest laadida."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skript '%s' on sellesse dokumenti salvestatud."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skript „%s“ on edukalt salvestatud."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Running..."
@@ -2786,11 +2873,6 @@ msgid "Delete Script"
 msgstr "Kustuta skript"
 
 #: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skript '%s' on kustutatud."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "New Script"
 msgstr "Uus skript"
 
@@ -2807,10 +2889,6 @@ msgstr "Skript '%s' on loodud minu skriptide hulka."
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
 msgstr "Skript käivitati edukalt."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Edu"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
@@ -3203,10 +3281,6 @@ msgstr "Toetamata dokumenditüüp graafiku lisamiseks."
 msgid "Viz helper failed."
 msgstr "Visualiseerimise abivahend nurjus."
 
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Visualiseerimise abivahend ei tagastanud pildiandmeid."
-
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid ""
@@ -3271,14 +3345,6 @@ msgstr "Prognoosimise abivahendid"
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
-" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
-
-#: plugin/scripting/session_manager.py
-msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
@@ -3299,14 +3365,6 @@ msgstr "Pythoni seanssi ei saanud lähtestada."
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr "Märkmiku Pythoni seanss on selle dokumendi jaoks lähtestatud."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Pythoni seansi lähtestamine kehtib Calci arvutustabelite kohta. Avage Calci "
-"töövihik ja proovige uuesti."
 
 #: plugin/scripting/session_manager.py
 msgid "This spreadsheet has no Python worker session yet."
@@ -3467,9 +3525,8 @@ msgstr ""
 "Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
 
 #: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks. (kulus {time})"
+msgid "Unsupported document type for result insertion."
+msgstr "Tulemuse sisestamiseks toetamata dokumenditüüp."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -4267,17 +4324,17 @@ msgstr ""
 "Küsi kinnitust enne, kui lubad agendil tööriistu kasutada (failide lugemine,"
 " käskude täitmine jne)"
 
-msgid "Antigravity model"
-msgstr "Antigravitatsioonimudel"
+msgid "Model"
+msgstr "Mudel"
 
 msgid ""
-"agy modelId from session/new models.availableModels, for example "
-"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
-" ids such as gemini-4-argon are not modelIds."
+"Model id or name the selected agent offers, for example gemini-4-argon-"
+"medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. "
+"Not used by Built-in."
 msgstr ""
-"agy modelId seansist/uued models.availableModels, näiteks gemini-4-argon-"
-"medium. Tühjaks jätmine säilitab agy praeguse mudeli. configOptions "
-"perekonna ID-d, nagu gemini-4-argon, ei ole modelId-d."
+"Valitud agendi pakutav mudeli ID või nimi, näiteks gemini-4-argon-medium, "
+"grok-4.6 või devstral-small. Tühjaks jätmine säilitab agendi praeguse "
+"mudeli. Sisseehitatud (Built-in) puhul ei kasutata."
 
 msgid "STT Provider"
 msgstr "Kõnetuvastuse (STT) pakkuja"
@@ -4414,11 +4471,14 @@ msgid "Speech Speed"
 msgstr "Kõne kiirus"
 
 msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
+"Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or "
+"OpenRouter) and local Piper speak at this speed; other online voices are "
+"sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
 msgstr ""
-"Taasesituse kiiruse kordaja (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x või "
-"kohandatud kuni 0.25x)."
+"Kõne kiirus (1.0x–2.0x või kohandatud kuni 0.25x). Kokoro (kohalik või "
+"OpenRouter) ja kohalik Piper räägivad sellel kiirusel; teisi veebipõhiseid "
+"hääli kiirendatakse taasesituse ajal (0.5x–2.0x; Linuxis on selleks vaja "
+"ffplay või mpv)."
 
 msgid "1.0x"
 msgstr "1.0x"
@@ -4667,12 +4727,11 @@ msgstr "Agendi redigeerimise ülevaade"
 
 msgid ""
 "Off = direct edits. Record = tracked changes you accept/reject yourself. "
-"Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
-"review."
+"Wait = apply_content blocks (on chat/MCP worker thread) until you review."
 msgstr ""
-"Väljas = otsesed muudatused. Salvesta = jälgitavad muudatused, mida ise "
-"aktsepteerid/lükkad tagasi. Oota = apply_document_content blokeerib "
-"(vestluse/MCP tööniidil), kuni oled üle vaadanud."
+"Väljas (Off) = otsesed muudatused. Salvesta (Record) = jälgitavad "
+"muudatused, mida ise aktsepteerite/lükkate tagasi. Oota (Wait) = rakenda "
+"apply_content plokke (vestluse/MCP tööniidis), kuni olete üle vaadanud."
 
 msgid "Record (track changes)"
 msgstr "Salvesta (jälgi muudatusi)"
@@ -4682,9 +4741,6 @@ msgstr "Oota ülevaatust"
 
 msgid "Draw and Impress tools"
 msgstr "Draw ja Impress tööriistad"
-
-msgid "Vector Search"
-msgstr "Vektorotsing"
 
 msgid "Cross-file search"
 msgstr "Failideülene otsing"
@@ -4769,15 +4825,16 @@ msgid ""
 "delegate gateway (today's behavior); direct_flat=all MCP-reachable "
 "specialized tools listed directly, excluding sidebar-only flows (best for "
 "clients with their own tool-search); direct_discovery=small core list plus "
-"find_tools (domain catalog, then per-domain tool schemas; best for any "
+"tool_find (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Kuidas spetsiaalsed tööriistad MCP-klientidele kuvatakse. delegate=jõutakse "
-"kohale delegaatlüüsi kaudu (tänane käitumine); direct_flat=kõik MCP-ga "
-"ligipääsetavad spetsiaalsed tööriistad on loetletud otse, välistades "
-"külgriba-vood (parim klientidele, kellel on oma tööriistaotsing); "
-"direct_discovery=väike põhinimekiri pluss find_tools (domeenikataloog, "
-"seejärel domeenipõhised tööriistaskeemid; parim igale kliendile)."
+"Kuidas spetsialiseeritud tööriistad MCP-klientidele kuvatakse. delegate = "
+"ligipääs delegaatlüüsi kaudu (tänane käitumine); direct_flat = kõik MCP-ga "
+"ligipääsetavad spetsialiseeritud tööriistad on loetletud otse, välistades "
+"ainult külgribal toimivad vood (parim klientidele, kellel on oma "
+"tööriistaotsing); direct_discovery = väike põhinimekiri pluss tool_find "
+"(domeenikataloog, seejärel domeenipõhised tööriistaskeemid; parim igale "
+"kliendile)."
 
 msgid "Delegate (default)"
 msgstr "Delegaat (vaikimisi)"
@@ -4785,8 +4842,8 @@ msgstr "Delegaat (vaikimisi)"
 msgid "Direct — list all tools"
 msgstr "Otse — loetle kõik tööriistad"
 
-msgid "Direct — discovery (find_tools)"
-msgstr "Otse — avastamine (find_tools)"
+msgid "Direct — discovery (tool_find)"
+msgstr "Otse — avastamine (tool_find)"
 
 msgid "Public tunnel"
 msgstr "Avalik tunnel"
@@ -4842,6 +4899,69 @@ msgstr "Kliendi konfiguratsioon (kopeerige Claude / Hermes-Agenti):"
 
 msgid "Copy Config"
 msgstr "Kopeeri seadistus"
+
+msgid "Integrations"
+msgstr "Integratsioonid"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-serverid külgriba vestluse jaoks"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Lisa"
+
+msgid "Remove"
+msgstr "Eemalda"
+
+msgid "Use this MCP server in chat"
+msgstr "Kasuta seda MCP-serverit vestluses"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Ainult külgriba vestluses (mcp-domeen); ei avaldata kunagi WriterAgenti MCP-"
+"serverile ega skriptidele."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Usalda selle kirjutuskaitstud tööriistu (ilma viipeta)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Serveri poolt kirjutuskaitstuks (readOnlyHint) märgitud tööriistad "
+"käivituvad ilma kinnitamise/muutmise/tagasilükkamiseta; iga muu päring küsib"
+" endiselt kinnitust"
+
+msgid "Name"
+msgstr "Nimi"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Lisab selle serveri tööriistade nimedele eesliite (nt home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Serveri URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Voogedastatav HTTP MCP-lõpp-punkt, nt http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-token. Sätte „OK“ salvestab selle süsteemi võtmehoidlasse, kui see on"
+" saadaval, vastasel juhul faili writeragent.json."
+
+msgid "Status"
+msgstr "Olek"
 
 msgid "Notebook"
 msgstr "Märkmik"
