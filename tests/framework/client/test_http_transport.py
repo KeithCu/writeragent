@@ -1039,10 +1039,12 @@ def test_transport_send_refused_connect_preserves_type_and_errno():
     port = probe.getsockname()[1]
     probe.close()
 
-    transport = LlmHttpTransport(lambda: f"http://127.0.0.1:{port}", lambda: 5, connect_timeout=1.0)
+    # Windows loopback TCP retries SYN for ~2s before returning WSAECONNREFUSED,
+    # so a 1.0s connect_timeout trips TimeoutError before connect fails.
+    transport = LlmHttpTransport(lambda: f"http://127.0.0.1:{port}", lambda: 5, connect_timeout=5.0)
     with pytest.raises(ConnectionRefusedError) as exc_info:
         transport.send("POST", "/mcp", b"{}", headers={"Content-Type": "application/json"})
-    assert exc_info.value.errno == errno.ECONNREFUSED
+    assert exc_info.value.errno in (errno.ECONNREFUSED, getattr(errno, "WSAECONNREFUSED", errno.ECONNREFUSED))
     assert transport.request_started is False
 
 

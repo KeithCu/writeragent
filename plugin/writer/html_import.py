@@ -370,12 +370,17 @@ def insert_html_at_cursor(
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
+# LibreOffice SwXTextCursor::getString() returns "\n" on POSIX and "\r\n"
+# on Windows (SAL_NEWLINE_STRING) for a single paragraph break.
+_PARAGRAPH_BREAKS = ("\n", "\r\n")
+
+
 def _delete_preceding_break(cursor: Any) -> bool:
-    """Delete a ``\\n`` immediately before *cursor*; return True if one was deleted."""
+    """Delete a paragraph break immediately before *cursor*; return True if one was deleted."""
     cursor.collapseToStart()
     if not cursor.goLeft(1, True):
         return False
-    if cursor.getString() == "\n":
+    if cursor.getString() in _PARAGRAPH_BREAKS:
         cursor.setString("")
         return True
     cursor.collapseToEnd()
@@ -407,7 +412,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     if _delete_preceding_break(leftover) or not merge_forward_after_table:
         return
     if leftover.goRight(1, True):
-        if leftover.getString() == "\n":
+        if leftover.getString() in _PARAGRAPH_BREAKS:
             leftover.setString("")
         else:
             leftover.collapseToStart()
@@ -659,7 +664,7 @@ def _without_trailing_break(rng: Any) -> Any:
     end = text.createTextCursorByRange(rng.getEnd())
     if not (start.isStartOfParagraph() and end.isStartOfParagraph()):
         return rng
-    if not end.goLeft(1, True) or end.getString() != "\n":
+    if not end.goLeft(1, True) or end.getString() not in _PARAGRAPH_BREAKS:
         return rng
     start.gotoRange(end.getStart(), True)
     return start

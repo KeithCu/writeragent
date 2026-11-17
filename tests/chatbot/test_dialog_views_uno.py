@@ -212,6 +212,11 @@ def test_enable_before_show_stays_off_general(ctx):
 def test_acp_model_disabled_for_builtin_keeps_its_step(ctx):
     """ACP Model is disabled for Built-in and stays on step 4 without leaking onto General."""
     from plugin.chatbot.dialog_views import sync_acp_model_ui
+    from plugin.tests.testing_utils import skip_windows_awt_top_dialog
+
+    # Mapping a TOP AWT dialog with UnoControlEditModel via createPeer(toolkit, None)
+    # + setVisible(True) hangs 30s on Windows headless VCL before sync_acp_model_ui runs.
+    skip_windows_awt_top_dialog("acp_model createPeer/setVisible")
 
     smgr = ctx.getServiceManager()
     model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)

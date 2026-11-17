@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -46,26 +49,49 @@ def _config_backup_path() -> str:
     return get_config_file_path() + _CONFIG_BACKUP_SUFFIX
 
 
-def _read_text(path: str) -> str | None:
+def _read_bytes(path: str) -> bytes | None:
     try:
-        with open(path, "r", encoding="utf-8", newline="") as handle:
+        with open(path, "rb") as handle:
             return handle.read()
     except FileNotFoundError:
         return None
 
 
-def _save_config_backup() -> None:
-    """Snapshot the exact writeragent.json text before a mock session edits it.
+def _atomic_write_bytes(path: str, data: bytes, *, prefix: str = ".tmp-", fsync: bool = False) -> None:
+    """Atomically write raw bytes to *path* so line endings are preserved verbatim."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            if fsync:
+                handle.flush()
+                os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
-    Storing the raw file text lets stop restore every key the session or live
-    sidebar wrote, including model LRUs, support maps, and flags.
+
+def _save_config_backup() -> None:
+    """Snapshot the exact writeragent.json bytes before a mock session edits it.
+
+    Storing the raw file bytes lets stop restore every key and exact line
+    endings the session or live sidebar touched, including model LRUs,
+    support maps, and flags.
     """
-    from plugin.framework.config import atomic_write_text, get_config_file_path
+    from plugin.framework.config import get_config_file_path
 
     config_path = get_config_file_path()
     backup_path = _config_backup_path()
     os.makedirs(os.path.dirname(backup_path) or ".", exist_ok=True)
-    atomic_write_text(backup_path, json.dumps({"config": _read_text(config_path)}), fsync=True)
+    raw_bytes = _read_bytes(config_path)
+    encoded = None if raw_bytes is None else base64.b64encode(raw_bytes).decode("ascii")
+    payload = json.dumps({"config_b64": encoded}).encode("utf-8")
+    _atomic_write_bytes(backup_path, payload, fsync=True)
 
 
 def _still_pointed_at_mock(text: str | None) -> bool:
@@ -100,20 +126,24 @@ def _restore_config_backup(*, only_if_still_mock: bool) -> bool:
     ``_config_write_lock`` because ``_load`` trusts its cache for 2 s.
     """
     import plugin.framework.config as fw_config
-    from plugin.framework.config import atomic_write_text, get_config_file_path
+    from plugin.framework.config import get_config_file_path
 
     backup_path = _config_backup_path()
-    backup_text = _read_text(backup_path)
-    if backup_text is None:
+    backup_bytes = _read_bytes(backup_path)
+    if backup_bytes is None:
         return False
     try:
-        payload = json.loads(backup_text)
-        if not isinstance(payload, dict) or "config" not in payload:
-            raise ValueError("missing config key")
-        saved_text = payload["config"]
-        if saved_text is not None and not isinstance(saved_text, str):
-            raise ValueError("invalid config value")
-    except (ValueError, KeyError) as exc:
+        payload = json.loads(backup_bytes.decode("utf-8"))
+        if not isinstance(payload, dict) or "config_b64" not in payload:
+            raise ValueError("missing config_b64 key")
+        encoded = payload["config_b64"]
+        if encoded is None:
+            saved_bytes: bytes | None = None
+        elif isinstance(encoded, str):
+            saved_bytes = base64.b64decode(encoded.encode("ascii"), validate=True)
+        else:
+            raise ValueError("invalid config_b64 value")
+    except (ValueError, KeyError, UnicodeDecodeError, binascii.Error) as exc:
         print(
             f"mock_llm_harness: dropping malformed backup {backup_path} ({exc})",
             file=sys.stderr,
@@ -125,15 +155,17 @@ def _restore_config_backup(*, only_if_still_mock: bool) -> bool:
         return False
     config_path = get_config_file_path()
     restored = False
-    if not only_if_still_mock or _still_pointed_at_mock(_read_text(config_path)):
+    live_bytes = _read_bytes(config_path)
+    live_text = None if live_bytes is None else live_bytes.decode("utf-8", errors="replace")
+    if not only_if_still_mock or _still_pointed_at_mock(live_text):
         with fw_config._config_write_lock:
-            if saved_text is None:
+            if saved_bytes is None:
                 try:
                     os.remove(config_path)
                 except FileNotFoundError:
                     pass
             else:
-                atomic_write_text(config_path, saved_text, prefix=".writeragent-", fsync=True)
+                _atomic_write_bytes(config_path, saved_bytes, prefix=".writeragent-", fsync=True)
             fw_config._invalidate_config_cache()
         restored = True
     else:

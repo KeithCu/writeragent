@@ -789,6 +789,12 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
         sheets.removeByName(name)
     sheet = sheets.getByIndex(0)
     try:
+        draw_page = sheet.getDrawPage()
+        while draw_page.getCount() > 0:
+            draw_page.remove(draw_page.getByIndex(draw_page.getCount() - 1))
+    except Exception:
+        pass
+    try:
         if sheet.Name != "Sheet1":
             sheet.setName("Sheet1")
     except Exception:
