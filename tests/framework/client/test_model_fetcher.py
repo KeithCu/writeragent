@@ -1757,3 +1757,114 @@ def test_memo_text_models_or_fetch_never_reads_locked_key_or_fetches_keyless(
     assert got is None
     mock_get_key.assert_not_called()
     mock_bg.assert_not_called()
+
+
+TOGETHER_MODELS_BODY = [
+    {"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "type": "chat", "context_length": 131072},
+    {"id": "meta-llama/Llama-3.1-8B-Reference", "type": "language"},
+    {"id": "Qwen/Qwen2.5-Coder-32B-Instruct", "type": "code"},
+    {"id": "black-forest-labs/FLUX.1-schnell", "type": "image"},
+    {"id": "google/flash-image-2.5", "type": "image"},
+    {"id": "cartesia/sonic-2", "type": "audio"},
+    {"id": "hexgrad/Kokoro-82M", "type": "audio"},
+    {"id": "canopylabs/orpheus-3b-0.1-ft", "type": "audio"},
+    {"id": "openai/whisper-large-v3", "type": "transcribe"},
+    {"id": "Wan-AI/Wan2.2-T2V-A14B", "type": "video"},
+    {"id": "BAAI/bge-large-en-v1.5", "type": "embedding"},
+    {"id": "meta-llama/Llama-Guard-4-12B", "type": "moderation"},
+    {"id": "Salesforce/Llama-Rank-V1", "type": "rerank"},
+]
+
+_TOGETHER_TEXT_IDS = [
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "meta-llama/Llama-3.1-8B-Reference",
+    "Qwen/Qwen2.5-Coder-32B-Instruct",
+]
+
+
+def test_together_non_text_rows_left_out_of_text_list():
+    import plugin.framework.client.model_fetcher as mf
+
+    tg = "https://api.together.xyz/v1"
+    key = "test-tg-key"
+    mf.clear_settings_catalog_cache(tg, api_key_override=key)
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value=TOGETHER_MODELS_BODY), \
+             patch.object(mf, "get_config", return_value=""):
+            ids = mf.fetch_available_models(tg, api_key_override=key)
+        assert ids == [row["id"] for row in TOGETHER_MODELS_BODY]
+        assert mf.cached_image_models(tg, api_key_override=key) == [
+            "black-forest-labs/FLUX.1-schnell",
+            "google/flash-image-2.5",
+        ]
+        assert mf.drop_non_text_models(tg, ids, api_key_override=key) == _TOGETHER_TEXT_IDS
+    finally:
+        mf.clear_settings_catalog_cache(tg, api_key_override=key)
+
+
+def test_drop_non_text_models_shared_rule_across_providers():
+    import plugin.framework.client.model_fetcher as mf
+
+    ep = "https://openrouter.ai/api/v1"
+    key = "test-or-key"
+    body = {
+        "data": [
+            {"id": "or/image-only", "architecture": {"output_modalities": ["image"]}},
+            {"id": "or/image-and-text", "architecture": {"output_modalities": ["image", "text"]}},
+            {"id": "or/audio-only", "output_modalities": ["audio"]},
+            {"id": "anthropic/claude-sonnet-4", "type": "model"},
+            {"id": "mistral/mistral-large", "type": "base"},
+            {"id": "plain/untyped-model"},
+        ],
+    }
+    raw_ids = [row["id"] for row in body["data"]]
+    mf.clear_settings_catalog_cache(ep, api_key_override=key)
+    try:
+        # Cold memo returns the input unchanged.
+        assert mf.drop_non_text_models(ep, raw_ids, api_key_override=key) == raw_ids
+        with patch("plugin.framework.client.requests.sync_request", return_value=body), \
+             patch.object(mf, "get_config", return_value=""):
+            fetched = mf.fetch_available_models(ep, api_key_override=key)
+        assert fetched == raw_ids
+        assert mf.drop_non_text_models(ep, raw_ids, api_key_override=key) == [
+            "or/image-and-text",
+            "anthropic/claude-sonnet-4",
+            "mistral/mistral-large",
+            "plain/untyped-model",
+        ]
+    finally:
+        mf.clear_settings_catalog_cache(ep, api_key_override=key)
+
+
+def test_memo_text_models_or_fetch_together_delivers_text_only():
+    import plugin.framework.client.model_fetcher as mf
+
+    tg = "https://api.together.xyz/v1"
+    jobs = []
+    posted = []
+    received: list[list[str]] = []
+    mf.clear_settings_catalog_cache(tg)
+    try:
+        with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="k"), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False), \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, name=None: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=TOGETHER_MODELS_BODY):
+            first = mf.memo_text_models_or_fetch(tg, received.append, task_name="test-tg")
+            assert first is None
+            assert len(jobs) == 1
+            jobs[0]()
+            assert len(posted) == 1
+            posted[0]()
+
+        assert received == [_TOGETHER_TEXT_IDS]
+
+        with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="k"), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False):
+            warm = mf.memo_text_models_or_fetch(tg, lambda unused: None, task_name="test-tg")
+        assert warm == _TOGETHER_TEXT_IDS
+    finally:
+        mf.clear_settings_catalog_cache(tg)

@@ -103,3 +103,52 @@ def test_switching_back_to_saved_provider_drops_ids_from_the_one_just_left():
 
     assert ctrls["text_model"].text != "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
     assert ctrls["image_model"].text not in TG_IMAGES
+
+
+def test_together_text_combo_lists_only_text_models():
+    from plugin.framework.client.model_fetcher import (
+        clear_settings_catalog_cache,
+        fetch_available_models,
+    )
+    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from tests.framework.client.test_model_fetcher import TOGETHER_MODELS_BODY
+
+    save({
+        "endpoint": OR,
+        "text_model": "openai/gpt-oss-120b:nitro",
+        "image_model": "google/gemini-3.1-flash-lite-image",
+    })
+    set_api_key_for_endpoint(TG, "dummy-not-a-key")
+    ctrls = {
+        "endpoint": FakeCombo(OR),
+        "api_key": FakeCombo(""),
+        "text_model": FakeCombo("openai/gpt-oss-120b:nitro"),
+        "image_model": FakeCombo("google/gemini-3.1-flash-lite-image"),
+        "audio__stt_model": FakeCombo(""),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+
+    key = "dummy-not-a-key"
+    clear_settings_catalog_cache(TG, api_key_override=key)
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
+            ctrls["endpoint"].setText(TG)
+            ctrls["api_key"].setText(key)
+            key = listener._api_key_override()
+            clear_settings_catalog_cache(TG, api_key_override=key)
+            with patch("plugin.framework.client.requests.sync_request", return_value=TOGETHER_MODELS_BODY):
+                ids = fetch_available_models(TG, api_key_override=key)
+            assert ids is not None
+            listener._apply_dropdowns(TG, models=ids, skip_fetch=False)
+
+        non_text_ids = {
+            row["id"] for row in TOGETHER_MODELS_BODY
+            if row["type"] not in ("chat", "language", "code")
+        }
+        assert not (set(ctrls["text_model"].items) & non_text_ids)
+        assert "meta-llama/Llama-3.3-70B-Instruct-Turbo" in ctrls["text_model"].items
+        assert "black-forest-labs/FLUX.1-schnell" in ctrls["image_model"].items
+        assert "openai/whisper-large-v3" in ctrls["audio__stt_model"].items
+    finally:
+        clear_settings_catalog_cache(TG, api_key_override=key)

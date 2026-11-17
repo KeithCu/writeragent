@@ -44,6 +44,7 @@ from plugin.framework.client.model_fetcher import (
     cached_text_models,
     cached_tts_models,
     clear_settings_catalog_cache,
+    drop_non_text_models,
     endpoint_url_suitable_for_v1_models_fetch,
     fetch_available_image_models,
     fetch_available_models,
@@ -1099,13 +1100,18 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
         self._painted_provider = resolved_provider
 
+        text_models = (
+            drop_non_text_models(resolved, models, api_key_override=self._api_key_override())
+            if isinstance(models, list) else models
+        )
         image_models = (
             cached_image_models(resolved, api_key_override=self._api_key_override())
             if models is not None
             else None
         )
+        # Speech rows need the full models list because Together speech ids are prefix-matched from it.
         rows = (
-            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), _MODEL_LRU_KEYS["text_model"], models),
+            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), _MODEL_LRU_KEYS["text_model"], text_models),
             (get_optional(self._dlg, "audio__stt_model"), str(get_stt_model() or ""), _MODEL_LRU_KEYS["audio__stt_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")),
             (get_optional(self._dlg, "audio__tts_model"), str(get_config("audio.tts_model") or get_tts_model() or ""), _MODEL_LRU_KEYS["audio__tts_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")),
             (get_optional(self._dlg, "image_model"), str(get_image_model() or ""), "image_model_lru", image_models),
