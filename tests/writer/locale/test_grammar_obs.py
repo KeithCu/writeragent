@@ -560,6 +560,58 @@ def test_writer_agent_routine_request_does_not_paint_status_bar() -> None:
     mock_post.assert_not_called()
 
 
+def test_writer_agent_failed_then_done_clears_status_bar_and_ends_indicator() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    mock_indicator = MagicMock()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.return_value = mock_indicator
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.begin_status_cycle()
+        sink.failed("Grammar check", result="HTTP 400")
+        sink.end_status_cycle()
+        assert sink._status_bar.is_active()
+        mock_indicator.end.assert_not_called()
+
+        sink.begin_status_cycle()
+        sink.record_done_status("He don't like.", result="1 issue", routine=False)
+        sink.end_status_cycle()
+
+    mock_indicator.setText.assert_called_with("Grammar: Grammar check complete")
+    mock_indicator.setValue.assert_called_with(100)
+    mock_indicator.end.assert_called_once()
+    assert not sink._status_bar.is_active()
+
+
+def test_end_status_cycle_after_failure_does_not_emit_skipped_done() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    mock_indicator = MagicMock()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.return_value = mock_indicator
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.begin_status_cycle()
+        sink.failed("Grammar check", result="HTTP 400")
+        sink.end_status_cycle()
+
+    assert mock_bus.emit.call_count == 1
+    assert mock_bus.emit.call_args.kwargs["phase"] == "failed"
+    mock_indicator.end.assert_not_called()
+    assert sink._status_bar.is_active()
+
+
 def test_status_bar_grammar_status_swallows_post_errors() -> None:
     sink = go.StatusBarGrammarStatus()
     with (
