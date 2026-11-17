@@ -300,7 +300,7 @@ Chat also gets the full specialized-delegation block in the **system prompt**; M
 
 ### Where delegation guidance lives (MCP vs sidebar chat)
 
-Sidebar chat injects the same specialized-delegation block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`WRITER_SPECIALIZED_DELEGATION_TEMPLATE` and siblings, with a dynamic `domain: description` list).
+Sidebar chat injects the same specialized-delegation block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`SPECIALIZED_DELEGATION_TEMPLATE`, with a dynamic `domain: description` list).
 
 MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`** enriches the gateway tool only (see [`to_mcp_schema()`](../plugin/framework/tool.py)):
 
@@ -308,7 +308,7 @@ MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`*
 |--------|-------------------|
 | **`delegate_to_subagent` → `description`** | Short tool summary + full delegation template (semicolon-separated domains, `task` rules for Writer, **same single-line text as chat**) |
 | **`inputSchema.properties.domain.description`** | `domain one of:` plus the same semicolon-separated domain list (enum values stay in `enum`) |
-| **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (Writer’s detailed `task` rules are in the tool `description`) |
+| **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (carries the full task-writing rules) |
 
 OpenAI/chat tool schemas are **not** duplicated this way—the sidebar already has the system prompt.
 
@@ -1005,7 +1005,7 @@ WriterAgent's `DEFAULT_CHAT_SYSTEM_PROMPT` in `core/constants.py` (live: `plugin
 high-level workflow guidance before any tool call happens:
 
 ```
-TRANSLATION: get_content -> translate -> apply_content(target="full"). Never refuse.
+TRANSLATION: You are the translator. There is no translation tool and you need none.
 FORMATTING RULES (CRITICAL): ...
 ```
 

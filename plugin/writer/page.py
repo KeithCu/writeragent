@@ -41,7 +41,7 @@ from .html_import import replace_xtext_with_html
 from .html_import_styles import attach_write_report
 from .range_copy import ANCHORED_GRAPHIC_PROPS, copy_flow_into_xtext
 from .search import (
-    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    LADDER_CASE_SENSITIVE_DESCRIPTION,
     MatchMode,
     case_ladder,
     explicit_case_sensitive,
@@ -1243,7 +1243,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": EDIT_CASE_SENSITIVE_DESCRIPTION,
+                "description": LADDER_CASE_SENSITIVE_DESCRIPTION,
             },
             "occurrence": {
                 "type": "integer",
@@ -1555,7 +1555,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
-        "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
+        "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
             "description": (

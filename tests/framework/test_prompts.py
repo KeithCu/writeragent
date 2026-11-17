@@ -1,4 +1,5 @@
 import gc
+import json
 import logging
 import weakref
 from unittest.mock import MagicMock, patch
@@ -546,3 +547,32 @@ def test_mcp_blurb_claims_requests_naming_an_mcp_server() -> None:
     mcp_line = next(line for line in hint.splitlines() if "mcp:" in line)
     assert "MCP server" in mcp_line
     assert "MCP tool" in mcp_line
+
+
+def test_apply_content_examples_are_valid_json_arrays() -> None:
+    """Every Good example in SUB_AGENT_HTML_CONTENT_RULES must parse as a JSON array of strings."""
+    from plugin.framework.prompts import SUB_AGENT_HTML_CONTENT_RULES
+
+    good_lines = [line for line in SUB_AGENT_HTML_CONTENT_RULES.splitlines() if line.startswith("- Good")]
+    assert good_lines
+    for line in good_lines:
+        parsed = json.loads(line[line.index("["):])
+        assert isinstance(parsed, list)
+        assert all(isinstance(item, str) for item in parsed)
+
+
+@pytest.mark.parametrize("kind", ["writer", "calc", "draw"])
+def test_task_rules_reach_main_chat_once(kind: str) -> None:
+    """Delegate task-writing rules appear once across the system prompt and tool schemas."""
+    from plugin.app import get_tools
+    from plugin.framework.prompts import IMAGE_EDIT_TASK_RULE, get_chat_system_prompt_for_kind
+
+    schemas = get_tools().get_schemas("openai", doc_type=kind)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_kind(kind)
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.count(IMAGE_EDIT_TASK_RULE) == 1

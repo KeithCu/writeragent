@@ -148,16 +148,12 @@ class MatchMode:
         }
 
 
-_LADDER_CASE_SENSITIVE_BODY = (
-    "Omit to match exact case first and ignore case only when nothing matches; true or false "
-    "forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/"
-    "curly quote or dash variant matches (never for a needle of punctuation alone)."
+# Quote/dash folding and the matched_* result fields are explained once in
+# APPLY_DOCUMENT_TARGET_RULES (plugin/framework/prompts.py).
+LADDER_CASE_SENSITIVE_DESCRIPTION = (
+    "Omit to match exact case first and ignore case only when nothing matches; "
+    "true or false forces that mode."
 )
-EDIT_CASE_SENSITIVE_DESCRIPTION = (
-    _LADDER_CASE_SENSITIVE_BODY
-    + " matched_case_sensitive and matched_folded in the result name the pass that matched."
-)
-CURSOR_CASE_SENSITIVE_DESCRIPTION = _LADDER_CASE_SENSITIVE_BODY
 
 
 class OccurrenceOutOfRange(IndexError):

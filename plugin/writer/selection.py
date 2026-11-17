@@ -18,7 +18,7 @@ from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
 from plugin.writer.search import (
-    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    LADDER_CASE_SENSITIVE_DESCRIPTION,
     describe_match_location,
     explicit_case_sensitive,
     occurrence_range_or_error,
@@ -57,7 +57,7 @@ class SetSelection(ToolBase):
         "properties": {
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match to select when search_text repeats (default 0)."},
-            "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
+            "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
             "char_start": {"type": "integer", "minimum": 0, "description": "Alternative to search_text: 0-based start character offset (body text)."},
             "char_end": {"type": "integer", "minimum": 0, "description": "End character offset (exclusive), required with char_start."},
         },
