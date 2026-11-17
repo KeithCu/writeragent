@@ -183,7 +183,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `python_allow_files` | `boolean` | `false` |  | When checked, Python may read and write files anywhere (open, io, pathlib, shutil, tempfile, sqlite3, glob, and os file calls such as listdir and stat). When unchecked, those reads and writes are blocked. In-memory buffers (io.BytesIO, io.StringIO) stay available. |
 | `python_allow_os` | `boolean` | `false` |  | When checked, Python gets the real os module and may run other programs (subprocess, multiprocessing, pty, os.system). Includes file read and write. When unchecked, process spawning is blocked. |
 | `python_extra_modules` | `string` | `""` |  | Comma-separated extra modules Python may import (each name also allows name.*). Overrides the sandbox blocklist, including the file, network, and process lists (os, socket, subprocess). |
-| `python_editor` | `string` | `"monaco"` |  | Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX. Options: monaco (Monaco (default)), codemirror (CodeMirror) |
+| `python_editor` | `string` | `"codemirror"` |  | Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX. Options: codemirror (CodeMirror), monaco (Monaco) |
 | `force_internal_script_editor` | `bool` | `false` |  | Internal |
 | `native_run_script_modeless` | `bool` | `true` |  | Internal |
 

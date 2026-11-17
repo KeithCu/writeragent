@@ -2102,7 +2102,7 @@ def test_error_frame():
 
 def test_selected_editor_backend_default_codemirror_garbage():
     with patch("plugin.scripting.editor_host.get_config", return_value=""):
-        assert launch_mod.selected_editor_backend() == "monaco"
+        assert launch_mod.selected_editor_backend() == "codemirror"
     with patch("plugin.scripting.editor_host.get_config", return_value="monaco"):
         assert launch_mod.selected_editor_backend() == "monaco"
     with patch("plugin.scripting.editor_host.get_config", return_value="codemirror"):
@@ -2110,7 +2110,7 @@ def test_selected_editor_backend_default_codemirror_garbage():
     with patch("plugin.scripting.editor_host.get_config", return_value="  CodeMirror  "):
         assert launch_mod.selected_editor_backend() == "codemirror"
     with patch("plugin.scripting.editor_host.get_config", return_value="sublime"):
-        assert launch_mod.selected_editor_backend() == "monaco"
+        assert launch_mod.selected_editor_backend() == "codemirror"
 
 
 def test_build_editor_child_env_sets_backend_env_var():

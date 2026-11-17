@@ -41,7 +41,7 @@ def open_init_script_editor(ctx: Any) -> None:
     exe, monaco_available = monaco_editor_available()
     if not monaco_available or exe is None:
         if get_config("scripting.force_internal_script_editor"):
-            msgbox(ctx, title, _('The Monaco editor is disabled by "scripting.force_internal_script_editor" in writeragent.json.'), box_type=3)
+            msgbox(ctx, title, _('The Python editor window is disabled by "scripting.force_internal_script_editor" in writeragent.json.'), box_type=3)
             return
         if not exe:
             _unused, err = resolve_editor_python()

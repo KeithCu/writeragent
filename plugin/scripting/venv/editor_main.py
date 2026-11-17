@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco/pywebview editor child process (runs in the user venv, not inside LibreOffice)."""
+"""Web Python editor child process (CodeMirror or Monaco in pywebview; runs in the user venv, not inside LibreOffice)."""
 
 from __future__ import annotations
 
@@ -553,7 +553,7 @@ except Exception:
 
 def selected_backend() -> str:
     """Editor chosen by the host (scripting.python_editor) via WRITERAGENT_EDITOR_BACKEND."""
-    return "codemirror" if os.environ.get("WRITERAGENT_EDITOR_BACKEND") == "codemirror" else "monaco"
+    return "monaco" if os.environ.get("WRITERAGENT_EDITOR_BACKEND") == "monaco" else "codemirror"
 
 
 def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:

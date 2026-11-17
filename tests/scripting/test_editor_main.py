@@ -198,6 +198,7 @@ def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch):
 def test_main_fails_fast_when_monaco_loader_is_missing(tmp_path, monkeypatch, capsys):
     (tmp_path / "index.html").write_text("x", encoding="utf-8")
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(tmp_path))
+    monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "monaco")
     monkeypatch.setattr(em, "_ROCHER_ROOT", "")
     # Keep main() from claiming the real stdout fd when pytest runs with -s.
     monkeypatch.setattr(em, "claim_ipc_channel", lambda: io.BytesIO())
@@ -249,8 +250,14 @@ def test_wsgi_editor_config_output_per_env(monkeypatch):
         body = b"".join(em.wsgi_app({"PATH_INFO": "/editor_config.js"}, start_response))
         return recorded["status"], recorded["headers"], body
 
-    # Default / unset -> monaco
+    # Default / unset -> codemirror
     status, headers, body = call_config(None)
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "application/javascript"
+    assert b'window.WA_EDITOR_BACKEND = "codemirror";' in body
+
+    # monaco -> monaco
+    status, headers, body = call_config("monaco")
     assert status == "200 OK"
     assert headers["Content-Type"] == "application/javascript"
     assert b'window.WA_EDITOR_BACKEND = "monaco";' in body
@@ -261,10 +268,10 @@ def test_wsgi_editor_config_output_per_env(monkeypatch):
     assert headers["Content-Type"] == "application/javascript"
     assert b'window.WA_EDITOR_BACKEND = "codemirror";' in body
 
-    # Garbage -> monaco
+    # Garbage -> codemirror
     status, headers, body = call_config("sublime_text")
     assert status == "200 OK"
-    assert b'window.WA_EDITOR_BACKEND = "monaco";' in body
+    assert b'window.WA_EDITOR_BACKEND = "codemirror";' in body
 
 
 def test_monaco_static_path_serves_cm6_files(tmp_path):
@@ -302,6 +309,29 @@ def test_main_codemirror_backend_does_not_fatal_on_missing_rocher(tmp_path, monk
     monkeypatch.setitem(sys.modules, "webview", mock_webview)
 
     # Should not raise SystemExit on missing rocher
+    em.main()
+    mock_webview.create_window.assert_called_once()
+
+
+def test_main_default_backend_does_not_need_rocher(tmp_path, monkeypatch):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "index.html").write_text("x", encoding="utf-8")
+    (assets / "backend_cm6.js").write_text("x", encoding="utf-8")
+    cm6_dir = assets / "cm6"
+    cm6_dir.mkdir()
+    (cm6_dir / "cm6.bundle.js").write_text("x", encoding="utf-8")
+
+    monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
+    monkeypatch.delenv("WRITERAGENT_EDITOR_BACKEND", raising=False)
+    monkeypatch.setattr(em, "_ROCHER_ROOT", "")
+    monkeypatch.setattr(em, "claim_ipc_channel", lambda: io.BytesIO())
+
+    mock_webview = MagicMock()
+    mock_webview.create_window.return_value = MagicMock()
+    mock_webview.start.side_effect = lambda **kw: None
+    monkeypatch.setitem(sys.modules, "webview", mock_webview)
+
     em.main()
     mock_webview.create_window.assert_called_once()
 

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco editor host: spawn child process, pipe bridge, and session launch.
+"""Python editor host (CodeMirror or Monaco web editor): spawn child process, pipe bridge, and session launch.
 
 The open editor buffer is the focused `EditorSessionState` in `PersistentEditor.sessions`; nothing else holds it.
 
@@ -101,23 +101,23 @@ import sys
 import traceback
 try:
     import webview
-    import rocher
     print(getattr(webview, "__file__", "ok"))
 except Exception:
     traceback.print_exc()
     sys.exit(1)
 """
 
-# CodeMirror ships in the extension (assets/editor/cm6), so only pywebview is needed.
-_WEBVIEW_PROBE_CODE_CODEMIRROR = _WEBVIEW_PROBE_CODE.replace("    import rocher\n", "")
+# Monaco's files come from the rocher package in the venv; CodeMirror ships in
+# the extension (assets/editor/cm6), so only Monaco's probe imports rocher.
+_WEBVIEW_PROBE_CODE_MONACO = _WEBVIEW_PROBE_CODE.replace("    import webview\n", "    import webview\n    import rocher\n")
 
-EDITOR_BACKENDS = ("monaco", "codemirror")
+EDITOR_BACKENDS = ("codemirror", "monaco")
 
 
 def selected_editor_backend() -> str:
-    """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
+    """Return the configured web editor (scripting.python_editor): "codemirror" (default) or "monaco"."""
     value = str(get_config("scripting.python_editor") or "").strip().lower()
-    return value if value in EDITOR_BACKENDS else "monaco"
+    return value if value in EDITOR_BACKENDS else "codemirror"
 
 
 def build_editor_child_env() -> dict[str, str]:
@@ -138,14 +138,14 @@ def build_editor_child_env() -> dict[str, str]:
 
 
 def resolve_editor_python() -> tuple[str | None, str]:
-    """Return (venv python executable, error message). Monaco requires a user venv."""
+    """Return (venv python executable, error message). The web editor requires a user venv."""
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
             None,
             _(
                 "Set the Python venv path in Settings → Python (same venv where you ran "
-                "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the editor."
+                "'uv pip install pywebview'). LibreOffice's built-in Python cannot run the editor."
             ),
         )
     exe = resolve_venv_python(venv_dir)
@@ -227,7 +227,7 @@ def probe_webview_import(exe: str, *, apply_generation: int) -> tuple[bool, str]
         return result
 
     env = build_editor_child_env()
-    probe_code = _WEBVIEW_PROBE_CODE_CODEMIRROR if env["WRITERAGENT_EDITOR_BACKEND"] == "codemirror" else _WEBVIEW_PROBE_CODE
+    probe_code = _WEBVIEW_PROBE_CODE_MONACO if env["WRITERAGENT_EDITOR_BACKEND"] == "monaco" else _WEBVIEW_PROBE_CODE
     try:
         r = ManagedSubprocess.run(
             wrap_command_for_sandbox([exe, "-c", probe_code], env=env),
@@ -1019,7 +1019,7 @@ get_event_bus().subscribe("config:changed", _on_config_changed)
 
 
 def resolve_probeable_editor_python() -> str | None:
-    """Return configured venv Python executable if Monaco is enabled and configured, else None."""
+    """Return configured venv Python executable if the web editor is enabled and configured, else None."""
     if get_config("scripting.force_internal_script_editor"):
         log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
         return None
@@ -1041,7 +1041,7 @@ def arm_webview_probe_at_startup() -> None:
 
 
 def monaco_editor_available() -> tuple[str | None, bool]:
-    """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
+    """Return (venv python exe, True) when the web editor can launch, else (exe or None, False)."""
     exe = resolve_probeable_editor_python()
     if not exe:
         return None, False
