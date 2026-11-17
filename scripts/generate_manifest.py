@@ -142,9 +142,11 @@ def validate_modules(manifests, project_root=None):
 def find_modules(modules_dir, filter_names=None, project_root=None):
     """Find all module.yaml files recursively and return parsed manifests.
 
-    Module name comes from the ``name`` field in module.yaml.
-    Directory convention: dots map to underscores (tunnel.bore -> tunnel_bore/).
-    Falls back to directory-derived name if ``name`` is absent.
+    ``package`` is the directory path relative to ``plugin/`` with path
+    separators mapped to dots (e.g. ``tunnel/bore`` -> ``tunnel.bore``); the
+    loader imports ``plugin.<package>``. ``name`` comes from ``module.yaml``
+    (falling back to ``package`` if absent) and is the logical id for config,
+    actions, and ``requires`` — for example, ``mcp`` lives in ``mcp_server/``.
     """
     if project_root is None:
         project_root = PROJECT_ROOT
@@ -288,10 +290,6 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
         # Clean dict — only keep runtime-relevant keys
         entry = {
             "name": m["name"],
-        }
-        if m.get("package"):
-            entry["package"] = m["package"]
-        entry.update({
             "title": m.get("title", ""),
             "requires": m.get("requires", []),
             "provides_services": m.get("provides_services", []),
@@ -307,7 +305,9 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
                 for k, v in m.get("actions", {}).items()
                 if isinstance(v, dict) and isinstance(v.get("title"), str)
             },
-        })
+        }
+        if m.get("package"):
+            entry["package"] = m["package"]
         if m.get("settings_tab") is False:
             entry["settings_tab"] = False
         if m.get("config_dialog"):

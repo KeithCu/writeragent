@@ -74,6 +74,17 @@ def test_skipped_directories_ignored(tmp_path):
     assert names == ["valid"]
 
 
+def test_find_modules_records_package_separate_from_name(tmp_path):
+    pkg_dir = tmp_path / "foo_pkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "module.yaml").write_text("name: foo\n", encoding="utf-8")
+
+    manifests = find_modules(str(tmp_path), project_root=str(tmp_path))
+    assert len(manifests) == 1
+    assert manifests[0]["name"] == "foo"
+    assert manifests[0]["package"] == "foo_pkg"
+
+
 def test_validation_duplicate_module_name():
     modules = [
         {"name": "foo", "_yaml_path": "path/a/module.yaml"},

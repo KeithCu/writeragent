@@ -467,6 +467,8 @@ class McpModule(ModuleBase):
                 if text is not None:
                     ctrl.setText(text)
                 if visible is not None:
+                    # Control models have no Visible property (setting it raises and falls back to msgbox);
+                    # UnoControl.setVisible works before the peer exists.
                     ctrl.setVisible(visible)
                 if label is not None:
                     ctrl.getModel().Label = label
