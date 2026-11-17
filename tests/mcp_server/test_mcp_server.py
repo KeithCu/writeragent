@@ -1,0 +1,660 @@
+from unittest.mock import MagicMock, patch
+import json
+
+import pytest
+from io import BytesIO
+from typing import Any
+
+from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
+from tests.mcp_server.conftest import MockHandler
+
+def test_handle_mcp_post_unsupported_protocol_sets_content_length():
+    """400 protocol-version rejection must frame the JSON body (Darwin urllib RST)."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+    handler = MockHandler({"Mcp-Protocol-Version": "2099-01-01", "Content-Length": "2"}, b"{}")
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+    body = handler.wfile.getvalue()
+    headers_dict = dict(handler.sent_headers)
+    assert headers_dict.get("Content-Length") == str(len(body))
+    data = json.loads(body.decode("utf-8"))
+    assert data.get("error", {}).get("code") == -32600
+
+
+def test_write_http_json_sets_content_length_and_flushes():
+    from plugin.mcp_server.server import write_http_json
+
+    handler = MockHandler({})
+    flushed = []
+    orig_write = handler.wfile.write
+
+    def _write(data):
+        orig_write(data)
+        return len(data)
+
+    setattr(handler.wfile, "write", _write)
+    setattr(handler.wfile, "flush", lambda: flushed.append(True))
+    payload = {"jsonrpc": "2.0", "error": {"code": -32600}}
+    write_http_json(handler, 400, payload)
+    body = handler.wfile.getvalue()
+    assert 400 in handler.sent_responses
+    assert dict(handler.sent_headers).get("Content-Length") == str(len(body))
+    assert json.loads(body.decode("utf-8"))["error"]["code"] == -32600
+    assert flushed == [True]
+
+
+def test_write_http_json_swallows_flush_oserror():
+    from plugin.mcp_server.server import write_http_json
+
+    handler = MockHandler({})
+
+    def _flush():
+        raise BrokenPipeError("gone")
+
+    setattr(handler.wfile, "flush", _flush)
+    write_http_json(handler, 200, {"ok": True})
+    assert 200 in handler.sent_responses
+
+
+def test_write_http_json_flush_other_error_propagates():
+    from plugin.mcp_server.server import write_http_json
+
+    handler = MockHandler({})
+    handler.wfile.flush = MagicMock(side_effect=RuntimeError("bug"))
+    with pytest.raises(RuntimeError, match="bug"):
+        write_http_json(handler, 200, {"ok": True})
+
+
+def test_shutdown_sse_socket_swallows_oserror_only():
+    from plugin.mcp_server.server import _shutdown_sse_socket
+
+    class _Sock:
+        def shutdown(self, how):
+            raise OSError("closed")
+
+        def close(self):
+            raise OSError("closed")
+
+    _shutdown_sse_socket(_Sock())
+
+    class _Bug:
+        def shutdown(self, how):
+            raise RuntimeError("bug")
+
+        def close(self):
+            raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError, match="bug"):
+        _shutdown_sse_socket(_Bug())
+
+
+def test_handle_mcp_post_routing():
+    """Test that handle_mcp_post properly parses body and extracts X-Document-URL."""
+    # Setup mock services
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    # We patch _handle_mcp to just record the call, to verify parameters
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_data = {"jsonrpc": "2.0", "method": "test"}
+        body_bytes = json.dumps(body_data).encode("utf-8")
+
+        headers = {
+            "Content-Length": str(len(body_bytes)),
+            "X-Document-URL": "file:///test/doc.odt"
+        }
+
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_called_once()
+        args, kwargs = mock_handle_mcp.call_args
+
+        # Verify body
+        assert args[0] == body_data
+        # Verify handler
+        assert args[1] == handler
+        # Verify X-Document-URL logic
+        assert kwargs.get("document_url") == "file:///test/doc.odt"
+
+def test_handle_mcp_post_no_doc_url():
+    """Test handle_mcp_post with missing X-Document-URL header."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
+        headers = {"Content-Length": str(len(body_bytes))}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        args, kwargs = mock_handle_mcp.call_args
+        assert kwargs.get("document_url") is None
+
+def test_handle_mcp_post_invalid_json():
+    """Test handle_mcp_post with invalid JSON body."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{invalid_json}'
+        headers = {"Content-Length": str(len(body_bytes))}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        # _handle_mcp should not be called if body is invalid
+        mock_handle_mcp.assert_not_called()
+
+        # Response should be 400 Bad Request
+        assert 400 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+
+def test_send_cors_headers_preflight_mode():
+    from plugin.mcp_server.cors import send_cors_headers
+
+    handler = MockHandler(
+        {
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Headers": "content-type, Mcp-Protocol-Version",
+        }
+    )
+    send_cors_headers(handler, preflight=True)
+    headers_dict = dict(handler.sent_headers)
+    assert headers_dict.get("Access-Control-Max-Age") == "86400"
+    assert "mcp-protocol-version" in headers_dict["Access-Control-Allow-Headers"].lower()
+    assert "Mcp-Protocol-Version" in headers_dict["Access-Control-Expose-Headers"]
+
+
+def test_handle_mcp_post_chunked_is_parse_error_not_jsonrpc():
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+    handler = MockHandler({"Transfer-Encoding": "chunked"}, b'{"jsonrpc":"2.0","method":"ping"}')
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+    response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert response_data.get("status") == "error"
+    assert response_data.get("code") == "PARSE_ERROR"
+    assert "Chunked" in response_data.get("message", "")
+    assert response_data.get("error", {}).get("code") != -32600
+    assert handler.rfile.tell() == 0
+    assert handler.close_connection is True
+
+
+def test_handle_mcp_post_missing_content_length():
+    """Test missing Content-Length header returns a structured JSON-RPC error."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    # Missing Content-Length means _read_body returns {}
+    # and _handle_mcp processes {} which results in a 400 JSON-RPC error.
+    body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
+    headers = {}  # No Content-Length
+    handler = MockHandler(headers, body_bytes)
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+    response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert response_data.get("jsonrpc") == "2.0"
+    assert response_data.get("id") is None
+    assert "error" in response_data
+    assert response_data["error"].get("code") == -32600
+    assert "Invalid JSON-RPC" in response_data["error"].get("message", "")
+
+def test_handle_mcp_post_negative_content_length():
+    """Test negative Content-Length header returns a 400 Bad Request error."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
+        headers = {"Content-Length": "-100"}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_not_called()
+        assert 400 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+
+
+def _bare_generic_handler(headers, body=b""):
+    """Skip BaseHTTPRequestHandler.__init__ (it wants a live socket)."""
+    from plugin.mcp_server.server import GenericRequestHandler
+
+    handler = GenericRequestHandler.__new__(GenericRequestHandler)
+    handler.headers = headers
+    handler.rfile = BytesIO(body)
+    handler.wfile = BytesIO()
+    handler.client_address = ("127.0.0.1", 9)
+    handler.requestline = "POST /mcp HTTP/1.0"
+    handler.request_version = "HTTP/1.0"
+    handler.close_connection = False
+    return handler
+
+
+def _response_json(handler) -> tuple[int, dict]:
+    raw = handler.wfile.getvalue().decode("utf-8")
+    head, _, payload = raw.partition("\r\n\r\n")
+    status = int(head.split("\r\n", 1)[0].split(" ", 2)[1])
+    return status, json.loads(payload)
+
+
+def test_generic_handler_body_cap_timeout_and_negative_length():
+    from plugin.mcp_server.server import MCP_HTTP_MAX_BODY_BYTES
+
+    oversized = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
+    reads: list[int] = []
+    oversized.rfile.read = lambda n=-1: reads.append(n)
+    assert oversized._read_body() is None
+    assert reads == []
+    status, body = _response_json(oversized)
+    assert status == 413
+    assert body.get("code") == "PARSE_ERROR"
+    assert "exceeds" in body.get("message", "")
+
+    stalled = _bare_generic_handler({"Content-Length": "8"}, b"")
+
+    def _timeout(n=-1):
+        del n
+        raise TimeoutError("stalled")
+
+    stalled.rfile.read = _timeout
+    assert stalled._read_body() is None
+    status, body = _response_json(stalled)
+    assert status == 408
+    assert body.get("code") == "PARSE_ERROR"
+
+    negative = _bare_generic_handler({"Content-Length": "-1"}, b"{}")
+
+    def _refuse_read(n=-1):
+        del n
+        raise AssertionError("negative length was read")
+
+    negative.rfile.read = _refuse_read
+    assert negative._read_body() is None
+    status, body = _response_json(negative)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "negative" in body.get("message", "")
+
+    at_cap = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES)}, b"{}")
+    seen: list[int] = []
+
+    def _read_cap(n=-1):
+        seen.append(n)
+        return b"{}"
+
+    at_cap.rfile.read = _read_cap
+    assert at_cap._read_body() == {}
+    assert seen == [MCP_HTTP_MAX_BODY_BYTES]
+
+
+def test_read_json_body_rejects_chunked_and_does_not_read():
+    chunked = _bare_generic_handler({"Transfer-Encoding": "chunked"}, b"5\r\nhello\r\n0\r\n\r\n")
+
+    def _refuse_read(n=-1):
+        del n
+        raise AssertionError("chunked body was read")
+
+    chunked.rfile.read = _refuse_read
+    assert chunked._read_body() is None
+    status, body = _response_json(chunked)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "chunked" in body.get("message", "").lower()
+    assert chunked.close_connection is True
+
+    ping_bytes = b'{"jsonrpc":"2.0","method":"ping"}'
+    with_both = _bare_generic_handler(
+        {"Content-Length": str(len(ping_bytes)), "Transfer-Encoding": "Chunked"},
+        ping_bytes,
+    )
+    with_both.rfile.read = _refuse_read
+    assert with_both._read_body() is None
+    status, body = _response_json(with_both)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "chunked" in body.get("message", "").lower()
+    assert with_both.close_connection is True
+
+    identity = _bare_generic_handler(
+        {"Transfer-Encoding": "identity", "Content-Length": str(len(b"{}"))},
+        b"{}",
+    )
+    assert identity._read_body() == {}
+
+
+def test_handle_error_timeout_does_not_call_super():
+    import socket
+
+    from plugin.mcp_server.server import _ThreadedHTTPServer
+
+    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    # Before 3.10 these are different classes. On 3.10+ they are one class,
+    # and the loop still checks that both names skip the traceback.
+    for exc_type in (TimeoutError, socket.timeout):
+        try:
+            raise exc_type("stalled body")
+        except (TimeoutError, socket.timeout):
+            with patch("socketserver.BaseServer.handle_error") as super_handle:
+                server.handle_error(None, ("127.0.0.1", 1))
+        super_handle.assert_not_called()
+
+
+def test_use_ssl_without_certs_raises_and_closes_listener():
+    from plugin.mcp_server.server import HttpServer
+
+    srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=True)
+    with pytest.raises(ValueError, match="no certificates"):
+        srv.start()
+    assert srv._server is None
+    assert not srv.is_running()
+
+
+def test_route_registry_is_per_server_instance():
+    from plugin.mcp_server.server import GenericRequestHandler, _ThreadedHTTPServer
+
+    reg_a, reg_b = MagicMock(name="a"), MagicMock(name="b")
+    srv_a = _ThreadedHTTPServer(("127.0.0.1", 0), GenericRequestHandler)
+    srv_b = _ThreadedHTTPServer(("127.0.0.1", 0), GenericRequestHandler)
+    try:
+        srv_a.route_registry = reg_a
+        srv_b.route_registry = reg_b
+        assert srv_a.route_registry is reg_a
+        assert srv_b.route_registry is reg_b
+        assert not hasattr(GenericRequestHandler, "route_registry")
+    finally:
+        srv_a.server_close()
+        srv_b.server_close()
+
+
+def test_wrap_accepted_socket_wraps_tls_per_connection():
+    from plugin.mcp_server.server import _ThreadedHTTPServer
+
+    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    server._accept_pause_until = 0.0
+    server._accept_backoff_sec = 0.05
+    server.park_idle_connections = False
+    server._accept_times = {}
+    conn, wrapped = MagicMock(name="conn"), MagicMock(name="tls")
+    listener = MagicMock()
+    listener.accept.return_value = (conn, ("127.0.0.1", 5))
+    server.ssl_ctx = MagicMock()
+    server.ssl_ctx.wrap_socket.return_value = wrapped
+    processed = []
+    server.process_request = lambda c, a: processed.append((c, a))
+    server._accept_one(listener)
+    assert processed == [(wrapped, ("127.0.0.1", 5))]
+    server.ssl_ctx.wrap_socket.assert_called_once_with(conn, server_side=True, do_handshake_on_connect=False)
+
+
+def test_dispatch_does_not_write_second_response_after_start():
+    handler = _bare_generic_handler({})
+    handler.path = "/boom"
+    handler.command = "GET"
+    route = MagicMock()
+
+    def _half_written(h):
+        h._response_started = True
+        raise RuntimeError("after headers")
+
+    route.handler.side_effect = _half_written
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = route
+    with patch("plugin.mcp_server.server.reject_forbidden_origin", return_value=False), patch("plugin.mcp_server.server.write_http_json") as send:
+        handler._dispatch("GET")
+    send.assert_not_called()
+
+
+def test_handle_one_request_disconnect_during_404_is_not_raised():
+    class DisconnectingWfile(BytesIO):
+        def write(self, b: Any) -> int:
+            super().write(b)
+            if b" 404 " in b:
+                raise BrokenPipeError("client disconnected during 404")
+            return len(b)
+
+        def flush(self) -> None:
+            raise ConnectionResetError("flush after disconnect")
+
+    req = b"GET /no-such-path HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+    handler = _bare_generic_handler({}, req)
+    handler.wfile = DisconnectingWfile()
+    handler.server = MagicMock()
+    handler.server.route_registry = None
+
+    handler.handle_one_request()
+
+    assert handler.close_connection is True
+    assert b" 404 " in handler.wfile.getvalue()
+
+
+def test_handle_one_request_non_disconnect_still_propagates():
+    req = b"GET /no-such-path HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+    handler = _bare_generic_handler({}, req)
+    handler.wfile = BytesIO()
+    handler.wfile.write = MagicMock(side_effect=RuntimeError("bug"))
+    handler.server = MagicMock()
+    handler.server.route_registry = None
+
+    with pytest.raises(RuntimeError, match="bug"):
+        handler.handle_one_request()
+
+
+def test_handle_mcp_post_truncated_json():
+    """Test when Content-Length is larger than body (truncated JSON).
+    Should hit invalid-json path and not call _handle_mcp."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        # A valid json but we say it's much longer than it is.
+        # Wait, if we use a valid json but rfile.read returns it, it might still parse valid!
+        # Let's provide an actual truncated json.
+        body_bytes = b'{"jsonrpc": "2.0", "method":'
+        headers = {"Content-Length": "100"}  # Claiming it's 100 bytes long
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_not_called()
+        assert 400 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+
+def test_handle_mcp_invalid_json_rpc():
+    """Test when JSON-RPC method format is unknown or invalid.
+    Ensure invalid JSON-RPC method formats return the expected error shape."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    # Valid JSON but unknown method
+    body_data = {"jsonrpc": "2.0", "method": "invalid/method", "id": 1}
+    body_bytes = json.dumps(body_data).encode("utf-8")
+    headers = {"Content-Length": str(len(body_bytes))}
+    handler = MockHandler(headers, body_bytes)
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+
+    response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert response_data.get("jsonrpc") == "2.0"
+    assert response_data.get("id") == 1
+    assert "error" in response_data
+    assert response_data["error"].get("code") == -32601  # Method not found
+    assert "Unknown method" in response_data["error"].get("message", "")
+
+def test_handle_mcp_raises():
+    """Ensure when _handle_mcp raises or its internal handler raises,
+    the server returns a stable error envelope (500)."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    # We patch _mcp_ping (a valid method) to raise an exception
+    with patch.object(mcp_protocol, '_mcp_ping', side_effect=Exception("Test Internal Error")):
+        body_data = {"jsonrpc": "2.0", "method": "ping", "id": 42}
+        body_bytes = json.dumps(body_data).encode("utf-8")
+        headers = {"Content-Length": str(len(body_bytes))}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        # 500 status code is sent
+        assert 500 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("jsonrpc") == "2.0"
+        assert response_data.get("id") == 42
+        assert "error" in response_data
+        assert response_data["error"].get("code") == -32603  # Internal error
+        assert "Test Internal Error" in response_data["error"].get("message", "")
+
+
+def test_try_reserve_sse_capped_at_eight():
+    from plugin.mcp_server.server import SSE_MAX_STREAMS, SseRegistry
+
+    reg = SseRegistry()
+    for _ in range(SSE_MAX_STREAMS):
+        assert reg.reserve() is not None
+    assert reg.reserve() is None
+
+
+def test_try_reserve_sse_after_stop_returns_none():
+    from plugin.mcp_server.server import SseRegistry
+
+    reg = SseRegistry()
+    reg.stop_all()
+    assert reg.reserve() is None
+
+
+def test_dispatch_resets_response_started_for_subsequent_requests():
+    from http.client import HTTPMessage
+    from plugin.mcp_server.routes import HttpRouteRegistry, json_route
+    from plugin.mcp_server.server import GenericRequestHandler
+
+    registry = HttpRouteRegistry()
+    calls = []
+
+    def _handler(body, headers, query):
+        del body, headers, query
+        calls.append(True)
+        if len(calls) == 1:
+            return 200, {"status": "first"}
+        raise RuntimeError("second request failure")
+
+    registry.add("POST", "/test", json_route(_handler))
+    server = MagicMock()
+    server.route_registry = registry
+
+    handler = GenericRequestHandler.__new__(GenericRequestHandler)
+    handler.server = server
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.request_version = "HTTP/1.1"
+
+    def _make_headers():
+        msg = HTTPMessage()
+        msg.add_header("Host", "127.0.0.1")
+        msg.add_header("Content-Length", "2")
+        return msg
+
+    # First request succeeds
+    handler.path = "/test"
+    handler.requestline = "POST /test HTTP/1.1"
+    handler.headers = _make_headers()
+    handler.rfile = BytesIO(b"{}")
+    handler.wfile = BytesIO()
+    handler._dispatch("POST")
+    assert handler._response_started is True
+    status1, body1 = _response_json(handler)
+    assert status1 == 200
+    assert body1 == {"status": "first"}
+
+    # Second request on the same handler fails; error response must be sent
+    handler.path = "/test"
+    handler.requestline = "POST /test HTTP/1.1"
+    handler.headers = _make_headers()
+    handler.rfile = BytesIO(b"{}")
+    handler.wfile = BytesIO()
+    handler._dispatch("POST")
+    assert handler._response_started is True
+    status2, body2 = _response_json(handler)
+    assert status2 == 500
+    assert "second request failure" in str(body2)
+
+
+def test_dispatch_client_disconnect_is_not_a_500():
+    from http.client import HTTPMessage
+    from unittest.mock import patch
+
+    handler = _bare_generic_handler({}, b"{}")
+    handler.headers = HTTPMessage()
+    handler.headers.add_header("Host", "127.0.0.1")
+    handler.headers.add_header("Content-Length", "2")
+    handler.path = "/mcp"
+    handler.command = "POST"
+    route = MagicMock()
+    route.handler.side_effect = ConnectionResetError(104, "Connection reset by peer")
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = route
+
+    with patch("plugin.mcp_server.server.log") as mock_log:
+        handler._dispatch("POST")
+
+    assert handler.close_connection is True
+    assert handler.wfile.getvalue() == b""
+    mock_log.exception.assert_not_called()
+    mock_log.info.assert_called_once()
+
+
+def test_dispatch_body_read_reset_does_not_write_a_500():
+    from http.client import HTTPMessage
+    from unittest.mock import patch
+
+    handler = _bare_generic_handler({}, b"")
+    handler.headers = HTTPMessage()
+    handler.headers.add_header("Host", "127.0.0.1")
+    handler.headers.add_header("Content-Length", "100")
+    handler.path = "/mcp"
+    handler.command = "POST"
+
+    def _reset(n=-1):
+        del n
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    from plugin.mcp_server.routes import Route
+
+    def _reset_on_read(handler: Any) -> None:
+        del handler
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    handler.rfile.read = _reset
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = Route(handler=_reset_on_read)
+
+    with patch("plugin.mcp_server.server.log") as mock_log:
+        handler._dispatch("POST")
+
+    assert handler.close_connection is True
+    assert handler.wfile.getvalue() == b""
+    mock_log.exception.assert_not_called()
+    mock_log.info.assert_called_once()
+
+

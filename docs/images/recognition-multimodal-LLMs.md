@@ -85,8 +85,8 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `call_tool_result_image` | [`wire_types.py`](../../plugin/mcp/wire_types.py) | MCP `content: [{type: image, data, mimeType}]` |
-| `_mcp_image` branch | [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) `StreamResponseEffect` | Detects `_mcp_image.data` in tool result dict; emits image block instead of JSON text |
+| `call_tool_result_image` | [`wire_types.py`](../../plugin/mcp_server/wire_types.py) | MCP `content: [{type: image, data, mimeType}]` |
+| `_mcp_image` branch | [`mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) `StreamResponseEffect` | Detects `_mcp_image.data` in tool result dict; emits image block instead of JSON text |
 
 MCP vision clients receive the picture itself, not base64 pasted as text.
 
@@ -102,7 +102,7 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 |------|------|
 | `has_native_vision` tiered logic | [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py) |
 | `normalize_multimodal_messages` per provider | [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/framework/client/test_response_normalizers.py`](../../tests/framework/client/test_response_normalizers.py) |
-| `call_tool_result_image` | [`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py) |
+| `call_tool_result_image` | [`tests/mcp_server/test_wire_types.py`](../../tests/mcp_server/test_wire_types.py) |
 | `_render_page_png` error/control-flow | [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py) (Writer + Draw/Impress) |
 | Draw/Impress `page=N` PNG (live) | [`tests/writer/test_get_image_uno.py`](../../tests/writer/test_get_image_uno.py) |
 | `_resolve_crop_edges`, `_resolve_orient` | [`tests/writer/images/test_images.py`](../../tests/writer/images/test_images.py) |
@@ -142,7 +142,7 @@ Do not start these without coordinating — others may already be working on the
 
 ### 3. MCP response: preserve metadata alongside image (low–medium)
 
-When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) emits **only** an image block — `status` and `source` are discarded.
+When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) emits **only** an image block — `status` and `source` are discarded.
 
 **Suggested fix:** Dual content blocks — short text JSON (`source`, `status`) plus image — MCP allows multiple content entries. Extend `call_tool_result_image` or add a variant.
 

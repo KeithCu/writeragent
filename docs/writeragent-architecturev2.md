@@ -38,7 +38,7 @@ This pattern is applied to the hardest orchestration paths, each with its own ty
 | Tool loop | `plugin/chatbot/tool_loop_state.py` | `ToolLoopState` (`round_num`, `pending_tools`, `is_stopped`, `max_rounds`), `EventKind` (`STOP_REQUESTED`, `STREAM_DONE`, `NEXT_TOOL`, `TOOL_RESULT`, `FINAL_DONE`, `ERROR`) |
 | Send button | `plugin/chatbot/send_state.py` | `SendButtonState` (`mode`, `has_text`, `has_audio`, `audio_supported`; `is_busy` / `is_recording` are properties), events for text/record/send/stop lifecycle |
 | Audio recorder | `plugin/chatbot/audio_recorder_state.py` | Record/stop/auto-stop lifecycle |
-| MCP tunnel | `plugin/mcp/tunnel_state.py` | Reconnection with explicit `StartProcessEffect`/`ScheduleRetryTimerEffect`/`NotifyUrlAcquiredEffect` |
+| MCP tunnel | `plugin/mcp_server/tunnel_state.py` | Reconnection with explicit `StartProcessEffect`/`ScheduleRetryTimerEffect`/`NotifyUrlAcquiredEffect` |
 
 Previously these paths mixed implicit instance-field state with threads, UNO, and I/O—hard to reason about and expensive to test. Pure transitions are now unit-testable without a running office, and the "Stop vs. stream completion" and "Send/Stop mutual exclusion" races are enforced as contracts.
 
@@ -100,7 +100,7 @@ Merging the runtimes would change prompts, stops, and transcripts; merging the H
 
 #### Integration Layer: MCP (LibreOffice as a First-Class AI Citizen)
 
-WriterAgent embeds an **MCP (Model Context Protocol) HTTP server** (`plugin/mcp/`) so external agents (Cursor, Claude Desktop, LM Studio) can remote-control LibreOffice over `http://localhost:18765/mcp`. It implements JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`) with a **custom stdlib server** (no official SDK/Pydantic), marshalling every UNO operation to the main thread. Two concurrency layers prevent corruption: a **global semaphore** serializes fast tools (overload → HTTP 429), and a **per-document mutation gate** serializes mutating tools per document while read-only work stays concurrent. By default, tools are exposed through a single `delegate_to_subagent` gateway that runs a **nested smolagents sub-agent on WriterAgent's own configured LLM** — the MCP host's model never touches LibreOffice directly. Optional Cloudflare/Bore/Ngrok/Tailscale tunnels and a stdio bridge (`scripts/mcp_bridge.py`) round out remote access.
+WriterAgent embeds an **MCP (Model Context Protocol) HTTP server** (`plugin/mcp_server/`) so external agents (Cursor, Claude Desktop, LM Studio) can remote-control LibreOffice over `http://localhost:18765/mcp`. It implements JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`) with a **custom stdlib server** (no official SDK/Pydantic), marshalling every UNO operation to the main thread. Two concurrency layers prevent corruption: a **global semaphore** serializes fast tools (overload → HTTP 429), and a **per-document mutation gate** serializes mutating tools per document while read-only work stays concurrent. By default, tools are exposed through a single `delegate_to_subagent` gateway that runs a **nested smolagents sub-agent on WriterAgent's own configured LLM** — the MCP host's model never touches LibreOffice directly. Optional Cloudflare/Bore/Ngrok/Tailscale tunnels and a stdio bridge (`scripts/mcp_bridge.py`) round out remote access.
 
 ### 2. Deep Semantic Understanding (The Eyes)
 

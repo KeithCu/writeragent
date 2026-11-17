@@ -803,7 +803,7 @@ vhs:
 		tests/scripting/test_serialization_ab.py \
 		tests/chatbot/test_fsm_verification.py \
 		tests/calc/python/test_formula_edit.py \
-		tests/mcp/test_cors_verification.py \
+		tests/mcp_server/test_cors_verification.py \
 		tests/writer/test_word_diff_split.py \
 		tests/embeddings/test_embeddings_split_verification.py \
 		tests/framework/test_stream_normalizer_verification.py \
@@ -908,7 +908,7 @@ check-fizzbee:
 		FB=$$(command -v fizz || command -v fizzbee || echo ".venv/bin/fizz"); \
 		if [ ! -x "$$FB" ]; then FB=".venv/bin/fizzbee"; fi; \
 		ok=0; \
-		for spec in tests/mcp/fizzbee/writer_mcp_protocol.fizz tests/mcp/fizzbee/writer_tools_model.fizz tests/mcp/fizzbee/calc_tools_model.fizz; do \
+		for spec in tests/mcp_server/fizzbee/writer_mcp_protocol.fizz tests/mcp_server/fizzbee/writer_tools_model.fizz tests/mcp_server/fizzbee/calc_tools_model.fizz; do \
 			echo "--- $$spec ---"; \
 			if ! $$FB "$$spec" | tee /dev/stderr | grep -q "PASSED: Model checker completed successfully"; then \
 				echo "FAILED: $$spec"; ok=1; \

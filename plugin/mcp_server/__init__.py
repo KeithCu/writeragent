@@ -1,0 +1,527 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2024 John Balis
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""HTTP server and MCP module — owns the HTTP server lifecycle and MCP routes."""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+from typing import Any, Callable
+
+from plugin.framework.config import get_config, get_secret_config, save
+from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
+from plugin.framework.module_base import ModuleBase
+from plugin.mcp_server.cors import reload_cors_policy_from_config
+from plugin.mcp_server.routes import json_route
+from plugin.mcp_server.server import mcp_endpoint_url
+from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
+from plugin.version import EXTENSION_VERSION
+
+log = logging.getLogger("writeragent.http")
+
+_current_module: McpModule | None = None
+_srv_lock = threading.Lock()
+
+
+def _as_http(fn: Callable[..., Any]) -> Callable[..., Any]:
+    return fn
+
+
+def current_tunnel() -> TunnelManager | None:
+    """Return the active TunnelManager, if any."""
+    return _current_module.tunnel if _current_module is not None else None
+
+
+def is_mcp_server_running() -> bool:
+    """Return True if the shared HTTP/MCP server is actively running."""
+    server = _current_module.server if _current_module is not None else None
+    return bool(server and server.is_running())
+
+
+_DEBUG_TOKEN_FILENAME = "writeragent_mcp_debug_token"
+
+MCP_ROUTE_TABLE: tuple[tuple[str, str, str, Callable[[Callable[..., Any]], Callable[..., Any]]], ...] = (
+    ("POST", "/mcp", "handle_mcp_post", _as_http),
+    ("GET", "/mcp", "handle_mcp_sse", _as_http),
+    ("DELETE", "/mcp", "handle_mcp_delete", _as_http),
+    ("POST", "/sse", "handle_sse_post", _as_http),
+    ("POST", "/messages", "handle_sse_post", _as_http),
+    ("GET", "/sse", "handle_sse_stream", _as_http),
+    ("GET", "/debug", "handle_debug_info", json_route),
+    ("POST", "/debug", "handle_debug_post", _as_http),
+)
+
+_LIFECYCLE_SUFFIXES = frozenset({"mcp_enabled", "mcp_port", "tunnel_enabled", "tunnel_provider", "tunnel_provider_token", "cors_allowed_origins", "cors_allow_private_origins"})
+
+
+def _debug_token_path() -> str | None:
+    try:
+        from plugin.framework.config import get_config_file_path
+
+        cfg_path = get_config_file_path()
+        if cfg_path:
+            return os.path.join(os.path.dirname(str(cfg_path)), _DEBUG_TOKEN_FILENAME)
+    except Exception:
+        log.debug("debug token path lookup failed", exc_info=True)
+    return None
+
+
+def _write_debug_token_file(token: str) -> None:
+    from plugin.framework.queue_executor import Policy, main
+
+    if main.policy is Policy.test_inline:
+        return
+    token_path = _debug_token_path()
+    if not token_path:
+        return
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd = os.open(token_path, flags, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(token)
+    except OSError:
+        log.exception("Failed to write debug token file")
+
+
+def _remove_debug_token_file() -> None:
+    token_path = _debug_token_path()
+    if not token_path:
+        return
+    try:
+        os.remove(token_path)
+    except OSError:
+        pass
+
+
+class McpModule(ModuleBase):
+    """Manages the shared HTTP server and route registry.
+
+    Route registrations are managed by McpModule (the MCP JSON-RPC routes,
+    SSE streams, and debug endpoints). This module starts the server in
+    start_background().
+    """
+
+    server: Any = None
+    tunnel: TunnelManager | None = None
+    _registry: Any = None
+    _services: Any = None
+    _last_start_failure: tuple[str, int, BaseException] | None = None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.server = None
+        self.tunnel = None
+        self._last_start_failure = None
+
+    def _mcp_routes_registered(self) -> bool:
+        return self._registry.match("POST", "/mcp") is not None
+
+    def initialize(self, services: Any) -> None:
+        global _current_module
+
+        from plugin.mcp_server.routes import HttpRouteRegistry, json_route
+
+        self._registry = HttpRouteRegistry()
+        self.tunnel = TunnelManager()
+        from plugin.framework.quit_hooks import register_quit_hook
+
+        register_quit_hook(self._quit_stop_tunnel)
+        self._services = services
+        _current_module = self
+
+        # Built-in endpoints
+        self._registry.add("GET", "/health", json_route(self._handle_health))
+        self._registry.add("GET", "/", json_route(self._handle_info))
+
+        # MCP endpoints
+        mcp_enabled = get_config("mcp.mcp_enabled")
+        log.info("McpModule initialize: mcp_enabled=%s", mcp_enabled)
+        if mcp_enabled:
+            self._register_mcp_routes(services)
+
+        reload_cors_policy_from_config(services)
+
+        services.events.subscribe("config:changed", self._on_config_changed)
+
+    def start_background(self, services: Any) -> None:
+        # We start automatically if MCP is enabled.
+        if get_config("mcp.mcp_enabled"):
+            self._start_server(services)
+
+    def _on_config_changed(self, **data: Any) -> None:
+        key = data.get("key", "")
+        prefix = f"{self.name}."
+        # Other modules' keys are ignored (startswith). Empty key is a bulk save.
+        # The config writer emits "" only when more than one key changes, so a port-only
+        # save is mcp.mcp_port and must rebind. Do not drop startswith: removeprefix
+        # leaves an unprefixed key unchanged, and "mcp_port" is in _LIFECYCLE_SUFFIXES.
+        suffix = key.removeprefix(prefix) if key else ""
+        if key and (not key.startswith(prefix) or suffix not in _LIFECYCLE_SUFFIXES):
+            return
+
+        reload_cors_policy_from_config(self._services)
+
+        enabled = get_config("mcp.mcp_enabled")
+        log.info("HTTP/MCP config sync (key=%r): mcp_enabled=%s tunnel_enabled=%s tunnel_provider=%s", key or "(bulk)", enabled, get_config("mcp.tunnel_enabled"), get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
+        if enabled and not self._mcp_routes_registered():
+            self._register_mcp_routes(self._services)
+        elif not enabled and self._mcp_routes_registered():
+            self._unregister_mcp_routes()
+
+        bound = self.server
+        running = bool(bound and bound.is_running())
+        cfg_port = get_config("mcp.mcp_port")
+        running_port = getattr(bound, "port", None)
+        port_changed = running and isinstance(cfg_port, int) and not isinstance(cfg_port, bool) and running_port != cfg_port
+        if enabled and (port_changed or not running):
+            if port_changed:
+                log.info("MCP port changed from %s to %s; rebinding HTTP server", running_port, cfg_port)
+                self._stop_server()
+            ok = self._start_server(self._services)
+            # Bulk key "" always dialogs. A port rebind also dialogs for mcp_port.
+            # mcp_enabled is the toggle, which shows its own dialog.
+            if not ok and (not key or (port_changed and suffix == "mcp_port")):
+                self._show_start_failure_dialog(data.get("ctx"))
+            if port_changed:
+                return
+        elif not enabled and bound:
+            self._stop_server()
+
+        # Tunnel-only toggles (or bulk save) while the server is already up.
+        self._sync_tunnel()
+
+    def _formatted_start_failure(self) -> str:
+        if self._last_start_failure is None:
+            return ""
+        host, port, exc = self._last_start_failure
+        return format_bind_failure(host, port, exc)
+
+    def _start_failure_reportable(self) -> bool:
+        if self._last_start_failure is None:
+            return True
+        return not is_port_in_use_error(self._last_start_failure[2])
+
+    def _show_start_failure_dialog(self, ctx: Any | None = None) -> None:
+        from plugin.chatbot.dialogs import msgbox_with_report
+        from plugin.framework.i18n import _
+        from plugin.framework.uno_context import get_ctx
+
+        if ctx is None:
+            ctx = get_ctx()
+        detail = self._formatted_start_failure()
+        body = detail or _("Check writeragent_debug.log in your LibreOffice user config folder")
+        message = _("MCP server failed to start") + "\n" + body
+        msgbox_with_report(ctx, "WriterAgent", message, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
+
+    def _start_server(self, services: Any) -> bool:
+        from plugin.framework.queue_executor import Policy, main
+
+        if main.policy is Policy.test_inline:
+            return True
+
+        from plugin.mcp_server.server import HttpServer
+
+        reload_cors_policy_from_config(services)
+
+        with _srv_lock:
+            if not is_mcp_server_running():
+                host = get_config("mcp.host") or "localhost"
+                port = get_config("mcp.mcp_port")
+                # Mock UNO/config (e.g. generate_tool_proxies) yields MagicMock host/port.
+                if not isinstance(host, str) or not isinstance(port, int):
+                    log.debug("MCP start skipped: host/port not usable (%r, %r)", host, port)
+                    return False
+
+                srv = HttpServer(
+                    route_registry=self._registry,
+                    port=port,
+                    host=host,
+                    use_ssl=get_config("mcp.use_ssl") or False,
+                    ssl_cert=get_config("mcp.ssl_cert") or "",
+                    ssl_key=get_config("mcp.ssl_key") or "",
+                )
+                try:
+                    srv.start()
+                    status = srv.get_status()
+                    services.events.emit("http:server_started", port=status["port"], host=status["host"], url=status["url"])
+                    services.events.emit("menu:update")
+                    self.server = srv
+                except Exception as e:
+                    # Stash for Toggle/Status/Settings UI so failed binds show host/port
+                    # and the error in the dialog instead of only a debug-log pointer.
+                    log.exception("Failed to start HTTP server")
+                    self._last_start_failure = (host, port, e)
+                    try:
+                        srv.stop()
+                    except Exception:
+                        log.debug("HttpServer.stop after failed start", exc_info=True)
+                    return False
+            self._last_start_failure = None
+
+        # Outside _srv_lock — cloudflared spawn must not hold the HTTP start lock.
+        self._sync_tunnel()
+        return True
+
+    def _stop_server(self) -> None:
+        # Stop tunnel first so we do not keep advertising a dead local port.
+        if self.tunnel is not None:
+            self.tunnel.stop()
+        with _srv_lock:
+            srv = self.server
+            if not srv:
+                return
+            srv.stop()
+            self.server = None
+        self._services.events.emit("http:server_stopped", reason="shutdown")
+        self._services.events.emit("menu:update")
+
+    def _quit_stop_tunnel(self) -> None:
+        tunnel = self.tunnel
+        assert tunnel is not None
+        tunnel.stop_for_quit()
+
+    def _sync_tunnel(self) -> None:
+        """Start or stop the public tunnel to match MCP settings."""
+        tunnel = self.tunnel
+        if tunnel is None:
+            return
+        want = bool(get_config("mcp.mcp_enabled") and get_config("mcp.tunnel_enabled") and is_mcp_server_running())
+        if not want:
+            tunnel.stop()
+            return
+        port = get_config("mcp.mcp_port")
+        if port is None:
+            port = getattr(self.server, "port", None)
+        try:
+            port_i = int(port) if port is not None else None
+        except (TypeError, ValueError):
+            port_i = None
+        if port_i is None:
+            log.warning("tunnel_enabled but no usable MCP port (%r)", port)
+            return
+        provider = str(get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
+        provider_token = get_secret_config("mcp.tunnel_provider_token")
+        # Armed before the thread is queued. stop() clears it, so a disable
+        # that lands while this start is still waiting to run cannot lose.
+        start_token = object()
+        tunnel.note_pending_start(start_token)
+
+        def _start() -> None:
+            before = tunnel.last_error
+            ok = tunnel.start(port_i, provider, provider_token=provider_token, start_token=start_token)
+            # A superseded start (stop, or a newer arm) returns False without
+            # a new last_error. Only a probe/spawn failure is worth logging.
+            if not ok and tunnel.last_error and tunnel.last_error != before:
+                log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+
+        # config:changed runs this on the UI thread, and start() calls
+        # binary_available() (subprocess, timeout 10s). A hung provider
+        # --version would freeze Settings for that whole wait. Leave the UI
+        # thread first. The probe also runs outside TunnelManager._lock so
+        # stop() is not stuck behind it. dedicated so the wait does not
+        # occupy the shared background pool.
+        from plugin.framework.queue_executor import main
+
+        if main.is_current():
+            from plugin.framework.worker_pool import run_in_background
+
+            run_in_background(_start, name="mcp-tunnel-sync", dedicated=True)
+            return
+        _start()
+
+    def shutdown(self) -> None:
+        global _current_module
+        self._stop_server()
+        self._unregister_mcp_routes()
+        if _current_module is self:
+            _current_module = None
+
+    def _register_mcp_routes(self, services: Any) -> None:
+        log.info("Registering MCP routes (SSE, /mcp, /debug)...")
+        from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
+
+        p = MCPProtocolHandler(services)
+        _write_debug_token_file(p.debug_token)
+
+        # One lock across the whole set. GET / snapshots routes under the same
+        # lock, so a toggle cannot expose a half-registered table or raise
+        # RuntimeError while iterating it.
+        with self._registry.lock:
+            for method, path, handler_name, wrap in MCP_ROUTE_TABLE:
+                self._registry.add(method, path, wrap(getattr(p, handler_name)))
+        log.info("MCP routes registered on HTTP server")
+
+    def _unregister_mcp_routes(self) -> None:
+        with self._registry.lock:
+            for method, path, _handler_name, _wrap in MCP_ROUTE_TABLE:
+                self._registry.remove(method, path)
+        _remove_debug_token_file()
+        log.info("MCP routes unregistered from HTTP server")
+
+    # ── Action dispatch ──────────────────────────────────────────────
+
+    def on_action(self, action: str) -> None:
+        if action == "toggle_server":
+            self._action_toggle_server()
+        elif action == "server_status":
+            self._action_server_status()
+        else:
+            super().on_action(action)
+
+    def get_menu_text(self, action: str) -> str | None:
+        from plugin.framework.i18n import _
+
+        if action == "toggle_server":
+            if is_mcp_server_running():
+                return _("Stop MCP Server")
+            return _("Start MCP Server")
+        return None
+
+    def get_menu_icon(self, action: str) -> str | None:
+        if action != "server_status":
+            return None
+        return "running" if is_mcp_server_running() else "stopped"
+
+    def _action_toggle_server(self) -> None:
+        # No msgbox on success: modal boxes block the sidebar; the panel status line shows it.
+        if is_mcp_server_running():
+            log.info("Stopping MCP server via toggle")
+            self._stop_server()
+        else:
+            log.info("Starting MCP server via toggle")
+            if not get_config("mcp.mcp_enabled"):
+                save({"mcp.mcp_enabled": True})
+            else:
+                if not self._mcp_routes_registered():
+                    self._register_mcp_routes(self._services)
+                self._start_server(self._services)
+            if not is_mcp_server_running():
+                self._show_start_failure_dialog()
+
+    def _not_running_status_message(self) -> str:
+        from plugin.framework.i18n import _
+
+        msg = _("MCP server is not running")
+        detail = self._formatted_start_failure()
+        if detail:
+            # One short reason: first line is host:port + exception; enough for Status.
+            first = detail.split("\n", 1)[0]
+            msg = msg + "\n" + first
+        return msg
+
+    def _action_server_status(self) -> None:
+        from plugin.chatbot.dialogs import CopyListener, DismissDialogListener, load_writeragent_dialog, msgbox
+        from plugin.framework.uno_context import get_ctx
+        from plugin.framework.i18n import _
+
+        ctx = get_ctx()
+        b = self.server
+        status = b.get_status() if b else None
+        if not status or not status.get("running"):
+            msgbox(ctx, "WriterAgent", self._not_running_status_message())
+            return
+
+        local_url = status.get("mcp_url", status.get("url", "?"))
+        routes = status.get("routes", 0)
+        tunnel = self.tunnel
+        public_url = tunnel.mcp_public_url() if tunnel else None
+        provider = get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER
+        pname = provider_label(provider)
+        tunnel_enabled = bool(get_config("mcp.tunnel_enabled"))
+
+        # Primary copy URL is the public tunnel URL when active, else local URL
+        active_url = public_url or local_url
+        msg = _("MCP server running") + "\n" + _("Routes: {0}").format(routes)
+        tunnel_line = tunnel_status_line(pname, tunnel, public_url, tunnel_enabled)
+        fallback_msg = msg + "\n" + _("Local URL: {0}").format(local_url)
+        if tunnel_line:
+            fallback_msg = fallback_msg + "\n" + tunnel_line
+        if public_url:
+            fallback_msg = fallback_msg + "\n" + _("Public URL: {0}").format(public_url)
+
+        try:
+            dlg = load_writeragent_dialog("ServerStatusDialog", ctx)
+            if dlg is None:
+                msgbox(ctx, "WriterAgent", fallback_msg)
+                return
+
+            def set_ctl(name: str, *, label: str | None = None, text: str | None = None, visible: bool | None = None) -> None:
+                ctrl = dlg.getControl(name)
+                if ctrl is None:
+                    return
+                if text is not None:
+                    ctrl.setText(text)
+                if label is None and visible is None:
+                    return
+                model = ctrl.getModel()
+                if label is not None:
+                    model.Label = label
+                if visible is not None:
+                    model.Visible = visible
+
+            set_ctl("Msg", label=msg)
+            set_ctl("LocalUrlLabel", label=_("Local Endpoint:"))
+            set_ctl("UrlField", text=local_url)
+            if tunnel_enabled:
+                set_ctl("TunnelLabel", label=_("Public Tunnel ({0}):").format(pname), visible=True)
+                set_ctl("TunnelUrlField", text=public_url or "", visible=True)
+                if public_url:
+                    tstatus = _("Status: Active (connected)")
+                elif tunnel and getattr(tunnel, "is_reconnecting", False):
+                    tstatus = _("Status: Reconnecting — {0}").format(tunnel.last_error or _("retrying…"))
+                elif tunnel and tunnel.is_running:
+                    tstatus = _("Status: Starting tunnel…")
+                elif tunnel and tunnel.last_error:
+                    tstatus = _("Status: Failed — {0}").format(tunnel.last_error)
+                else:
+                    tstatus = _("Status: Not running (is {0} binary installed?)").format(pname)
+                set_ctl("TunnelStatusMsg", label=tstatus, visible=True)
+            else:
+                for name in ("TunnelLabel", "TunnelUrlField", "TunnelStatusMsg"):
+                    set_ctl(name, visible=False)
+
+            copy_btn = dlg.getControl("CopyBtn")
+            if copy_btn is not None:
+                copy_btn.addActionListener(CopyListener(dlg, ctx, active_url))
+
+            ok_btn = dlg.getControl("OKBtn")
+            if ok_btn is not None:
+                ok_btn.addActionListener(DismissDialogListener(dlg))
+
+            dlg.execute()
+            dlg.dispose()
+        except Exception:
+            log.exception("Status dialog error")
+            msgbox(ctx, "WriterAgent", fallback_msg)
+
+    # ---- Built-in route handlers ----
+
+    def _handle_health(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
+        return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
+
+    def _handle_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
+        log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
+        routes = self._registry.list_routes()
+        info = {"name": "WriterAgent", "version": EXTENSION_VERSION, "description": "WriterAgent HTTP server", "routes": ["%s %s" % (m, p) for m, p in sorted(routes)]}
+        if self._mcp_routes_registered():
+            info["mcp_endpoint"] = mcp_endpoint_url(
+                get_config("mcp.host") or "localhost",
+                get_config("mcp.mcp_port"),
+                bool(get_config("mcp.use_ssl")),
+            )
+        return (200, info)

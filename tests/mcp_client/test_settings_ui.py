@@ -14,7 +14,7 @@ import pytest
 
 from plugin.framework import config as fw_config
 from plugin.framework import keystore
-from plugin.mcp.client import McpClientError, McpServerConnection
+from plugin.mcp_client.client import McpClientError, McpServerConnection
 from plugin.mcp_client import settings_ui
 from plugin.mcp_client.settings_ui import McpServersEditor
 

@@ -40,7 +40,7 @@ brew tap fizzbee-io/fizzbee && brew install fizzbee
 ```
 
 ### Checking Formal Models
-Directory config lives in [`tests/mcp/fizzbee/fizz.yaml`](../../tests/mcp/fizzbee/fizz.yaml) (`crash_on_yield: false`, `max_concurrent_actions: 1`). Each spec’s YAML frontmatter can still override `max_actions`.
+Directory config lives in [`tests/mcp_server/fizzbee/fizz.yaml`](../../tests/mcp_server/fizzbee/fizz.yaml) (`crash_on_yield: false`, `max_concurrent_actions: 1`). Each spec’s YAML frontmatter can still override `max_actions`.
 
 To run the formal model checker against all `.fizz` specifications:
 ```bash
@@ -51,24 +51,24 @@ make check-fizzbee
 
 ## 3. FizzBee Formal Specifications
 
-Formal specifications live in [`tests/mcp/fizzbee/`](../../tests/mcp/fizzbee/):
+Formal specifications live in [`tests/mcp_server/fizzbee/`](../../tests/mcp_server/fizzbee/):
 
 Specs use real FizzBee syntax (`action Init` for state, `atomic action`, `oneof`, `always assertion`). A `state:` block and `invariant Name:` are not valid FizzBee.
 
-### A. Protocol Lifecycle (`tests/mcp/fizzbee/writer_mcp_protocol.fizz`)
+### A. Protocol Lifecycle (`tests/mcp_server/fizzbee/writer_mcp_protocol.fizz`)
 - MCP server lifecycle states (`UNINITIALIZED`, `INITIALIZED`).
 - Exposure modes (`DELEGATE`, `DIRECT_FLAT`, `DIRECT_DISCOVERY`).
 - Document context targeting (`NONE`, `WRITER`, `CALC`, `DRAW`).
 - Assertions: `Inv_InitializedBeforeCalls`, `Inv_FindToolsGating` (call-time mode stored on `last_call_mode`, not a growing history).
 
-### B. Writer Tools Model (`tests/mcp/fizzbee/writer_tools_model.fizz`)
+### B. Writer Tools Model (`tests/mcp_server/fizzbee/writer_tools_model.fizz`)
 - Nested containers: body string, each table's representative cell string, footnotes, frames.
 - Cursor: `(kind, id, start, end)` on one container.
 - Actions include `CreateTable`, `SetCell`, `MoveCursorToCell`, `ApplySelection` (writes the **cursor** container, not the body), `GetSelection`.
 - Invariants: `Inv_BookmarksBounded`, `Inv_TablesValidDimensions`, `Inv_PendingChangesOnlyWhenRecorded`, `Inv_CursorSameContainer`. Selection-vs-body mapping is pinned by [`tests/writer/test_apply_document_content_table_cell_uno.py`](../../tests/writer/test_apply_document_content_table_cell_uno.py) (FizzBee `last_op` cannot shrink a multi-step story).
 - Alphabet is bounded for model checking. The live UNO test covers the MinerU-style cell-vs-body bug class (e.g. create 3×2 table, put text in a cell, select/edit the cell, verify the body stays untouched) — the same class of bug as `apply_content` building a cursor on `model.getText()` instead of `target_range.getText()`.
 
-### C. Calc Tools Model (`tests/mcp/fizzbee/calc_tools_model.fizz`)
+### C. Calc Tools Model (`tests/mcp_server/fizzbee/calc_tools_model.fizz`)
 - Spreadsheet grid cells, formula ranges, sheet management, named ranges, and filters.
 - Invariants: `Inv_SheetCountPositive` (`len(sheets) >= 1`), `Inv_ActiveSheetMustExist`, `Inv_NamedRangesIntegrity`.
 
@@ -78,8 +78,8 @@ Specs use real FizzBee syntax (`action Init` for state, `atomic action`, `oneof`
 
 The layout extraction helpers inspect, categorize, and validate all tools for Writer and Calc:
 
-- **Writer Layout Helper**: [`tests/mcp/writer_full_layout.py`](../../tests/mcp/writer_full_layout.py)
-- **Calc Layout Helper**: [`tests/mcp/calc_full_layout.py`](../../tests/mcp/calc_full_layout.py)
+- **Writer Layout Helper**: [`tests/mcp_server/writer_full_layout.py`](../../tests/mcp_server/writer_full_layout.py)
+- **Calc Layout Helper**: [`tests/mcp_server/calc_full_layout.py`](../../tests/mcp_server/calc_full_layout.py)
 
 ```python
 from tests.mcp.writer_full_layout import extract_full_writer_layout, validate_mcp_schema
@@ -113,14 +113,14 @@ Run the Writer and Calc Model-Based Test suites:
 
 ```bash
 # Run Writer MCP tests
-pytest tests/mcp/test_fizzbee_writer_mcp.py -v
+pytest tests/mcp_server/test_fizzbee_writer_mcp.py -v
 
 # Run Calc MCP tests
-pytest tests/mcp/test_fizzbee_calc_mcp.py -v
+pytest tests/mcp_server/test_fizzbee_calc_mcp.py -v
 
 # Run with custom steps or duration via environment variables
-FIZZBEE_MCP_STEPS=2000 pytest tests/mcp/test_fizzbee_calc_mcp.py -v
-FIZZBEE_MCP_DURATION_SEC=10 pytest tests/mcp/test_fizzbee_calc_mcp.py -v
+FIZZBEE_MCP_STEPS=2000 pytest tests/mcp_server/test_fizzbee_calc_mcp.py -v
+FIZZBEE_MCP_DURATION_SEC=10 pytest tests/mcp_server/test_fizzbee_calc_mcp.py -v
 ```
 
 ### B. Dedicated CLI Randomized Fuzzer

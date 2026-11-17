@@ -252,7 +252,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
 | Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_object_to_bytes()` resolves via `get_ctx()`. |
 | Locale Resolution | `plugin/framework/i18n.py` | `get_lo_locale()` uses `get_ctx()` on-main, falls back to `en_US` off-main. |
-| MCP Context Resolution | `plugin/mcp/mcp_protocol.py` | Context resolution uses `get_ctx()`, not raw bootstrap context. |
+| MCP Context Resolution | `plugin/mcp_server/mcp_protocol.py` | Context resolution uses `get_ctx()`, not raw bootstrap context. |
 | Document user properties | `plugin/doc/udprops.py` | Unwrap PropertyBag (proxy vs addProperty). Not `@main_thread_only`: `XFilter.filter()` runs on LO's Dummy-* dispatch thread during socket `loadComponentFromURL`. |
 | Package id | `plugin/framework/uno_context.py` | `set_package_extension_id` at `main.py` / `main_core.py` bootstrap; `resolve_package_extension_id` uses the cache off-main. |
 

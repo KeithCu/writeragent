@@ -1100,14 +1100,14 @@ def test_delegate_mcp_returns_listing_errors() -> None:
 
     from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.tool import ToolContext
-    from plugin.mcp.client import McpClientError
+    from plugin.mcp_client.client import McpClientError
 
     gw = DelegateToSubagent()
     ctx = MagicMock(spec=ToolContext)
     ctx.status_callback = None
 
     with (
-        patch("plugin.mcp.client.mcp_domain_tools", side_effect=McpClientError("No external MCP server is set up", code="MCP_CLIENT_NOT_CONFIGURED")),
+        patch("plugin.mcp_client.client.mcp_domain_tools", side_effect=McpClientError("No external MCP server is set up", code="MCP_CLIENT_NOT_CONFIGURED")),
         patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_agent,
     ):
         out = gw.execute(ctx, domain="mcp", task="List files")
@@ -1132,7 +1132,7 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
     registry.register(DelegateToSubagent())
     register_writeragent_tool_filters(registry)
 
-    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
+    with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
         for kwargs in (
             {"doc_type": "writer"},
             {"doc_type": "calc", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[0]})},

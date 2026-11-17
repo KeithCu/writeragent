@@ -5,7 +5,7 @@
 """Dual-stack (IPv4/IPv6) thread-pooled HTTP server.
 
 Shared networking engine used by:
-- WriterAgent MCP Server (plugin/mcp/server.py)
+- WriterAgent MCP Server (plugin/mcp_server/server.py)
 - Collabora Online Python Compute Service (compute_service/wsgi_server.py)
 """
 

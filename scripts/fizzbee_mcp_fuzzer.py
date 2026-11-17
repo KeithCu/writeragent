@@ -26,7 +26,7 @@ _real_stdout = sys.stdout
 from unittest.mock import MagicMock
 
 from plugin.framework.service import ServiceRegistry
-from plugin.mcp.mcp_protocol import MCPProtocolHandler
+from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
 from tests.mcp.writer_full_layout import (
     extract_full_writer_layout,
     get_writer_tool_registry,

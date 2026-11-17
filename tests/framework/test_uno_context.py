@@ -26,7 +26,7 @@ def test_get_ctx_with_uno():
     # B9 regression: patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
     # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
-    # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
+    # (this is what broke tests/mcp_server/test_long_running_concurrency.py in combined runs).
     #
     # bootstrap() pins whatever get_ctx() returned into _fallback_ctx. On an
     # xdist worker an earlier test has already done that, so get_ctx() returns

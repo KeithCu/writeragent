@@ -454,7 +454,7 @@ flowchart LR
 - `research_list_nearby_files` preview blocks when the outer agent lists siblings.
 - Inner read-tool steps (`read_range`, `get_content`, …) via `chat_append_callback` on the inner `ToolContext` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) — useful when step-by-step cross-doc read visibility is desired (similar to “Show search thinking” for web research).
 - Optional config gate (e.g. `chatbot.show_document_research_steps` or tie to an existing thinking toggle) if chat noise becomes an issue.
-- MCP parity: [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) `ToolContext` has no chat sink today; hosts would need a stream hook if they want the same status lines.
+- MCP parity: [`mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) `ToolContext` has no chat sink today; hosts would need a stream hook if they want the same status lines.
 
 ---
 
@@ -473,10 +473,10 @@ flowchart LR
 
 #### MCP (Phase 6)
 
-- **Active document:** unchanged — `X-Document-URL` on [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py).
+- **Active document:** unchanged — `X-Document-URL` on [`mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py).
 - **Nearby reads:** path or `url` in tool args / delegate task; **do not** retarget `X-Document-URL` to sibling files.
 - **Tool surface:** same as sidebar — document_research via `delegate_to_subagent(domain="document_research", …)`, not dozens of new MCP tool names ([../mcp-protocol.md](../mcp-protocol.md) specialized-tier policy).
-- **Test:** [`test_mcp_server.py`](../../plugin/tests/mcp/test_mcp_server.py) — document_research delegate with header pointing at active Writer doc.
+- **Test:** [`test_mcp_server.py`](../../plugin/tests/mcp_server/test_mcp_server.py) — document_research delegate with header pointing at active Writer doc.
 
 ---
 
@@ -558,7 +558,7 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 | Document path / URL | [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) |
 | Chat context / prompts (Phase 2) | [`plugin/chatbot/panel.py`](../../plugin/chatbot/panel.py), [`plugin/framework/constants.py`](../../plugin/framework/constants.py) |
 | Tool loop | [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) |
-| MCP (Phase 6) | [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) |
+| MCP (Phase 6) | [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) |
 
 ---
 

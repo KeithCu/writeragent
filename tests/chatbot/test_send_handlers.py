@@ -108,7 +108,7 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     with (
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
-        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+        patch("plugin.mcp_server.is_mcp_server_running", return_value=False),
         patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
@@ -151,7 +151,7 @@ def test_agent_backend_lane_status_callback_queues_status() -> None:
     with (
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
-        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+        patch("plugin.mcp_server.is_mcp_server_running", return_value=False),
         patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
         patch("plugin.chatbot.send_handlers.llm_request_lane", fake_lane),
     ):
@@ -183,7 +183,7 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
     with (
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
-        patch("plugin.mcp.is_mcp_server_running", return_value=True),
+        patch("plugin.mcp_server.is_mcp_server_running", return_value=True),
         patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
@@ -1724,7 +1724,7 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
         patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
         patch("plugin.chatbot.send_handlers.get_backend", side_effect=get_backend),
         patch("plugin.chatbot.send_handlers.get_config", side_effect=get_config),
-        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+        patch("plugin.mcp_server.is_mcp_server_running", return_value=False),
     ):
         panel._execute_agent_backend_effect("one", MagicMock(), "writer")
         assert order == []

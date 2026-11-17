@@ -2,7 +2,7 @@
 
 WriterAgent already runs an MCP **server** ([mcp-protocol.md](mcp-protocol.md)) so outside agents can drive LibreOffice. This feature is the other direction: the built-in sidebar chat can call tools on **other** MCP servers, for example a home server that exposes Nextcloud, email, calendar or notes.
 
-Code: [`plugin/mcp/client.py`](../plugin/mcp/client.py), [`plugin/mcp/client_schema.py`](../plugin/mcp/client_schema.py), [`plugin/mcp/client_helpers.py`](../plugin/mcp/client_helpers.py), [`plugin/mcp_client/settings_ui.py`](../plugin/mcp_client/settings_ui.py). Tests: [`tests/mcp/test_client.py`](../tests/mcp/test_client.py), [`tests/mcp/test_client_schema.py`](../tests/mcp/test_client_schema.py), [`tests/mcp/test_client_helpers.py`](../tests/mcp/test_client_helpers.py), [`tests/mcp_client/test_settings_ui.py`](../tests/mcp_client/test_settings_ui.py).
+Code: [`plugin/mcp_client/client.py`](../plugin/mcp_client/client.py), [`plugin/mcp_client/client_schema.py`](../plugin/mcp_client/client_schema.py), [`plugin/mcp_client/client_helpers.py`](../plugin/mcp_client/client_helpers.py), [`plugin/mcp_client/settings_ui.py`](../plugin/mcp_client/settings_ui.py). Tests: [`tests/mcp_client/test_client.py`](../tests/mcp_client/test_client.py), [`tests/mcp_client/test_client_schema.py`](../tests/mcp_client/test_client_schema.py), [`tests/mcp_client/test_client_helpers.py`](../tests/mcp_client/test_client_helpers.py), [`tests/mcp_client/test_settings_ui.py`](../tests/mcp_client/test_settings_ui.py).
 
 ## How the model sees it
 

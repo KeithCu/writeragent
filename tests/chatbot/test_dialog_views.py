@@ -523,16 +523,16 @@ class TestSettingsEnhancements:
     )
     def test_build_mcp_config_snippet(self, port, expected_port):
         import json
-        from plugin.mcp.mcp_ui import build_mcp_config_snippet
+        from plugin.mcp_server.mcp_ui import build_mcp_config_snippet
 
-        with patch("plugin.mcp.mcp_ui.get_config", return_value=18765):
+        with patch("plugin.mcp_server.mcp_ui.get_config", return_value=18765):
             snippet = build_mcp_config_snippet(port)
         parsed = json.loads(snippet)
         assert parsed["mcpServers"]["libreoffice"]["url"] == f"http://localhost:{expected_port}/mcp"
 
-    @patch("plugin.mcp.mcp_ui.copy_to_clipboard", return_value=True)
+    @patch("plugin.mcp_server.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener_action(self, mock_copy):
-        from plugin.mcp.mcp_ui import CopyMcpConfigListener
+        from plugin.mcp_server.mcp_ui import CopyMcpConfigListener
 
         ctx = MagicMock()
         dlg = MagicMock()
@@ -549,8 +549,8 @@ class TestSettingsEnhancements:
                 return btn_ctrl
             return None
 
-        with patch("plugin.mcp.mcp_ui.get_optional", side_effect=optional_side_effect), \
-             patch("plugin.mcp.mcp_ui.get_control_text", return_value='{"mcpServers": {}}'):
+        with patch("plugin.mcp_server.mcp_ui.get_optional", side_effect=optional_side_effect), \
+             patch("plugin.mcp_server.mcp_ui.get_control_text", return_value='{"mcpServers": {}}'):
             listener = CopyMcpConfigListener(ctx, dlg)
             listener.on_action_performed(MagicMock())
 
@@ -558,7 +558,7 @@ class TestSettingsEnhancements:
         assert (btn_model.Label) == ("✓ Copied!")
 
     def test_mcp_port_text_listener_updates_snippet(self):
-        from plugin.mcp.mcp_ui import McpPortTextListener
+        from plugin.mcp_server.mcp_ui import McpPortTextListener
 
         dlg = MagicMock()
         snippet_ctrl = MagicMock()
@@ -572,8 +572,8 @@ class TestSettingsEnhancements:
                 return port_ctrl
             return None
 
-        with patch("plugin.mcp.mcp_ui.get_optional", side_effect=optional_side_effect), \
-             patch("plugin.mcp.mcp_ui.set_control_text") as mock_set_text:
+        with patch("plugin.mcp_server.mcp_ui.get_optional", side_effect=optional_side_effect), \
+             patch("plugin.mcp_server.mcp_ui.set_control_text") as mock_set_text:
             listener = McpPortTextListener(dlg)
             listener.textChanged(MagicMock())
 
@@ -587,7 +587,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
     """A tunnel with no public URL yet writes the template and does not schedule a poll."""
     import json
 
-    from plugin.mcp import mcp_ui
+    from plugin.mcp_server import mcp_ui
 
     mcp_ui._tested_provider_tunnel_urls.clear()
 
@@ -614,7 +614,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
     tunnel.mcp_public_url.return_value = ""
 
     try:
-        with patch("plugin.mcp.current_tunnel", return_value=tunnel), \
+        with patch("plugin.mcp_server.current_tunnel", return_value=tunnel), \
              patch("time.sleep") as mock_sleep, \
              patch("plugin.framework.worker_pool.run_in_background") as background:
             mcp_ui.sync_mcp_config_snippet(dlg)
@@ -2126,7 +2126,7 @@ def test_settings_show_preserves_original_exception_when_cleanup_hits_disposed_c
 
 
 def test_settings_ok_makes_mcp_servers_list_tools_again():
-    from plugin.mcp import client as mcp_client
+    from plugin.mcp_client import client as mcp_client
 
     dlg = MagicMock()
     dlg.execute.return_value = 1
@@ -2397,7 +2397,7 @@ def test_key_storage_label_follows_endpoint(fake_keystore):
 
 def test_settings_ok_adopts_connections_the_editor_checked():
     from plugin.chatbot.dialog_views import SettingsDialog
-    from plugin.mcp import client as mcp_client
+    from plugin.mcp_client import client as mcp_client
 
     entry = {"name": "home", "url": "http://127.0.0.1:8000/mcp"}
     conn = mcp_client.McpServerConnection(entry)
@@ -2421,7 +2421,7 @@ def test_settings_ok_adopts_connections_the_editor_checked():
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
         patch("plugin.chatbot.settings_dialog.apply_settings_result"),
         patch("plugin.mcp_client.settings_ui.McpServersEditor.attach", return_value=stub_editor),
-        patch("plugin.mcp.client.configured_servers", return_value=[entry]),
+        patch("plugin.mcp_client.client.configured_servers", return_value=[entry]),
     ):
         view.show()
 

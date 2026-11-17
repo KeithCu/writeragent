@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """External MCP servers: owns the ``mcp_client.*`` schema and Integrations editor.
 
-The client and ``mcp`` sub-agent domain live in ``plugin/mcp/client.py`` next
+The client and ``mcp`` sub-agent domain live in ``plugin/mcp_client/client.py``;
 to WriterAgent's own MCP server. This module owns the configuration schema and
 in-place server editor (``settings_ui.py``) for Settings > Integrations.
 """

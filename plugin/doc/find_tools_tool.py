@@ -19,7 +19,7 @@ specialized tools itself. Future enhancement: optional live context injection (C
 snapshot, shapes canvas, open-docs list) like ``specialized_base.py`` for delegated runs.
 
 Only advertised in ``tools/list`` when ``mcp.tool_exposure_mode == "direct_discovery"``
-(gated by name in ``plugin/mcp/mcp_protocol.py``); ``tier="mcp"`` keeps it off the chat
+(gated by name in ``plugin/mcp_server/mcp_protocol.py``); ``tier="mcp"`` keeps it off the chat
 agent's tool list.
 """
 from __future__ import annotations
@@ -177,8 +177,8 @@ class FindTools(ToolBase):
             )
 
         schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
-        # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
-        from plugin.mcp.mcp_protocol import drop_unavailable_domains
+        # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+        from plugin.mcp_server.mcp_protocol import drop_unavailable_domains
         schemas = drop_unavailable_domains(schemas, registry, ctx.ctx)
 
         tools: list[dict[str, Any]] = []

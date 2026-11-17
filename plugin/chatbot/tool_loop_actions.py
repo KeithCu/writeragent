@@ -855,7 +855,7 @@ def build_tool_execute_fn(
                 return json.dumps(format_error_payload(err), default=str)
 
         # Remote MCP tools decide from server trust and readOnlyHint whether to ask,
-        # and refuse to run when they must ask but have no callback (plugin/mcp/client.py).
+        # and refuse to run when they must ask but have no callback (plugin/mcp_client/client.py).
         if prompt_for_web or needs_mcp_ui:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:

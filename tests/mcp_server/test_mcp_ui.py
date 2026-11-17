@@ -1,0 +1,503 @@
+# WriterAgent - MCP UI Unit Tests
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import json
+import threading
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from plugin.mcp_server import mcp_ui
+from plugin.mcp_server.mcp_ui import (
+    CopyMcpConfigListener,
+    build_mcp_config_snippet,
+    clear_active_settings_dialog,
+    clear_tested_provider_tunnel_url,
+    remember_tested_tunnel_url,
+    set_active_settings_dialog,
+    sync_mcp_config_snippet,
+)
+from plugin.mcp_server.tunnel import TunnelManager
+
+
+@pytest.fixture(autouse=True)
+def _isolate_snippet_cache_from_loaded_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sync_mcp_config_snippet falls back to current_tunnel(); pin it to None so the result does not depend on other tests' module lifecycle."""
+    import plugin.mcp_server as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
+
+
+class TestMcpUi:
+    @patch("plugin.mcp_server.mcp_ui.get_config", return_value=18765)
+    def test_build_mcp_config_snippet_default(self, mock_port):
+        snippet = build_mcp_config_snippet()
+        parsed = json.loads(snippet)
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:18765/mcp")
+
+    def test_build_mcp_config_snippet_custom(self):
+        snippet = build_mcp_config_snippet(url="https://custom.trycloudflare.com/mcp")
+        parsed = json.loads(snippet)
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("https://custom.trycloudflare.com/mcp")
+
+    @patch("plugin.mcp_server.mcp_ui.copy_to_clipboard", return_value=True)
+    def test_copy_mcp_config_listener(self, mock_copy):
+        ctx = MagicMock()
+        dlg = MagicMock()
+        snippet_ctrl = MagicMock()
+        snippet_ctrl.getText.return_value = '{"test": 1}'
+        btn_ctrl = MagicMock()
+        btn_model = MagicMock()
+        btn_ctrl.getModel.return_value = btn_model
+
+        def optional_mock(d, name):
+            if name == "mcp__client_config_snippet":
+                return snippet_ctrl
+            if name == "mcp__copy_config":
+                return btn_ctrl
+            return None
+
+        with (
+            patch("plugin.mcp_server.mcp_ui.get_optional", side_effect=optional_mock),
+            patch("plugin.mcp_server.mcp_ui.get_control_text", return_value='{"test": 1}'),
+            patch("plugin.mcp_server.mcp_ui.sync_mcp_config_snippet"),
+        ):
+            listener = CopyMcpConfigListener(ctx, dlg)
+            listener.on_action_performed(MagicMock())
+
+        mock_copy.assert_called_once_with(ctx, '{"test": 1}')
+        assert (btn_model.Label) == ("✓ Copied!")
+
+    def test_active_settings_dialog_tracking(self):
+        dlg = MagicMock()
+        set_active_settings_dialog(dlg)
+
+        assert (mcp_ui._active_settings_dialog_ref) is (dlg)
+
+        clear_active_settings_dialog(dlg)
+        assert (mcp_ui._active_settings_dialog_ref) is None
+
+
+def _snippet_dialog(provider: str = "cloudflare", port: int = 19000, tunnel_on: bool = True):
+    snippet = MagicMock()
+    port_ctrl = MagicMock()
+    port_ctrl.getValue.return_value = port
+    port_ctrl.getText.return_value = str(port)
+    checkbox = MagicMock()
+    checkbox.getState.return_value = 1 if tunnel_on else 0
+    checkbox.State = checkbox.getState.return_value
+    provider_ctrl = MagicMock()
+    provider_ctrl.getText.return_value = provider
+    controls = {
+        "mcp__client_config_snippet": snippet,
+        "mcp__mcp_port": port_ctrl,
+        "mcp__tunnel_enabled": checkbox,
+        "mcp__tunnel_provider": provider_ctrl,
+    }
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: controls.get(name)
+    return dlg, snippet
+
+
+def _snippet_url(snippet: MagicMock) -> str:
+    return json.loads(snippet.setText.call_args[0][0])["mcpServers"]["libreoffice"]["url"]
+
+
+def _reset_tunnel_url_cache() -> None:
+    mcp_ui._tested_provider_tunnel_urls.clear()
+    mcp_ui._active_settings_dialog_ref = None
+
+
+def test_sync_drops_retired_tunnel_url_and_accepts_a_fresh_test() -> None:
+    """A stopped/failed provider must not keep its public URL in the snippet."""
+    _reset_tunnel_url_cache()
+    try:
+        dlg, snippet = _snippet_dialog()
+        remember_tested_tunnel_url("cloudflare", "https://dead.trycloudflare.com/mcp")
+        sync_mcp_config_snippet(dlg)
+        assert _snippet_url(snippet) == "https://dead.trycloudflare.com/mcp"
+
+        clear_tested_provider_tunnel_url("cloudflare")
+        sync_mcp_config_snippet(dlg)
+        assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
+
+        remember_tested_tunnel_url("cloudflare", "https://fresh.trycloudflare.com/mcp")
+        sync_mcp_config_snippet(dlg)
+        assert _snippet_url(snippet) == "https://fresh.trycloudflare.com/mcp"
+    finally:
+        _reset_tunnel_url_cache()
+
+
+def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
+    """Stop, unexpected exit, and a failed start retire the cached public URL."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    _reset_tunnel_url_cache()
+    dlg, snippet = _snippet_dialog()
+    exit_cb: dict[str, object] = {"fn": None}
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        del cmd, kwargs
+        proc = MagicMock()
+        proc.is_running = True
+        exit_cb["fn"] = on_exit_cb
+
+        def start() -> None:
+            if stderr_cb:
+                stderr_cb("INF |  https://live.trycloudflare.com")
+
+        proc.start = start
+        proc.terminate = MagicMock()
+        return proc
+
+    try:
+        with (
+            patch("plugin.mcp_server.tunnel.binary_available", return_value=None),
+            patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        ):
+            mgr = TunnelManager()
+            assert mgr.start(18765, "cloudflare") is True
+            assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
+            sync_mcp_config_snippet(dlg)
+            assert _snippet_url(snippet) == "https://live.trycloudflare.com/mcp"
+
+            mgr.stop()
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
+            sync_mcp_config_snippet(dlg)
+            assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
+
+            assert mgr.start(18765, "cloudflare") is True
+            assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
+            exit_fn = exit_cb["fn"]
+            assert callable(exit_fn)
+            exit_fn(1)
+            # Cancel the reconnect timer before it can publish the URL again.
+            timer = mgr._reconnect_timer
+            if timer is not None:
+                timer.cancel()
+            assert mgr.public_url is None
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
+            sync_mcp_config_snippet(dlg)
+            assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
+            mgr.stop()
+
+        with patch("plugin.mcp_server.tunnel.binary_available", return_value="cloudflared binary not found on PATH"):
+            remember = TunnelManager()
+            mcp_ui.remember_tested_tunnel_url("cloudflare", "https://stale.trycloudflare.com/mcp")
+            assert remember.start(18765, "cloudflare") is False
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
+            sync_mcp_config_snippet(dlg)
+            assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
+    finally:
+        _reset_tunnel_url_cache()
+
+
+def test_idle_stop_keeps_a_fresh_test_url(monkeypatch) -> None:
+    """stop() on a tunnel that never started must not wipe a Settings Test URL."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    _reset_tunnel_url_cache()
+    try:
+        dlg, snippet = _snippet_dialog()
+        remember_tested_tunnel_url("cloudflare", "https://tested.trycloudflare.com/mcp")
+        sync_mcp_config_snippet(dlg)
+        TunnelManager().stop()
+        sync_mcp_config_snippet(dlg)
+        assert _snippet_url(snippet) == "https://tested.trycloudflare.com/mcp"
+        assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://tested.trycloudflare.com/mcp"
+    finally:
+        _reset_tunnel_url_cache()
+
+
+def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
+    """A dialog closed before the posted lambda runs must not be updated."""
+    dlg, snippet = _snippet_dialog(tunnel_on=False)
+    posted: list = []
+
+    def _capture(fn, *args, **kwargs):
+        del args, kwargs
+        posted.append(fn)
+
+    mcp_ui.set_active_settings_dialog(dlg)
+    try:
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_capture):
+            mcp_ui._refresh_active_snippet()
+        assert len(posted) == 1
+        mcp_ui.clear_active_settings_dialog(dlg)
+        posted[0]()
+        snippet.setText.assert_not_called()
+
+        mcp_ui.set_active_settings_dialog(dlg)
+        posted.clear()
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_capture):
+            mcp_ui._refresh_active_snippet()
+        posted[0]()
+        snippet.setText.assert_called()
+    finally:
+        mcp_ui.clear_active_settings_dialog(dlg)
+
+
+def test_read_mcp_port_falls_back_to_text() -> None:
+    port_ctrl = MagicMock()
+    port_ctrl.getValue.side_effect = ValueError("invalid")
+    port_ctrl.getText.return_value = "19123"
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: port_ctrl if name == "mcp__mcp_port" else None
+    assert mcp_ui._read_mcp_port(dlg) == 19123
+
+
+def test_read_mcp_port_missing_control() -> None:
+    dlg = MagicMock()
+    dlg.getControl.return_value = None
+    assert mcp_ui._read_mcp_port(dlg) is None
+
+
+def test_read_tunnel_provider_defaults() -> None:
+    provider_ctrl = MagicMock()
+    provider_ctrl.getText.return_value = "   "
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: provider_ctrl if name == "mcp__tunnel_provider" else None
+    assert mcp_ui._read_tunnel_provider(dlg) == "cloudflare"
+
+
+def test_test_tunnel_listener_restores_button_when_probe_raises() -> None:
+    dlg, _snippet = _snippet_dialog()
+    btn = MagicMock()
+    btn_model = MagicMock()
+    btn.getModel.return_value = btn_model
+    orig_side_effect = dlg.getControl.side_effect
+    dlg.getControl.side_effect = lambda name: btn if name == "mcp__test_tunnel" else orig_side_effect(name)
+
+    mcp_ui.set_active_settings_dialog(dlg)
+    recorded_kwargs: dict[str, Any] = {}
+
+    def fake_run_in_background(fn: Any, **kwargs: Any) -> None:
+        recorded_kwargs.update(kwargs)
+        fn()
+
+    ctx = MagicMock()
+    try:
+        with (
+            patch("plugin.mcp_server.tunnel.test_tunnel_connectivity", side_effect=RuntimeError("boom")),
+            patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
+            patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+        ):
+            listener = mcp_ui.TestTunnelListener(ctx, dlg)
+            listener.on_action_performed(MagicMock())
+
+        assert btn_model.Label == "Test Tunnel"
+        assert btn_model.Enabled is True
+        assert recorded_kwargs == {"name": "mcp-tunnel-test", "dedicated": True}
+        assert mock_msgbox.call_count == 1
+        assert "boom" in str(mock_msgbox.call_args)
+    finally:
+        mcp_ui.clear_active_settings_dialog(dlg)
+
+
+def test_test_tunnel_listener_skips_apply_when_dialog_closed() -> None:
+    dlg, snippet = _snippet_dialog()
+    btn = MagicMock()
+    btn_model = MagicMock()
+    btn.getModel.return_value = btn_model
+    orig_side_effect = dlg.getControl.side_effect
+    dlg.getControl.side_effect = lambda name: btn if name == "mcp__test_tunnel" else orig_side_effect(name)
+
+    other_dlg = MagicMock()
+    mcp_ui.set_active_settings_dialog(other_dlg)
+
+    def fake_run_in_background(fn: Any, **kwargs: Any) -> None:
+        del kwargs
+        fn()
+
+    ctx = MagicMock()
+    try:
+        with (
+            patch("plugin.mcp_server.tunnel.test_tunnel_connectivity", return_value=(True, "ok", "https://x/mcp")),
+            patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
+            patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+            patch("plugin.mcp_server.mcp_ui.set_checkbox_state") as mock_set_checkbox,
+        ):
+            listener = mcp_ui.TestTunnelListener(ctx, dlg)
+            listener.on_action_performed(MagicMock())
+
+        mock_set_checkbox.assert_not_called()
+        snippet.setText.assert_not_called()
+        mock_msgbox.assert_not_called()
+    finally:
+        mcp_ui.clear_active_settings_dialog(other_dlg)
+
+
+class _CountingLock:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.acquire_count = 0
+        self.release_count = 0
+
+    def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
+        ok = self._lock.acquire(blocking, timeout)
+        if ok:
+            self.acquire_count += 1
+        return ok
+
+    def release(self) -> None:
+        self.release_count += 1
+        self._lock.release()
+
+    def __enter__(self) -> bool:
+        return self.acquire()
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.release()
+
+
+def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> None:
+    orig_tested = mcp_ui._tested_provider_tunnel_urls
+    orig_lock = mcp_ui._active_settings_dialog_lock
+    orig_ref = mcp_ui._active_settings_dialog_ref
+
+    lock = _CountingLock()
+    mcp_ui._tested_provider_tunnel_urls = {"cloudflare": "https://live.example/mcp"}
+    mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
+
+    refresh_calls: list[tuple[int, bool]] = []
+
+    def _mock_refresh() -> None:
+        rel = lock.release_count
+        can_acquire = lock.acquire(timeout=0.2)
+        if can_acquire:
+            lock.release()
+        refresh_calls.append((rel, can_acquire))
+
+    monkeypatch.setattr(mcp_ui, "_refresh_active_snippet", _mock_refresh)
+
+    try:
+        clear_tested_provider_tunnel_url("cloudflare")
+        assert len(refresh_calls) == 1
+        rel_count, can_acquire = refresh_calls[0]
+        assert rel_count >= 1
+        assert can_acquire is True
+        assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
+
+        clear_tested_provider_tunnel_url("")
+        assert len(refresh_calls) == 1
+    finally:
+        mcp_ui._tested_provider_tunnel_urls = orig_tested
+        mcp_ui._active_settings_dialog_lock = orig_lock
+        mcp_ui._active_settings_dialog_ref = orig_ref
+
+
+def test_build_mcp_config_snippet_with_custom_and_local_url():
+    import json
+    from plugin.mcp_server.mcp_ui import build_mcp_config_snippet
+
+    local_snippet = build_mcp_config_snippet(port=18765)
+    local_data = json.loads(local_snippet)
+    assert local_data["mcpServers"]["libreoffice"]["url"] == "http://localhost:18765/mcp"
+
+    tunnel_url = "https://abc.trycloudflare.com/mcp"
+    tunnel_snippet = build_mcp_config_snippet(url=tunnel_url)
+    tunnel_data = json.loads(tunnel_snippet)
+    assert tunnel_data["mcpServers"]["libreoffice"]["url"] == "https://abc.trycloudflare.com/mcp"
+
+
+def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
+    import json
+    from unittest.mock import MagicMock
+    from plugin.mcp_server.mcp_ui import (
+        remember_tested_tunnel_url,
+        sync_mcp_config_snippet,
+        McpTunnelEnabledListener,
+        McpPortTextListener,
+        McpTunnelProviderListener,
+        _tested_provider_tunnel_urls,
+    )
+
+    _tested_provider_tunnel_urls.clear()
+
+    mock_dlg = MagicMock()
+    mock_snippet = MagicMock()
+    mock_port = MagicMock()
+    mock_port.getValue.return_value = 19000
+    mock_port.getText.return_value = "19000"
+
+    mock_checkbox = MagicMock()
+    mock_checkbox.getState.return_value = 0  # Unchecked
+
+    mock_provider = MagicMock()
+    mock_provider.getText.return_value = "cloudflare"
+
+    controls = {
+        "mcp__client_config_snippet": mock_snippet,
+        "mcp__mcp_port": mock_port,
+        "mcp__tunnel_enabled": mock_checkbox,
+        "mcp__tunnel_provider": mock_provider,
+    }
+    mock_dlg.getControl.side_effect = lambda k: controls.get(k)
+
+    # 1. Unchecked checkbox -> local URL
+    sync_mcp_config_snippet(mock_dlg)
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:19000/mcp"
+
+    # 2. Checkbox toggled to checked with custom URL for cloudflare -> tunnel URL
+    mock_checkbox.getState.return_value = 1
+    mock_checkbox.State = 1
+    remember_tested_tunnel_url("cloudflare", "https://abc.trycloudflare.com/mcp")
+    sync_mcp_config_snippet(mock_dlg)
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://abc.trycloudflare.com/mcp"
+
+    # 3. Switching provider to bore (untested) -> shows bore default template, NOT cloudflare URL!
+    mock_provider.getText.return_value = "bore"
+    provider_listener = McpTunnelProviderListener(mock_dlg)
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "http://bore.pub:<remote-port>/mcp"
+
+    # 4. Switching provider to ngrok (untested) -> shows ngrok default template
+    mock_provider.getText.return_value = "ngrok"
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://<domain>.ngrok-free.app/mcp"
+
+    # 4b. Tailscale placeholder is a Funnel hostname (<machine>.<tailnet>.ts.net).
+    mock_provider.getText.return_value = "tailscale"
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://<machine>.<tailnet>.ts.net/mcp"
+
+    # 5. Switching back to cloudflare -> shows tested cloudflare URL again
+    mock_provider.getText.return_value = "cloudflare"
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://abc.trycloudflare.com/mcp"
+
+    # 6. Checkbox toggled back to unchecked -> immediately reverts to local URL
+    mock_checkbox.getState.return_value = 0
+    mock_checkbox.State = 0
+    listener = McpTunnelEnabledListener(mock_dlg)
+    listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:19000/mcp"
+
+    # 7. Port changed while unchecked -> updates local URL
+    mock_port.getValue.return_value = 20000
+    port_listener = McpPortTextListener(mock_dlg)
+    port_listener.textChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:20000/mcp"
+
+
+
+
