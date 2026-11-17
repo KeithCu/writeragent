@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 # Research routing (short); domain bullets use these strings as-is.
-DELEGATION_USER_FILE_DATA_HINT = "to use information that is not in the current document, and may be in (my / our) personal or business documents"
+DELEGATION_USER_FILE_DATA_HINT = "to use information that is not in the current document but may be in the user's own personal or business documents"
 DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
 DELEGATION_MCP_HINT = "for any request that names an MCP server or an MCP tool, public or private, and for the user's own services reached through one (files, email, calendar, notes and similar)"
 
@@ -158,8 +158,15 @@ IMAGE_EDIT_TOOL_RULE: str = (
     "while deleting it and generating a new one inserts a different picture."
 )
 
+# Shared guidance for writing `task` strings when delegating to specialized sub-agents.
+# Must stay a single line (MCP clients do not render newlines inside JSON strings).
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
-    f"Plain-language instructions for the sub-agent: what to do and where. {IMAGE_EDIT_TASK_RULE}"
+    "Plain-language instructions for the sub-agent: what to do and where. "
+    f"{IMAGE_EDIT_TASK_RULE} "
+    "For data already in the document, name where it is (heading, TOC entry text, "
+    "cell range, Draw page and shape name) and let the sub-agent read and edit it there; "
+    "do not paste rows, values, or links read from the document into task. "
+    "Pass user-given new text or targets into task verbatim."
 )
 
 # Later tool calls read the live document directly; echoing modified content
@@ -171,20 +178,15 @@ DELEGATE_ANCHOR_RULE = (
     "for a read request, return what the user asked for."
 )
 
+# Sidebar system prompt only (MCP uses the delegate tool's domain and task properties).
+SPECIALIZED_DELEGATION_TEMPLATE = (
+    "{label} SUB-AGENTS (nested tools): The default tool list hides advanced {app} features. "
+    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}}."
+)
+
 # Every shape length and position (x, y, width, height, line width) is one LibreOffice unit.
 # Page and slide sizes are reported in this same unit so the model never converts.
 SHAPE_UNITS_RULE = "Shape x, y, width, height and line widths are whole numbers in 1/100 mm (1000 = 1 cm; A4 is 21000 x 29700)."
-
-# Shared guidance for writing `task` strings when delegating to specialized sub-agents.
-# Must stay a single line (delegation templates are one line; tests assert no newlines).
-SPECIALIZED_TASK_RULES = (
-    "Write `task` in plain language as instructions for the sub-agent: what to do and where. "
-    f"{IMAGE_EDIT_TASK_RULE} "
-    "For data already in the document, name where it is (heading, TOC entry text, "
-    "cell range, Draw page and shape name) in task and let the sub-agent read and edit it there; "
-    "do not paste rows, values, or links read from the document into task. "
-    "Pass user-given new text or targets into task verbatim."
-)
 
 
 # ---------------------------------------------------------------------------
@@ -388,8 +390,8 @@ def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None 
 # Writer
 # ---------------------------------------------------------------------------
 
-WRITER_CHAT_PERSONA = """You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
-Honor any stated memory preferences for color, etc."""
+WRITER_CHAT_PERSONA = """You are a LibreOffice Writer assistant who produces polished, professional documents.
+Honor any stated or remembered preferences for color and formatting."""
 
 
 # Main sidebar chat only (Writer DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE). Sub-agents use
@@ -406,8 +408,10 @@ WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
 
 
-TRANSLATION_RULES = """TRANSLATION: get_content(scope=full) -> translate -> apply_content(target='full_document', content=translated).
-Never refuse."""
+TRANSLATION_RULES = """TRANSLATION: You are the translator. There is no translation tool and you need none.
+Whole document: get_content(scope=full) -> translate the text yourself -> apply_content(target='full_document', content=translated).
+Selected text only: get_content(scope=selection) -> apply_content(target='selection', content=translated).
+Do not decline a translation request or say you lack a translation tool."""
 
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
@@ -437,9 +441,11 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - get_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
 
 
-# apply_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
+# apply_content rules; also the one home for quote/dash folding used by every Writer search-target tool.
+# Design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - target='search': old_content is a substring and may span paragraphs (newlines). regex=true uses ICU syntax (LibreOffice's engine), not Python re: named groups are (?<name>...).
+  Literal search text (here and on other editing tools) matches quotes and dashes as typed first, then any straight/curly quote or dash variant (never for a needle of punctuation alone); matched_case_sensitive and matched_folded in the result name the pass that matched.
   position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
 - Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
@@ -449,7 +455,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 {HTML_FRAGMENT_RULES}
 - Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math.
   Use standard HTML <sup> and <sub> tags for simple text superscripts and subscripts to preserve native character formatting without creating OLE Math objects.
-  Do NOT write equations in plain text (avoid plain a/b, etc.).
+  Do NOT write equations in plain text.
   No HTML-escaped math or equation images.
 - Named styles: get_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
@@ -461,7 +467,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
-- Good field: ["<p>Page <span title=\"page-number\"/></p>"]
+- Good field: ["<p>Page <span title=\\"page-number\\"/></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 """
 
@@ -474,16 +480,6 @@ HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
 """
-
-
-# Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
-WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "WRITER SUB-AGENTS (nested tools): The default tool list hides deep Writer features. "
-    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
-    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
-    "it does the task in the document and returns a summary. "
-    f"{SPECIALIZED_TASK_RULES}"
-)
 
 
 WRITER_SEARCH_RULES = """SEARCH:
@@ -577,15 +573,6 @@ CALC_WORKFLOW = """WORKFLOW:
 CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"})
 
 
-CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "CALC SUB-AGENTS (nested tools): The default tool list hides advanced Calc features. "
-    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
-    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
-    "it does the task in the spreadsheet and returns a summary. "
-    f"{SPECIALIZED_TASK_RULES}"
-)
-
-
 CALC_FORMULA_SYNTAX_TEMPLATE = (
     """FORMULAS: Write formulas in Calc syntax:
 - Arguments: use `;` between arguments, e.g. =IF(A1>0; "Y"; "N").
@@ -639,15 +626,6 @@ For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shape
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
 IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
-
-
-DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "DRAW SUB-AGENTS (nested tools): The default tool list hides advanced Draw/Impress features. "
-    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
-    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
-    "it does the task on the drawing or presentation and returns a summary. "
-    f"{SPECIALIZED_TASK_RULES}"
-)
 
 
 # F: omitted from the assembled Draw prompt when the chat model has no vision.

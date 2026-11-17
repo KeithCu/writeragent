@@ -6,12 +6,10 @@ from typing import Any, NamedTuple, Sequence, cast
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
-    CALC_SPECIALIZED_DELEGATION_TEMPLATE,
-    DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     SHAPE_UNITS_RULE,
+    SPECIALIZED_DELEGATION_TEMPLATE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
-    WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
 from plugin.framework.tool import ToolBase, tool_supports_document
 
@@ -210,13 +208,10 @@ def get_specialized_delegation_tool_hint(
     ctx: Any = None,
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
-    """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
+    """Full specialized-delegation guidance for the sidebar system prompt."""
     domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
-    template = {
-        "Calc": CALC_SPECIALIZED_DELEGATION_TEMPLATE,
-        "Draw": DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
-    }.get(agent_label, WRITER_SPECIALIZED_DELEGATION_TEMPLATE)
-    return template.format(domains=domains_str)
+    label, app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent_label, ("WRITER", "Writer"))
+    return SPECIALIZED_DELEGATION_TEMPLATE.format(label=label, app=app, domains=domains_str)
 
 
 class InnerToolCall(NamedTuple):

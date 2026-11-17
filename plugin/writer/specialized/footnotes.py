@@ -25,7 +25,7 @@ from plugin.writer.specialized_base import (
 from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
-    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    LADDER_CASE_SENSITIVE_DESCRIPTION,
     explicit_case_sensitive,
     occurrence_range_or_error,
 )
@@ -85,7 +85,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                 ),
             },
             "occurrence": {"type": "integer", "description": ("0-based index when insert_after matches multiple times (default 0 = first match).")},
-            "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
+            "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
         },
         "required": ["note", "text"],
     }

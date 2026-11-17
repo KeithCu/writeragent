@@ -15,7 +15,7 @@ LibreOffice Calc supports a large surface area through UNO: cells, ranges, formu
 - **Tier filtering** in `ToolRegistry.get_tools` / `get_schemas`
 - **Domain bases** (`ToolCalc*Base`) with `tier = "specialized"` and `specialized_domain`
 - **Gateway tool**: `delegate_to_subagent` (`tier = "core"`, `is_async()`)
-- **System prompt**: `CALC_SPECIALIZED_DELEGATION_TEMPLATE` in `plugin/framework/prompts.py`
+- **System prompt**: `SPECIALIZED_DELEGATION_TEMPLATE` in `plugin/framework/prompts.py`
 
 For implementation details, see the [Writer documentation](../writer/specialized-toolsets.md#3-implementation-reference).
 
@@ -196,7 +196,7 @@ These came out of the November 2026 follow-up triage (`217-followups-triage.md`)
 | Domain grouping | `ToolCalc*Base.specialized_domain` + `tier = "specialized"` |
 | User/model entry point | `delegate_to_subagent` (`tier = "core"`, async) |
 | Sub-agent completion | `final_answer` (`tier = "specialized_control"`) |
-| Prompt teaching | `CALC_SPECIALIZED_DELEGATION_TEMPLATE` in `plugin/framework/prompts.py` |
+| Prompt teaching | `SPECIALIZED_DELEGATION_TEMPLATE` in `plugin/framework/prompts.py` |
 | Execution by name | Unchanged `execute()` — tier only affects **listing**, not **dispatch** |
 
 This design trades a second LLM hop (delegation) for a **cleaner main conversation** and **safer tool choice**, while preserving a path to **full** Calc automation per domain.

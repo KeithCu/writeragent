@@ -31,7 +31,7 @@ from plugin.framework.errors import name_miss_details
 from plugin.framework.uno_context import uno_same
 from ..edit_review import next_agent_edit_undo_title
 from ..search import (
-    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
     describe_match_location,
     enclosing_paragraph_text,
@@ -164,7 +164,7 @@ class AddComment(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
-        "case_sensitive": {"type": "boolean", "description": f"For search: {EDIT_CASE_SENSITIVE_DESCRIPTION}"},
+        "case_sensitive": {"type": "boolean", "description": f"For search: {LADDER_CASE_SENSITIVE_DESCRIPTION}"},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},

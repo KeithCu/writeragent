@@ -41,7 +41,7 @@ Key rules (prioritized for office/professional writing):
 - Be specific and concrete. Replace vague claims ("vibrant", "crucial", "testament to") with real details.
 - Use simple verbs: prefer "is", "has", "shows" over "serves as", "functions as", "underscores", "highlights its importance".
 - Remove promotional / inflated language and "AI vocabulary": pivotal, enduring, landscape (abstract), fostering, showcasing, groundbreaking (when figurative), etc.
-- Eliminate formulaic structures: rule-of-three lists, "not only X but Y", excessive em-dashes, bolded inline headers, emojis in body text.
+- Eliminate formulaic structures: reflexive three-item lists, "not only X but Y", excessive em-dashes, bolded inline headers, emojis in body text.
 - Drop chatbot artifacts: "Great question!", "I hope this helps", "Let me know if...", "In conclusion, the future looks bright".
 - Avoid hedging and weasel words when you have evidence. Say what you mean directly.
 - For document prose (not chat replies), add soul when appropriate: opinions, uncertainty ("I don't know how to feel about this"), first-person where it fits the voice, small tangents or personality.
@@ -139,7 +139,10 @@ def format_humanizer_guidance_prompt_block() -> str:
             hguidance = hstore.get_humanizer_guidance()
             if hguidance:
                 body = _cap_injected_prompt_blob(hguidance)
-                return _profile_data_block("[HUMANIZER GUIDANCE — apply when generating or revising prose]", body)
+                return _profile_data_block(
+                    "[HUMANIZER GUIDANCE — the user turned this on; when it conflicts with the default tone, follow it when generating or revising prose]",
+                    body,
+                )
     except Exception:
         log.exception("Failed to inject humanizer guidance")
     return ""

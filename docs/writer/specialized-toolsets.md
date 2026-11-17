@@ -253,7 +253,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 
 **File:** `[plugin/framework/prompts.py](../../plugin/framework/prompts.py)`
 
-Block `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` is injected into `DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE` via `get_chat_system_prompt_for_document` so the main Writer model is told **when** to call the gateway and **which** domain strings are valid. Domain descriptions are read by the main chat (and MCP enum help), never by the sub-agent executor, so they must be written as routing advice to the caller; executor rules belong in `build_specialized_sub_agent_instructions` and `DELEGATE_ANCHOR_RULE`.
+Block `SPECIALIZED_DELEGATION_TEMPLATE` is injected into `DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE` via `get_chat_system_prompt_for_document` so the main Writer model is told **when** to call the gateway and **which** domain strings are valid. Domain descriptions are read by the main chat (and MCP enum help), never by the sub-agent executor, so they must be written as routing advice to the caller; executor rules belong in `build_specialized_sub_agent_instructions` and `DELEGATE_ANCHOR_RULE`.
 
 ### 3.4 Exceptions: tools that stay on the main list
 
@@ -358,7 +358,7 @@ removes a table by name (nested or top-level); hosted children go with it. Do no
 - **Tier filtering:** `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas` hides specialized tools from default chat/MCP lists.
 - **Domain grouping:** `ToolWriter*Base.specialized_domain` + `tier = "specialized"`.
 - **Gateway:** `delegate_to_subagent` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
-- **Prompt:** `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py` teaches when to delegate.
+- **Prompt:** `SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py` teaches when to delegate.
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
 - **Lookups:** Single-object lookup helpers return either the found object or an error dict tested via `isinstance` (e.g. `ToolBase.get_item`, `_bookmark_target`, `_annotation_or_error`); multi-value helpers return a tuple whose last item is the error dict or `None`. Neither kind returns an error string, returns `None` leaving the caller to build the error, or raises (raising would log an ERROR traceback in `execute_safe` and become `TOOL_REGISTRY_ERROR` in the eval harness). The exceptions are tables raising `ValueError` inside mutation callbacks, `toc_match` returning `(hit, err_str)` as a search primitive, and `_resolve_form_page` raising `ToolExecutionError` that callers propagate.
 - **Argument checks:** `prepare_tool_call` coerces numeric, boolean, list and enum spellings and settles top-level types and enums first, so tool bodies and descriptions need no type rules and check only nested items and ranges with `INVALID_PARAM`. Unit tests that pin a wrong-type rejection call `prepare_tool_call`, not `tool.execute`.
@@ -561,7 +561,7 @@ The XHTML read path embeds graphics as `data:image/...;base64,...` in the HTML. 
 | Domain grouping           | `ToolWriter*Base.specialized_domain` + `tier = "specialized"`           |
 | User/model entry point    | `delegate_to_subagent` (`tier = "core"`, async)       |
 | Sub-agent completion      | `final_answer` (`tier = "specialized_control"`)                         |
-| Prompt teaching           | `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py`                       |
+| Prompt teaching           | `SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py`                       |
 | Execution by name         | Unchanged `execute()` — tier only affects **listing**, not **dispatch** |
 
 
