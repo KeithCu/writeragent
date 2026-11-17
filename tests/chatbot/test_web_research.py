@@ -1246,7 +1246,7 @@ def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.tool import tool_supports_document
-    from scripts.generate_tool_proxies import domain_tools
+    from tests.harness.strip_bundle import is_release_build
 
     with patch.object(WebResearchTool, "execute", return_value={"status": "ok", "result": "R"}) as mock_exec:
         res = DelegateToSubagent().execute(MagicMock(), domain="web_research", task="pizza")
@@ -1262,7 +1262,10 @@ def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None
     for dt in ("writer", "calc", "draw", "impress"):
         assert tool_supports_document(mode_tool, doc_type=dt, uno_services_supported=None)
 
-    core_proxy_tools = domain_tools(
-        reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
-    )["core"]
-    assert "web_research" in core_proxy_tools
+    if not is_release_build():
+        from scripts.generate_tool_proxies import domain_tools
+
+        core_proxy_tools = domain_tools(
+            reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
+        )["core"]
+        assert "web_research" in core_proxy_tools

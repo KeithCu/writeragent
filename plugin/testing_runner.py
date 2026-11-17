@@ -1600,8 +1600,11 @@ def run_all_tests(ctx: Any) -> str:
 
         # Gather all candidates
         test_candidates = []
+        has_scripts = os.path.isdir(os.path.join(os.path.dirname(tests_root), "scripts"))
 
-        for root, _dirs, files in os.walk(tests_root):
+        for root, dirs, files in os.walk(tests_root):
+            if not has_scripts and root == tests_root and "scripts" in dirs:
+                dirs.remove("scripts")
             for filename in files:
                 if not (filename.startswith("test_") and filename.endswith("_uno.py")):
                     continue

@@ -141,10 +141,9 @@ def test_python_exec_timeout_is_total() -> None:
 
 
 def test_clamp_rejects_unknown_field() -> None:
-    import deal
+    from tests.harness.strip_bundle import expect_pre_or_body
 
-    with pytest.raises(deal.PreContractError):
-        _clamp("\x00", 0)
+    expect_pre_or_body(lambda: _clamp("\x00", 0), body_exc=RuntimeError)
 
 
 def test_data_cells_fallbacks_match_manifest() -> None:

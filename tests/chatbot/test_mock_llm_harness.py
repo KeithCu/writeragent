@@ -26,6 +26,12 @@ from tests.chatbot.mock_llm_harness import (
     start_mock_sidebar_session,
     stop_mock_sidebar_session,
 )
+from tests.harness.strip_bundle import is_release_build
+
+pytestmark = pytest.mark.skipif(
+    is_release_build(),
+    reason="scripts.mock_llm_server is not available in stripped release builds",
+)
 
 USER_URL = "https://api.example.com/v1"
 

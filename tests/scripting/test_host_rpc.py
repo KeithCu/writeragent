@@ -853,11 +853,14 @@ def test_wa_help_accepts_tool_name():
 
 def test_no_namespace_shadows_alias_import():
     import plugin.scripting.writeragent_api as api
-    from scripts.generate_tool_proxies import alias_import_names
+    from tests.harness.strip_bundle import is_release_build
 
     assert "vision" not in api.__all__
-    namespaces = {ns for ns, _method in api.TOOL_METHODS.values()}
-    assert not (namespaces & alias_import_names())
+    if not is_release_build():
+        from scripts.generate_tool_proxies import alias_import_names
+
+        namespaces = {ns for ns, _method in api.TOOL_METHODS.values()}
+        assert not (namespaces & alias_import_names())
 
 
 def test_catalog_and_help_show_collection_forms():
