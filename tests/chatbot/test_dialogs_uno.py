@@ -95,3 +95,33 @@ def test_set_combo_items_fills_combobox_and_listbox_without_duplicates(ctx):
     finally:
         dlg.dispose()
 
+
+@native_test
+def test_set_combo_items_without_selected_keeps_typed_text_and_caret(ctx):
+    from com.sun.star.awt import Selection
+
+    from plugin.chatbot.dialogs import set_combo_items
+
+    smgr = ctx.getServiceManager()
+    model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
+    cb_model = model.createInstance("com.sun.star.awt.UnoControlComboBoxModel")
+    cb_model.Name = "combo1"
+    model.insertByName("combo1", cb_model)
+
+    dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
+    dlg.setModel(model)
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    dlg.createPeer(toolkit, None)
+    try:
+        combo = dlg.getControl("combo1")
+        combo.setText("mid-typing/")
+        combo.setSelection(Selection(4, 4))
+
+        set_combo_items(combo, ["x", "y", "z"])
+
+        assert combo.getText() == "mid-typing/"
+        sel = combo.getSelection()
+        assert (sel.Min, sel.Max) == (4, 4)
+        assert tuple(combo.getItems()) == ("x", "y", "z")
+    finally:
+        dlg.dispose()
