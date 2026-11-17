@@ -278,23 +278,23 @@ the wrong one.
 
 #### Tool counts by surface
 
-Registry totals at a typical build: **225** registered tools (core 42, specialized 173, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`.
+Registry totals at a typical build: **225** registered tools (core 41, specialized 174, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`.
 
 | App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
 |-----|--------------|--------------------------------|-------------------------------------|
-| Writer | 17 | 16 | 130 (129) |
-| Calc | 18 | 17 | 95 (94) |
-| Draw | 25 | 24 | 83 (82) |
-| Impress | 25 | 24 | 83 (82) |
+| Writer | 16 | 15 | 130 (129) |
+| Calc | 17 | 16 | 95 (94) |
+| Draw | 24 | 23 | 83 (82) |
+| Impress | 24 | 23 | 83 (82) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **17** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
-| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **16** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
+| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **15** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
 
 Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 

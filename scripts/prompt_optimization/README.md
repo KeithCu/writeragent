@@ -188,7 +188,7 @@ Production sidebar registration is unchanged. These flags only reshape the **adv
 |--------|------|--------------------------------|
 | `full` | any | Today's unfiltered `get_schemas` catalog (Writer 14 / Calc 14 / Draw 19). |
 | `calc_minimal` | calc | `write_range`, `get_sheet_summary`, `delegate_to_subagent` — smallest set that can still pass `data_sorting` + `tax_column`. |
-| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `memory_upsert`, `manual_read`, `document_redo`, `document_undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
+| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `memory_upsert`, `manual_read`, `document_redo`, `document_undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
 | `writer_minimal` | writer | `apply_content`, `get_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
 
 **`--schema-density full|skinny`** (default `full`): `skinny` is a pure transform (after the name filter, before MIPRO `apply_schema_patches`). Tool names and param names/types stay; tool and param **descriptions** are blanked so you can measure whether fat prose confuses small models without removing tools.

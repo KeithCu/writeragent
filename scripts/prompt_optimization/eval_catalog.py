@@ -42,7 +42,7 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
         ),
     ),
     # Calc-specific outer tools only (drops shared chatbot extras:
-    # web_research, memory_upsert, manual_read, redo, undo).
+    # memory_upsert, manual_read, redo, undo).
     "calc_core": (
         "calc",
         (
