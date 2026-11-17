@@ -876,7 +876,7 @@ Omit `vision_tools.py` for menu-only core (chat `image_extract_structure`).
 | Text | spacy, textdescriptives, … |
 | Quant | yfinance, pandas_ta, … |
 | Vision | docling, rapidocr-paddle, pillow, css-inline |
-| Monaco | pywebview, rocher, PyQt6, PyQt6-WebEngine, qtpy |
+| Python editor | pywebview, PyQt6, PyQt6-WebEngine, qtpy (+ rocher for Monaco) |
 
 See [numpy-domains.md](numpy-domains.md) and [../images/recognition.md](../images/recognition.md) for authoritative lists.
 
@@ -1084,13 +1084,13 @@ Requires Layer 2 (`appearance.py`, `document_scripts.py`, `python_runner.py`) an
 
 | Asset | Location |
 |-------|----------|
-| Monaco `vs/`, shell HTML/JS/CSS | User venv **`rocher`** (via `pip install rocher`) |
-| Dev reference copies | `plugin/contrib/scripting/assets/editor/*` |
+| Monaco `vs/` assets | User venv **`rocher`** (via `pip install rocher`, Monaco only) |
+| Shell HTML/JS/CSS & CodeMirror | `plugin/contrib/scripting/assets/editor/*` |
 
 ### User venv packages
 
 ```bash
-uv pip install pywebview rocher PyQt6 PyQt6-WebEngine qtpy
+uv pip install pywebview PyQt6 PyQt6-WebEngine qtpy  # add rocher for Monaco
 ```
 
 Optional: `jedi` (completion stub in `editor_main.py`).

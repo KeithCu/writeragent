@@ -1,6 +1,6 @@
 # Plan: CodeMirror 6 Python editor alongside Monaco
 
-**Goal:** add a CodeMirror 6 (CM6) frontend to the existing Python editor (Edit Python in Cell, Run Python Script, Edit Init Script, LaTeX). One config option picks the editor. Monaco stays the default. No other settings and no debug-only paths. Shared by WriterAgent and LibrePy: LibrePy is not a separate repo. It's built from this tree (`plugin/librepy/`, `extension-core/`, and `scripts/librepy_bundle_paths.py`, which already includes `plugin/contrib/scripting/assets/editor/`).
+**Goal:** add a CodeMirror 6 (CM6) frontend to the existing Python editor (Edit Python in Cell, Run Python Script, Edit Init Script, LaTeX). One config option picks the editor. CodeMirror is the default; Monaco is the alternative choice. No other settings and no debug-only paths. Shared by WriterAgent and LibrePy: LibrePy is not a separate repo. It's built from this tree (`plugin/librepy/`, `extension-core/`, and `scripts/librepy_bundle_paths.py`, which already includes `plugin/contrib/scripting/assets/editor/`).
 
 ## 1. How the editor works today
 - **It's a pywebview window in a child process, not a UNO dialog.** The child runs in the user's configured venv, not in LibreOffice's Python. A native UNO dialog is the fallback.
@@ -32,7 +32,7 @@
 - Unlike Monaco (which comes from `rocher` in the venv), CM6 lives in the .oxt. So the CM6 path needs only pywebview, not rocher. Add the bundle to whatever third-party notice list the release uses. `make release` (Makefile around lines 330–353: vendor, manifest, compile-translations, schema-docs...) needs no new target.
 
 ## 4. Design
-- **Config key:** `scripting.python_editor` in `plugin/scripting/module.yaml`. Use `type: string`, `widget: select`, `default: monaco`, options `monaco` (Monaco, default) / `codemirror` (CodeMirror), `public: true`, in the same shape as `python_session_mode`. Regenerate `plugin/_manifest.py` (`make manifest`) and `docs/writeragent-config-schema.md` (`make schema-docs`). This is the only new setting. `force_internal_script_editor` keeps its meaning: native dialog, which overrides both.
+- **Config key:** `scripting.python_editor` in `plugin/scripting/module.yaml`. Use `type: string`, `widget: select`, `default: codemirror`, options `codemirror` (CodeMirror) / `monaco` (Monaco), `public: true`, in the same shape as `python_session_mode`. Regenerate `plugin/_manifest.py` (`make manifest`) and `docs/writeragent-config-schema.md` (`make schema-docs`). This is the only new setting. `force_internal_script_editor` keeps its meaning: native dialog, which overrides both.
 - **Frontend interface:** split `editor.js` into:
   - `editor_shell.js`: toolbar, IPC polling, dirty/save/run, theme, and strings. It's almost all of today's `editor.js`, with Monaco calls replaced by `backend.*`.
   - A backend object `{ create(el, opts) -> Promise, getValue(), setValue(text), setLanguage(lang), setTheme(isDark, name), setMarkers([{line, col, endLine, endCol, message, severity}]), onChange(cb), focus() }`.
@@ -68,4 +68,4 @@
 4. **CM6 completion via jedi:** parity with Monaco.
 5. **Error markers for both backends:** traceback-to-line parsing on the host, plus `setMarkers`.
 6. **LaTeX in CM6** (stex legacy mode), or explicitly keep it on Monaco.
-7. **Later:** after Keith decides, flip the default to `codemirror` (one-line YAML change), possibly drop the rocher requirement from docs, and reuse `backend_cm6.js` for Online.
+7. **Default flip (done):** `scripting.python_editor` now defaults to `codemirror`. `rocher` is needed in the venv only when Monaco is selected; `backend_cm6.js` can be reused for Online.

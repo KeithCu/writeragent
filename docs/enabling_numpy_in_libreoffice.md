@@ -90,7 +90,7 @@ All design choices below follow from that constraint.
 
 You can run Monte Carlo simulations, statistics, plots, and other library-heavy work **without leaving LibreOffice**. Configure a dedicated Python venv once, then:
 
-- **Run Python Script…** in Writer, Calc, or Draw (Monaco editor or a simple dialog)
+- **Run Python Script…** in Writer, Calc, or Draw (Python editor — CodeMirror by default, Monaco optional — or a simple dialog)
 - `=PY()` formulas and **Edit Python in Cell…** in Calc
 - **Edit Initialization Script…** for workbook-wide helpers (Calc)
 
@@ -116,7 +116,7 @@ No terminal is required after the venv is set up. An optional [chat assistant](#
 - **No automatic venv creation** — you bring your own environment.
 - **Path paste:** Paste the path **without** surrounding quotes (Windows Explorer “Copy as path” adds them — strip them). Spaces, parentheses, and non-ASCII home dirs are fine; spawn uses argv lists, not a shell.
 - **Layouts:** uv / Poetry / stdlib `venv` → `bin/python` or `Scripts\python.exe`. Windows conda / pyenv-win → env folder or `python.exe` at the env root also works.
-- **Test button:** Checks that the path resolves to a `python` executable and reports which package groups are Present/Missing (**Scientific**, **Data Analysis / EDA**, **UI / Monaco**, **Vision**, **Embeddings**, **Audio Recording**). After Test finishes, if packages are still Missing, the message ends with copy-paste **`uv pip install …`** then **`pip install …`** for those packages (not shown during progressive refresh). Vision marks paddle/ultralytics/skimage as optional when OCR is already ready. Cold Vision/Embeddings imports can take ~30s on first Test. Domain package lists: [scripting/numpy-domains.md](scripting/numpy-domains.md), [Image Recognition](images/recognition.md), [Embeddings](embeddings.md#embeddings-venv-packages). Microphone capture uses the same venv (`uv pip install sounddevice`) — see [chat/audio-architecture.md](chat/audio-architecture.md).
+- **Test button:** Checks that the path resolves to a `python` executable and reports which package groups are Present/Missing (**Scientific**, **Data Analysis / EDA**, **UI / Editor**, **Vision**, **Embeddings**, **Audio Recording**). After Test finishes, if packages are still Missing, the message ends with copy-paste **`uv pip install …`** then **`pip install …`** for those packages (not shown during progressive refresh). Vision marks paddle/ultralytics/skimage as optional when OCR is already ready. Cold Vision/Embeddings imports can take ~30s on first Test. Domain package lists: [scripting/numpy-domains.md](scripting/numpy-domains.md), [Image Recognition](images/recognition.md), [Embeddings](embeddings.md#embeddings-venv-packages). Microphone capture uses the same venv (`uv pip install sounddevice`) — see [chat/audio-architecture.md](chat/audio-architecture.md).
 
 **Creating the venv (uv recommended in 2026):**
 
@@ -132,26 +132,26 @@ python -m spacy download xx_sent_ud_sm
 # Point Settings → Python at the venv root (~/.writeragent_venv) or the bin/ dir.
 ```
 
-For Monaco (recommended editor UI), also install `pywebview` (on Linux: `PyQt6 PyQt6-WebEngine qtpy`).
+For the Python editor UI (CodeMirror by default, Monaco optional), also install `pywebview` (on Linux: `PyQt6 PyQt6-WebEngine qtpy`; add `rocher` only if you select Monaco).
 
 ### Ways to run Python
 
 
 | What you use                                  | Where                     | Notes                                                                                                   |
 | --------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **LibrePy Python sidebar** (Calc)             | LibrePy **and** WriterAgent | Cell list, diagnostics (stdout/errors), Reset / Edit Init / Run Script / Settings — Monaco stays separate; Calc-only **Python** deck |
-| **Run Python Script…**                        | Writer / Calc / Draw menu | Monaco editor (**Run** / **Save** / script picker), or a plain multiline dialog if pywebview is missing |
-| **Edit Python in Cell…** / `=PY(code, data?)` | Calc                      | Monaco when pywebview is available; otherwise a native dialog with the same Save / Data / **Save without =PY()** chrome. Dual save as `=PY("…")` or plain text for `=PY($A$1; …)` |
-| **Edit Initialization Script…**               | Calc (sidebar or Monaco)  | Workbook startup script; seeds helpers for every `=PY()` cell                                           |
+| **LibrePy Python sidebar** (Calc)             | LibrePy **and** WriterAgent | Cell list, diagnostics (stdout/errors), Reset / Edit Init / Run Script / Settings — Python editor stays separate; Calc-only **Python** deck |
+| **Run Python Script…**                        | Writer / Calc / Draw menu | Python editor (CodeMirror by default, Monaco optional; **Run** / **Save** / script picker), or a plain multiline dialog if pywebview is missing |
+| **Edit Python in Cell…** / `=PY(code, data?)` | Calc                      | Python editor (CodeMirror by default, Monaco optional) when pywebview is available; otherwise a native dialog with the same Save / Data / **Save without =PY()** chrome. Dual save as `=PY("…")` or plain text for `=PY($A$1; …)` |
+| **Edit Initialization Script…**               | Calc (sidebar or editor)  | Workbook startup script; seeds helpers for every `=PY()` cell                                           |
 | Shared warm worker                            | All of the above          | One subprocess per venv path (`[venv_worker.py](plugin/scripting/venv_worker.py)`)                      |
 
 
 Scripts compute and return values. **Run Python Script…** (and chat `python_run_script`) can also call WriterAgent tools from the venv via `import writeragent as wa` (same Pickle5 pipe; host runs UNO). `=PY()` recalc does **not** — formula evaluation stays side-effect free.
 
 
-### Run Python Script & Monaco {#run-python-script--monaco}
+### Run Python Script & the Python editor {#run-python-script--monaco}
 
-The extension ships a **Monaco-based code editor** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. Theme sync with LibreOffice light/dark is shipped. IPC and remaining editor backlog: [scripting/monaco-editor-dev-plan.md](scripting/monaco-editor-dev-plan.md).
+The extension ships a **Python editor (CodeMirror by default, Monaco optional)** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. Theme sync with LibreOffice light/dark is shipped. IPC and remaining editor backlog: [scripting/monaco-editor-dev-plan.md](scripting/monaco-editor-dev-plan.md).
 
 
 | Feature                                                     | Status      | Notes                                                                                            |
@@ -164,7 +164,7 @@ The extension ships a **Monaco-based code editor** (pywebview child in the confi
 | Syntax squiggles, range picker, full Jedi                   | **Backlog** | [Monaco dev plan §8](scripting/monaco-editor-dev-plan.md#8-next-development-plan-detailed)          |
 
 
-**Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`) for the Monaco UI. **Edit Python in Cell…** and **Run Python Script…** both fall back to native LibreOffice dialogs when pywebview is missing or `scripting.force_internal_script_editor` is true. Native cell edit does not need a venv.
+**Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`; add `rocher` if you select Monaco) for the Python editor UI. **Edit Python in Cell…** and **Run Python Script…** both fall back to native LibreOffice dialogs when pywebview is missing or `scripting.force_internal_script_editor` is true. Native cell edit does not need a venv.
 
 **Document-attached scripts:** Named scripts live in document properties so they travel with the file. New and Save As can attach a script to the document. On a read-only document, Save fails with the document's read-only message and nothing is written to My Scripts; use Save As with the attach box unchecked to keep a copy. Save As starts from the script's stored name, without a `[Doc]` or helper prefix. If the stored envelope is damaged or uses a version this release does not read, it is left unchanged.
 

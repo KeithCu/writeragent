@@ -344,8 +344,8 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         script=_UI_PROBE_SCRIPT,
         timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
         log_label="UI",
-        timeout_msgid=N_("UI / Monaco probe timed out."),
-        fail_msgid=N_("UI / Monaco probe failed (see writeragent_debug.log)."),
+        timeout_msgid=N_("UI / Editor probe timed out."),
+        fail_msgid=N_("UI / Editor probe failed (see writeragent_debug.log)."),
         keys=_UI_PACKAGE_KEYS,
     ),
     "nlp": _JsonProbeSpec(
@@ -412,7 +412,7 @@ class _SandboxGroupSpec(NamedTuple):
 _SANDBOX_SELF_CHECK_GROUPS: tuple[_SandboxGroupSpec, ...] = (
     _SandboxGroupSpec("Scientific Libraries", "sci", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     _SandboxGroupSpec("Data Analysis / EDA Libraries", "eda", ("data_profiling", "statsmodels", "pandas_montecarlo")),
-    _SandboxGroupSpec("UI / Monaco Libraries", "ui", _UI_PACKAGE_KEYS, external=True),
+    _SandboxGroupSpec("UI / Editor Libraries", "ui", _UI_PACKAGE_KEYS, external=True),
     _SandboxGroupSpec("Visualization Libraries", "viz", ("matplotlib", "seaborn")),
     _SandboxGroupSpec("Computer Algebra", "cas", ("sympy",)),
     _SandboxGroupSpec("Quantitative Finance Libraries", "quant", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
@@ -792,7 +792,7 @@ def run_venv_self_check_with_progress(
     for group_spec in _SANDBOX_SELF_CHECK_GROUPS:
         if group_spec.external:
             # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
-            report_status(_("UI / Monaco Libraries: checking outside the script worker..."))
+            report_status(_("UI / Editor Libraries: checking outside the script worker..."))
             _attach_external_probes(python_exe, report, group_spec.key, _(group_spec.title))
             on_display(report.render())
             continue

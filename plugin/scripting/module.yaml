@@ -176,16 +176,16 @@ config:
 
   python_editor:
     type: string
-    default: monaco
+    default: codemirror
     widget: select
     label: Python editor
     helper: "Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX."
     public: true
     options:
-      - value: monaco
-        label: Monaco (default)
       - value: codemirror
         label: CodeMirror
+      - value: monaco
+        label: Monaco
 
   force_internal_script_editor:
     type: bool
