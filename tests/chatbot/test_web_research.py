@@ -1213,7 +1213,12 @@ def test_web_research_uses_ctx_approval_callback_as_given():
 
 @pytest.mark.parametrize("doc_type", ["writer", "calc", "draw", "impress"])
 def test_web_research_is_off_main_chat_and_mcp_lists(doc_type: str) -> None:
-    """WebResearchTool must stay off main chat and default MCP lists (regression guard for cbb0f07b6)."""
+    """WebResearchTool must stay off main chat and default MCP lists.
+
+    Re-basing the class onto ToolBase in cbb0f07b6 silently reset the tier
+    it had inherited to ``core``; setting ``tier = "specialized"`` on the
+    class prevents a future base change from putting it back on the main list.
+    """
     from plugin.app import get_tools
     from plugin.mcp.mcp_protocol import _exclude_tiers
 
@@ -1261,4 +1266,3 @@ def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None
         reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
     )["core"]
     assert "web_research" in core_proxy_tools
-

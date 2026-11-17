@@ -827,7 +827,8 @@ def build_tool_execute_fn(
         safe_args = args if isinstance(args, dict) else {}
 
         delegate_domain = str(safe_args.get("domain") or "") if name == DELEGATE_SUBAGENT_TOOL else ""
-        # Delegate gateways forward domain=web_research to WebResearchTool with this ctx.
+        # Delegate gateways forward domain=web_research to WebResearchTool with this ctx,
+        # so they need the approval wiring set up here.
         # The name == "web_research" arm covers a by-name call to the hidden tool:
         # the registry still runs it, and it must not skip approval.
         needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
