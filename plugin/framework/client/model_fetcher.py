@@ -95,6 +95,7 @@ class CatalogMemo:
 
     ids: list[str] | None = None
     image_ids: list[str] | None = None
+    non_text_ids: frozenset[str] = frozenset()
     vision_declarations: dict[str, bool] | None = None
     context_tokens: dict[str, int] = field(default_factory=dict)
     tts_ids: list[str] | None = None
@@ -184,6 +185,42 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
         elif str(m.get("type") or "").lower() == "image":
             out.append(str(mid))
     return out
+
+
+# together-python src/together/types/models.py ModelType: chat, language and code
+# produce text; these values do not. Other hosts' "type" values (Anthropic "model",
+# Mistral "base") are not in this set, so their rows stay in the text list.
+_NON_TEXT_MODEL_TYPES = frozenset({
+    "image", "audio", "transcribe", "video", "embedding", "moderation", "rerank",
+})
+
+
+def _row_declares_non_text_output(row: dict[str, Any]) -> bool:
+    """True when a /v1/models row declares a non-text output type or modalities.
+
+    A Together ``type`` such as ``image`` or ``audio``, or an OpenRouter-style
+    ``output_modalities`` list without ``"text"``, means the model is not a chat
+    model. Rows without these fields count as text.
+    """
+    if str(row.get("type") or "").lower() in _NON_TEXT_MODEL_TYPES:
+        return True
+    mods = row.get("output_modalities")
+    if mods is None:
+        arch = row.get("architecture")
+        mods = arch.get("output_modalities") if isinstance(arch, dict) else None
+    return isinstance(mods, list) and bool(mods) and "text" not in mods
+
+
+def _non_text_ids_from_v1_entries(entries: list[Any]) -> frozenset[str]:
+    """Collect model IDs whose /v1/models row declares no text output."""
+    out: set[str] = set()
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        mid = row.get("id")
+        if mid and _row_declares_non_text_output(row):
+            out.add(str(mid))
+    return frozenset(out)
 
 
 def _row_vision_flag(row: dict[str, Any]) -> bool | None:
@@ -486,6 +523,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             if _vision_list_url(provider, key_slot) == "":
                 memo.vision_declarations = dict(vision_declared) if isinstance(vision_declared, dict) else None
             memo.context_tokens = _context_tokens_from_v1_entries(entries)
+            memo.non_text_ids = _non_text_ids_from_v1_entries(entries)
             return list(models)
         log.warning("fetch_available_models unexpected body structure for %s: %s", url, type(data).__name__)
     except NetworkError as e:
@@ -670,12 +708,29 @@ def fetch_available_stt_models(endpoint: str, api_key_override: str | None = Non
 
 
 def cached_text_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
-    """Memoized ``/v1/models`` ids, or None. Does not HTTP."""
+    """Memoized ``/v1/models`` ids, or None. Does not HTTP.
+
+    Returns the full catalog (including non-text rows, which the speech rows
+    need); text combos must pass the result through ``drop_non_text_models``.
+    """
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     return list(memo.ids) if isinstance(memo.ids, list) else None
+
+
+def drop_non_text_models(
+    endpoint: str,
+    ids: list[str],
+    api_key_override: str | None = None,
+) -> list[str]:
+    """Filter *ids* using memoized ``non_text_ids``. No HTTP; on a memo miss the ids come back unchanged."""
+    # Use .get rather than _get_catalog_memo so a lookup never creates an empty memo.
+    memo = _catalog_memos.get(_catalog_memo_key(endpoint, api_key_override))
+    if memo is None or not memo.non_text_ids:
+        return list(ids)
+    return [m for m in ids if m not in memo.non_text_ids]
 
 
 def memo_text_models_or_fetch(
@@ -684,7 +739,7 @@ def memo_text_models_or_fetch(
     *,
     task_name: str,
 ) -> list[str] | None:
-    """Return memoized ``/v1/models`` ids, or fetch once off-thread and post to UI.
+    """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI.
 
     Called on the main thread; never performs HTTP there. Skips both the memo
     read and the worker fetch while the endpoint's key is an uncached
@@ -705,7 +760,7 @@ def memo_text_models_or_fetch(
 
     cached = cached_text_models(endpoint)
     if cached is not None:
-        return cached
+        return drop_non_text_models(endpoint, cached)
 
     key = _catalog_memo_key(endpoint)
     with _text_fetch_lock:
@@ -724,7 +779,7 @@ def memo_text_models_or_fetch(
                 done = _text_fetch_waiters.pop(key, [])
 
         if ids is not None:
-            fetched_ids = ids
+            fetched_ids = drop_non_text_models(endpoint, ids)
 
             def _deliver() -> None:
                 for cb in done:
