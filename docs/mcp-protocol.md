@@ -306,7 +306,7 @@ MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`*
 
 | Field | What the host sees |
 |--------|-------------------|
-| **`delegate_to_subagent` → `description`** | Short tool summary + full delegation template (semicolon-separated domains, `task` rules for Writer, **same single-line text as chat**) |
+| **`delegate_to_subagent` → `description`** | Short tool summary (`_WRITER_/_CALC_/_DRAW_DELEGATE_DESCRIPTION`) plus a pointer to the `domain` and `task` properties; the delegation template is sidebar-only |
 | **`inputSchema.properties.domain.description`** | `domain one of:` plus the same semicolon-separated domain list (enum values stay in `enum`) |
 | **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (carries the full task-writing rules) |
 

@@ -178,7 +178,7 @@ DELEGATE_ANCHOR_RULE = (
     "for a read request, return what the user asked for."
 )
 
-# Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
+# Sidebar system prompt only (MCP uses the delegate tool's domain and task properties).
 SPECIALIZED_DELEGATION_TEMPLATE = (
     "{label} SUB-AGENTS (nested tools): The default tool list hides advanced {app} features. "
     f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}}."
@@ -441,7 +441,8 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - get_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
 
 
-# apply_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
+# apply_content rules; also the one home for quote/dash folding used by every Writer search-target tool.
+# Design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - target='search': old_content is a substring and may span paragraphs (newlines). regex=true uses ICU syntax (LibreOffice's engine), not Python re: named groups are (?<name>...).
   Literal search text (here and on other editing tools) matches quotes and dashes as typed first, then any straight/curly quote or dash variant (never for a needle of punctuation alone); matched_case_sensitive and matched_folded in the result name the pass that matched.
