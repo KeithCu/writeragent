@@ -44,7 +44,6 @@ import threading
 import time
 from typing import Any, Callable, Sequence
 
-from plugin.version import EXTENSION_VERSION
 from plugin.framework import keystore
 from plugin.framework.client.errors import NetworkError
 from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets
@@ -96,6 +95,7 @@ from plugin.mcp_client.client_schema import (
     resolve_name_collisions,
     unrename_tool_args,
 )
+from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger("writeragent.mcp_client")
 
@@ -485,6 +485,7 @@ class McpServerConnection:
             timeout=timeout,
             cancel=cancel,
         )
+        # _read_reply returns None only for notifications (request_id None); _rpc always sends an int id.
         assert message is not None
         if message.get("error"):
             err = message["error"]
