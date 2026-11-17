@@ -38,6 +38,12 @@ def lru_config_key(lru_key: str, endpoint: str) -> str:
     return f"{lru_key}@{endpoint}" if endpoint else lru_key
 
 
+def _prepended(lru: list[str], val_str: str) -> list[str]:
+    if not val_str:
+        return list(dict.fromkeys(lru))
+    return [val_str] + [x for x in dict.fromkeys(lru) if x != val_str]
+
+
 def next_lru_list(current: Any, val: Any) -> list[str] | None:
     """LRU list after prepending *val*, or None when that would not be a write.
 
@@ -54,7 +60,7 @@ def next_lru_list(current: Any, val: Any) -> list[str] | None:
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
         return None
-    return ([val_str] + [x for x in dict.fromkeys(lru) if x != val_str])[:LRU_MAX_ITEMS]
+    return _prepended(lru, val_str)[:LRU_MAX_ITEMS]
 
 
 def _one_char_short_of(short: str, long: str) -> bool:
@@ -110,7 +116,7 @@ def drop_typed_partials(entries: list[str]) -> list[str]:
 
 
 def next_model_lru_list(current: Any, val: Any) -> list[str] | None:
-    """``next_lru_list`` for model-id lists, also dropping typed partials.
+    """Prepend *val* like ``next_lru_list``, also dropping typed partials.
 
     Returns ``None`` when the stored list would not change. Runs the cleanup
     before trimming to ``LRU_MAX_ITEMS`` so leftovers never push out the
@@ -119,8 +125,7 @@ def next_model_lru_list(current: Any, val: Any) -> list[str] | None:
     """
     lru = [str(x) for x in current] if isinstance(current, list) else []
     val_str = "" if val is None else str(val).strip()
-    merged = list(dict.fromkeys(([val_str] if val_str else []) + lru))
-    cleaned = drop_typed_partials(merged)[:LRU_MAX_ITEMS]
+    cleaned = drop_typed_partials(_prepended(lru, val_str))[:LRU_MAX_ITEMS]
     return None if cleaned == lru else cleaned
 
 

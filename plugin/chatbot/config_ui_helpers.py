@@ -171,7 +171,8 @@ def populate_combobox_with_lru(
     remote_models: when set, use as /v1/models IDs (skip internal fetch).
     skip_remote_fetch: when True, never call fetch_available_models (LRU + provider defaults).
     api_key_override: live Settings field value; wins over saved config for auth gating.
-    keep_text: when True, replace only the list items and leave the box text and caret alone.
+    keep_text: when True, replace only the list items and leave the box text and caret alone
+        (an empty list still clears the box; the list is never empty here when *endpoint* is set).
     """
     scoped_key = lru_config_key(lru_key, endpoint)
     lru = get_config(scoped_key)
@@ -304,6 +305,8 @@ def populate_combobox_with_lru(
                 to_show.append(_("(Connection failed)"))
 
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
+    # Passing no selected text leaves the box alone; setting text, even back to
+    # the typed value, moves the caret to 0 (vcl Edit::SetText).
     set_combo_items(ctrl, to_show, "" if keep_text else display_val)
     return display_val
 

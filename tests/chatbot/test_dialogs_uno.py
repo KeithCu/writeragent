@@ -125,4 +125,3 @@ def test_set_combo_items_without_selected_keeps_typed_text_and_caret(ctx):
         assert tuple(combo.getItems()) == ("x", "y", "z")
     finally:
         dlg.dispose()
-

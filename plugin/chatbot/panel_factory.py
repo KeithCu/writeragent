@@ -795,7 +795,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         When the box holds typed text, only the list items are replaced, so
         the text and caret stay exactly as they were. When the box is empty
-        or holds a placeholder, the stored model is shown.
+        or holds a placeholder, the stored model is shown. It runs between
+        commit points (item select, focus lost, Send), so it writes nothing
+        to config.
         """
         if self._released or endpoint != get_current_endpoint():
             return
