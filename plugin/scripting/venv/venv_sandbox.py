@@ -630,7 +630,7 @@ def serialize_result(
     binary grid fast path instead of a list of row dicts.
     """
     try:
-        return to_wire(obj, target="pickle", force=force)
+        return to_wire(obj, force=force)
     except Exception:
         if log_failure:
             log.exception(

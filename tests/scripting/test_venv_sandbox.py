@@ -358,7 +358,7 @@ def test_serialize_result_allows_shared_sublist():
     from plugin.scripting.venv.to_wire import to_wire
 
     shared = [1]
-    assert to_wire([shared, shared], target="pickle") == [[1], [1]]
+    assert to_wire([shared, shared]) == [[1], [1]]
 
 
 def test_serialize_result_set_of_range_falls_back_to_list():
