@@ -32,7 +32,7 @@ from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.uno_listeners import BaseActionListener, BaseFocusListener, BaseItemListener
 from plugin.framework.worker_pool import run_in_background
 from plugin.mcp_client.client import McpClientError, McpServerConnection, SERVERS_KEY, probe_server
-from plugin.mcp_client.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, normalize_server_trust, sanitize_error, server_enabled
+from plugin.mcp_client.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, sanitize_error, server_enabled, server_trusted
 
 log = logging.getLogger("writeragent.mcp_client.settings_ui")
 
@@ -55,8 +55,7 @@ class _ServerItemListener(BaseItemListener):
         self._combo: Any = combo
 
     def on_item_state_changed(self, rEvent: Any) -> None:
-        idx = getattr(rEvent, "Selected", -1)
-        if idx >= 0:
+        if rEvent.Selected >= 0:
             self._editor.select(get_control_text(self._combo))
 
 
@@ -91,7 +90,6 @@ class McpServersEditor:
         self._controls: dict[str, Any] = controls
         self._servers: dict[str, Any] = copy.deepcopy(servers)
         self._current: str | None = next(iter(self._dict_names()), None)
-        self._shown: dict[str, str] = {}
         self._unreadable: set[str] = set()
         self._snapshot: dict[str, tuple[str, str]] = {}
         self._status: dict[str, str] = {}
@@ -113,7 +111,7 @@ class McpServersEditor:
                 return None
             controls[key] = ctrl
         raw = get_config(SERVERS_KEY)
-        servers = {str(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
+        servers = raw if isinstance(raw, dict) else {}
         editor = cls(controls, servers)
         editor._load(next(iter(editor._dict_names()), None))
         attach(controls["server"], "Item", _ServerItemListener(editor, controls["server"]))
@@ -123,7 +121,8 @@ class McpServersEditor:
             attach(controls[field_key], "Focus", _ProbeFocusListener(editor))
         return editor
 
-    def _unique_name(self, base: str = "server") -> str:
+    def _unique_name(self) -> str:
+        base = "server"
         if base not in self._servers:
             return base
         idx = 2
@@ -138,7 +137,7 @@ class McpServersEditor:
 
     def _load(self, name: str | None) -> None:
         """Populate editor controls for *name* (or a blank form when *name* is None)."""
-        if name is not None and isinstance(self._servers.get(name), dict):
+        if name is not None:
             self._current = name
             entry = self._servers[name]
             raw_token = entry.get("token")
@@ -148,10 +147,9 @@ class McpServersEditor:
                 self._unreadable.add(name)
             else:
                 self._unreadable.discard(name)
-            self._shown[name] = token_text
             url_text = str(entry.get("url") or "")
             enabled = server_enabled(entry)
-            trusted = normalize_server_trust(entry.get("trust")) == TRUST_FULL
+            trusted = server_trusted(entry)
             status_text = self._status.get(name, "")
             if not status_text and unreadable:
                 status_text = _("The token is in the keyring but could not be read; unlock the keyring to see it.")
@@ -193,7 +191,7 @@ class McpServersEditor:
                 msg = _("A server named {name} already exists.").format(name=raw_name)
                 set_control_text(self._controls["status"], msg)
                 return
-            created = raw_name or self._unique_name("server")
+            created = raw_name or self._unique_name()
             if not raw_name:
                 set_control_text(self._controls["name"], created)
             self._servers[created] = {}
@@ -201,7 +199,7 @@ class McpServersEditor:
             set_combo_items(self._controls["server"], self._dict_names(), selected=created)
 
         old = self._current
-        entry = dict(self._servers.get(old, {}))
+        entry = dict(self._servers[old])
         if url:
             entry["url"] = url
         else:
@@ -209,15 +207,13 @@ class McpServersEditor:
         # Write enabled/trust only when they differ from the effective value so hand-written entries stay byte-identical on OK.
         if enabled != server_enabled(entry):
             entry["enabled"] = enabled
-        current_trusted = normalize_server_trust(entry.get("trust")) == TRUST_FULL
+        current_trusted = server_trusted(entry)
         if trusted != current_trusted:
             entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
         # A keyring that opened locked leaves the token field blank; never wipe the stored ref on OK.
-        if not token and old in self._unreadable:
-            pass
-        elif token:
+        if token:
             entry["token"] = token
-        else:
+        elif old not in self._unreadable:
             entry.pop("token", None)
 
         if raw_name and raw_name != old:
@@ -233,12 +229,10 @@ class McpServersEditor:
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return
-            self._servers.pop(old, None)
+            del self._servers[old]
             self._servers[raw_name] = entry
             if old in self._status:
                 self._status[raw_name] = self._status.pop(old)
-            if old in self._shown:
-                self._shown[raw_name] = self._shown.pop(old)
             self._cancel_inflight(old)
             self._probed.pop(old, None)
             self._snapshot.pop(old, None)
@@ -270,7 +264,6 @@ class McpServersEditor:
         self._probed.pop(old, None)
         self._status.pop(old, None)
         self._snapshot.pop(old, None)
-        self._shown.pop(old, None)
         self._unreadable.discard(old)
         self._load(next(iter(self._dict_names()), None))
 

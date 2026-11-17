@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import logging
 
 import pytest
 
@@ -17,11 +16,10 @@ from plugin.mcp_client.client_helpers import (
     format_approval_arguments,
     make_tool_filter,
     names_unknown_tool,
-    normalize_server_trust,
-    parse_boolish,
     safe_numeric,
     sanitize_error,
     server_enabled,
+    server_trusted,
     strip_bearer_prefix,
     strip_reserved_meta_keys,
     strip_tool_metadata_text,
@@ -30,7 +28,6 @@ from plugin.mcp_client.client_helpers import (
     truncate_head_tail,
     unresolved_env_refs,
     validate_remote_url,
-    warn_hidden_whitespace,
 )
 
 
@@ -101,31 +98,34 @@ def test_truncate_head_tail():
 def test_validate_remote_url():
     assert validate_remote_url("srv", "  https://example.com/mcp  ") == "https://example.com/mcp"
     assert validate_remote_url("srv", "http://localhost:8000/mcp") == "http://localhost:8000/mcp"
-    for bad in (None, "", "ftp://example.com/mcp", "file:///etc/passwd", "http://:8080/mcp"):
+    for bad in (None, "", "ftp://example.com/mcp", "file:///etc/passwd", "http://:8080/mcp", "http://[::1/mcp", "http:///x"):
         with pytest.raises(ValueError, match="srv"):
             validate_remote_url("srv", bad)
 
 
 def test_safe_numeric():
-    assert safe_numeric("120", 60.0, float) == 120.0
-    assert safe_numeric("bad", 60.0, float) == 60.0
-    assert safe_numeric(float("nan"), 60.0, float) == 60.0
-    assert safe_numeric(float("inf"), 60.0, float) == 60.0
-    assert safe_numeric(-5, 60.0, float) == 1.0
+    assert safe_numeric("120", 60.0) == 120.0
+    assert safe_numeric("bad", 60.0) == 60.0
+    assert safe_numeric(float("nan"), 60.0) == 60.0
+    assert safe_numeric(float("inf"), 60.0) == 60.0
+    assert safe_numeric(10**400, 60.0) == 60.0
+    assert safe_numeric(-5, 60.0) == 1.0
 
 
-def test_boolish_enabled_and_trust():
-    assert parse_boolish("false") is False
-    assert parse_boolish("0") is False
-    assert parse_boolish("YES") is True
+def test_server_enabled_and_trusted():
     assert server_enabled({"enabled": "false"}) is False
     assert server_enabled({"enabled": 0}) is False
+    assert server_enabled({"enabled": "maybe"}) is False
+    assert server_enabled({"enabled": []}) is False
     assert server_enabled({}) is True
+    assert server_enabled({"enabled": None}) is True
+    assert server_enabled({"enabled": " YES "}) is True
 
-    assert normalize_server_trust(None) == "untrusted"
-    assert normalize_server_trust("bogus") == "untrusted"
-    assert normalize_server_trust("FULL") == "full"
-    assert normalize_server_trust("untrusted") == "untrusted"
+    assert server_trusted({"trust": "full"}) is True
+    assert server_trusted({}) is False
+    assert server_trusted({"trust": "untrusted"}) is False
+    assert server_trusted({"trust": "FULL"}) is False
+    assert server_trusted({"trust": "bogus"}) is False
 
 
 def test_annotation_read_only_hint():
@@ -162,12 +162,9 @@ def test_name_filters():
     assert exc_only("read_secret") is False
     assert exc_only("read_public") is True
 
-
-def test_warn_hidden_whitespace(caplog):
-    with caplog.at_level(logging.WARNING):
-        paths = warn_hidden_whitespace("home", {"url": "http://x\n", "headers": {"X-Key": " abc"}})
-    assert paths == ["url", "headers.X-Key"]
-    assert any("headers.X-Key" in r.message for r in caplog.records)
+    bad_inc = make_tool_filter("s", {"tools": {"include": {"x": 1}, "exclude": ["*_secret"]}})
+    assert bad_inc("read_secret") is False
+    assert bad_inc("read_public") is True
 
 
 def test_strip_bearer_prefix():

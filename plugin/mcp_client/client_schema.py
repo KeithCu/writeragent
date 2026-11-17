@@ -140,7 +140,7 @@ def _rewrite(schema: Any, fn: Callable[[dict[str, Any]], Any]) -> Any:
 
 def sanitize_mcp_name_component(value: str) -> str:
     """Replace every char outside ``[A-Za-z0-9_]`` with ``_`` so generated names pass provider validation."""
-    return re.sub(r"[^A-Za-z0-9_]", "_", str(value or ""))
+    return re.sub(r"[^A-Za-z0-9_]", "_", value)
 
 
 def mcp_prefixed_tool_name(server_name: str, tool_name: str) -> str:
@@ -166,19 +166,14 @@ def _is_null_branch(item: Any) -> bool:
     return isinstance(item, dict) and item.get("type") == "null"
 
 
-def _carry_union_meta(outer: dict[str, Any], replacement: dict[str, Any], *, skip_default_on_ref: bool) -> None:
-    """Copy outer-union metadata onto *replacement* where absent.
-
-    Fireworks rejects ``default`` beside ``$ref``, hence ``skip_default_on_ref``.
-    """
+def _carry_union_meta(outer: dict[str, Any], replacement: dict[str, Any]) -> None:
+    """Copy outer-union metadata onto *replacement* where absent (skip ``default`` beside ``$ref`` for Fireworks)."""
     for meta_key in _UNION_META_KEYS:
-        if meta_key in outer and meta_key not in replacement and not (
-            skip_default_on_ref and meta_key == "default" and "$ref" in replacement
-        ):
+        if meta_key in outer and meta_key not in replacement and not (meta_key == "default" and "$ref" in replacement):
             replacement[meta_key] = outer[meta_key]
 
 
-def strip_nullable_unions(schema: Any, *, keep_nullable_hint: bool = True) -> Any:
+def strip_nullable_unions(schema: Any) -> Any:
     """Collapse ``anyOf``/``oneOf`` nullable unions to the single non-null branch.
 
     Anthropic rejects ``{"type": "null"}`` branches; optionality already lives in the parent's
@@ -193,9 +188,8 @@ def strip_nullable_unions(schema: Any, *, keep_nullable_hint: bool = True) -> An
             non_null = [item for item in variants if not _is_null_branch(item)]
             if len(non_null) == 1 and len(non_null) != len(variants):
                 replacement = dict(non_null[0]) if isinstance(non_null[0], dict) else {}
-                if keep_nullable_hint:
-                    replacement.setdefault("nullable", True)
-                _carry_union_meta(stripped, replacement, skip_default_on_ref=True)
+                replacement.setdefault("nullable", True)
+                _carry_union_meta(stripped, replacement)
                 return _rewrite(replacement, collapse)
         return stripped
 
@@ -232,7 +226,7 @@ def collapse_const_unions(schema: Any) -> Any:
             }
             if null_branches:
                 replacement["nullable"] = True
-            _carry_union_meta(out, replacement, skip_default_on_ref=False)
+            _carry_union_meta(out, replacement)
             return replacement
         return out
 
@@ -280,14 +274,9 @@ def normalize_mcp_input_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
     """
     if not schema:
         return _empty_object()
-    normalized = strip_nullable_unions(schema, keep_nullable_hint=True)
+    normalized = strip_nullable_unions(schema)
     normalized = collapse_const_unions(normalized)
-    normalized = _repair_object_shape(normalized, _object_root=True)
-    if not isinstance(normalized, dict):
-        return _empty_object()
-    if normalized.get("type") == "object" and "properties" not in normalized:
-        normalized = {**normalized, "properties": {}}
-    return normalized
+    return _repair_object_shape(normalized, _object_root=True)
 
 
 def _strip_schema_child(
@@ -312,7 +301,7 @@ def _strip_schema_child(
 
 def strip_schema_annotations(
     node: Any,
-    tool_name: str = "",
+    tool_name: str,
     _contract: bool = False,
     _names: bool = False,
     _data: bool = False,
@@ -470,8 +459,7 @@ def inline_local_refs(schema: dict[str, Any], *, max_nodes: int = MAX_INLINED_NO
                 out[key] = _inline(value, seen)
         return out
 
-    result = _inline(schema, frozenset())
-    return result if isinstance(result, dict) else _empty_object()
+    return _inline(schema, frozenset())
 
 
 def _sanitize_node(node: Any, path: str) -> Any:
@@ -530,6 +518,9 @@ def _sanitize_node(node: Any, path: str) -> Any:
             required = out.get("required", [])
             required = required if isinstance(required, list) else []
             out["required"] = required + [key for key in lifted if key not in required]
+    # Repeats _repair_object_shape: inlining a $ref merges the target's own ``required``
+    # over the repaired node (resolve_local_schema_ref keeps target keys), which can name
+    # properties this node does not have.
     if out.get("type") == "object":
         if not isinstance(out.get("properties"), dict):
             out["properties"] = {}
@@ -685,7 +676,7 @@ def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
     because ``to_smol_inputs`` defaults a missing ``type`` to ``"any"``, which
     ``get_tool_json_schema`` maps to ``"string"``.
     """
-    _check_arrays_have_items(parameters, tool_name or "<tool>")
+    _check_arrays_have_items(parameters, tool_name)
     props = parameters.get("properties")
     if not isinstance(props, dict):
         return
@@ -702,7 +693,7 @@ def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
 
 def convert_mcp_schema(server_name: str, spec: dict[str, Any]) -> dict[str, Any]:
     """Convert one remote MCP tool spec into a native tool schema plus its ``dispatch_schema``."""
-    tool_name = str(spec.get("name") or "")
+    tool_name = spec["name"]
     raw_input = spec.get("inputSchema")
     dispatch_schema = strip_schema_annotations(
         normalize_mcp_input_schema(raw_input if isinstance(raw_input, dict) else None),

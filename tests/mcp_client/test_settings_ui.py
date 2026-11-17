@@ -318,3 +318,26 @@ def test_close_cancels_inflight_and_save_adopts_only_unchanged_probe(monkeypatch
     with patch.object(settings_ui, "probe_server", return_value=conn):
         jobs[1][0](*jobs[1][1])
     assert dlg.controls["mcp_client__status"].getText() == "Checking…"
+
+
+def test_commit_strips_url_and_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    editor, dlg = _attach_editor(monkeypatch, {})
+    saved: list[dict[str, Any]] = []
+    monkeypatch.setattr(settings_ui.config, "save", lambda patch: saved.append(patch))
+
+    editor.add()
+    dlg.controls["mcp_client__name"].setText("home")
+    dlg.controls["mcp_client__url"].setText("  http://127.0.0.1:8000/mcp \n")
+    dlg.controls["mcp_client__token"].setText(" tok ")
+    editor.save()
+
+    assert saved == [
+        {
+            "mcp_client.servers": {
+                "home": {
+                    "url": "http://127.0.0.1:8000/mcp",
+                    "token": "tok",
+                }
+            }
+        }
+    ]
