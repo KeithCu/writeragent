@@ -130,6 +130,8 @@ class GrammarStatus:
     _lock: threading.Lock
     _status_inflight: int
     _pending_done: tuple[str, dict[str, Any]] | None
+    # Tracks whether any batch in the current cycle failed so end_status_cycle
+    # does not emit a synthetic skipped done that would erase the error.
     _cycle_failed: bool
 
     def __init__(self) -> None:
@@ -191,6 +193,7 @@ class GrammarStatus:
     def failed(self, text: str, *, result: str = "") -> None:
         with self._lock:
             self._cycle_failed = True
+            self._pending_done = None
         self._deliver("failed", text, result=result)
 
     def relay_status_update(
@@ -219,6 +222,7 @@ class GrammarStatus:
         """Mark one batch in flight (sidebar/status-bar done is deferred)."""
         with self._lock:
             if self._status_inflight == 0:
+                # Only reset at cycle start so a parallel batch does not wipe a sibling's failure.
                 self._cycle_failed = False
             self._status_inflight += 1
 
@@ -246,7 +250,7 @@ class GrammarStatus:
             )
 
     def end_status_cycle(self) -> None:
-        """Drop in-flight count; emit one terminal done when all parallel batches finish."""
+        """Drop in-flight count; emit one terminal done when all parallel batches finish, unless the cycle failed (keep the failure visible)."""
         pending: tuple[str, dict[str, Any]] | None = None
         cycle_failed = False
         with self._lock:
@@ -263,6 +267,7 @@ class GrammarStatus:
             text, kw = pending
             self.done(text, **kw)
         elif had_cycle and last and not cycle_failed:
+            # Skip synthetic done after a failure because terminal phases paint over active errors.
             self.done("batch", result="skipped")
 
 
@@ -395,7 +400,6 @@ class StatusBarGrammarStatus(GrammarStatus):
 
 def _should_paint_writeragent_status_bar(
     phase: str,
-    routine: bool,
     status_bar: StatusBarGrammarStatus,
     *,
     bus_has_subscribers: bool,
@@ -453,7 +457,6 @@ class WriterAgentGrammarStatus(GrammarStatus):
         )
         if _should_paint_writeragent_status_bar(
             phase,
-            routine,
             self._status_bar,
             bus_has_subscribers=get_event_bus().has_subscribers("grammar:status"),
         ):
