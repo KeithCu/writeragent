@@ -992,6 +992,8 @@ class _CommentProxy:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
             start_index (optional): Zero-based row to start this page at.
             max_comments (optional): Maximum rows to return. Values below 1 are treated as 1, like tracking_list.
+
+        Iterator form: ``for item in wa.comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.comment)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.comment)``. It passes no optional arguments (author_filter, max_comments); filter the items in Python.
         """
         return _result(call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments))
 
@@ -1021,6 +1023,10 @@ class _CommentProxy:
             content (required): Workflow status as key: value lines.
         """
         return _result(call_host_tool("comment_set_workflow", content=content))
+
+    def __iter__(self) -> Iterator[_Item]:
+        """Iterate every comment row lazily, one comment_list call per page (see list)."""
+        return _iter_pages("comment_list", "start_index")
 
 comment = _CommentProxy()
 
@@ -2928,6 +2934,8 @@ class _TrackingProxy:
         Args:
             start_index (optional): Zero-based row to start this page at.
             max_changes (optional): Maximum rows to return.
+
+        Iterator form: ``for item in wa.tracking`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.tracking)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.tracking)``. It passes no optional arguments (max_changes); filter the items in Python.
         """
         return _result(call_host_tool("tracking_list", start_index=start_index, max_changes=max_changes))
 
@@ -2955,6 +2963,10 @@ class _TrackingProxy:
     def stop(self) -> _Item:
         """Stop recording changes (track changes) in the document."""
         return _result(call_host_tool("tracking_stop"))
+
+    def __iter__(self) -> Iterator[_Item]:
+        """Iterate every tracking row lazily, one tracking_list call per page (see list)."""
+        return _iter_pages("tracking_list", "start_index")
 
 tracking = _TrackingProxy()
 

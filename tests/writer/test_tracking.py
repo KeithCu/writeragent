@@ -828,6 +828,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
 
     prep = prepare_tool_call(tool, SimpleNamespace(doc_type="writer", caller="test"), "tracking_list", {})
     assert prep.error is None
+    # Use _LightRedline instead of _fake_redline (303 MagicMocks for 101 items takes ~42 ms vs <1 ms).
     items = [_LightRedline("user %d" % i, text_mock=text_mock) for i in range(101)]
     _install_redlines(ctx, items)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
