@@ -30,7 +30,7 @@ import difflib
 import functools
 import inspect
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.errors import resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
@@ -38,6 +38,9 @@ from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.thread_guard import in_sync_host_dispatch
 from plugin.framework.uno_context import get_active_document, get_ctx
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 log = logging.getLogger(__name__)
 
@@ -61,13 +64,17 @@ _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_s
 WRITERAGENT_HELP_TOOL = "writeragent_help"
 
 
-def _domain_tools_map() -> dict[str, list[str]] | None:
-    """``DOMAIN_TOOLS`` or ``None`` when this build has no generated proxy (LibrePy)."""
+def _api_module() -> ModuleType | None:
+    """The generated ``writeragent_api`` proxy module, or ``None`` when this build omits it.
+
+    LibrePy ships ``host_rpc`` without the proxy. Callers treat ``None`` as
+    no domain scoping and no script API catalog.
+    """
     try:
-        from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+        import plugin.scripting.writeragent_api as api
     except ImportError:
         return None
-    return DOMAIN_TOOLS
+    return api
 
 
 # Domains that pull tools from another specialized domain via required_core_tools.
@@ -76,22 +83,22 @@ _DOMAIN_EXTRA_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
+def _domain_names(domain_tools: dict[str, list[str]], domain: str) -> frozenset[str]:
+    names = domain_tools.get(domain)
+    if names is None:
+        log.warning("Python tool domain %r is not a DOMAIN_TOOLS key", domain)
+        return frozenset()
+    return frozenset(names) | _DOMAIN_EXTRA_TOOLS.get(domain, frozenset())
+
+
 def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
     """Proxy tool names for one specialized domain, without ``document_list_open``.
 
     ``None`` means ``writeragent_api`` is not in this build (LibrePy). An empty
     set means the name is not a ``DOMAIN_TOOLS`` key.
     """
-    tools = _domain_tools_map()
-    if tools is None:
-        return None
-    key = python_tool_domain if python_tool_domain in tools else None
-    if key is None:
-        log.warning("Python tool domain %r is not a DOMAIN_TOOLS key", python_tool_domain)
-        return frozenset()
-    base = frozenset(tools.get(key) or ())
-    extra = _DOMAIN_EXTRA_TOOLS.get(key)
-    return base | extra if extra else base
+    api = _api_module()
+    return None if api is None else _domain_names(api.DOMAIN_TOOLS, python_tool_domain)
 
 
 def inner_script_tool_domain(domains: list[str]) -> str:
@@ -117,10 +124,9 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     Whitespace around commas is ignored. ``python_run_script`` is always
     removed: allowing it would re-enter the warm worker.
 
-    ``None`` from ``domain_proxy_tool_names`` means this build has no
-    ``writeragent_api`` (LibrePy). That is unrestricted, same as
-    ``python_tool_domain is None``. A name that is not a ``DOMAIN_TOOLS`` key
-    is an empty set and stays limited to ``document_list_open``.
+    When this build has no ``writeragent_api`` (LibrePy), a domain string is
+    unrestricted, same as ``None``. A name that is not a ``DOMAIN_TOOLS`` key
+    adds nothing, so it stays limited to ``document_list_open``.
     """
     # Broad catalog access is intentional; re-entry guard in venv_worker covers deadlock;
     # do not narrow the catalog without a product ask.
@@ -133,41 +139,22 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     if not parts:
         return frozenset()
 
+    api = _api_module()
+    if api is None:
+        return None
+
     allowed: set[str] = set()
     for part in parts:
-        names = domain_proxy_tool_names(part)
-        if names is None:
-            # LibrePy's domain_proxy_tool_names returns None when writeragent_api
-            # is not installed. None means unrestricted, matching python_tool_domain
-            # None; treating it as an empty allowlist would refuse every document tool
-            # with the =PY() disabled message. A real unknown domain name is an empty
-            # set, not None.
-            return None
-        allowed |= names
+        allowed |= _domain_names(api.DOMAIN_TOOLS, part)
     # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
     # ``execute_tool`` rejects it too; keeping it off the set matches the catalog.
     return (frozenset(allowed) | _ALWAYS_ALLOWED) - _BLOCKED_FROM_VENV
 
 
-def _proxy_methods_by_tool() -> dict[str, tuple[str, Any]] | None:
-    """Map each ``TOOL_METHODS`` tool name to ``(wa_namespace, proxy_method)``.
-
-    ``None`` when ``writeragent_api`` is not in this build (LibrePy). The
-    import sits in this function, so it must be guarded the same way as
-    ``_domain_tools_map``: LibrePy ships ``host_rpc`` and omits the proxy.
-    """
-    try:
-        import plugin.scripting.writeragent_api as api
-    except ImportError:
-        return None
-
-    tool_methods = getattr(api, "TOOL_METHODS", None)
-    if not isinstance(tool_methods, dict):
-        log.warning("script API catalog: writeragent_api has no TOOL_METHODS dict")
-        return {}
-
+def _proxy_methods_by_tool(api: ModuleType) -> dict[str, tuple[str, Any]]:
+    """Map each ``TOOL_METHODS`` tool name to ``(wa_namespace, proxy_method)``."""
     found: dict[str, tuple[str, Any]] = {}
-    for tool_name, (namespace, method_name) in tool_methods.items():
+    for tool_name, (namespace, method_name) in api.TOOL_METHODS.items():
         proxy = getattr(api, namespace, None)
         method = getattr(proxy, method_name, None)
         if callable(method):
@@ -229,18 +216,14 @@ def _catalog_lead(domains: list[str]) -> str:
 
 @functools.lru_cache(maxsize=16)
 def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
-    tools = _domain_tools_map()
-    if tools is None:
+    api = _api_module()
+    if api is None:
+        # LibrePy: no proxy, so no catalog.
         return ""
-    methods = _proxy_methods_by_tool()
+    tools: dict[str, list[str]] = api.DOMAIN_TOOLS
+    methods = _proxy_methods_by_tool(api)
     if not methods:
-        # LibrePy, or proxies that did not load. Omit the catalog.
         return ""
-    api: Any
-    try:
-        import plugin.scripting.writeragent_api as api
-    except ImportError:
-        api = None
     domains: list[str] = []
     seen: set[str] = set()
     for name in ("core", *domains_tuple):
@@ -254,14 +237,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
         for tool_name in tools.get(domain) or ():
             if tool_name in _BLOCKED_FROM_VENV:
                 continue
-            entry = None
-            if api is not None and domain in ("writer", "calc", "draw"):
-                proxy = getattr(api, domain, None)
-                method = getattr(proxy, tool_name, None)
-                if callable(method):
-                    entry = (domain, method)
-            if entry is None:
-                entry = methods.get(tool_name)
+            entry = methods.get(tool_name)
             if entry is None:
                 log.warning("script API catalog: no proxy method for %s", tool_name)
                 continue
@@ -286,9 +262,9 @@ def format_script_api_help(
     Shares ``_format_proxy_entry`` with ``format_script_api_catalog`` so the
     runtime help output cannot drift from the prompt catalog.
     """
-    tools = _domain_tools_map()
-    methods = _proxy_methods_by_tool()
-    if tools is None or not methods:
+    api = _api_module()
+    methods = _proxy_methods_by_tool(api) if api is not None else {}
+    if not methods:
         return "writeragent API proxies are not available in this build."
 
     by_qualified: dict[str, tuple[str, Any]] = {}
@@ -338,6 +314,7 @@ def format_script_api_help(
     if close:
         return f"Unknown API {name!r}. Close matches: {', '.join(close)}. Call wa.help() to list all namespaces."
     return f"Unknown API {name!r}. No close matches found. Call wa.help() to list all namespaces."
+
 
 def format_script_api_catalog(domains: list[str]) -> str:
     """Script-callable API catalog: ``core`` plus each delegated domain.
@@ -393,7 +370,7 @@ def execute_tool(
             "Document tool RPC is disabled during =PY() recalculation. "
             "Use Run Python Script… to call writeragent tools."
         )
-    payload = args if isinstance(args, dict) else {}
+    payload = args or {}
     if tool_name == WRITERAGENT_HELP_TOOL:
         raw_name = payload.get("name")
         return format_script_api_help(
@@ -416,7 +393,7 @@ def execute_tool(
 
     def _run() -> Any:
         try:
-            from plugin.framework.doc_type import is_calc, is_draw, is_writer
+            from plugin.framework.doc_type import doc_type_family_label, get_document_type
             from plugin.framework.tool import ToolContext
             from plugin.app import get_tools
         except ImportError as exc:
@@ -428,21 +405,14 @@ def execute_tool(
         doc = _script_target_doc(uno_ctx, script_session_id)
         if not doc:
             raise RuntimeError("No active document found to run tool")
-        if is_calc(doc):
-            doc_type = "calc"
-        elif is_writer(doc):
-            doc_type = "writer"
-        elif is_draw(doc):
-            doc_type = "draw"
-        else:
-            doc_type = ""
+        family = doc_type_family_label(get_document_type(doc))
         registry = get_tools()
         # Copy send_cancellation onto ToolContext so script-started HTTP tools honor Stop instead of finishing the request after cancellation.
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,
-            doc_type=doc_type,
-            services=registry._services,
+            doc_type="" if family == "unknown" else family,
+            services=registry.services,
             caller=caller,
             send_cancellation=send_cancellation,
         )

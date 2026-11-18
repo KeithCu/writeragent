@@ -244,6 +244,17 @@ def test_get_guidance_without_document_is_neutral():
     assert res["topics"] == list_topics("generic")
 
 
+def test_guidance_disposed_document_reads_writer_topics():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedDoc:
+        def supportsService(self, _name: str) -> bool:
+            raise DocumentDisposedError("disposed")
+
+    res = GetGuidance().execute(FakeCtx(DisposedDoc()))
+    assert res["status"] == "ok" and res["doc_type"] == "writer"
+
+
 def test_no_duplicate_aliases():
     from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC
 

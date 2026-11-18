@@ -23,7 +23,7 @@ def test_insert_math_sizes_from_visual_area(ctx, doc):
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 
     formula = r"\frac{a}{\frac{b}{\frac{c}{d}}}"
-    tctx = ToolContext(doc, ctx, "draw", get_tools()._services, "test", active_page_index=0)
+    tctx = ToolContext(doc, ctx, "draw", get_tools().services, "test", active_page_index=0)
     res = get_tools().execute("math_insert", tctx, formula_type="latex", formula=formula, page=0, x=1500, y=1500)
     data = res if isinstance(res, dict) else json.loads(res)
     assert data.get("status") == "ok", data
@@ -54,7 +54,7 @@ def test_insert_math_names_shape(ctx, doc):
     from plugin.framework.tool import ToolContext
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 
-    tctx = ToolContext(doc, ctx, "draw", get_tools()._services, "test", active_page_index=0)
+    tctx = ToolContext(doc, ctx, "draw", get_tools().services, "test", active_page_index=0)
     res1 = get_tools().execute("math_insert", tctx, formula_type="latex", formula="x + 1", page=0, x=1500, y=1500)
     res2 = get_tools().execute("math_insert", tctx, formula_type="latex", formula="y + 2", page=0, x=4500, y=1500)
     data1 = res1 if isinstance(res1, dict) else json.loads(res1)

@@ -16,7 +16,6 @@ from plugin.framework.doc_type import (
     agent_label_for_doc_type,
     doc_type_family_label,
     doc_type_label_for_enum,
-    doc_type_of,
     doc_type_str_from_doc,
     doc_type_title_for_label,
     get_document_type,
@@ -132,32 +131,6 @@ def test_doc_type_truth_table(
     assert is_impress(model) is (_IMPRESS_SERVICE in services if services else False)
 
 
-def test_doc_type_of_resolution() -> None:
-    assert doc_type_of(None) is None
-    assert doc_type_of(_ServiceModel({_TEXT_SERVICE})) == "writer"
-    assert doc_type_of(_ServiceModel({_CALC_SERVICE})) == "calc"
-    assert doc_type_of(_ServiceModel({_DRAW_SERVICE})) == "draw"
-    assert doc_type_of(_ServiceModel({_IMPRESS_SERVICE})) == "draw"
-    assert doc_type_of(_ServiceModel({_IMPRESS_SERVICE, _DRAW_SERVICE})) == "draw"
-
-    class BrokenDoc:
-        def supportsService(self, name: str) -> bool:
-            raise RuntimeError("bridge disconnected")
-
-    assert doc_type_of(BrokenDoc()) == "writer"
-
-
-def test_doc_type_of_swallows_disposal() -> None:
-    from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedDoc:
-        def supportsService(self, name: str) -> bool:
-            raise DocumentDisposedError("disposed")
-
-    assert doc_type_of(DisposedDoc()) == "writer"
-
-
-
 def test_get_document_uno_services_truth() -> None:
     impress_both = _ServiceModel({_IMPRESS_SERVICE, _DRAW_SERVICE})
     draw_only = _ServiceModel({_DRAW_SERVICE})
@@ -217,6 +190,14 @@ def test_doc_type_str_from_doc() -> None:
             raise RuntimeError("probe error")
 
     assert doc_type_str_from_doc(_BrokenModel()) is None
+
+    from plugin.framework.errors import DocumentDisposedError
+
+    class _DisposedModel:
+        def supportsService(self, name: str) -> bool:
+            raise DocumentDisposedError("disposed")
+
+    assert doc_type_str_from_doc(_DisposedModel()) is None
 
 
 def test_uno_service_for_distinct_label() -> None:

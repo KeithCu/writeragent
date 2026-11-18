@@ -70,7 +70,7 @@ def _drive_direct_image_send(host, doc, execute_return):
     """Run ``_do_send_direct_image`` with mocked tools; live selection is not stubbed."""
     mock_registry = MagicMock()
     mock_registry.execute.return_value = execute_return
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:

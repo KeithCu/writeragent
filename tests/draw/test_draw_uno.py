@@ -25,7 +25,7 @@ def _exec_tool(doc, ctx, name, args):
     from plugin.framework.tool import ToolContext
     
     active_idx = _active_draw_page_index(doc)
-    tctx = ToolContext(doc, ctx, "draw", get_tools()._services, "test", active_page_index=active_idx)
+    tctx = ToolContext(doc, ctx, "draw", get_tools().services, "test", active_page_index=active_idx)
     res = get_tools().execute(name, tctx, **args)
     return json.dumps(res) if isinstance(res, dict) else res
 

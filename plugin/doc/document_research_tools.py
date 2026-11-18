@@ -20,7 +20,7 @@ from plugin.chatbot.agent_manual import (
     normalize_topic,
     writer_topic_list_text,
 )
-from plugin.framework.doc_type import doc_type_of
+from plugin.framework.doc_type import doc_type_str_from_doc
 from plugin.doc.document_research import get_open_documents, list_nearby_files
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import main
@@ -141,7 +141,8 @@ class GetGuidance(ToolBase):
         # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
         from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
 
-        doc_type = doc_type_of(ctx.doc)
+        # An unrecognised or closed document reads the Writer guidance.
+        doc_type = None if ctx.doc is None else (doc_type_str_from_doc(ctx.doc) or "writer")
         raw = (kwargs.get("topic") or "").strip()
         if not raw:
             # Index call is a natural early MCP step — stamp the clock for hosts that ignore

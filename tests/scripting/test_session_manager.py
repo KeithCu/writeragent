@@ -994,5 +994,42 @@ def test_unsaved_workbook_key_is_never_empty() -> None:
     assert sid == "calc:unsaved-stable-id"
 
 
+def test_focused_component_without_model_falls_back_to_single_calc() -> None:
+    from unittest.mock import MagicMock
+    from plugin.framework.thread_guard import unwrap_uno
+
+    ctx = MagicMock()
+    controller_only = MagicMock(spec=["getFrame", "getModel"])
+    calc_model = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = calc_model
+    components = MagicMock()
+    components.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = controller_only
+    desktop.getComponents.return_value = components
+
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=lambda m: m is calc_model),
+    ):
+        found = session_manager.focused_calc_document(ctx)
+    assert unwrap_uno(found) is calc_model
+
+
+def test_enumerated_matching_models_empty_when_desktop_or_walk_fails() -> None:
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    with patch("plugin.scripting.session_manager.get_desktop", side_effect=RuntimeError("no desktop")):
+        assert session_manager._enumerated_matching_models(ctx, lambda _m: True) == []
+
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = RuntimeError("walk failed")
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+        assert session_manager._enumerated_matching_models(ctx, lambda _m: True) == []
+
+
 
 

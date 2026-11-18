@@ -380,7 +380,7 @@ class TestSendDispose:
         services = MagicMock()
         services.events = local_bus
         tools = MagicMock()
-        tools._services = services
+        tools.services = services
         with (
             patch("plugin.app.get_tools", return_value=tools),
             patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),
@@ -407,7 +407,7 @@ class TestSendDispose:
         services = MagicMock()
         services.events = shared
         tools = MagicMock()
-        tools._services = services
+        tools.services = services
         with (
             patch("plugin.app.get_tools", return_value=tools),
             patch("plugin.framework.event_bus.get_event_bus", return_value=shared),
@@ -435,7 +435,7 @@ class TestSendDispose:
         services = MagicMock()
         services.events = local_bus
         tools = MagicMock()
-        tools._services = services
+        tools.services = services
         posted: list[Any] = []
         get_tools = MagicMock(return_value=tools)
         with (
@@ -2137,7 +2137,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
     services = MagicMock()
     services.events = local_bus
     tools = MagicMock()
-    tools._services = services
+    tools.services = services
     with (
         patch("plugin.app.get_tools", return_value=tools),
         patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),

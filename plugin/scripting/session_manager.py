@@ -17,7 +17,7 @@ from typing import Any
 from plugin.doc.udprops import get_document_property, remove_document_property, set_document_property
 from plugin.framework.config import get_config
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
-from plugin.framework.errors import UnoObjectError, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import guard_uno, unwrap_uno
@@ -86,17 +86,20 @@ def _doc_url(raw_doc: Any) -> str:
 
 
 def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
-    matches: list[Any] = []
+    # get_desktop runs before iter_open_models' own guard; a desktop that is going
+    # away (createInstanceWithContext raising) means no document matches.
     try:
-        for model in iter_open_models(get_desktop(ctx), strict=False, label=label):
-            try:
-                if predicate(model):
-                    matches.append(guard_uno(model))
-            except Exception:
-                log.debug("session_manager: predicate failed; skipping model", exc_info=True)
+        desktop = get_desktop(ctx)
     except Exception:
-        log.debug("session_manager: document enumeration failed", exc_info=True)
+        log.debug("session_manager: desktop unavailable", exc_info=True)
         return []
+    matches: list[Any] = []
+    for model in iter_open_models(desktop, strict=False, label=label):
+        try:
+            if predicate(model):
+                matches.append(guard_uno(model))
+        except Exception:
+            log.debug("session_manager: predicate failed; skipping model", exc_info=True)
     return matches
 
 
@@ -107,10 +110,7 @@ def focused_calc_document(ctx: Any) -> Any | None:
     doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
         try:
-            # None check; get_desktop is already @main_thread_only.
-            # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
-            if unwrap_uno(doc) is None:
-                raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
+            # getCurrentComponent() returns the frame's controller or component window when the frame has no model (framework/source/services/desktop.cxx Desktop::impl_getFrameComponent, e.g. Start Center). Neither has getCurrentController, so read it as None.
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
             # Headless soffice returns None from getCurrentController(), so a
             # missing controller still counts: requiring one would skip the open

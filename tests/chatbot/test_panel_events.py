@@ -151,7 +151,7 @@ def test_subscribe_mcp_events():
 
     bus = MagicMock()
     tools = MagicMock()
-    tools._services = SimpleNamespace(events=bus)
+    tools.services = SimpleNamespace(events=bus)
 
     with patch("plugin.app.get_tools", return_value=tools):
         controller._subscribe_mcp_events()

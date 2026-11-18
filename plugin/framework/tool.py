@@ -612,10 +612,10 @@ class ToolRegistry:
     Both the chatbot and MCP server use this single registry.
     """
 
-    _services: Any
+    services: Any
 
     def __init__(self, services: Any) -> None:
-        self._services = services
+        self.services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []

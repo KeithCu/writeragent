@@ -539,12 +539,9 @@ def run_domain(
 
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None:
-            from plugin.framework.doc_type import is_calc, is_writer  # child boundary: loads thread_guard
+            from plugin.framework.doc_type import doc_type_family_label, get_document_type  # child boundary: loads thread_guard
 
-            if is_calc(doc):
-                doc_type = "calc"
-            elif is_writer(doc):
-                doc_type = "writer"
+            doc_type = doc_type_family_label(get_document_type(doc))
         if doc_type not in ("calc", "writer"):
             raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
 
