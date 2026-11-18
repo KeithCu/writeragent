@@ -547,23 +547,22 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
 #
-# The sort and has_header lines keep distinct shapes so small models do not merge them. Fill-down is taught on write_range's values parameter, not here.
+# The sort and header lines keep distinct shapes so small models do not merge them; has_header itself is taught on sort_range, which only the ranges sub-agent calls. Fill-down is taught on write_range's values parameter.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
-Python on sheet data: write_range of =PY (that tool's description).
 SORT:
-Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows because rewriting values by hand loses the header row.
-When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
+To reorder rows, call {DELEGATE_SUBAGENT_TOOL}(domain="ranges"); do not rewrite the values yourself.
+Say in task whether row 1 holds labels, so they stay on top."""
 
 
-# Order and judgement only. Read-size caps live on read_range (description and truncated hint), fill-down on write_range's values parameter, =PY placement on write_range's description, and populate-after-create on the sheets hop's instruction field.
-CALC_WORKFLOW = """WORKFLOW:
-1. get_sheet_summary for size/headers.
+# Order and judgement only; the injected sheet snapshot covers size/headers. Read caps live on read_range (description and truncated hint), fill-down on write_range's values parameter, =PY placement on write_range's description, and populate-after-create on the sheets hop's instruction field.
+CALC_WORKFLOW = f"""WORKFLOW:
+1. Use the sheet context you were given; call get_sheet_summary only when it lacks what you need (another sheet, first empty row/column, charts, merges).
 2. Do the work with tools. Use ranges, not one cell at a time.
-   Empty tabs via specialized sheets (delegate domain="sheets").
-3. Short confirmation; if you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
+   To use a new sheet, create it first with {DELEGATE_SUBAGENT_TOOL}(domain="sheets").
+3. If you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
 
 
 # Parked from Calc chat/MCP domain lists. Compute in Calc chat is =PY() on write_range.
@@ -579,14 +578,16 @@ CALC_FORMULA_SYNTAX_TEMPLATE = (
 - Other sheets: use Sheet2.A1, or $'My Sheet'.A1:B5 when the sheet name has spaces.
 - Inline arrays: use `;` between columns and `|` between rows, e.g. {1;2|3;4}.
 - Examples: =SUM(Sheet2.A1:A5; $B$1) and =VLOOKUP(A2; $'My Sheet'.$A$2:$C$20; 3; 0).
-- Python in a cell: =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
+- Python in a cell: =PY("result = …"; DataRange) via write_range (omit DataRange if unused; where to place it and how it spills is on write_range).
 {venv_policy}
 """
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.
     "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows: sum raises TypeError, min/max return a whole row)."
+    # See venv_sandbox._serialize_cell_result and image_egress._insert_image_result_on_sheet_impl.
+    f"\n- Plots: an open plt figure (or result = fig) turns the =PY cell's output into a picture anchored at that cell; for an editable chart, call {DELEGATE_SUBAGENT_TOOL}(domain=\"charts\")."
 )
 
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant. Style new content cleanly and leave existing formatting alone unless the user asks.
 {ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
@@ -599,9 +600,6 @@ DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spread
 
 CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (users click these in the chat sidebar to jump to the cell).
 Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Orders.A1</a>.
-
-TOOLS: read_range, get_sheet_summary, write_range, set_style, insert_html, merge_cells, delete_structure, insert_structure, image_get (image name or selection; page is Writer/Draw/Impress) (see each tool).
-set_style: fixed properties only — not mixed rich text in a cell; use insert_html for that.
 
 {{specialized_delegation}}
 

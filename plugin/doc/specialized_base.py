@@ -583,12 +583,10 @@ _WRITER_DELEGATE_DESCRIPTION = (
     f"{python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}"
 )
 
+# The Calc domain list lives in the sidebar prompt's CALC SUB-AGENTS block and in MCP's domain property (to_mcp_schema / narrow_delegate_domain_enums).
 _CALC_DELEGATE_DESCRIPTION = (
-    f"Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
-    f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
-    f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    "in this spreadsheet and returns a summary."
 )
 
 _DRAW_DELEGATE_LEAD = (
