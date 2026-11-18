@@ -991,6 +991,10 @@ def _noop_shape(_shape: MagicMock) -> None:
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}), ["CharHeight"], id="char-false"),
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")), ["text_properties"], id="char-runtime"),
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")), DisposedException, id="char-disposed"),
+        pytest.param({"bold": True}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharWeight": False}), ["CharWeight"], id="bold-only-reaches-char-path"),
+        pytest.param({"corner_radius": 300}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("no CornerRadius")), None, ["corner_radius"], id="corner-radius-runtime"),
+        pytest.param({"h_align": "center"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("x")), None, ["h_align"], id="h-align-runtime"),
+        pytest.param({"wrap_text": True}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="wrap-disposed"),
     ],
 )
 def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch, expected) -> None:

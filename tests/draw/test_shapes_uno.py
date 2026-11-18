@@ -4,10 +4,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Live check: shape_group builds ShapeCollection via the service manager."""
 
+import os
+import re
+import shutil
+import tempfile
+
+import uno
+from com.sun.star.beans import PropertyValue
+
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.shapes import DeleteShape, GetDrawSummary, GroupShapes, UpsertShape
 from plugin.draw.tree import find_shape_on_page
 from plugin.framework.tool import ToolContext
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from tests.testing_utils import with_native_doc
 
@@ -627,4 +636,198 @@ def test_writer_shape_upsert_negative_line_direction(ctx, doc):
     poly3 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
     assert poly3[0][0][0] < poly3[0][1][0]
     assert abs((poly3[0][1][0] - poly3[0][0][0]) - 1500) <= 2
+
+
+def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
+    """Export a single shape to SVG and return (x, y) of each TextPosition element."""
+    tmpdir = tempfile.mkdtemp(prefix="shape_svg_")
+    try:
+        out_path = os.path.join(tmpdir, "shape.svg")
+        exporter = ctx.getServiceManager().createInstanceWithContext("com.sun.star.drawing.GraphicExportFilter", ctx)
+        exporter.setSourceDocument(shape)
+        exporter.filter(
+            (
+                PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(out_path)),
+                PropertyValue(Name="MediaType", Value="image/svg+xml"),
+            )
+        )
+        with open(out_path, encoding="utf-8") as fh:
+            svg = fh.read()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    positions: list[tuple[int, int]] = []
+    for match in re.finditer(r'<tspan[^>]*class="TextPosition"[^>]*>', svg):
+        tag = match.group(0)
+        x_m = re.search(r'\bx="(-?\d+)"', tag)
+        y_m = re.search(r'\by="(-?\d+)"', tag)
+        if x_m and y_m:
+            positions.append((int(x_m.group(1)), int(y_m.group(1))))
+    return positions
+
+
+def _iter_paragraphs_and_portions(shape):
+    """Yield (paragraph, portion) pairs for all text in a shape."""
+    para_enum = shape.getText().createEnumeration()
+    while enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        port_enum = para.createEnumeration()
+        while enum_has_more(port_enum):
+            yield para, port_enum.nextElement()
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_text_style_and_alignment(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+        text="Hi",
+        font_size=18,
+        bold=True,
+        italic=True,
+        h_align="left",
+        v_align="top",
+        corner_radius=500,
+    )
+    assert res.get("status") == "ok", res
+    assert not res.get("warnings"), res
+
+    shape = page.getByIndex(res["index"])
+    italic_enum = uno.Enum("com.sun.star.awt.FontSlant", "ITALIC")
+    items = list(_iter_paragraphs_and_portions(shape))
+    assert items
+    for para, port in items:
+        assert port.getPropertyValue("CharWeight") == 150.0
+        assert port.getPropertyValue("CharPosture") == italic_enum
+        assert para.getPropertyValue("ParaAdjust") == 0
+    assert shape.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "TOP")
+    assert shape.getPropertyValue("CornerRadius") == 500
+
+    positions = _svg_text_positions(ctx, shape)
+    assert positions
+    x0, y0 = positions[0]
+    assert x0 < 8000 // 4, positions
+    assert y0 < 4000 // 2, positions
+
+    edit_res = upsert.execute(
+        tctx,
+        action="edit",
+        page=0,
+        index=res["index"],
+        bold=False,
+        h_align="right",
+        v_align="bottom",
+    )
+    assert edit_res.get("status") == "ok", edit_res
+    for _para, port in _iter_paragraphs_and_portions(shape):
+        assert port.getPropertyValue("CharWeight") == 100.0
+
+    positions2 = _svg_text_positions(ctx, shape)
+    assert positions2
+    x1, y1 = positions2[0]
+    assert x1 > 8000 // 2, positions2
+    assert y1 > 4000 // 2, positions2
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    res = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="round-rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=2000,
+        corner_radius=300,
+    )
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    assert any("corner_radius" in str(w) for w in warnings), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_shape_upsert_wrap_text(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+    long_text = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
+
+    res1 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+        text=long_text,
+        font_size=18,
+    )
+    assert res1.get("status") == "ok", res1
+    shape1 = page.getByIndex(res1["index"])
+    pos1 = _svg_text_positions(ctx, shape1)
+    assert len({y for _x, y in pos1}) == 1, pos1
+
+    res2 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=6000,
+        width=8000,
+        height=4000,
+        text=long_text,
+        font_size=18,
+        wrap_text=True,
+        h_align="center",
+        v_align="center",
+    )
+    assert res2.get("status") == "ok", res2
+    shape2 = page.getByIndex(res2["index"])
+    assert shape2.getPropertyValue("TextWordWrap") is True
+    pos2 = _svg_text_positions(ctx, shape2)
+    assert len({y for _x, y in pos2}) >= 2, pos2
+    for para, _port in _iter_paragraphs_and_portions(shape2):
+        assert para.getPropertyValue("ParaAdjust") == 3
+    assert shape2.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "CENTER")
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_wrap_text_off_draw_custom_shape(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    res = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=6000,
+        height=3000,
+        text="Hello world",
+        wrap_text=False,
+    )
+    assert res.get("status") == "ok", res
+    shape = page.getByIndex(res["index"])
+    assert shape.getPropertyValue("TextWordWrap") is False
 

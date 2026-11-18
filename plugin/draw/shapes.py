@@ -25,6 +25,7 @@ from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
 from plugin.writer.specialized_base import ToolWriterShapeBase
+from plugin.writer.styles import para_adjust_to_uno
 from . import layout
 from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
 
@@ -548,14 +549,22 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
         _try(failed_props, "line_style", _apply_line_style)
 
-    # Text Properties (Font Size, Name, Color)
-    if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
+    # Character properties (font, size, color, bold, italic)
+    if (
+        kwargs.get("text_color")
+        or kwargs.get("font_size")
+        or kwargs.get("font_name")
+        or kwargs.get("bold") is not None
+        or kwargs.get("italic") is not None
+    ):
 
         def _apply_text_properties() -> None:
             char_res = apply_character_properties(
                 shape,
                 font_name=kwargs.get("font_name"),
                 font_size_pt=kwargs.get("font_size"),
+                bold=kwargs.get("bold"),
+                italic=kwargs.get("italic"),
                 color=kwargs.get("text_color"),
             )
             for prop_name, ok in char_res.items():
@@ -563,6 +572,35 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                     failed_props.append(prop_name)
 
         _try(failed_props, "text_properties", _apply_text_properties)
+
+    if kwargs.get("h_align"):
+
+        def _apply_h_align() -> None:
+            # BLOCK makes the text area span the shape width so ParaAdjust aligns
+            # against the shape edges; RectangleShape and EllipseShape default to
+            # CENTER, which centres the text block and ignores left/right
+            # (svx/source/svdraw/svdotextdecomposition.cxx: SdrTextObj::impDecomposeBlockTextPrimitive).
+            shape.setPropertyValue("TextHorizontalAdjust", _drawing_enum("TextHorizontalAdjust", "BLOCK"))
+            shape.setPropertyValue("ParaAdjust", para_adjust_to_uno(kwargs["h_align"]))
+
+        _try(failed_props, "h_align", _apply_h_align)
+
+    if kwargs.get("v_align"):
+        _try(
+            failed_props,
+            "v_align",
+            lambda: shape.setPropertyValue("TextVerticalAdjust", _drawing_enum("TextVerticalAdjust", kwargs["v_align"].upper())),
+        )
+
+    if kwargs.get("wrap_text") is not None:
+        # Only custom shapes read this flag (svx/source/sdr/contact/viewcontactofsdrobjcustomshape.cxx);
+        # the rectangle and ellipse primitives pass bWordWrap=false.
+        _try(failed_props, "wrap_text", lambda: shape.setPropertyValue("TextWordWrap", bool(kwargs["wrap_text"])))
+
+    if kwargs.get("corner_radius") is not None:
+        # CustomShape has no CornerRadius (svx/source/unodraw/unoprov.cxx: ImplGetSvxCustomShapePropertyMap),
+        # so the set fails and is reported as a warning.
+        _try(failed_props, "corner_radius", lambda: shape.setPropertyValue("CornerRadius", int(kwargs["corner_radius"])))
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
@@ -639,6 +677,23 @@ class UpsertShape(_AnyDocumentShapeTool):
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
+            "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
+            "italic": {"type": "boolean", "description": "Italic text (false removes italic)."},
+            "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal text alignment inside the shape."},
+            "v_align": {
+                "type": "string",
+                "enum": ["top", "center", "bottom"],
+                "description": "Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center.",
+            },
+            "wrap_text": {
+                "type": "boolean",
+                "description": (
+                    "Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); "
+                    "on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. "
+                    "rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label."
+                ),
+            },
+            "corner_radius": {"type": "integer", "description": "Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners)."},
             "rotation_angle": {"type": "number", "description": "Rotation angle in degrees"},
         },
         "required": ["action"],
