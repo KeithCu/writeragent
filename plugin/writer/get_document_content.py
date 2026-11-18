@@ -101,10 +101,12 @@ class GetDocumentContent(ToolBase):
 
     name: str | None = "get_content"
     description: str = (
-        "Get document (or selection/range) content. Result includes document_length (plain-text "
-        "characters) and length (HTML characters). scope: full, selection, or range (requires start, "
-        "end as plain-text offsets in the document_length space). max_chars counts returned HTML and "
-        "is approximate. The result may carry warning, truncated, hint, tracked_changes, "
+        "Get document (or selection/range) content. Result includes document_length (counts the visible "
+        "body text: body paragraphs and table cells, one character per paragraph or cell break, without "
+        "text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and "
+        "comment text are not counted) and length (HTML characters). scope: full, selection, or range "
+        "(requires start, end as plain-text offsets in the document_length space). max_chars counts "
+        "returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, "
         "tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected "
         "returns empty content plus a warning. "
         "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "

@@ -540,7 +540,10 @@ class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
     name: str | None = "image_list"
-    description: str = "List all images/graphic objects in the document with name, dimensions, title, and description."
+    description: str = (
+        "List all images/graphic objects in the document with name, dimensions, title, and description."
+        " On Writer, an entry includes page (0-based, first page = 0) when its page is known."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
 
@@ -611,8 +614,9 @@ class ImageList(ToolWriterImageBase):
                             page_no = visual_helpers.safe_get_property(graphic, "AnchorPageNo", 0)
                             try:
                                 p = int(page_no)
+                                # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                 if p > 0:
-                                    entry["page"] = p
+                                    entry["page"] = p - 1
                             except (TypeError, ValueError):
                                 pass
                         else:
@@ -633,8 +637,9 @@ class ImageList(ToolWriterImageBase):
                                         vc.gotoRange(start, False)
                                         try:
                                             p = int(vc.getPage())
+                                            # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                             if p > 0:
-                                                entry["page"] = p
+                                                entry["page"] = p - 1
                                         except (TypeError, ValueError):
                                             pass
                             except Exception as exc:

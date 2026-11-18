@@ -1401,7 +1401,7 @@ def test_image_list_at_page_never_calls_gotorange():
 
     assert res["status"] == "ok"
     assert len(res["images"]) == 1
-    assert res["images"][0]["page"] == 3
+    assert res["images"][0]["page"] == 2
     vc.gotoRange.assert_not_called()
 
 
@@ -1460,7 +1460,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
         res = ImageList().execute(ctx)
 
     assert res["status"] == "ok"
-    assert res["images"][0]["page"] == 2
+    assert res["images"][0]["page"] == 1
     vc.gotoRange.assert_any_call(start_pos, False)
     assert vc.gotoRange.call_args_list[-1] == ((saved_cursor, False),)
 

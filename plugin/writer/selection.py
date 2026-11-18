@@ -58,8 +58,17 @@ class SetSelection(ToolBase):
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},
             "occurrence": {"type": "integer", "minimum": 0, "default": 0, "description": "0-based match to select when search_text repeats."},
             "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
-            "char_start": {"type": "integer", "minimum": 0, "description": "Alternative to search_text: 0-based start character offset (body text)."},
-            "char_end": {"type": "integer", "minimum": 0, "description": "End character offset (exclusive), required with char_start."},
+            "char_start": {
+                "type": "integer",
+                "minimum": 0,
+                "description": (
+                    "Alternative to search_text: 0-based start offset in body cursor steps, which is not "
+                    "quite get_content's document_length space: a field or footnote anchor is one step "
+                    "whatever it shows, text deleted by pending tracked changes still counts, and an "
+                    "offset inside a table moves to the paragraph after it."
+                ),
+            },
+            "char_end": {"type": "integer", "minimum": 0, "description": "End offset (exclusive, same cursor steps), required with char_start."},
         },
         "required": [],
     }

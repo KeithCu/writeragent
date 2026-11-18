@@ -1506,7 +1506,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_insert", path=path, locator=locator, paragraph=paragraph, page=page, x_mm=x_mm, y_mm=y_mm, width_mm=width_mm, height_mm=height_mm, target=target, style=style, auto_height=auto_height))
 
     def list(self) -> _Item:
-        """List all images/graphic objects in the document with name, dimensions, title, and description."""
+        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known."""
         return _result(call_host_tool("image_list"))
 
     def list_nearby_files(self, *, filter: str | None = None) -> _Item:
@@ -1865,10 +1865,10 @@ class _NavProxy:
         return _result(call_host_tool("nav_get_surroundings", locator=locator, radius=radius, include=include))
 
     def goto_page(self, page: int) -> _Item:
-        """Navigate the view cursor to a specific page.
+        """Navigate the view cursor to the start of a page. page is 0-based (first page = 0).
 
         Args:
-            page (required): Page number to navigate to.
+            page (required): 0-based page index (first page = 0).
         """
         return _result(call_host_tool("nav_goto_page", page=page))
 
@@ -1909,10 +1909,10 @@ class _PageProxy:
         return _result(call_host_tool("page_get_header_footer_text", style=style, region=region, include_images=include_images))
 
     def get_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> _Item:
-        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above). para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above). para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
-            page (optional): 1-based page number to analyze.
+            page (optional): 0-based page index (first page = 0).
             locator (optional): Locator to determine page.
             paragraph (optional): Paragraph index to determine page.
         """
@@ -3024,7 +3024,7 @@ class _WriterProxy:
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 
     def get_content(self, *, scope: str = 'full', max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool = False) -> _Item:
-        """Get document (or selection/range) content. Result includes document_length (plain-text characters) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_content of that markup recreates live Ruby portions.
+        """Get document (or selection/range) content. Result includes document_length (counts the visible body text: body paragraphs and table cells, one character per paragraph or cell break, without text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and comment text are not counted) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_content of that markup recreates live Ruby portions.
 
         Args:
             scope (optional): Return full document, current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
@@ -3063,8 +3063,8 @@ class _WriterProxy:
             search_text (optional): Text to select (first match unless occurrence is set).
             occurrence (optional): 0-based match to select when search_text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            char_start (optional): Alternative to search_text: 0-based start character offset (body text).
-            char_end (optional): End character offset (exclusive), required with char_start.
+            char_start (optional): Alternative to search_text: 0-based start offset in body cursor steps, which is not quite get_content's document_length space: a field or footnote anchor is one step whatever it shows, text deleted by pending tracked changes still counts, and an offset inside a table moves to the paragraph after it.
+            char_end (optional): End offset (exclusive, same cursor steps), required with char_start.
         """
         return _result(call_host_tool("set_selection", search_text=search_text, occurrence=occurrence, case_sensitive=case_sensitive, char_start=char_start, char_end=char_end))
 
