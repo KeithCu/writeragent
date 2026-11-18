@@ -426,6 +426,8 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     assert result["error"] == result["message"]
     assert result["answer"] == "Tried the note"
     assert result["domains"] == ["footnotes"]
+    assert result["edits"] == {}
+    assert result["tool_errors"] == [{"tool": "failing_footnote_tool", "message": "Failed to insert the note"}]
 
 
 @pytest.mark.parametrize(

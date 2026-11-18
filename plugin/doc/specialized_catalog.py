@@ -2,6 +2,7 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, NamedTuple, Sequence, cast
 
 from plugin.framework.prompts import (
@@ -245,18 +246,33 @@ def _err_text(err: Any) -> str:
     return str(err)
 
 
+def _tool_error_entry(call: InnerToolCall) -> dict[str, str]:
+    """Build a structured error entry keeping tool name, message, and optional code."""
+    entry: dict[str, str] = {"tool": call.name, "message": _err_text(call.result)}
+    if isinstance(call.result, dict):
+        code = call.result.get("code")
+        if code:
+            entry["code"] = str(code)
+    return entry
+
+
+def _is_error_result(result: Any) -> bool:
+    """Return True when a tool result dict has status 'error'."""
+    return isinstance(result, dict) and result.get("status") == "error"
+
+
 def partition_tool_errors(
     calls: Sequence[InnerToolCall],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Partition tool error dicts into unrecovered and recovered groups.
+) -> tuple[list[InnerToolCall], list[InnerToolCall]]:
+    """Partition tool error calls into unrecovered and recovered groups.
 
     An error call is considered recovered when a later call to the same tool name returned a
     non-error dict, including retries with corrected arguments.
     """
-    unrecovered: list[dict[str, Any]] = []
-    recovered: list[dict[str, Any]] = []
+    unrecovered: list[InnerToolCall] = []
+    recovered: list[InnerToolCall] = []
     for idx, call in enumerate(calls):
-        if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
+        if not _is_error_result(call.result):
             continue
         is_recovered = any(
             later.name == call.name
@@ -265,9 +281,9 @@ def partition_tool_errors(
             for later in calls[idx + 1 :]
         )
         if is_recovered:
-            recovered.append(call.result)
+            recovered.append(call)
         else:
-            unrecovered.append(call.result)
+            unrecovered.append(call)
     return unrecovered, recovered
 
 
@@ -278,26 +294,32 @@ def apply_inner_outcome(
     *,
     expect_edits: bool,
 ) -> dict[str, Any]:
-    """Set status/code/message/note on a sub-agent payload from the observed call log.
+    """Set status, code, message, note, edits, and tool_errors on a sub-agent payload.
 
     Mutates and returns payload so the main agent sees an accurate report of what tools
     ran, whether failures were recovered, and—on any exit (ok, incomplete, or error)—
-    whether any document-editing tool ran.
+    counts of successful editing-tool calls (`edits`) when `expect_edits` is true; on
+    error or incomplete, `edits` reports any edits that did land.
     """
     unrecovered, recovered = partition_tool_errors(calls)
-    # The note is true on every exit because mutating is the tool kind; if no editing
-    # tool ran at all, the document is unchanged whether the run finished, stopped
-    # early, or failed.
-    if expect_edits and not any(c.mutating for c in calls):
-        payload["note"] = NO_EDIT_TOOL_NOTE
+    if expect_edits:
+        payload["edits"] = dict(
+            Counter(c.name for c in calls if c.mutating and not _is_error_result(c.result))
+        )
+        # The note is true on every exit because mutating is the tool kind; if no editing
+        # tool ran at all, the document is unchanged whether the run finished, stopped
+        # early, or failed.
+        if not any(c.mutating for c in calls):
+            payload["note"] = NO_EDIT_TOOL_NOTE
     if unrecovered:
         # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
-        messages = [_err_text(err) for err in unrecovered]
+        messages = [_err_text(c.result) for c in unrecovered]
         text = "; ".join(messages) or "Specialized tool error."
         payload["status"] = "error"
         payload["code"] = "SPECIALIZED_TOOL_ERROR"
         payload["message"] = text
         payload["error"] = text
+        payload["tool_errors"] = [_tool_error_entry(c) for c in unrecovered]
         return payload
 
     finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
@@ -315,7 +337,7 @@ def apply_inner_outcome(
         return payload
 
     if recovered:
-        payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
+        payload["recovered_tool_errors"] = [_err_text(c.result) for c in recovered]
 
     return payload
 

@@ -136,6 +136,7 @@ def test_delegate_status_inner_tool_error(
     assert result["message"] == "Failed to read page objects"
     assert result["error"] == "Failed to read page objects"
     assert result["answer"] == "Final attempted answer"
+    assert result["tool_errors"] == [{"tool": "failing_structural_tool", "message": "Failed to read page objects"}]
 
 
 def test_delegate_status_incomplete_no_finish_no_tool_error(
@@ -1046,6 +1047,8 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
     assert result["shapes_created"] == 1
+    assert result["edits"] == {"shape_upsert": 1}
+    assert result["tool_errors"] == [{"tool": "shape_connect", "message": "Target shape not found"}]
 
 
 def test_calc_gateway_enum_keeps_forms_on_spreadsheet() -> None:
