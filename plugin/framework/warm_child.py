@@ -241,7 +241,8 @@ class ChildSlot:
         """
         # kill() sets self.child to None under _lifecycle_lock while a caller's
         # select loop calls this. Read self.child once: a second read can see None
-        # and raise AttributeError, which a write handler could misreport.
+        # and raise AttributeError, which a write handler could misreport (the
+        # compute pool's execute write handler reported it as REQUEST_NOT_SERIALIZABLE).
         child = self.child
         if child is None:
             return False

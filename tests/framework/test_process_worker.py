@@ -254,7 +254,7 @@ def test_abandoned_after_wait_timeout(
 
 
 
-def test_respawn_adopt_refusal_signals_the_unadopted_child(
+def test_respawn_publish_refusal_signals_the_unpublished_child(
     monkeypatch: pytest.MonkeyPatch, reaper_enqueued: list[Any]
 ) -> None:
     worker = BaseProcessWorker(7, "unused.py", worker_name="Formula", start=False)
@@ -374,7 +374,7 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
 def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shutdown during Popen must not leave an unpublished child running.
 
-    Adopt refuses that child, and only that child is signaled; otherwise reap
+    Publish refuses that child, and only that child is signaled; otherwise reap
     sees None and the new interpreter survives until the parent exits.
     """
 
@@ -1588,16 +1588,16 @@ def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, ca
     assert worker.process is None
 
 
-def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A respawn that raises before adopt must not kill the published child.
+def test_respawn_failure_before_publish_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A respawn that raises before publish must not kill the published child.
 
-    Otherwise an overlapping caller failing before adopt reaps the other
+    Otherwise an overlapping caller failing before publish reaps the other
     call's healthy child.
     """
 
     worker = _worker_without_spawn(monkeypatch)
     second_queued = _second_spawn_queued_event(monkeypatch)
-    adopted = threading.Event()
+    published = threading.Event()
     hold = threading.Event()
     calls = {"n": 0}
     calls_lock = threading.Lock()
@@ -1646,7 +1646,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         current = worker.child
         if current is not None and current.managed.stderr_tail is not None:
             current.managed.stderr_tail._append("winner-still-healthy\n")
-        adopted.set()
+        published.set()
         hold.wait(timeout=2)
         return {"status": "ready", "pid": 77}
 
@@ -1667,7 +1667,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         for thread in threads:
             thread.start()
         try:
-            assert adopted.wait(timeout=2)
+            assert published.wait(timeout=2)
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline and sum(not thread.is_alive() for thread in threads) < 1:
                 time.sleep(0.01)
@@ -1730,8 +1730,8 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
     assert "forbidden" in str(rejected.get("error"))
 
 
-def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A child adopt refused, and that will not die, is abandoned; the slot stays.
+def test_unpublished_child_that_survives_kill_is_abandoned(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A child publish refused, and that will not die, is abandoned; the slot stays.
 
     The loser is signaled and the published child is not; otherwise a failed
     wait leaks the loser without storing or logging it.

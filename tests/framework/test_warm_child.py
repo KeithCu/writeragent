@@ -548,13 +548,22 @@ def test_child_slot_read_exception_reports_failed_and_empties_slot(monkeypatch: 
 
 
 def test_child_slot_timeout_reports_returncode_before_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _TimeoutPopen(_FakePopen):
+        def __init__(self) -> None:
+            super().__init__()
+            self._polls = 0
+
+        def poll(self) -> int | None:
+            self._polls += 1
+            return None if self._polls == 1 else -9
+
     monkeypatch.setattr(
         "plugin.framework.warm_child.read_ready_frame_during_io",
         lambda *args, **kwargs: ("timeout", None),
     )
     slot = ChildSlot()
     outcome = slot._spawn_child(
-        _managed_with_popen(),
+        ManagedSubprocess.wrap_existing(_TimeoutPopen(), label="spawn-helper-test"),
         worker_name="warm-test",
         worker_id=0,
         start=lambda _m: None,
