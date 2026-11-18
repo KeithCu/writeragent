@@ -382,9 +382,14 @@ class DrawShapes:
         Shapes are created via the document's factory (``doc.createInstance``);
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
-        For CustomShape, ``EnhancedCustomShapeGeometry`` must be applied **before**
-        ``page.add`` to prevent an immediate abort on some LibreOffice versions. Writer
-        and Calc will require re-applying it after add to paint correctly.
+        For CustomShape, ``EnhancedCustomShapeGeometry`` is applied **before**
+        ``page.add`` so ``SvxShape::setPropertyValue`` buffers ``Type``
+        (``svx/source/unodraw/unoshape.cxx:566``) instead of swapping it on a
+        live default ``SdrRectObj`` (which can abort in
+        ``SfxItemPool::unregisterNameOrIndex``), and re-applied after add in
+        ``UpsertShape`` so ``SvxCustomShape::setPropertyValue`` runs
+        ``MergeDefaultAttributes()`` (``svx/source/unodraw/unoshap2.cxx:1733-1749``)
+        to expand ``ViewBox`` and ``Path``.
         """
         try:
             if doc is None:
@@ -494,6 +499,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
     # Background/Fill Color
+    fill_color_set = False
     if kwargs.get("fill_color"):
         color_str = kwargs.get("fill_color")
         color_str_l = (color_str or "").strip().lower()
@@ -508,20 +514,23 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
+                is_line = "LineShape" in shape.getShapeType()
+                if not is_line:
+                    fill_color_set = True
                 _try(
                     failed_props,
                     "fill_color",
                     lambda: shape.setPropertyValue(
-                        "LineColor" if "LineShape" in shape.getShapeType() else "FillColor",
+                        "LineColor" if is_line else "FillColor",
                         color,
                     ),
                 )
 
-    # Fill Style (solid, transparent, etc)
-    if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
+    # Fill Style (solid, transparent, etc; ensure fill is visible when fill_color is set)
+    if (kwargs.get("fill_style") or fill_color_set) and hasattr(shape, "FillStyle"):
 
         def _apply_fill_style() -> None:
-            style_str = kwargs["fill_style"].lower()
+            style_str = (kwargs.get("fill_style") or "solid").lower()
             if style_str in ("none", "transparent"):
                 shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
             elif style_str == "solid":
@@ -771,9 +780,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         draw_shapes = DrawShapes()
 
         try:
-            # Apply EnhancedCustomShapeGeometry *inside* safe_create_shape (before
-            # page.add). Setting Type=octagon after add replaces the live SdrRectObj
-            # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
+            # Pre-add write sets Type before page.add so SdrObjCustomShape is created with
+            # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
             shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
         except DrawError as e:
             # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
@@ -786,10 +794,9 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             _try_writer_at_page_shape_finalize(ctx.doc, shape, actual_idx)
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
 
-            # Re-apply EnhancedCustomShapeGeometry after add. While Draw works with the pre-add
-            # geometry, Writer (after AT_PAGE anchor) and Calc require re-applying it so
-            # CustomShapes actually paint correctly on the sheet/page.
-            if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
+            # Post-add write triggers SvxCustomShape::setPropertyValue -> MergeDefaultAttributes()
+            # (svx/source/unodraw/unoshap2.cxx:1733-1749) so ViewBox and Path are built and the shape paints.
+            if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
             failed_props = _apply_shape_properties(shape, kwargs)
