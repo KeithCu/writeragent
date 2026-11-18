@@ -1235,16 +1235,16 @@ class ApplyStyle(FrameworkToolBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
-            "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family."), default="ParagraphStyles"),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
             "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
+            "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
                 "Direct (hand-set) formatting on the target, ParagraphStyles only. "
                 "'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. "
-                "'style_props' (default) drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. "
+                "'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. "
                 "'all' drops every direct override, like Ctrl+M; refused with target='full_document'.")},
         },
         "required": ["style"],

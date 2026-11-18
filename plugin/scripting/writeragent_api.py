@@ -946,15 +946,15 @@ chart = _ChartProxy()
 class _CommentProxy:
     """Proxy for comment tools."""
 
-    def add(self, content: str, *, search: str | None = None, case_sensitive: bool | None = None, occurrence: int | None = None, author: str | None = None, parent_name: str | None = None) -> _Item:
+    def add(self, content: str, *, search: str | None = None, case_sensitive: bool | None = None, occurrence: int = 0, author: str = 'WriterAgent', parent_name: str | None = None) -> _Item:
         """Add a comment/annotation. For a new root comment, pass search (and optional occurrence) so the comment SPANS the matched passage. To reply without resolving, pass parent_name (the 'name' from a prior comment_add success, or from comment_list); search is not required. Replies nest under that immediate parent (including other replies) and do not mark it resolved — use comment_resolve for reply-and-resolve. Use author to sign the comment.
 
         Args:
             content (required): The comment text.
             search (optional): Anchor a new root comment to text matching this string. Not required when parent_name is set.
             case_sensitive (optional): For search: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            occurrence (optional): 0-based match to comment on when search repeats (default 0). Ignored when parent_name is set.
-            author (optional): Comment author (default 'WriterAgent').
+            occurrence (optional): 0-based match to comment on when search repeats. Ignored when parent_name is set.
+            author (optional): Comment author.
             parent_name (optional): Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped.
         """
         return _result(call_host_tool("comment_add", content=content, search=search, case_sensitive=case_sensitive, occurrence=occurrence, author=author, parent_name=parent_name))
@@ -2989,7 +2989,7 @@ web = _WebProxy()
 class _WriterProxy:
     """Proxy for writer tools."""
 
-    def apply_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> _Item:
+    def apply_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool = False, occurrence: int | None = None, position: str = 'replace', dry_run: bool | None = None, regex: bool = False, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> _Item:
         """Insert or replace content. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place.
 
         Args:
@@ -2998,70 +2998,70 @@ class _WriterProxy:
             old_content (optional): Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead.
             start_anchor (optional): Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup.
             end_anchor (optional): Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied.
-            all_matches (optional): Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor).
+            all_matches (optional): Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor).
             occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.
-            position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
+            position (optional): For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor.
-            regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
+            regex (optional): For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             hyperlink_url (optional): For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.
         """
         return _result(call_host_tool("apply_content", content=content, target=target, old_content=old_content, start_anchor=start_anchor, end_anchor=end_anchor, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url))
 
-    def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> _Item:
+    def apply_style(self, style: str, *, family: str = 'ParagraphStyles', target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None, clear_direct: str = 'style_props') -> _Item:
         """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
 
         Args:
             style (required): Style name (e.g. Heading 1, Source Text).
-            family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
+            family (optional): Style family. One of: ParagraphStyles, CharacterStyles.
             target (optional): Where to apply the style. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and apply style to if target = 'search'.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (default false = first only).
+            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' (default) drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
+            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
         """
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 
-    def get_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> _Item:
+    def get_content(self, *, scope: str = 'full', max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool = False) -> _Item:
         """Get document (or selection/range) content. Result includes document_length (counts the visible body text: body paragraphs and table cells, one character per paragraph or cell break, without text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and comment text are not counted) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_content of that markup recreates live Ruby portions.
 
         Args:
-            scope (optional): Return full document (default), current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
+            scope (optional): Return full document, current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
             max_chars (optional): Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters).
             start (optional): Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end.
             end (optional): Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'.
-            include_images (optional): Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
+            include_images (optional): Include embedded image data (base64) in export. An image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
         """
         return _result(call_host_tool("get_content", scope=scope, max_chars=max_chars, start=start, end=end, include_images=include_images))
 
-    def get_tree(self, *, strategy: str | None = None, depth: int | None = None) -> _Item:
+    def get_tree(self, *, strategy: str = 'first_lines', depth: int = 1) -> _Item:
         """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines (default), full. depth=0 for unlimited, depth=1 (default) for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
-            strategy (optional): Content to include with headings (default: first_lines). One of: heading_only, first_lines, full.
-            depth (optional): Max tree depth (0=unlimited, default: 1).
+            strategy (optional): Content to include with headings. One of: heading_only, first_lines, full.
+            depth (optional): Max tree depth (0=unlimited).
         """
         return _result(call_host_tool("get_tree", strategy=strategy, depth=depth))
 
-    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, return_offsets: bool | None = None) -> _Item:
+    def search(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20, return_offsets: bool = False) -> _Item:
         """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. When pointing the user to a match, quote the first few words of its text and its location rather than any internal index. With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax (validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
-            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments). Default: false.
+            regex (optional): Use regular expression (ICU syntax).
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
+            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments).
         """
         return _result(call_host_tool("search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets))
 
-    def set_selection(self, *, search_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> _Item:
+    def set_selection(self, *, search_text: str | None = None, occurrence: int = 0, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> _Item:
         """Select a passage in the document (highlights it for the user and lets a following apply_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Character offsets are returned only for a fully applied char range. The search path returns selected_text and length.
 
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).
-            occurrence (optional): 0-based match to select when search_text repeats (default 0).
+            occurrence (optional): 0-based match to select when search_text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             char_start (optional): Alternative to search_text: 0-based start offset in body cursor steps, which is not quite get_content's document_length space: a field or footnote anchor is one step whatever it shows, text deleted by pending tracked changes still counts, and an offset inside a table moves to the paragraph after it.
             char_end (optional): End offset (exclusive, same cursor steps), required with char_start.
