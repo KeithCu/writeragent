@@ -334,10 +334,11 @@ def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> 
         dy = min(pt.Y for pt in flat) - pos.Y
 
     pts = ((Point(x + dx, y + dy), Point(x + width + dx, y + height + dy)),)
-    # Bare tuples raise IllegalArgumentException through pyuno's Any-typed setPropertyValue;
-    # uno_mod: Any avoids stub errors where uno.Any is typed as taking str | Type.
+    # Bare tuples raise IllegalArgumentException through pyuno's Any-typed setPropertyValue,
+    # and PyUNO rejects uno.Any outside uno.invoke; uno_mod: Any avoids stub errors
+    # where uno.Any is typed as taking str | Type.
     uno_mod: Any = uno
-    shape.setPropertyValue("PolyPolygon", uno_mod.Any("[][]com.sun.star.awt.Point", pts))
+    uno_mod.invoke(shape, "setPropertyValue", ("PolyPolygon", uno_mod.Any("[][]com.sun.star.awt.Point", pts)))
 
 
 def _drawing_enum(enum_name: str, member: str) -> Any:
