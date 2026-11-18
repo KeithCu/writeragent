@@ -1511,3 +1511,10 @@ def test_mcp_domain_hidden_from_writeragent_mcp_server(fake):
 
         catalog = get_specialized_domain_catalog(agent_label=None, for_discovery=True)
         assert "mcp" not in [e["domain"] for e in catalog]
+
+
+def test_headers_strip_whitespace_from_values(fake):
+    conn = McpServerConnection(_server(fake, headers={"X-Custom": "  val \n", "X-Auth-Token": "\tsecret  "}))
+    headers = conn._headers()
+    assert headers["X-Custom"] == "val"
+    assert headers["X-Auth-Token"] == "secret"

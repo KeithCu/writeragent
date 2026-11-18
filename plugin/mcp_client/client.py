@@ -256,7 +256,7 @@ class McpServerConnection:
 
     def _headers(self) -> dict[str, str]:
         raw_headers = self._server.get("headers")
-        headers = {str(k): str(v) for k, v in raw_headers.items()} if isinstance(raw_headers, dict) else {}
+        headers = {str(k): str(v).strip() for k, v in raw_headers.items()} if isinstance(raw_headers, dict) else {}
         secret_hdrs = [v for k, v in headers.items() if is_secret_key(k)]
         if not any(k.lower() == "authorization" for k in headers):
             if self._token is None:
