@@ -300,6 +300,36 @@ def _is_line_shape_type(shape_type: str | None) -> bool:
     return name == "LineShape" or name == "line"
 
 
+def _normalize_negative_span(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
+    """Shift x/y by any negative width/height so position is top-left and size is non-negative."""
+    if width < 0:
+        x += width
+        width = -width
+    if height < 0:
+        y += height
+        height = -height
+    return x, y, width, height
+
+
+def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> None:
+    """Set a LineShape's start/end points via PolyPolygon so direction is exact on edit."""
+    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
+    import uno
+    from com.sun.star.awt import Point
+
+    pts = ((Point(x, y), Point(x + width, y + height)),)
+    uno_mod: Any = uno
+    shape.setPropertyValue("PolyPolygon", uno_mod.Any("[][]com.sun.star.awt.Point", pts))
+
+
+def _drawing_enum(enum_name: str, member: str) -> Any:
+    """Return a ``com.sun.star.drawing`` UNO enum value via ``uno.Enum``."""
+    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
+    import uno
+
+    return uno.Enum(f"com.sun.star.drawing.{enum_name}", member)
+
+
 class DrawShapes:
     def _is_valid_position(self, position: Any) -> bool:
         if not hasattr(position, "X") or not hasattr(position, "Y"):
@@ -309,26 +339,22 @@ class DrawShapes:
     def _is_valid_size(self, size: Any, shape_type: str | None = None) -> bool:
         """Reject a size LibreOffice will not use as a shape box.
 
-        ``Width <= 0`` or ``Height <= 0`` must not raise
-        ``DRAW_INVALID_SIZE`` for ``shape_type`` ``line``. A horizontal
-        or vertical line is a valid shape. Treating every shape like a
-        rectangle rejects it: a ``LineShape`` uses its bounding box, and
-        an axis-aligned line has a zero width (vertical) or a zero
-        height (horizontal). ``LineShape`` may have one zero side.
-        Other shapes still need both sides positive. A negative side,
-        or both sides zero, is still invalid.
+        A ``LineShape`` may have one zero side (horizontal or vertical) and
+        may have negative width or height (which LibreOffice interprets as
+        direction from the start point). Other shapes need both sides
+        positive. Both sides zero is always invalid.
         """
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
         width = size.Width
         height = size.Height
-        if width < 0 or height < 0:
-            return False
-        if width > 0 and height > 0:
-            return True
         if width == 0 and height == 0:
             return False
-        return _is_line_shape_type(shape_type)
+        if _is_line_shape_type(shape_type):
+            return True
+        if width <= 0 or height <= 0:
+            return False
+        return True
 
     def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
@@ -413,9 +439,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     if not apply_autofit:
         return
     try:
-        from com.sun.star.drawing import TextFitToSizeType
-
-        shape.setPropertyValue("TextFitToSize", TextFitToSizeType.AUTOFIT)
+        shape.setPropertyValue("TextFitToSize", _drawing_enum("TextFitToSizeType", "AUTOFIT"))
     except Exception as ex:
         if is_disposal(ex):
             raise
@@ -456,9 +480,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
 
             def _clear_fill_color() -> None:
-                from com.sun.star.drawing import FillStyle
-
-                shape.setPropertyValue("FillStyle", FillStyle.NONE)
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
 
             _try(failed_props, "fill_color", _clear_fill_color)
         else:
@@ -479,13 +501,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
 
         def _apply_fill_style() -> None:
-            from com.sun.star.drawing import FillStyle
-
             style_str = kwargs["fill_style"].lower()
-            if style_str == "none" or style_str == "transparent":
-                shape.setPropertyValue("FillStyle", FillStyle.NONE)
+            if style_str in ("none", "transparent"):
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
             elif style_str == "solid":
-                shape.setPropertyValue("FillStyle", FillStyle.SOLID)
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "SOLID"))
 
         _try(failed_props, "fill_style", _apply_fill_style)
 
@@ -505,9 +525,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
 
         def _apply_line_style() -> None:
-            from com.sun.star.drawing import LineStyle
-
-            shape.setPropertyValue("LineStyle", LineStyle.SOLID)
+            shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
 
         _try(failed_props, "line_style", _apply_line_style)
 
@@ -592,8 +610,8 @@ class UpsertShape(_AnyDocumentShapeTool):
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
             "x": {"type": "integer", "description": "X position, 1/100 mm (required only for action='create')"},
             "y": {"type": "integer", "description": "Y position, 1/100 mm (required only for action='create')"},
-            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create')"},
-            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create')"},
+            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed for lines)"},
+            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed for lines)"},
             "text": {"type": "string", "description": "Text content"},
             "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
@@ -651,9 +669,6 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
-        position = Point(kwargs["x"], kwargs["y"])
-        size = Size(kwargs["width"], kwargs["height"])
-
         is_custom_shape = False
         custom_shape_type = ""
 
@@ -667,6 +682,15 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             uno_type = "CustomShape"
             is_custom_shape = True
             custom_shape_type = shape_type_raw
+
+        x, y, width, height = kwargs["x"], kwargs["y"], kwargs["width"], kwargs["height"]
+        # Non-line shapes normalize negative spans to top-left + positive size.
+        # LineShape keeps the signed size so LibreOffice preserves start->end direction.
+        if not _is_line_shape_type(uno_type):
+            x, y, width, height = _normalize_negative_span(x, y, width, height)
+
+        position = Point(x, y)
+        size = Size(width, height)
 
         log.debug("shape_upsert (create) branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r", shape_type_raw, uno_type, is_custom_shape, custom_shape_type if is_custom_shape else None)
 
@@ -760,17 +784,35 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in _page_shape_names(page):
             return _name_taken_error(tool, new_name)
 
-        if "x" in kwargs or "y" in kwargs:
+        has_pos = "x" in kwargs or "y" in kwargs
+        has_size = "width" in kwargs or "height" in kwargs
+        is_line = _is_line_shape_type(shape.getShapeType())
+        reapply_size: Any = None
+
+        if has_size:
+            size = shape.getSize()
+            new_w = kwargs.get("width", size.Width)
+            new_h = kwargs.get("height", size.Height)
+            if is_line and (new_w < 0 or new_h < 0):
+                pos = shape.getPosition()
+                _set_line_endpoints(shape, kwargs.get("x", pos.X), kwargs.get("y", pos.Y), new_w, new_h)
+            else:
+                if not is_line and (new_w < 0 or new_h < 0):
+                    pos = shape.getPosition()
+                    norm_x, norm_y, new_w, new_h = _normalize_negative_span(kwargs.get("x", pos.X), kwargs.get("y", pos.Y), new_w, new_h)
+                    shape.setPosition(Point(norm_x, norm_y))
+                elif has_pos:
+                    pos = shape.getPosition()
+                    shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
+                reapply_size = Size(new_w, new_h)
+                shape.setSize(reapply_size)
+        elif has_pos:
             pos = shape.getPosition()
             shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
-        if "width" in kwargs or "height" in kwargs:
-            size = shape.getSize()
-            shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
         failed_props = _apply_shape_properties(shape, kwargs)
-        if "text" in kwargs and ("width" in kwargs or "height" in kwargs):
-            size = shape.getSize()
-            shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
+        if "text" in kwargs and reapply_size is not None:
+            shape.setSize(reapply_size)
 
         result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": shape.Name or ""}
         if failed_props:

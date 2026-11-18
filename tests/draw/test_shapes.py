@@ -259,24 +259,14 @@ def test_writer_invalidate_skips_non_writer_doc() -> None:
 
 def test_clamp_shape_text_autogrow_sets_autofit_by_default() -> None:
     """When setting text, AutoGrow stays off and TextFitToSize defaults to AUTOFIT."""
+    import uno
+
     shape = MagicMock()
-    fit = MagicMock()
-    fit.AUTOFIT = "AUTOFIT_SENTINEL"
-    drawing_mod = MagicMock()
-    drawing_mod.TextFitToSizeType = fit
-    with patch.dict(
-        "sys.modules",
-        {
-            "com.sun.star.drawing.TextFitToSizeType": fit,
-            "com.sun.star.drawing": drawing_mod,
-            "com.sun.star": MagicMock(drawing=drawing_mod),
-        },
-    ):
-        _clamp_shape_text_autogrow(shape)
+    _clamp_shape_text_autogrow(shape)
 
     shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
     shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
-    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+    shape.setPropertyValue.assert_any_call("TextFitToSize", uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT"))
 
 
 def test_clamp_shape_text_autogrow_skips_autofit_when_disabled() -> None:
@@ -287,26 +277,16 @@ def test_clamp_shape_text_autogrow_skips_autofit_when_disabled() -> None:
 
 
 def test_apply_shape_properties_text_defaults_to_autofit() -> None:
+    import uno
+
     shape = MagicMock()
     shape.setString = MagicMock()
-    fit = MagicMock()
-    fit.AUTOFIT = "AUTOFIT_SENTINEL"
-    drawing_mod = MagicMock()
-    drawing_mod.TextFitToSizeType = fit
-    with patch.dict(
-        "sys.modules",
-        {
-            "com.sun.star.drawing.TextFitToSizeType": fit,
-            "com.sun.star.drawing": drawing_mod,
-            "com.sun.star": MagicMock(drawing=drawing_mod),
-        },
-    ):
-        _apply_shape_properties(shape, {"text": "CEO"})
+    _apply_shape_properties(shape, {"text": "CEO"})
 
     shape.setString.assert_called_once_with("CEO")
     shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
     shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
-    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+    shape.setPropertyValue.assert_any_call("TextFitToSize", uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT"))
 
 
 def test_apply_shape_properties_font_size_skips_autofit() -> None:
@@ -406,13 +386,17 @@ def test_shape_upsert_line_allows_zero_width_or_height():
     assert created is shape
     page.add.assert_called_once_with(shape)
 
+    (created, _geom, _err), shape, page = _make("LineShape", -2890, 0)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+
     from plugin.draw.shapes import DrawError
 
     for shape_type, width, height in (
         ("LineShape", 0, 0),
-        ("LineShape", -1, 100),
         ("RectangleShape", 4000, 0),
         ("RectangleShape", 0, 2500),
+        ("RectangleShape", -100, 200),
         ("com.sun.star.drawing.ConnectorShape", 0, 100),
     ):
         try:
@@ -983,21 +967,6 @@ def test_apply_shape_properties_disposal_on_fill_color_propagates():
         _apply_shape_properties(shape, {"fill_color": "#FF0000"})
 
 
-def _drawing_sys_modules() -> dict[str, object]:
-    fill_style = MagicMock()
-    fill_style.NONE = "NONE"
-    fill_style.SOLID = "SOLID"
-    line_style = MagicMock()
-    line_style.SOLID = "SOLID"
-    drawing_mod = MagicMock()
-    drawing_mod.FillStyle = fill_style
-    drawing_mod.LineStyle = line_style
-    return {
-        "com.sun.star.drawing": drawing_mod,
-        "com.sun.star": MagicMock(drawing=drawing_mod),
-    }
-
-
 def _line_style_only_fail(name: str, _value: object) -> None:
     if name == "LineStyle":
         raise RuntimeError("line style fail")
@@ -1032,7 +1001,7 @@ def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch,
 
     char_ctx = char_patch() if char_patch is not None else nullcontext()
     raise_ctx = pytest.raises(expected) if isinstance(expected, type) else nullcontext()
-    with patch.dict("sys.modules", _drawing_sys_modules()), char_ctx, raise_ctx:
+    with char_ctx, raise_ctx:
         failed = _apply_shape_properties(shape, props)
         if not isinstance(expected, type):
             assert failed == expected
@@ -1328,3 +1297,92 @@ def test_shape_group_rejects_duplicate_indices():
         out = GroupShapes().execute(ctx, indices=[0, 0])
     assert out["status"] == "error"
     page.group.assert_not_called()
+
+
+def test_apply_shape_properties_sets_fill_and_line_style_via_uno_enum() -> None:
+    import uno
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.LineStyle = True
+    shape.LineWidth = True
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    failed = _apply_shape_properties(
+        shape,
+        {"fill_style": "solid", "line_color": "#0000FF", "line_width": 50},
+    )
+    assert failed == []
+    shape.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+    shape.setPropertyValue.assert_any_call("LineStyle", uno.Enum("com.sun.star.drawing.LineStyle", "SOLID"))
+
+    shape.setPropertyValue.reset_mock()
+    failed = _apply_shape_properties(shape, {"fill_style": "transparent"})
+    assert failed == []
+    shape.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+
+
+def test_shape_upsert_negative_size_create_and_edit() -> None:
+    from plugin.draw.shapes import UpsertShape
+
+    rect = MagicMock()
+    rect.Name = "Shape 1"
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    rect.getPosition.return_value = MagicMock(X=1000, Y=2000)
+    rect.getSize.return_value = MagicMock(Width=500, Height=600)
+
+    line = MagicMock()
+    line.Name = "Shape 2"
+    line.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+    line.getPosition.return_value = MagicMock(X=1000, Y=2000)
+    line.getSize.return_value = MagicMock(Width=500, Height=0)
+
+    page = MagicMock()
+    page.getCount.return_value = 0
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.side_effect = [rect, line]
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        # Create rectangle with negative width and height: normalized to top-left + abs size.
+        res_rect = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="rectangle",
+            x=5000,
+            y=3000,
+            width=-2000,
+            height=-1000,
+        )
+        assert res_rect["status"] == "ok"
+        assert (rect.setPosition.call_args[0][0].X, rect.setPosition.call_args[0][0].Y) == (3000, 2000)
+        assert (rect.setSize.call_args[0][0].Width, rect.setSize.call_args[0][0].Height) == (2000, 1000)
+
+        # Create line with negative width: keeps start x=5000 and signed width=-2890 for direction.
+        res_line = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="line",
+            x=5000,
+            y=3000,
+            width=-2890,
+            height=0,
+        )
+        assert res_line["status"] == "ok"
+        assert (line.setPosition.call_args[0][0].X, line.setPosition.call_args[0][0].Y) == (5000, 3000)
+        assert (line.setSize.call_args[0][0].Width, line.setSize.call_args[0][0].Height) == (-2890, 0)
+
+        # Edit rectangle with only negative width (no x): shifts existing x=1000 by -400 -> 600.
+        page.getCount.return_value = 2
+        page.getByIndex.side_effect = lambda i: rect if i == 0 else line
+        rect.setPosition.reset_mock()
+        rect.setSize.reset_mock()
+        res_edit = UpsertShape().execute(ctx, action="edit", index=0, width=-400, text="hi")
+        assert res_edit["status"] == "ok"
+        assert (rect.setPosition.call_args[0][0].X, rect.setPosition.call_args[0][0].Y) == (600, 2000)
+        assert (rect.setSize.call_args[0][0].Width, rect.setSize.call_args[0][0].Height) == (400, 600)

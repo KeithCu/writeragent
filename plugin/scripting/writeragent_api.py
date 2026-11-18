@@ -2386,8 +2386,8 @@ class _ShapeProxy:
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position, 1/100 mm (required only for action='create').
             y (optional): Y position, 1/100 mm (required only for action='create').
-            width (optional): Width, 1/100 mm (required only for action='create').
-            height (optional): Height, 1/100 mm (required only for action='create').
+            width (optional): Width, 1/100 mm (required only for action='create'; negative values are allowed for lines).
+            height (optional): Height, 1/100 mm (required only for action='create'; negative values are allowed for lines).
             text (optional): Text content.
             fill_color (optional): Fill color. Hex (#FF0000) or name (red).
             fill_style (optional): Fill style. One of: solid, transparent, none.
