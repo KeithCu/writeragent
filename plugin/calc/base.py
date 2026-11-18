@@ -38,10 +38,11 @@ from plugin.framework.tool import ToolBase
 
 # Params using these notes resolve through CalcBridge.resolve_range_or_address /
 # resolve_cell / resolve, which accept Calc '.', Excel '!', quoted names, and '$',
-# and never activate the target sheet. insert_html is excluded because
+# and never activate the target sheet. The note shows only the Calc form because
+# model-facing text teaches Calc syntax only. insert_html is excluded because
 # ScTabViewObj::select switches tabs when the target is on another sheet.
 CALC_SHEET_PREFIX_NOTE: str = (
-    "A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet."
+    "A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet."
 )
 CALC_RANGE_LIST_NOTE: str = f"One entry per area: A1, A1:D10 or a named range. {CALC_SHEET_PREFIX_NOTE}"
 

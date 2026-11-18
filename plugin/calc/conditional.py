@@ -154,7 +154,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Cell range to apply the rule to (A1:D10 or a named range). {CALC_SHEET_PREFIX_NOTE}"},
             "operator": {"type": "string", "enum": _OPS[1:], "description": "Condition operator."},
-            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
+            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition in Calc syntax (e.g. 'A1>100' or 'AND($A1>1;$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
             "bg_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},

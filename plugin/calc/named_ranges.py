@@ -306,7 +306,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
-            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too)."},
+            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
             "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
             "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -356,7 +356,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
             "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
-            "content": {"type": "string", "description": "New formula or range address content (Sheet1!A1:B5 is accepted too)."},
+            "content": {"type": "string", "description": "New formula or range address content."},
             "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,

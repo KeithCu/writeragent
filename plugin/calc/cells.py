@@ -460,9 +460,8 @@ class WriteCellRange(ToolBase):
                     "(use '=' prefix for formulas). One ordinary formula into a "
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
-                    "rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) "
-                    "and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not "
-                    "mix them in one formula. 2-D array: one inner array per row; "
+                    "rate or tax column. Formulas use Calc syntax only (=SUM(A1;B1), "
+                    "Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; "
                     "must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null "
                     '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
                     "=B2*…-style formula in every cell pins every row to the "
@@ -476,7 +475,7 @@ class WriteCellRange(ToolBase):
                 ),
             },
             "array": {"type": "boolean", "description": ("Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).")},
-            "source": {"type": "string", "description": ("Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
+            "source": {"type": "string", "description": ("Optional source block to copy (A1 or Sheet.A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
         },
         "required": ["range"],
     }
