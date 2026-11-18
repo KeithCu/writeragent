@@ -26,7 +26,7 @@ Open **Settings → Integrations**. The **MCP servers for the sidebar chat** sec
 |---------|---------|
 | Server / **Add** / **Remove** | Pick a server to edit, open a blank form to add a new server, or remove the selected entry. |
 | Use this MCP server in chat | Per-entry `enabled` flag (`true` for newly added entries). |
-| Trust its read-only tools (no prompt) | Per-entry `trust` (`"full"` vs `"untrusted"`). Tools marked `readOnlyHint: true` run without prompting when trusted. |
+| Trust its read-only tools (no prompt) | Per-entry `trust` (`"full"` vs `"untrusted"`). Tools marked `readOnlyHint: true` run without prompting when `trust` is `"full"` (exact). |
 | Name | Key under `mcp_client.servers`; prefixes this server's tool names (`mcp__<name>__<tool>`). |
 | Server URL | Streamable-HTTP MCP endpoint (`http` or `https`). Required. |
 | Token | Bearer token. Settings OK stores it in the OS keystore (`keystore.py`) when available, otherwise in plain text in `writeragent.json`. |
@@ -52,7 +52,7 @@ All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server 
 }
 ```
 
-Accepted keys per entry: `url` (required), `headers`, `enabled` (default `true`), `timeout` (tool-call socket idle budget in seconds, default `300`), `connect_timeout` (connect/initialize/list budget in seconds, default `60`), `tools.include`, `tools.exclude`, `trust` (`"full"` or `"untrusted"`, default `"untrusted"`), `token`.
+Accepted keys per entry: `url` (required), `headers`, `enabled` (default `true`; `false`/`0`/`"false"`/`"no"`/`"off"` or any unrecognized value disables), `timeout` (tool-call socket idle budget in seconds, default `300`), `connect_timeout` (connect/initialize/list budget in seconds, default `60`), `tools.include`, `tools.exclude`, `trust` (exact `"full"` trusts; anything else = untrusted, default `"untrusted"`), `token`.
 
 When an OS keystore is available, Settings OK stores each server's `token` in the keystore under `mcp_client.servers:<server>.token` and keeps only a `keystore:<hex>` reference in `writeragent.json` (see [secret-storage.md](framework/secret-storage.md)). A pasted `Bearer ` prefix is stripped automatically. If a `keystore:` reference cannot be read when connecting (the keyring is locked or was reset), the client raises `MCP_CLIENT_CONFIG` naming the server and keyring backend rather than calling the server without auth.
 

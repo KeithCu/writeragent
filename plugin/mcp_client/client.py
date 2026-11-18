@@ -69,18 +69,17 @@ from plugin.mcp_client.client_helpers import (
     OUTCOME_UNCERTAIN_MSG,
     SSE_BOUNDARY_CARRY,
     SSE_BOUNDARY_RE,
-    TRUST_FULL,
     annotation_read_only_hint,
     content_dual_emits_structured,
     escape_invisible,
     format_approval_arguments,
     make_tool_filter,
     names_unknown_tool,
-    normalize_server_trust,
     restore_masked,
     safe_numeric,
     sanitize_error,
     server_enabled,
+    server_trusted,
     strip_bearer_prefix,
     strip_reserved_meta_keys,
     strip_unicode_tags,
@@ -88,7 +87,6 @@ from plugin.mcp_client.client_helpers import (
     truncate_head_tail,
     unresolved_env_refs,
     validate_remote_url,
-    warn_hidden_whitespace,
 )
 from plugin.mcp_client.client_schema import (
     ToolCandidate,
@@ -97,6 +95,7 @@ from plugin.mcp_client.client_schema import (
     resolve_name_collisions,
     unrename_tool_args,
 )
+from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger("writeragent.mcp_client")
 
@@ -149,7 +148,7 @@ def configured_servers() -> list[dict[str, Any]]:
         _last_warned_servers_key = raw_key
         return servers
     for key, entry in (raw or {}).items():
-        name = str(key).strip()
+        name = key.strip()
         if not isinstance(entry, dict):
             emit_warn("mcp_client.servers[%r]: skipping non-object entry", key)
             continue
@@ -172,7 +171,7 @@ def configured_servers() -> list[dict[str, Any]]:
 def resolve_token(server: dict[str, Any]) -> str:
     """Bearer token for *server*, resolved from the OS keystore when stored as a ref."""
     raw = server.get("token")
-    name = str(server.get("name") or "")
+    name = server["name"]
     token = resolve_entry_secret(SERVERS_KEY, name, "token", raw)
     if keystore.is_ref(raw) and not token:
         backend = keystore.backend_label() or "the system keyring"
@@ -223,11 +222,22 @@ class McpServerConnection:
     """One remote server: its session, cached tool list, circuit breaker, and JSON-RPC calls."""
 
     def __init__(self, server: dict[str, Any]) -> None:
-        self.name: str = str(server["name"])
-        self.url: str = str(server["url"])
-        self.tool_timeout: float = safe_numeric(server.get("timeout"), DEFAULT_TOOL_TIMEOUT_SEC, float)
-        self.connect_timeout: float = safe_numeric(server.get("connect_timeout"), DEFAULT_CONNECT_TIMEOUT_SEC, float)
-        self.trust: str = normalize_server_trust(server.get("trust"))
+        self.name: str = server["name"]
+        try:
+            self.url: str = validate_remote_url(self.name, server.get("url"))
+        except ValueError as e:
+            raise McpClientError(str(e), code="MCP_CLIENT_CONFIG") from e
+        unresolved = unresolved_env_refs(server)
+        if unresolved:
+            refs = ", ".join(f"${{{ref}}}" for ref in unresolved)
+            raise McpClientError(
+                f"MCP server '{self.name}': {refs} in url/headers cannot be used because WriterAgent does not expand "
+                f"environment variables. Paste the value directly, or put the token in the server's Token field.",
+                code="MCP_CLIENT_CONFIG",
+            )
+        self.tool_timeout: float = safe_numeric(server.get("timeout"), DEFAULT_TOOL_TIMEOUT_SEC)
+        self.connect_timeout: float = safe_numeric(server.get("connect_timeout"), DEFAULT_CONNECT_TIMEOUT_SEC)
+        self.trusted: bool = server_trusted(server)
         self._server: dict[str, Any] = server
         self._allowed: Callable[[str], bool] = make_tool_filter(self.name, server)
         self._token: str | None = None
@@ -243,26 +253,11 @@ class McpServerConnection:
         self._failures: int = 0
         self._opened_at: float = 0.0
         self._all_application: bool = False
-        warn_hidden_whitespace(self.name, server)
 
     def _headers(self) -> dict[str, str]:
-        try:
-            self.url = validate_remote_url(self.name, self._server.get("url"))
-        except ValueError as e:
-            raise McpClientError(str(e), code="MCP_CLIENT_CONFIG") from e
-        unresolved = unresolved_env_refs(self._server)
-        if unresolved:
-            refs = ", ".join(f"${{{ref}}}" for ref in unresolved)
-            raise McpClientError(
-                f"MCP server '{self.name}': {refs} in url/headers cannot be used because WriterAgent does not expand "
-                f"environment variables. Paste the value directly, or put the token in the server's Token field.",
-                code="MCP_CLIENT_CONFIG",
-            )
-        headers: dict[str, str] = {}
         raw_headers = self._server.get("headers")
-        if isinstance(raw_headers, dict):
-            for k, v in raw_headers.items():
-                headers[str(k)] = str(v)
+        headers = {str(k): str(v).strip() for k, v in raw_headers.items()} if isinstance(raw_headers, dict) else {}
+        secret_hdrs = [v for k, v in headers.items() if is_secret_key(k)]
         if not any(k.lower() == "authorization" for k in headers):
             if self._token is None:
                 self._token = resolve_token(self._server)
@@ -274,7 +269,6 @@ class McpServerConnection:
             headers["Mcp-Session-Id"] = self._session_id
         if self._version_negotiated:
             headers["MCP-Protocol-Version"] = self._protocol_version
-        secret_hdrs = [str(v) for k, v in raw_headers.items() if is_secret_key(str(k))] if isinstance(raw_headers, dict) else []
         self._secrets = [s for s in ([self._token or ""] + secret_hdrs) if s]
         return headers
 
@@ -468,8 +462,6 @@ class McpServerConnection:
                         current_url = new_origin + new_path
                         continue
                     return self._read_reply(resp, method, request_id)
-                except McpClientError:
-                    raise
                 except (NetworkError, OSError, ValueError, AttributeError, http.client.HTTPException) as e:
                     raise self._transport_error(e, method, True, cancel, current_url, current_headers, request_id) from e
             finally:
@@ -493,8 +485,8 @@ class McpServerConnection:
             timeout=timeout,
             cancel=cancel,
         )
-        if message is None:
-            raise McpClientError(f"MCP server '{self.name}' returned no JSON-RPC body for {method}.")
+        # _read_reply returns None only for notifications (request_id None); _rpc always sends an int id.
+        assert message is not None
         if message.get("error"):
             err = message["error"]
             err_msg = err.get("message") if isinstance(err, dict) else err
@@ -508,7 +500,6 @@ class McpServerConnection:
         self._version_negotiated = False
         # A new session means the server's state may have changed, so its tool list must be fetched again.
         self._tools = None
-        from plugin.version import EXTENSION_VERSION
 
         result = self._rpc(
             "initialize",
@@ -682,8 +673,6 @@ class McpServerConnection:
                 self._bump_breaker(application=True)
             else:
                 self._failures = 0
-                self._opened_at = 0.0
-                self._all_application = False
             return result
         finally:
             self._lock.release()
@@ -762,11 +751,8 @@ def render_call_result(result: dict[str, Any]) -> dict[str, Any]:
     kept_structured: Any = None
     if structured is not None:
         cleaned_structured = strip_unicode_tags_deep(structured)
-        try:
-            as_json = json.dumps(cleaned_structured, ensure_ascii=False, default=str)
-        except (TypeError, ValueError):
-            as_json = ""
-        if as_json and len(as_json) > MAX_RESULT_CHARS:
+        as_json = json.dumps(cleaned_structured, ensure_ascii=False, default=str)
+        if len(as_json) > MAX_RESULT_CHARS:
             kept_structured = truncate_head_tail(as_json, MAX_RESULT_CHARS, label="MCP RESULT")
         else:
             kept_structured = cleaned_structured
@@ -811,15 +797,15 @@ class RemoteMcpTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        cancel = ctx.send_cancellation if ctx is not None else None
+        cancel = ctx.send_cancellation
         arguments = unrename_tool_args(self._dispatch_schema, kwargs)
-        tool_name = str(self._spec.get("name") or "")
+        tool_name = self._spec["name"]
         try:
             conn = get_connection(self._server)
             arguments, refusal = self._confirm(ctx, conn, tool_name, arguments)
             if refusal is not None:
                 return refusal
-            if ctx is not None and ctx.status_callback:
+            if ctx.status_callback:
                 ctx.status_callback(f"Calling {conn.name}: {tool_name}")
             return self._call(conn, tool_name, arguments, cancel=cancel)
         except McpClientError as e:
@@ -828,15 +814,15 @@ class RemoteMcpTool(ToolBase):
 
     def _confirm(
         self,
-        ctx: ToolContext | None,
+        ctx: ToolContext,
         conn: McpServerConnection,
         tool: str,
         arguments: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """Ask the user before a remote call unless the server is trusted and the tool is read-only."""
-        if conn.trust == TRUST_FULL and annotation_read_only_hint(self._spec):
+        if conn.trusted and annotation_read_only_hint(self._spec):
             return arguments, None
-        callback = ctx.approval_callback if ctx is not None else None
+        callback = ctx.approval_callback
         if callback is None:
             return arguments, self._tool_error(
                 "This call needs the user's approval, which cannot be shown here, so it was not run.",
@@ -844,7 +830,7 @@ class RemoteMcpTool(ToolBase):
             )
         shown = redact_sensitive_payload_for_log(arguments)
         card = format_approval_arguments(arguments)
-        if ctx is not None and ctx.chat_append_callback:
+        if ctx.chat_append_callback:
             ctx.chat_append_callback(
                 f"\n[Run {escape_invisible(conn.name)}: {escape_invisible(tool)}?]\n{card}\n"
             )
@@ -863,7 +849,7 @@ class RemoteMcpTool(ToolBase):
                 code="MCP_CLIENT_CALL_CHANGED",
             )
         changed = restore_masked(changed, arguments, shown)
-        if ctx is not None and ctx.chat_append_callback:
+        if ctx.chat_append_callback:
             ctx.chat_append_callback(f"[Changed to: {format_approval_arguments(changed)}]\n")
         return changed, None
 
@@ -920,7 +906,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
             notes.append(f" Server '{server['name']}' is unavailable: {truncate_head_tail(str(e), 300, label='ERROR')}.")
             continue
         for spec in specs:
-            spec_name = str(spec.get("name") or "")
+            spec_name = spec["name"]
             candidates.append(
                 ToolCandidate(
                     mcp_prefixed_tool_name(server["name"], spec_name),

@@ -753,14 +753,12 @@ def test_remote_descriptions_strip_invisible_and_results_carry_note(fake):
 
 
 def test_url_scheme_and_env_refs_fail_closed(fake):
-    conn_file = McpServerConnection({"name": "bad", "url": "file:///etc/passwd"})
     with pytest.raises(McpClientError) as info_file:
-        conn_file.list_tools()
+        McpServerConnection({"name": "bad", "url": "file:///etc/passwd"})
     assert info_file.value.code == "MCP_CLIENT_CONFIG"
 
-    conn_env = McpServerConnection({"name": "env", "url": fake.url, "headers": {"Authorization": "Bearer ${TOKEN}"}})
     with pytest.raises(McpClientError) as info_env:
-        conn_env.list_tools()
+        McpServerConnection({"name": "env", "url": fake.url, "headers": {"Authorization": "Bearer ${TOKEN}"}})
     assert info_env.value.code == "MCP_CLIENT_CONFIG"
     assert fake.requests == []
 
@@ -778,8 +776,10 @@ def test_tls_connect_failure_says_cannot_reach_not_outcome_uncertain(fake):
     assert info.value.code == "MCP_CLIENT_ERROR"
 
 
-def test_config_errors_do_not_trip_breaker(fake):
-    conn = McpServerConnection({"name": "env", "url": fake.url, "headers": {"Authorization": "Bearer ${TOKEN}"}})
+def test_config_errors_do_not_trip_breaker(fake, fake_keystore):
+    fake_keystore.store["mcp_client.servers:claw.token"] = TOKEN
+    fake_keystore.locked = True
+    conn = McpServerConnection(_server(fake, name="claw", token="keystore:deadbeef"))
     for _idx in range(4):
         with pytest.raises(McpClientError) as info:
             conn.call_tool("x", {})
@@ -1511,3 +1511,10 @@ def test_mcp_domain_hidden_from_writeragent_mcp_server(fake):
 
         catalog = get_specialized_domain_catalog(agent_label=None, for_discovery=True)
         assert "mcp" not in [e["domain"] for e in catalog]
+
+
+def test_headers_strip_whitespace_from_values(fake):
+    conn = McpServerConnection(_server(fake, headers={"X-Custom": "  val \n", "X-Auth-Token": "\tsecret  "}))
+    headers = conn._headers()
+    assert headers["X-Custom"] == "val"
+    assert headers["X-Auth-Token"] == "secret"

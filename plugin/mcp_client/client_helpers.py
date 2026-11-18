@@ -51,6 +51,7 @@ import unicodedata
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from plugin.framework.config_schema import as_bool
 from plugin.framework.logging import redact_sensitive_payload_for_log
 
 log = logging.getLogger("writeragent.mcp_client")
@@ -93,8 +94,6 @@ _CREDENTIAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
-_TRUE_WORDS = frozenset({"true", "1", "yes", "on"})
-_FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 
 
 def strip_unicode_tags(text: str) -> str:
@@ -113,18 +112,13 @@ def strip_tool_metadata_text(text: str) -> str:
 
 
 def strip_unicode_tags_deep(value: Any) -> Any:
-    """Apply ``strip_unicode_tags`` to every string in a nested dict/list/tuple structure."""
+    """Apply ``strip_unicode_tags`` to every string in a nested dict/list structure."""
     if isinstance(value, str):
         return strip_unicode_tags(value)
     if isinstance(value, dict):
-        return {
-            strip_unicode_tags_deep(k) if isinstance(k, str) else k: strip_unicode_tags_deep(v)
-            for k, v in value.items()
-        }
+        return {strip_unicode_tags(k): strip_unicode_tags_deep(v) for k, v in value.items()}
     if isinstance(value, list):
         return [strip_unicode_tags_deep(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(strip_unicode_tags_deep(v) for v in value)
     return value
 
 
@@ -144,55 +138,24 @@ def sanitize_error(text: str) -> str:
     return strip_unicode_tags(_CREDENTIAL_PATTERN.sub("[REDACTED]", text))
 
 
-def safe_numeric(
-    value: Any,
-    default: float,
-    coerce: Callable[[Any], float] = int,
-    minimum: float = 1,
-) -> float:
-    """Coerce a config value to a number clamped to ``minimum``, or ``default`` on failure/non-finite."""
+def safe_numeric(value: Any, default: float) -> float:
+    """A config value in seconds as a finite float of at least 1, or *default* when missing or unusable."""
     try:
-        result = coerce(value)
-        if isinstance(result, float) and not math.isfinite(result):
-            return default
-        return max(result, minimum)
+        result = float(value)
     except (TypeError, ValueError, OverflowError):
         return default
-
-
-def parse_boolish(value: Any, default: bool = True) -> bool:
-    """Parse a bool-like config value with safe fallback."""
-    if value is None:
-        return default
-    if isinstance(value, (bool, int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in _TRUE_WORDS:
-            return True
-        if lowered in _FALSE_WORDS:
-            return False
-    log.warning("MCP config expected a boolean-ish value, got %r; using default=%s", value, default)
-    return default
+    return max(result, 1.0) if math.isfinite(result) else default
 
 
 def server_enabled(entry: dict[str, Any]) -> bool:
     """Whether an ``mcp_client.servers`` entry is enabled (absent or null means on)."""
-    return parse_boolish(entry.get("enabled", True), default=True)
+    value = entry.get("enabled")
+    return value is None or as_bool(value)
 
 
-def normalize_server_trust(value: Any) -> str:
-    """Map config ``trust`` to ``full`` or ``untrusted`` (None/unknown fail closed to untrusted)."""
-    if value is None:
-        return TRUST_UNTRUSTED
-    text = str(value).strip().lower()
-    if text in (TRUST_FULL, TRUST_UNTRUSTED):
-        return text
-    log.warning(
-        "MCP trust: unrecognized trust value %r — treating as 'untrusted' (valid values: full, untrusted)",
-        value,
-    )
-    return TRUST_UNTRUSTED
+def server_trusted(entry: dict[str, Any]) -> bool:
+    """True only for ``"trust": "full"``; anything else asks before every call."""
+    return entry.get("trust") == TRUST_FULL
 
 
 def annotation_read_only_hint(spec: dict[str, Any]) -> bool:
@@ -206,37 +169,10 @@ def annotation_read_only_hint(spec: dict[str, Any]) -> bool:
 
 def strip_bearer_prefix(token: str) -> str:
     """Strip a leading ``Bearer `` prefix from a pasted token."""
-    if not isinstance(token, str):
-        return token
     stripped = token.strip()
     if stripped[:7].lower() == "bearer ":
         return stripped[7:].strip()
     return stripped
-
-
-def warn_hidden_whitespace(server_name: str, entry: dict[str, Any]) -> list[str]:
-    """Warn about string values with leading/trailing whitespace without logging secrets."""
-    flagged: list[str] = []
-
-    def _walk(value: Any, path: str) -> None:
-        if isinstance(value, str) and value != value.strip():
-            flagged.append(path)
-        elif isinstance(value, dict):
-            for k, v in value.items():
-                _walk(v, f"{path}.{k}" if path else str(k))
-        elif isinstance(value, list):
-            for i, v in enumerate(value):
-                _walk(v, f"{path}[{i}]")
-
-    _walk(entry, "")
-    for key_path in flagged:
-        log.warning(
-            "MCP server '%s': config value '%s' has hidden leading or trailing whitespace — this often "
-            "causes authentication or connection failures. Check for stray spaces/newlines in settings.",
-            server_name,
-            key_path,
-        )
-    return flagged
 
 
 def validate_remote_url(server_name: str, url: Any) -> str:
@@ -247,18 +183,14 @@ def validate_remote_url(server_name: str, url: Any) -> str:
     if not isinstance(url, str):
         raise _bad(f"expected a string, got {type(url).__name__}")
     stripped = url.strip()
-    if not stripped:
-        raise _bad("empty url")
     try:
         parsed = urlparse(stripped)
-    except Exception as exc:
+    except ValueError as exc:
         raise _bad(f"{stripped!r} ({exc})") from exc
     if parsed.scheme.lower() not in {"http", "https"}:
         raise _bad(f"scheme must be http or https, got {parsed.scheme!r} ({stripped!r})")
-    if not parsed.netloc:
-        raise _bad(f"missing host ({stripped!r})")
     if not parsed.hostname:
-        raise _bad(f"missing hostname ({stripped!r})")
+        raise _bad(f"missing host ({stripped!r})")
     return stripped
 
 
@@ -270,38 +202,34 @@ def unresolved_env_refs(entry: dict[str, Any]) -> list[str]:
     return sorted({m.group(1) for value in values for m in _ENV_VAR_PATTERN.finditer(str(value))})
 
 
-def normalize_name_filter(value: Any, label: str) -> set[str]:
-    """Normalize include/exclude config to a set of exact names or fnmatch globs."""
+def normalize_name_filter(value: Any, label: str) -> set[str] | None:
+    """Include/exclude config as exact names or fnmatch globs; None when unset or invalid."""
     if value is None:
-        return set()
+        return None
     if isinstance(value, str):
         return {value}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list):
         return {str(item) for item in value}
     log.warning("MCP config %s must be a string or list of strings; ignoring %r", label, value)
-    return set()
+    return None
 
 
 def matches_name_filter(tool_name: str, patterns: set[str]) -> bool:
-    """True if ``tool_name`` matches an exact name or case-sensitive fnmatch glob in ``patterns``."""
-    if not patterns:
-        return False
-    if tool_name in patterns:
-        return True
-    return any(fnmatch.fnmatchcase(tool_name, p) for p in patterns if "*" in p or "?" in p or "[" in p)
+    """True if ``tool_name`` equals a pattern or matches it as a case-sensitive fnmatch glob."""
+    return tool_name in patterns or any(fnmatch.fnmatchcase(tool_name, p) for p in patterns)
 
 
 def make_tool_filter(name: str, entry: dict[str, Any]) -> Callable[[str], bool]:
-    """Build an include/exclude predicate for a server's tool names (include wins over exclude)."""
+    """Build an include/exclude predicate for a server's tool names (a valid include wins over exclude)."""
     tools_filter = entry.get("tools")
     if not isinstance(tools_filter, dict):
         tools_filter = {}
-    include_raw = tools_filter.get("include")
-    include_set = normalize_name_filter(include_raw, f"mcp_client.servers.{name}.tools.include")
-    exclude_set = normalize_name_filter(tools_filter.get("exclude"), f"mcp_client.servers.{name}.tools.exclude")
-    if isinstance(include_raw, (str, list, tuple, set)):
-        return lambda tool_name: matches_name_filter(tool_name, include_set)
-    return lambda tool_name: not (exclude_set and matches_name_filter(tool_name, exclude_set))
+    label = f"mcp_client.servers.{name}.tools"
+    include = normalize_name_filter(tools_filter.get("include"), f"{label}.include")
+    exclude = normalize_name_filter(tools_filter.get("exclude"), f"{label}.exclude") or set()
+    if include is not None:
+        return lambda tool_name: matches_name_filter(tool_name, include)
+    return lambda tool_name: not matches_name_filter(tool_name, exclude)
 
 
 def is_reserved_meta_key(key: str) -> bool:

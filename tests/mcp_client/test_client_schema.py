@@ -188,7 +188,7 @@ def test_collapse_const_unions_cases():
 
     # Null + const with nullable strip
     null_const = {"anyOf": [{"const": "a"}, {"const": "b"}, {"type": "null"}]}
-    collapsed = collapse_const_unions(strip_nullable_unions(null_const, keep_nullable_hint=True))
+    collapsed = collapse_const_unions(strip_nullable_unions(null_const))
     assert collapsed == {"type": "string", "enum": ["a", "b"], "nullable": True}
 
 
@@ -486,3 +486,18 @@ def test_convert_mcp_schema_union_fallbacks(prop, expected):
         return
     out = convert_mcp_schema("srv", spec)
     assert out["parameters"]["properties"]["arg"] == expected
+
+
+def test_ref_merged_required_is_pruned():
+    spec = {
+        "name": "ref_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "p": {"$ref": "#/$defs/Base", "type": "object", "properties": {"x": {"type": "string"}}},
+            },
+            "$defs": {"Base": {"required": ["y"]}},
+        },
+    }
+    out = convert_mcp_schema("srv", spec)
+    assert out["parameters"]["properties"]["p"]["required"] == []
