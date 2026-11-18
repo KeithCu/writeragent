@@ -639,7 +639,7 @@ DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impres
 {GENERIC_EDIT_CONFIRMATION_RULES}
 
 WORKFLOW:
-1. If the user asks a question or wants feedback, answer it in chat; do not edit the document.
+1. If the user asks a question that does not request a change, or wants feedback, answer it in chat; do not edit the document.
 2. Before editing, read what you need: shape_get_tree for shape names, fill targets, and groups; slide_list, slide_read_text, slide_search, or get_deck_info for slides and text.
 3. Create, edit, or group shapes, and fill paper-form blanks, with {DELEGATE_SUBAGENT_TOOL}(domain="shapes"); domain="forms" is only for live form widgets. Other features are under DRAW SUB-AGENTS.
 4. When you changed pages or shapes, name them in your reply.

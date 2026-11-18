@@ -147,7 +147,8 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
         ):
             dom = entry["domain"]
             desc = entry["description"]
-            if dom not in seen or len(desc) > len(seen[dom]):
+            # labels iterates Writer, Calc, Draw; keep the first non-empty description so Writer wins cross-app merges regardless of length.
+            if dom not in seen or not seen[dom]:
                 seen[dom] = desc
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 

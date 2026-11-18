@@ -354,3 +354,12 @@ def test_every_catalog_domain_has_a_description() -> None:
         for domain, descs in descs_by_domain.items():
             assert any(descs), f"{label} domain {domain!r} has an empty description"
 
+
+def test_merged_vision_catalog_prefers_writer() -> None:
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+    from plugin.writer.specialized_base import ToolWriterVisionBase
+
+    get_tools()
+    merged = {e["domain"]: e["description"] for e in get_specialized_domain_catalog(agent_label=None)}
+    assert merged["vision"] == ToolWriterVisionBase.specialized_domain_description
