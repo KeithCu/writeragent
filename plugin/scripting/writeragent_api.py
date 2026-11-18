@@ -690,14 +690,14 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None, sheet: str | None = None) -> _Item:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int = 1, confirm: bool = False, sheet: str | None = None) -> _Item:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
             start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
-            count (optional): Number to delete (default 1).
-            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            count (optional): Number to delete.
+            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. When false, such a delete is refused and nothing changes.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm, sheet=sheet))
@@ -736,13 +736,13 @@ class _CalcProxy:
         """
         return _result(call_host_tool("insert_html", cell=cell, html=html))
 
-    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None, sheet: str | None = None) -> _Item:
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int = 1, sheet: str | None = None) -> _Item:
         """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
             start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
-            count (optional): Number to insert (default 1).
+            count (optional): Number to insert.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count, sheet=sheet))
@@ -755,13 +755,13 @@ class _CalcProxy:
         """
         return _result(call_host_tool("list_functions", filter=filter))
 
-    def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> _Item:
+    def merge_cells(self, range_name: list[str], *, center: bool = True, unmerge: bool = False) -> _Item:
         """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge.
 
         Args:
             range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            center (optional): Center content (default: true).
-            unmerge (optional): Split merged cells instead of merging (default: false).
+            center (optional): Center content.
+            unmerge (optional): Split merged cells instead of merging.
         """
         return _result(call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge))
 
@@ -770,7 +770,7 @@ class _CalcProxy:
 
         Args:
             range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
+            format (optional): rows: 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
 
@@ -2548,13 +2548,13 @@ sheet = _SheetProxy()
 class _SlideProxy:
     """Proxy for slide tools."""
 
-    def add(self, *, page: int | None = None, activate: bool | None = None, layout: str | None = None) -> _Item:
+    def add(self, *, page: int | None = None, activate: bool = True, layout: str = 'text') -> _Item:
         """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master.
 
         Args:
             page (optional): 0-based index where to insert the new slide (defaults to appending at the end if omitted).
-            activate (optional): Whether to switch the view to the new slide (default: true).
-            layout (optional): Impress layout name (default: 'text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
+            activate (optional): Whether to switch the view to the new slide.
+            layout (optional): Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
         """
         return _result(call_host_tool("slide_add", page=page, activate=activate, layout=layout))
 
@@ -2566,12 +2566,12 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_delete", page=page))
 
-    def duplicate(self, page: int, *, activate: bool | None = None) -> _Item:
+    def duplicate(self, page: int, *, activate: bool = True) -> _Item:
         """Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide.
 
         Args:
             page (required): 0-based index of the slide to duplicate.
-            activate (optional): Whether to switch the view to the new slide (default: true).
+            activate (optional): Whether to switch the view to the new slide.
         """
         return _result(call_host_tool("slide_duplicate", page=page, activate=activate))
 
@@ -2650,14 +2650,14 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_rename", page=page, name=name))
 
-    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None) -> _Item:
+    def search(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20) -> _Item:
         """Search text in slide shapes (including grouped descendants and table cells) and speaker notes. Each match reports the page, shape name, matched text, and shape index when available.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
+            regex (optional): Use regular expression.
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
         """
         return _result(call_host_tool("slide_search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results))
 

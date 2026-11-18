@@ -813,3 +813,64 @@ def test_search_slides_rejects_bad_regex_and_empty_pattern():
     bad = SearchSlides().execute(ctx, pattern="[", regex=True)
     assert bad["status"] == "error"
     assert bad.get("code") == "INVALID_REGEX"
+
+
+def test_schema_defaults_match_omitted_behavior():
+    from plugin.draw.pages import AddSlide, DuplicateSlide, SearchSlides
+
+    add_tool = AddSlide()
+    assert add_tool.parameters is not None
+    add_props = add_tool.parameters["properties"]
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
+        "plugin.draw.pages.is_impress", return_value=True
+    ), patch("plugin.draw.pages.inherit_master_from_neighbor", return_value=""), patch(
+        "plugin.draw.transitions.apply_slide_layout", side_effect=lambda _p, layout: layout
+    ):
+        bridge = bridge_cls.return_value
+        bridge.create_slide.return_value = (MagicMock(), 1)
+        bridge.set_current_page_index.return_value = True
+        bridge.get_active_page_index.return_value = 1
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        omitted = add_tool.execute(ctx)
+        explicit = add_tool.execute(
+            ctx,
+            activate=add_props["activate"]["default"],
+            layout=add_props["layout"]["default"],
+        )
+    assert omitted == explicit
+
+    dup_tool = DuplicateSlide()
+    assert dup_tool.parameters is not None
+    dup_props = dup_tool.parameters["properties"]
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_active_page_index.return_value = 0
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        omitted_dup = dup_tool.execute(ctx, page=0)
+        explicit_dup = dup_tool.execute(ctx, page=0, activate=dup_props["activate"]["default"])
+    assert omitted_dup == explicit_dup
+
+    search_tool = SearchSlides()
+    assert search_tool.parameters is not None
+    search_props = search_tool.parameters["properties"]
+    units = [(0, "S", "hit")] * 25
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=units), patch(
+        "plugin.draw.pages.DrawBridge"
+    ) as bridge_cls, patch("plugin.draw.bridge.notes_text", return_value=None):
+        pages = MagicMock()
+        pages.getCount.return_value = 1
+        pages.getByIndex.return_value = MagicMock()
+        bridge_cls.return_value.get_pages.return_value = pages
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        omitted_search = search_tool.execute(ctx, pattern="hit")
+        explicit_search = search_tool.execute(
+            ctx,
+            pattern="hit",
+            regex=search_props["regex"]["default"],
+            case_sensitive=search_props["case_sensitive"]["default"],
+            max_results=search_props["max_results"]["default"],
+        )
+    assert omitted_search == explicit_search
