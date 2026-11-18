@@ -573,8 +573,15 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
     return out
 
 
+# Delegate results report edits that landed even on error, so "status error means nothing changed" does not apply to this tool.
+_DELEGATE_RESULT_LINE = (
+    "The result carries status, answer, edits (successful editing-tool calls counted by tool name; {} means nothing was edited) "
+    "and, on error, tool_errors; status error or incomplete with non-empty edits means part of the task was applied."
+)
+
 _WRITER_DELEGATE_DESCRIPTION = (
     "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
+    f"{_DELEGATE_RESULT_LINE} "
     "For document_research and web_research, describe what to research in task (topics, sections, depth). "
     f"{PYTHON_ROUTING_HINT}"
 )
@@ -582,12 +589,12 @@ _WRITER_DELEGATE_DESCRIPTION = (
 # The Calc domain list lives in the sidebar prompt's CALC SUB-AGENTS block and in MCP's domain property (to_mcp_schema / narrow_delegate_domain_enums).
 _CALC_DELEGATE_DESCRIPTION = (
     "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "in this spreadsheet and returns a summary."
+    f"in this spreadsheet and returns a summary. {_DELEGATE_RESULT_LINE}"
 )
 
 _DRAW_DELEGATE_LEAD = (
     "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "on this drawing or presentation and returns a summary. "
+    f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
 )
 
 _DRAW_DELEGATE_DESCRIPTION = (
@@ -598,7 +605,7 @@ _DRAW_DELEGATE_DESCRIPTION = (
 
 _GENERIC_DELEGATE_DESCRIPTION = (
     "Starts a sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "in this document and returns a summary."
+    f"in this document and returns a summary. {_DELEGATE_RESULT_LINE}"
 )
 
 
