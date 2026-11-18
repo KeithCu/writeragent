@@ -27,7 +27,7 @@ Same pieces, different assembly per channel — update a rule in prompts.py and 
 sees it; only genuinely channel-specific text lives outside the shared pieces.
 
 Sections are per document type: Writer has the full manual; Calc and Draw have app-specific
-topics plus the shared concurrency section. ``manual_read`` resolves the target document's type
+topics plus the MCP-only concurrency section. ``manual_read`` resolves the target document's type
 the same way every other tool does, so a Calc session never reads Writer advice."""
 from __future__ import annotations
 
@@ -218,14 +218,14 @@ def writer_topic_list_text(*, include_mcp: bool = False) -> str:
     return _topic_list_text("writer", include_mcp=include_mcp)
 
 
-def calc_topic_list_text(*, include_mcp: bool = False) -> str:
+def calc_topic_list_text() -> str:
     """Comma-separated list of canonical Calc topic ids in display order."""
-    return _topic_list_text("calc", include_mcp=include_mcp)
+    return _topic_list_text("calc")
 
 
-def draw_topic_list_text(*, include_mcp: bool = False) -> str:
+def draw_topic_list_text() -> str:
     """Comma-separated list of canonical Draw/Impress topic ids in display order."""
-    return _topic_list_text("draw", include_mcp=include_mcp)
+    return _topic_list_text("draw")
 
 
 def list_topic_entries(doc_type: str | None = "writer", *, include_mcp: bool = False) -> list[tuple[str, str]]:
