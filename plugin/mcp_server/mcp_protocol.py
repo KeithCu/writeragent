@@ -158,7 +158,7 @@ class _PreparedMcpCall:
 # constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
     " HOW TO USE THESE TOOLS: call manual_read(topic) for the manual — topics follow the open "
-    f"document's type (for Writer: {topic_list_text('writer')}); call manual_read() for the current list. "
+    f"document's type (for Writer: {topic_list_text('writer', include_mcp=True)}); call manual_read() for the current list. "
     "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
     "the user's to accept/reject, not yours."
 )
@@ -772,7 +772,7 @@ class MCPProtocolHandler:
 
     def _mcp_prompts_list(self, params: Any, document_url: str | None = None) -> Any:
         doc_type = self._prompt_doc_type(document_url)
-        prompts = [{"name": topic_id, "description": summary} for topic_id, summary in list_topic_entries(doc_type)]
+        prompts = [{"name": topic_id, "description": summary} for topic_id, summary in list_topic_entries(doc_type, include_mcp=True)]
         return {"prompts": prompts}
 
     def _mcp_prompts_get(self, params: Any, document_url: str | None = None) -> Any:
@@ -782,12 +782,12 @@ class MCPProtocolHandler:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("prompts/get requires params.name")
         doc_type = self._prompt_doc_type(document_url)
-        text = get_section(name, doc_type)
+        text = get_section(name, doc_type, include_mcp=True)
         if text is None:
-            known = ", ".join(list_topics(doc_type))
+            known = ", ".join(list_topics(doc_type, include_mcp=True))
             raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
-        canonical = cast("str", normalize_topic(name, doc_type))
-        summary_by_id = dict(list_topic_entries(doc_type))
+        canonical = cast("str", normalize_topic(name, doc_type, include_mcp=True))
+        summary_by_id = dict(list_topic_entries(doc_type, include_mcp=True))
         return {
             "description": summary_by_id[canonical],
             "messages": [{"role": "user", "content": {"type": "text", "text": text}}],

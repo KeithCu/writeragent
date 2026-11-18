@@ -1,135 +1,33 @@
-"""Minimal tests for the humanizer skill (first concrete skill, implemented with maximal reuse).
+"""Tests for the built-in humanizer skill guidance."""
 
-Follows the same style and patterns as tests for memory.py and todo.
-"""
+import builtins
+from unittest.mock import patch
 
-import os
-import shutil
-import tempfile
-from unittest.mock import Mock, patch
-
-from plugin.chatbot.skills import SkillStore
+from plugin.chatbot.skills import HUMANIZER_GUIDANCE, format_humanizer_guidance_prompt_block
 
 
-class DummyCtx:
-    """Matches the pattern used in test_memory.py so user_config_dir resolves cleanly."""
-    def __init__(self, tmp_dir):
-        self.tmp_dir = tmp_dir
+def test_format_humanizer_guidance_uses_builtin_and_ignores_stale_skill_md(tmp_path):
+    stale_skill = tmp_path / "skills" / "humanizer" / "SKILL.md"
+    stale_skill.parent.mkdir(parents=True)
+    stale_content = "When revising via apply_document_content, use first person and opinions."
+    stale_skill.write_text(stale_content, encoding="utf-8")
 
-    def getServiceManager(self):
-        sm = Mock()
-        path_settings = Mock()
-        path_settings.UserConfig = f"file://{self.tmp_dir}"
-        sm.createInstanceWithContext.return_value = path_settings
-        return sm
+    opened_paths: list[str] = []
+    real_open = builtins.open
 
+    def tracking_open(file, *args, **kwargs):
+        opened_paths.append(str(file))
+        return real_open(file, *args, **kwargs)
 
-class _ToolContextLike:
-    def __init__(self, inner_ctx):
-        self.ctx = inner_ctx
+    with (
+        patch("plugin.framework.config.get_config", side_effect=lambda key: key == "chatbot.humanizer_enabled"),
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("builtins.open", side_effect=tracking_open),
+    ):
+        block = format_humanizer_guidance_prompt_block()
 
-
-def _skills_tree_root(skill_md_path: str) -> str:
-    """Return the .../skills directory for a humanizer SKILL.md path."""
-    return os.path.dirname(os.path.dirname(skill_md_path))
-
-
-class _SkillTestBase:
-    """Isolate skill file I/O under a temp dir and remove seeded SKILL.md after each test."""
-
-    def setup_method(self):
-        self.tmp_dir = tempfile.mkdtemp()
-        self.ctx = DummyCtx(self.tmp_dir)
-        self._skill_paths_to_cleanup: list[str] = []
-        self._user_config_patcher = patch(
-            "plugin.chatbot.skills.user_config_dir",
-            return_value=self.tmp_dir,
-        )
-        self._user_config_patcher.start()
-
-    def teardown_method(self):
-        self._user_config_patcher.stop()
-        for skill_md in self._skill_paths_to_cleanup:
-            skills_root = _skills_tree_root(skill_md)
-            if os.path.isdir(skills_root):
-                shutil.rmtree(skills_root, ignore_errors=True)
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
-
-    def _track_skill_path(self, store: SkillStore) -> None:
-        self._skill_paths_to_cleanup.append(store.get_humanizer_skill_path())
-
-
-class TestHumanizerSkillStore(_SkillTestBase):
-    def test_default_guidance_when_no_file(self):
-        from plugin.chatbot.skills import HUMANIZER_GUIDANCE
-
-        store = SkillStore()
-        guidance = store.get_humanizer_guidance()
-        self._track_skill_path(store)
-        assert guidance == HUMANIZER_GUIDANCE
-        # It should have seeded the file
-        assert (os.path.exists(store.get_humanizer_skill_path()))
-
-    def test_user_override_wins(self):
-        store = SkillStore()
-        custom = "Custom rule: never use the word 'pivotal'."
-        store.write_humanizer_guidance(custom)
-        self._track_skill_path(store)
-        got = store.get_humanizer_guidance()
-        assert (got) == (custom)
-
-    def test_front_matter_is_stripped(self):
-        store = SkillStore()
-        content = """---
-name: humanizer
----
-Vary your sentences.
-"""
-        store.write_humanizer_guidance(content)
-        self._track_skill_path(store)
-        got = store.get_humanizer_guidance()
-        assert ("Vary your sentences") in (got)
-        assert ("name: humanizer") not in (got)
-
-    def test_write_replaces_atomically_and_cleans_temp(self):
-        store = SkillStore()
-        store.write_humanizer_guidance("hello")
-        self._track_skill_path(store)
-        path = store.get_humanizer_skill_path()
-        with open(path, encoding="utf-8") as handle:
-            assert handle.read() == "hello\n"
-        leftovers = [name for name in os.listdir(os.path.dirname(path)) if name.startswith(".skill-")]
-        assert leftovers == []
-
-    def test_write_oserror_returns_false_and_keeps_previous(self):
-        store = SkillStore()
-        store.write_humanizer_guidance("keep")
-        self._track_skill_path(store)
-        path = store.get_humanizer_skill_path()
-        with patch("plugin.framework.config.os.replace", side_effect=OSError("disk")):
-            store.write_humanizer_guidance("new")
-        with open(path, encoding="utf-8") as handle:
-            assert handle.read() == "keep\n"
-        leftovers = [name for name in os.listdir(os.path.dirname(path)) if name.startswith(".skill-")]
-        assert leftovers == []
-
-    def test_write_oserror_does_not_raise_and_logs(self):
-        store = SkillStore()
-        with (
-            patch.object(store, "get_humanizer_skill_path", side_effect=OSError("nope")) as mock_path,
-            patch("plugin.chatbot.skills.log.exception") as mock_log_exc,
-        ):
-            store.write_humanizer_guidance("x")
-        mock_path.assert_called_once()
-        mock_log_exc.assert_called_once()
-
-    def test_front_matter_only_falls_back_to_default(self):
-        from plugin.chatbot.skills import HUMANIZER_GUIDANCE
-
-        store = SkillStore()
-        store.write_humanizer_guidance("---\nname: humanizer\n---\n")
-        self._track_skill_path(store)
-        got = store.get_humanizer_guidance()
-        assert got == HUMANIZER_GUIDANCE
-
-
+    assert HUMANIZER_GUIDANCE.strip() in block
+    assert stale_content not in block
+    assert "apply_document_content" not in block
+    assert not any(path.endswith("SKILL.md") for path in opened_paths)
+    assert stale_skill.read_text(encoding="utf-8") == stale_content

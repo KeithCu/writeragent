@@ -1721,7 +1721,7 @@ class _ManualProxy:
     """Proxy for manual tools."""
 
     def read(self, *, topic: str | None = None) -> _Item:
-        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work.
+        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images). Calc: workflow, formula-syntax, directives. Draw and Impress: directives, get-image. Use this when unsure how an edit, the review modes, search, or image ops work.
 
         Args:
             topic (optional): Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list.

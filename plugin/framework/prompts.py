@@ -503,9 +503,9 @@ WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_
 # the safety-critical review-modes piece (a model must know it may not resolve its own
 # tracked changes BEFORE it acts — weaker models never ask first); the reference pieces
 # (search, navigation, images) are pulled on demand through the manual_read tool, so every
-# turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
-# this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
-# topic anyway it just reads an inert rule.
+# turn stays lean. The concurrency topic is MCP-only (_Topic.mcp_only in agent_manual.py), so
+# the sidebar neither sees it in this ambient prompt nor can pull it — the sidebar runs
+# in-process and has no HTTP 429 or document_url targeting.
 #
 # Apply-HTML and confirm-from-fields sit last on purpose (recency): last tokens in the
 # ambient prompt are what the model attends to. Same lesson as attaching
@@ -728,7 +728,7 @@ def tts_short_answers_prompt_suffix() -> str:
 def fenced_data_block(heading: str, body: str, *, tag: str) -> str:
     """Wrap injected text in <<<tag>>> … <<<</tag>>> so the model reads it as data, not tool instructions.
 
-    USER.md, additional instructions and SKILL.md are user-editable, and memory_upsert can store any
+    USER.md and additional instructions are user-editable, and memory_upsert can store any
     string, so a marker inside the body would end the block early. A space after ``<<<`` keeps an
     embedded opener or closer (the closer has four left brackets) from matching the wrapper.
     """

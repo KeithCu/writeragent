@@ -116,7 +116,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `rich_text_control_sidebar` | `boolean` | `true` |  | Formatted chat via RichTextControl. Requires restart. |
 | `chat_enter_key_sends_message` | `boolean` | `true` |  | When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline. |
 | `librarian_invoked` | `boolean` | `false` |  | Internal |
-| `humanizer_enabled` | `boolean` | `false` |  | When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later. |
+| `humanizer_enabled` | `boolean` | `false` |  | When enabled, injects built-in guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). |
 | `audio_silence_stop_ms` | `int` | `3000` | `0`–`15000` | Pause after you stop talking, then auto-stop and send (Record). 0 = wait until you click Stop Rec. |
 | `query_history` | `string` | `"[]"` |  | Internal |
 

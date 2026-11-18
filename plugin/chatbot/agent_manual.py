@@ -13,7 +13,8 @@ delegation routing, memory).
 
 This module is the on-demand assembly of the same pieces: manual_read(topic) serves ONE topic at
 a time, mapping topic -> piece per document type and adding the MCP-only extras (the HTTP 429
-concurrency contract, which the in-process sidebar never needs). Its consumers:
+concurrency contract, which is listed and served only when include_mcp=True — never to the
+in-process sidebar). Its consumers:
 - external MCP clients (they drop/truncate connect-time instructions, so pull is their ONLY
   channel, plus JIT state in tool results);
 - the sidebar agent, for the reference pieces (search/navigation/images) its HYBRID prompt keeps
@@ -26,7 +27,7 @@ Same pieces, different assembly per channel — update a rule in prompts.py and 
 sees it; only genuinely channel-specific text lives outside the shared pieces.
 
 Sections are per document type: Writer has the full manual; Calc and Draw have app-specific
-topics plus the shared concurrency section. ``manual_read`` resolves the target document's type
+topics plus the MCP-only concurrency section. ``manual_read`` resolves the target document's type
 the same way every other tool does, so a Calc session never reads Writer advice."""
 from __future__ import annotations
 
@@ -83,12 +84,14 @@ class _Topic:
     text: str
     summary: str
     standalone_suffix: str = ""
+    mcp_only: bool = False
 
 
 _CONCURRENCY_TOPIC = _Topic(
     "concurrency",
     _MCP_CONCURRENCY_RULES,
     "same-document edits serialize; retry on HTTP 429; multi-document targeting",
+    mcp_only=True,
 )
 
 _WRITER_TOPICS: tuple[_Topic, ...] = (
@@ -199,45 +202,52 @@ def _app(doc_type: str | None) -> str:
     return label if label in _MANUALS else "generic"
 
 
-def list_topic_entries(doc_type: str | None = "writer") -> list[tuple[str, str]]:
+def _topics_for(doc_type: str | None, *, include_mcp: bool = False) -> tuple[_Topic, ...]:
+    topics = _MANUALS[_app(doc_type)]
+    if include_mcp:
+        return topics
+    return tuple(t for t in topics if not t.mcp_only)
+
+
+def list_topic_entries(doc_type: str | None = "writer", *, include_mcp: bool = False) -> list[tuple[str, str]]:
     """Canonical topic ids and summaries in display order for a document type."""
-    return [(t.id, t.summary) for t in _MANUALS[_app(doc_type)]]
+    return [(t.id, t.summary) for t in _topics_for(doc_type, include_mcp=include_mcp)]
 
 
-def list_topics(doc_type: str | None = "writer") -> list[str]:
+def list_topics(doc_type: str | None = "writer", *, include_mcp: bool = False) -> list[str]:
     """Canonical topic ids in display order for a document type."""
-    return [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
+    return [topic_id for topic_id, _summary in list_topic_entries(doc_type, include_mcp=include_mcp)]
 
 
-def topic_list_text(doc_type: str | None) -> str:
+def topic_list_text(doc_type: str | None, *, include_mcp: bool = False) -> str:
     """Comma-separated canonical topic ids for *doc_type* in display order."""
-    return ", ".join(list_topics(doc_type))
+    return ", ".join(t.id for t in _topics_for(doc_type, include_mcp=include_mcp))
 
 
-def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic | None:
+def _resolve_topic(topic: str | None, doc_type: str | None = "writer", *, include_mcp: bool = False) -> _Topic | None:
     if not topic:
         return None
-    manual = _MANUALS[_app(doc_type)]
+    manual = _topics_for(doc_type, include_mcp=include_mcp)
     key = topic.strip().lower().replace(" ", "-").replace("_", "-")
     key = _ALIASES.get(key, key)
     return next((t for t in manual if t.id == key), None)
 
 
-def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str | None:
+def normalize_topic(topic: str | None, doc_type: str | None = "writer", *, include_mcp: bool = False) -> str | None:
     """Map a raw topic string (aliases/case/spacing) to a canonical topic of that app, else None."""
-    found = _resolve_topic(topic, doc_type)
+    found = _resolve_topic(topic, doc_type, include_mcp=include_mcp)
     return found.id if found is not None else None
 
 
-def get_section(topic: str | None, doc_type: str | None = "writer") -> str | None:
+def get_section(topic: str | None, doc_type: str | None = "writer", *, include_mcp: bool = False) -> str | None:
     """The manual section for a topic (alias-aware) in that app's manual, or None if unknown."""
-    found = _resolve_topic(topic, doc_type)
+    found = _resolve_topic(topic, doc_type, include_mcp=include_mcp)
     if found is None:
         return None
     return found.text + found.standalone_suffix
 
 
-def manual_index(doc_type: str | None = "writer") -> str:
+def manual_index(doc_type: str | None = "writer", *, include_mcp: bool = False) -> str:
     """Short index for manual_read() with no topic — what can be pulled WITHOUT reading it all.
 
     With doc_type=None (no document open) the index is neutral: it lists the always-available
@@ -249,7 +259,7 @@ def manual_index(doc_type: str | None = "writer") -> str:
         ]
     else:
         lines = ["WriterAgent how-to topics — call manual_read(topic) to read one:"]
-    lines += [f"- {t.id}: {t.summary}" for t in _MANUALS[_app(doc_type)]]
+    lines += [f"- {t.id}: {t.summary}" for t in _topics_for(doc_type, include_mcp=include_mcp)]
     return "\n".join(lines)
 
 
@@ -259,5 +269,5 @@ def full_manual(doc_type: str | None = "writer") -> str:
     This is what the AGENT-BACKEND path injects into its system prompt (send_handlers) — it talks
     to the MCP HTTP server, so it takes the shared pieces AND the MCP extras in one string. The
     sidebar does not use this: its template assembles the shared pieces directly (constants)."""
-    parts = [t.text for t in _MANUALS[_app(doc_type)]]
+    parts = [t.text for t in _topics_for(doc_type, include_mcp=True)]
     return "HOW TO WORK WITH THE DOCUMENT:\n\n" + "\n\n".join(parts)

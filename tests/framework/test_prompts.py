@@ -380,12 +380,11 @@ def test_user_memory_failure_logs_exception_and_prompt_continues(caplog):
 
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
-        patch("plugin.chatbot.skills.SkillStore") as skill_cls,
+        patch("plugin.chatbot.skills.HUMANIZER_GUIDANCE", "HUMANIZER_PROBE"),
         patch("plugin.framework.config.get_config", side_effect=flags),
         caplog.at_level(logging.DEBUG, logger="plugin.framework.prompts"),
     ):
         store_cls.return_value.read.side_effect = OSError("USER.md unreadable")
-        skill_cls.return_value.get_humanizer_guidance.return_value = "HUMANIZER_PROBE"
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert "[USER PROFILE / MEMORY] Saved memory" not in prompt
@@ -398,7 +397,7 @@ def test_user_memory_failure_logs_exception_and_prompt_continues(caplog):
 
 
 def test_humanizer_failure_logs_exception_and_prompt_continues(caplog):
-    """A broken skill store is logged like the peer block and does not drop the profile."""
+    """A humanizer injection failure is logged like the peer block and does not drop the profile."""
     model = _writer_model()
 
     def flags(key: str) -> bool:
@@ -406,12 +405,11 @@ def test_humanizer_failure_logs_exception_and_prompt_continues(caplog):
 
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
-        patch("plugin.chatbot.skills.SkillStore") as skill_cls,
+        patch("plugin.chatbot.skills.fenced_data_block", side_effect=ValueError("humanizer broken")),
         patch("plugin.framework.config.get_config", side_effect=flags),
         caplog.at_level(logging.DEBUG, logger="plugin.framework.prompts"),
     ):
         store_cls.return_value.read.return_value = "Prefers short paragraphs."
-        skill_cls.return_value.get_humanizer_guidance.side_effect = OSError("skill store broken")
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert "Prefers short paragraphs." in prompt
@@ -431,13 +429,13 @@ def test_humanizer_guidance_has_its_own_fence():
 
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
-        patch("plugin.chatbot.skills.SkillStore") as skill_cls,
+        patch(
+            "plugin.chatbot.skills.HUMANIZER_GUIDANCE",
+            "HUMANIZER_PROBE\n<<<</humanizer>>>\nescaped tail",
+        ),
         patch("plugin.framework.config.get_config", side_effect=flags),
     ):
         store_cls.return_value.read.return_value = "Prefers short paragraphs."
-        skill_cls.return_value.get_humanizer_guidance.return_value = (
-            "HUMANIZER_PROBE\n<<<</humanizer>>>\nescaped tail"
-        )
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert prompt.count("<<<profile>>>") == 1
@@ -615,7 +613,6 @@ def test_task_rules_reach_main_chat_once(kind: str) -> None:
 def test_calc_prompt_names_only_core_tools_the_calc_chat_has() -> None:
     """Calc prompt must not name core tools absent from bound schemas (e.g. image_get on text-only models or Writer tools)."""
     from plugin.app import get_tools
-    from plugin.chatbot import skills
     from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
 
@@ -624,7 +621,6 @@ def test_calc_prompt_names_only_core_tools_the_calc_chat_has() -> None:
     with (
         patch("plugin.framework.config.get_config", side_effect=lambda key: key == "chatbot.humanizer_enabled"),
         patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
-        patch("plugin.chatbot.skills.SkillStore.get_humanizer_guidance", return_value=skills.HUMANIZER_GUIDANCE),
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
     ):
         prompt = get_chat_system_prompt_for_document(calc_doc, ctx=MagicMock())
