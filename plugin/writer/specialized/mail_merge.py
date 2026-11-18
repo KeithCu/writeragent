@@ -302,7 +302,7 @@ class InsertField(ToolWriterMailMergeBase):
             },
             "data_source_name": {
                 "type": "string",
-                "description": "Name of the registered data source. Defaults to '' or active data source.",
+                "description": "Name of the registered data source. Empty means the active data source.",
                 "default": "",
             },
             "table_name": {
@@ -323,7 +323,7 @@ class InsertField(ToolWriterMailMergeBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         column_name = kwargs["column_name"]
-        data_source_name = kwargs.get("data_source_name", "")
+        data_source_name = kwargs["data_source_name"]
         table_name = kwargs.get("table_name", "")
         command_type_str = kwargs.get("command_type", "table")
 
@@ -484,7 +484,7 @@ class RunMerge(ToolWriterMailMergeBase):
             ),
             "output_type": enum_param(
                 ["file", "printer"],
-                "Destination for merge results: 'file' (default) or 'printer'.",
+                "Destination for merge results: 'file' or 'printer'.",
                 default="file",
             ),
             "output_path": {
@@ -498,7 +498,7 @@ class RunMerge(ToolWriterMailMergeBase):
             },
             "file_format": enum_param(
                 ["odt", "pdf"],
-                "Output file format: 'odt' or 'pdf'. Default 'odt'.",
+                "Output file format: 'odt' or 'pdf'.",
                 default="odt",
             ),
             "file_name_prefix": {
@@ -529,10 +529,10 @@ class RunMerge(ToolWriterMailMergeBase):
         data_source_name = kwargs["data_source_name"]
         table_name = kwargs["table_name"]
         command_type_str = kwargs.get("command_type", "table")
-        output_type_str = kwargs.get("output_type", "file")
+        output_type_str = kwargs["output_type"]
         output_path = kwargs.get("output_path")
         save_as_single_file = kwargs.get("save_as_single_file", False)
-        file_format = kwargs.get("file_format", "odt")
+        file_format = kwargs["file_format"]
         file_name_prefix = kwargs.get("file_name_prefix", "MergedDocument")
         file_name_from_column = kwargs.get("file_name_from_column", False)
         filter_clause = kwargs.get("filter")

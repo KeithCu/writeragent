@@ -473,7 +473,7 @@ class SectionSetColumns(ToolWriterSectionBase):
         "properties": {
             "name": {"type": "string", "description": "Name of the section."},
             "column_count": {"type": "integer", "description": "Number of columns (1-99)."},
-            "spacing_mm": {"type": "number", "description": "Spacing between columns in mm. Defaults to 0."},
+            "spacing_mm": {"type": "number", "default": 0, "description": "Spacing between columns in mm."},
         },
         "required": ["name", "column_count"],
     }
@@ -481,7 +481,7 @@ class SectionSetColumns(ToolWriterSectionBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         column_count: int = kwargs["column_count"]
-        spacing_mm = kwargs.get("spacing_mm", 0)
+        spacing_mm = kwargs["spacing_mm"]
 
         err = column_layout_error(column_count, spacing_mm)
         if err is not None:

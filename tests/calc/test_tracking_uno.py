@@ -41,7 +41,7 @@ def test_calc_track_changes_list_unsupported(ctx, doc):
     tctx = TestingFactory.create_context(
         doc=doc, ctx=ctx, env="native", doc_type="calc", services=get_services()
     )
-    res = TrackChangesList().execute(tctx)
+    res = TrackChangesList().execute(tctx, start_index=0, max_changes=100)
     assert res.get("status") == "ok"
     assert "count" not in res
     assert "changes" not in res

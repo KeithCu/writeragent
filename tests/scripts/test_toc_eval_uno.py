@@ -29,7 +29,7 @@ def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
 
     def _execute(name, args):
         if name == "index_create":
-            return IndexesCreate().execute(tctx, **args)
+            return IndexesCreate().execute(tctx, **{"create_from_outline": True, **args})
         raise ValueError(name)
 
     build_toc_fixture(doc, _execute)

@@ -317,7 +317,7 @@ def test_indexes_list_cites_filters_bibliography_fields():
     ctx.doc.getTextFields.return_value.createEnumeration.return_value = fields_enum
 
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, include_links=False)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["fields_scanned"] == 2
@@ -346,7 +346,7 @@ def test_list_cites_fields_read_disposal_is_document_disposed():
     fields_enum.nextElement.side_effect = [cite_field]
     ctx.doc.getTextFields.return_value.createEnumeration.return_value = fields_enum
 
-    res = tool.execute_safe(ctx)
+    res = tool.execute_safe(ctx, include_links=False)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -365,7 +365,7 @@ def test_list_cites_plain_runtime_error_still_degrades():
     ctx.doc.getTextFields.return_value.createEnumeration.return_value = fields_enum
 
     with patch("plugin.writer.search.describe_match_location", return_value="unknown"):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, include_links=False)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["cites"][0]["fields"] == {}
@@ -510,25 +510,25 @@ def test_insert_toc_entry_param_errors_and_dry_run():
     styles.hasByName.return_value = True
     doc.getStyleFamilies.return_value.getByName.return_value = styles
     sibling = _TocPara("Contents 1", "Alpha title\t1")
-    markup = tool.execute(ctx, content="<b>Gamma</b>")
+    markup = tool.execute(ctx, content="<b>Gamma</b>", position="end")
     assert markup["code"] == "INVALID_PARAM"
-    both = tool.execute(ctx, content="Gamma\t2", page="3")
+    both = tool.execute(ctx, content="Gamma\t2", page="3", position="end")
     assert both["status"] == "error"
     assert "not both" in both["message"]
     needs_anchor = tool.execute(ctx, content="Gamma", position="before")
     assert needs_anchor["code"] == "INVALID_PARAM"
-    bad_url = tool.execute(ctx, content="Gamma", hyperlink_url="#__RefHeading___Toc1")
+    bad_url = tool.execute(ctx, content="Gamma", hyperlink_url="#__RefHeading___Toc1", position="end")
     assert bad_url["code"] == "INVALID_PARAM"
     assert "outline" in bad_url["message"]
-    locator = tool.execute(ctx, content="Annex", hyperlink_url="table:Taula69")
+    locator = tool.execute(ctx, content="Annex", hyperlink_url="table:Taula69", position="end")
     assert locator["code"] == "INVALID_PARAM"
     assert "table" in locator["message"]
-    bad_level = tool.execute(ctx, content="Gamma", level=0)
+    bad_level = tool.execute(ctx, content="Gamma", level=0, position="end")
     assert bad_level["code"] == "INVALID_PARAM"
     idx.update.assert_not_called()
 
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
-        preview = tool.execute(ctx, content="Gamma title", dry_run=True)
+        preview = tool.execute(ctx, content="Gamma title", dry_run=True, position="end")
     assert preview["status"] == "ok"
     assert preview["dry_run"] is True
     assert preview["text_after"] == "Gamma title\t1"
@@ -540,10 +540,10 @@ def test_insert_toc_entry_param_errors_and_dry_run():
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
         leveled = tool.execute(
             ctx, content="Gamma title", page="4", level=2, dry_run=True,
-            hyperlink_url="#1.Gamma title|outline")
+            hyperlink_url="#1.Gamma title|outline", position="end")
         table_link = tool.execute(
             ctx, content="Annex cover", page="9", dry_run=True,
-            hyperlink_url="#Taula69|table")
+            hyperlink_url="#Taula69|table", position="end")
     assert leveled["status"] == "ok", leveled
     assert leveled["text_after"] == "Gamma title\t4"
     assert leveled["page_from_sibling"] is False
@@ -739,6 +739,9 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
 
 
 def test_list_toc_entries_default_omits_links():
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+
     tool = IndexesListTocEntries()
     ctx, _doc, idx, _mgr = _one_toc_context()
     rows = [
@@ -747,11 +750,14 @@ def test_list_toc_entries_default_omits_links():
     ]
     _attach_index_rows(ctx, idx, rows)
 
+    prep = prepare_tool_call(tool, SimpleNamespace(doc_type="writer", caller="test"), "index_list_toc_entries", {})
+    assert prep.error is None
+
     with patch(
         "plugin.writer.specialized.indexes._paragraph_hyperlink",
         side_effect=AssertionError("should not inspect hyperlink"),
     ):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, **prep.kwargs)
     assert res["status"] == "ok"
     assert res["entries"] == [
         {"text": "Alpha\t1", "level": 1},
@@ -770,7 +776,7 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     tool = IndexesListTocEntries()
     empty = MagicMock()
     empty.doc.getDocumentIndexes.return_value.getCount.return_value = 0
-    missing = tool.execute(empty)
+    missing = tool.execute(empty, include_links=False)
     assert missing["status"] == "error"
     assert missing["code"] == "INVALID_PARAM"
     assert "table of contents" in missing["message"]
@@ -785,13 +791,13 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     indexes.getByIndex.side_effect = lambda i: (toc_a, toc_b)[i]
     ctx.doc.getDocumentIndexes.return_value = indexes
 
-    needs_index = tool.execute(ctx)
+    needs_index = tool.execute(ctx, include_links=False)
     assert needs_index["status"] == "error"
     assert "exactly one table of contents" in needs_index["message"]
     toc_a.update.assert_not_called()
     toc_b.update.assert_not_called()
 
-    out_of_range = tool.execute(ctx, index=5)
+    out_of_range = tool.execute(ctx, index=5, include_links=False)
     assert out_of_range["status"] == "error"
     assert "Invalid index 5. The document has 2 document index(s)." in out_of_range["message"]
 
@@ -802,7 +808,7 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     toc.getAnchor.side_effect = RuntimeError("disposed anchor")
     indexes.getByIndex.side_effect = lambda i: (alphabetical, toc)[i]
 
-    not_toc = tool.execute(ctx, index=0)
+    not_toc = tool.execute(ctx, index=0, include_links=False)
     assert not_toc["status"] == "error"
     assert "not a table of contents" in not_toc["message"]
     alphabetical.update.assert_not_called()
@@ -863,7 +869,7 @@ def test_insert_toc_entry_collapses_newlines():
     sibling = MagicMock()
     sibling.getString.return_value = "Title\t3"
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
-        res = tool.execute(ctx, content="new\nline\r", page="1\n2\r", hyperlink_url="#target\n|outline", dry_run=True)
+        res = tool.execute(ctx, content="new\nline\r", page="1\n2\r", hyperlink_url="#target\n|outline", dry_run=True, position="end")
         assert res["status"] == "ok"
         assert res.get("text_after") == "new line\t1 2"
         assert res.get("hyperlink_url") == "#target|outline"
@@ -882,7 +888,7 @@ def test_insert_toc_entry_accepts_dollar_math_title():
     sibling = MagicMock()
     sibling.getString.return_value = "Title\t3"
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
-        res = tool.execute(ctx, content="The $n$-body problem", dry_run=True)
+        res = tool.execute(ctx, content="The $n$-body problem", dry_run=True, position="end")
         assert res["status"] == "ok"
 
 
@@ -969,7 +975,7 @@ def test_list_toc_entries_enumeration_failure_is_not_empty():
     anchor = MagicMock()
     anchor.getText.return_value.createEnumeration.side_effect = DisposedException("gone")
     idx.getAnchor.return_value = anchor
-    res = tool.execute_safe(ctx)
+    res = tool.execute_safe(ctx, include_links=False)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -985,7 +991,7 @@ def test_list_toc_entries_has_more_elements_disposal_is_document_disposed():
     enum.hasMoreElements.side_effect = DisposedException("gone")
     anchor.getText.return_value.createEnumeration.return_value = enum
     idx.getAnchor.return_value = anchor
-    res = tool.execute_safe(ctx)
+    res = tool.execute_safe(ctx, include_links=False)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -1014,7 +1020,7 @@ def test_list_toc_entries_containment_disposal_is_document_disposed():
     anchor = MagicMock()
     anchor.getText.return_value = text
     idx.getAnchor.return_value = anchor
-    res = tool.execute_safe(ctx)
+    res = tool.execute_safe(ctx, include_links=False)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -1033,7 +1039,7 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
         (IndexesRefreshTocEntry(), {"old_content": "Alpha", "content": "Beta", "index": "0"}),
         (IndexesInsertTocEntry(), {"content": "Beta", "position": "before", "old_content": "Alpha", "occurrence": "bad"}),
         (IndexesInsertTocEntry(), {"content": "Beta", "position": "before", "old_content": "Alpha", "occurrence": True}),
-        (IndexesInsertTocEntry(), {"content": "Beta", "index": "0"}),
+        (IndexesInsertTocEntry(), {"content": "Beta", "index": "0", "position": "end"}),
     ):
         res = tool.execute(ctx, **kwargs)
         assert res["status"] == "error"
@@ -1143,7 +1149,7 @@ def test_list_toc_entries_skips_a_paragraph_before_the_toc():
     ctx, _doc, idx, _mgr = _one_toc_context()
     idx.getAnchor.return_value = anchor
 
-    listed = IndexesListTocEntries().execute(ctx)
+    listed = IndexesListTocEntries().execute(ctx, include_links=False)
 
     assert listed["status"] == "ok", listed
     assert listed["count"] == 2
@@ -1192,7 +1198,7 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
 def test_indexes_create_search_rolls_back_failed_insert():
     tool, ctx, cursor, mgr = _search_create_undo(insert_error=RuntimeError("insert failed"))
     with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
-        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder", create_from_outline=True)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "rolled back" in res["message"]
@@ -1204,7 +1210,7 @@ def test_indexes_create_search_rolls_back_failed_insert():
 def test_indexes_create_search_locked_undo_does_not_delete():
     tool, ctx, cursor, mgr = _search_create_undo(locked=True)
     with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
-        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder", create_from_outline=True)
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
     cursor.setString.assert_not_called()
@@ -1217,7 +1223,7 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
         undo_error=RuntimeError("undo broke"),
     )
     with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
-        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder", create_from_outline=True)
     assert res["status"] == "error"
     assert res["code"] == "ROLLBACK_FAILED"
     assert "undo broke" in res["message"]
@@ -1334,7 +1340,7 @@ def test_single_toc_position_single_toc_returns_index():
     doc.getDocumentIndexes.return_value = indexes
 
     with patch("plugin.writer.specialized.indexes.toc_entry_rows", return_value=[]):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, include_links=False)
     assert res["status"] == "ok"
     assert res["index"] == 1
 

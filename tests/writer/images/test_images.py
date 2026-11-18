@@ -136,7 +136,7 @@ def test_image_insert_routes_first_page_target_to_region_helper(target: str):
         patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed) as insert,
     ):
         res = ImageInsert().execute(
-            ctx, path="/tmp/logo.png", target=target, width_mm=40, height_mm=20,
+            ctx, path="/tmp/logo.png", target=target, style="Standard", auto_height=True, width_mm=40, height_mm=20,
         )
     assert res["status"] == "ok"
     assert res["target"] == target
@@ -509,7 +509,7 @@ def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
     prep_chat = prepare_tool_call(tool, chat_ctx, "image_download", {"url": "https://example.com/a.png", "verify_ssl": False})
     assert prep_chat.error is None
     assert "verify_ssl" not in prep_chat.kwargs
-    assert prep_chat.kwargs == {"url": "https://example.com/a.png"}
+    assert prep_chat.kwargs == {"url": "https://example.com/a.png", "force": False}
 
     # Script caller: verify_ssl is also dropped
     script_ctx = TestingFactory.create_context(doc_type="writer")
@@ -517,7 +517,7 @@ def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
     prep_script = prepare_tool_call(tool, script_ctx, "image_download", {"url": "https://example.com/a.png", "verify_ssl": False})
     assert prep_script.error is None
     assert "verify_ssl" not in prep_script.kwargs
-    assert prep_script.kwargs == {"url": "https://example.com/a.png"}
+    assert prep_script.kwargs == {"url": "https://example.com/a.png", "force": False}
 
 
 def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
@@ -679,8 +679,8 @@ def test_image_replace_size_read_failure_is_tool_execution_error():
     ("tool_cls", "url_kw", "extra_kwargs"),
     [
         pytest.param(ImageReplace, "path", {"name": "Graphic1"}, id="image_replace"),
-        pytest.param(ImageInsert, "path", {}, id="image_insert"),
-        pytest.param(ImageDownload, "url", {}, id="image_download"),
+        pytest.param(ImageInsert, "path", {"target": "body", "style": "Standard", "auto_height": True}, id="image_insert"),
+        pytest.param(ImageDownload, "url", {"force": False}, id="image_download"),
     ],
 )
 def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs):
@@ -702,7 +702,7 @@ def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs):
     ("tool_cls", "extra_kwargs"),
     [
         pytest.param(ImageReplace, {"name": "Graphic1"}, id="image_replace"),
-        pytest.param(ImageInsert, {}, id="image_insert"),
+        pytest.param(ImageInsert, {"target": "body", "style": "Standard", "auto_height": True}, id="image_insert"),
     ],
 )
 def test_image_local_missing_file_returns_file_not_found(tool_cls, extra_kwargs):
@@ -821,7 +821,7 @@ def test_image_insert_downloads_before_main_thread():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=_mock_call_on_main),
     ):
-        res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
+        res = ImageInsert().execute(ctx, path="https://example.com/logo.png", target="body", style="Standard", auto_height=True)
 
     assert res["status"] == "ok"
     assert order == ["download", "main-enter", "main-exit"]
@@ -875,7 +875,7 @@ def test_image_insert_url_unscoped_after_download():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=_run),
     ):
-        res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
+        res = ImageInsert().execute(ctx, path="https://example.com/logo.png", target="body", style="Standard", auto_height=True)
 
     assert res["status"] == "ok"
     assert len(calls) == 1
@@ -1124,7 +1124,7 @@ def test_image_insert_header_failure_is_tool_execution_error():
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.insert_image_into_header_footer", side_effect=RuntimeError("header insert")),
     ):
-        res = ImageInsert().execute_safe(ctx, path="/tmp/logo.png", target="header")
+        res = ImageInsert().execute_safe(ctx, path="/tmp/logo.png", target="header", style="Standard", auto_height=True)
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "header insert" in res.get("message", "")
@@ -1144,7 +1144,7 @@ def test_image_crop_bake_failure_is_tool_execution_error():
         patch("plugin.writer.images.images.image_mark.bake", side_effect=RuntimeError("bake failed")),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
     ):
-        res = ImageCropAndHighlight().execute_safe(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        res = ImageCropAndHighlight().execute_safe(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "bake failed" in res.get("message", "")
@@ -1164,7 +1164,7 @@ def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 45000, 45000])
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 45000, 45000], units="px")
     assert res["status"] != "ok"
     assert res.get("code") == "INVALID_PARAM"
     assert res.get("details", {}).get("width_px") == 50000
@@ -1193,13 +1193,13 @@ def test_image_crop_rejects_non_positive_width_mm():
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
         # 1. width_mm = 0 is rejected
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=0)
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=0, units="px")
         assert res["status"] != "ok"
         assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
         # 2. width_mm = -5 is rejected
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=-5)
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=-5, units="px")
         assert res["status"] != "ok"
         assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
@@ -1215,7 +1215,7 @@ def test_image_crop_rejects_non_positive_width_mm():
         assert "width_mm" in prep.error["message"]
 
         # 4. omitted width_mm keeps size.Width (1000 hundredths mm -> 10.0 mm)
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
         assert res["status"] == "ok"
         assert res.get("width_mm") == 10.0
 
@@ -1255,7 +1255,7 @@ def test_image_crop_reports_frame_failures():
             patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
             patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
         ):
-            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
             assert res["status"] != "ok"
             assert res.get("code") == "SET_CROP_FAILED"
             mock_bake.assert_called_once()
@@ -1272,7 +1272,7 @@ def test_image_crop_reports_frame_failures():
             patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=lambda target, prop, val: prop == "GraphicCrop"),
             patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=False),
         ):
-            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+            res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
             assert res["status"] != "ok"
             assert res.get("code") == "SET_SIZE_FAILED"
             mock_bake.assert_called_once()
@@ -1297,7 +1297,7 @@ def test_image_crop_locked_undo_writes_nothing():
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
         assert res["status"] != "ok"
         assert res.get("code") == "UNDO_UNAVAILABLE"
         obj.setPropertyValue.assert_not_called()
@@ -1314,7 +1314,7 @@ def test_image_crop_and_info_unmeasurable_graphic():
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
         patch("plugin.writer.images.images.image_mark.bake") as mock_bake,
     ):
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], units="px")
         assert res["status"] != "ok"
         assert res.get("code") == "INVALID_PARAM"
         mock_bake.assert_not_called()
@@ -1832,12 +1832,12 @@ def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported()
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="calc"),
         patch("plugin.writer.images.images.insert_image_at_locator") as mock_insert,
     ):
-        res = ImageInsert().execute(ctx, path="/tmp/test.png", paragraph=2)
+        res = ImageInsert().execute(ctx, path="/tmp/test.png", paragraph=2, target="body", style="Standard", auto_height=True)
         assert res["status"] != "ok"
         assert res.get("code") == "UNSUPPORTED_DOC_TYPE"
         mock_insert.assert_not_called()
 
-        res2 = ImageInsert().execute(ctx, path="/tmp/test.png", locator="heading_text:Introduction")
+        res2 = ImageInsert().execute(ctx, path="/tmp/test.png", locator="heading_text:Introduction", target="body", style="Standard", auto_height=True)
         assert res2["status"] != "ok"
         assert res2.get("code") == "UNSUPPORTED_DOC_TYPE"
         mock_insert.assert_not_called()
@@ -1942,35 +1942,35 @@ def test_image_insert_sizing_rules():
         # 1. 200x100 PNG with both sizes omitted lands at 80 x 40 mm
         with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
-            res = ImageInsert().execute(ctx, path="/tmp/test.png")
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", target="body", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert inserted_sizes == [(80.0, 40.0)]
 
         # 2. 100x200 PNG with both sizes omitted lands at 40 x 80 mm
         with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(100, 200)):
             inserted_sizes.clear()
-            res = ImageInsert().execute(ctx, path="/tmp/test.png")
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", target="body", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert inserted_sizes == [(40.0, 80.0)]
 
         # 3. Only width_mm=40 scales height proportionally (200x100 -> 40 x 20 mm)
         with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
-            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=40)
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=40, target="body", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert inserted_sizes == [(40.0, 20.0)]
 
         # 4. Both 30 and 50 stay 30 and 50 mm (even if stretching)
         with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)):
             inserted_sizes.clear()
-            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=30, height_mm=50)
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", width_mm=30, height_mm=50, target="body", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert inserted_sizes == [(30.0, 50.0)]
 
         # 5. Unreadable pixels (e.g. None or 0) stay 80 x 80 mm
         with patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(None, None)):
             inserted_sizes.clear()
-            res = ImageInsert().execute(ctx, path="/tmp/test.svg")
+            res = ImageInsert().execute(ctx, path="/tmp/test.svg", target="body", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert inserted_sizes == [(80.0, 80.0)]
 
@@ -1979,7 +1979,7 @@ def test_image_insert_sizing_rules():
             patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(200, 100)),
             patch("plugin.writer.images.images.insert_image_into_header_footer") as mock_hf,
         ):
-            res = ImageInsert().execute(ctx, path="/tmp/test.png", target="header")
+            res = ImageInsert().execute(ctx, path="/tmp/test.png", target="header", style="Standard", auto_height=True)
             assert res["status"] == "ok"
             assert mock_hf.call_args.kwargs["width_mm"] == 80.0
             assert mock_hf.call_args.kwargs["height_mm"] == 40.0
@@ -2043,7 +2043,7 @@ def test_image_insert_vector_proportional_fallback_from_100th_mm():
         patch("plugin.framework.queue_executor.main.call", side_effect=_run),
         patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
     ):
-        res = ImageInsert().execute(ctx, path="/tmp/vector.svg")
+        res = ImageInsert().execute(ctx, path="/tmp/vector.svg", target="body", style="Standard", auto_height=True)
         assert res["status"] == "ok"
         # 2540x5080 1/100mm -> 96x192 px -> height 80mm, width 40mm
         assert inserted_sizes == [(40.0, 80.0)]
@@ -2117,7 +2117,7 @@ def test_download_for_tool_stop_returns_user_stopped(tmp_path, monkeypatch, sync
     ctx = TestingFactory.create_context(doc_type="writer", send_cancellation=scope)
 
     with patch("plugin.writer.images.image_utils.sync_request", side_effect=sync_outcome):
-        res = ImageDownload().execute(ctx, url="https://example.com/pic.png")
+        res = ImageDownload().execute(ctx, url="https://example.com/pic.png", force=False)
     assert res["status"] == "error"
     assert res.get("code") == "USER_STOPPED"
     assert list(tmp_path.iterdir()) == []

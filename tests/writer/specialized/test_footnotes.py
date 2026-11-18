@@ -69,6 +69,7 @@ def test_footnotes_insert_with_insert_after_text():
         note="footnote",
         text="This sentence is only a test.",
         insert_after="This is a test.",
+        occurrence=0,
     )
 
     assert res["status"] == "ok"
@@ -114,6 +115,7 @@ def test_footnotes_insert_after_wrapped_text_uses_the_chained_fallback():
         note="footnote",
         text="This sentence is only a test.",
         insert_after="alpha\nbeta",
+        occurrence=0,
     )
 
     assert res["status"] == "ok"
@@ -156,6 +158,7 @@ def test_footnotes_insert_anchor_no_match():
         note="footnote",
         text="x",
         insert_after="not in document",
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"

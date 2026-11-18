@@ -977,7 +977,7 @@ def _validate_style_updates(
     if not style_name:
         return tool._tool_error("style is required.", code="INVALID_PARAM")
 
-    family = kwargs.get("family", "ParagraphStyles")
+    family = kwargs["family"]
     parent_style = kwargs.get("parent_style")
 
     token_err = _no_character_style_token_error(tool, family, style_name)
@@ -1180,11 +1180,11 @@ class StyleGetInfo(ToolWriterStyleBase):
         "For family=PageStyles, return the same page-style margins/header/footer "
         "payload as page_get_style_properties so the caller does not need a second tool hop."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "default": "ParagraphStyles", "description": "Style family. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"]
-        family = kwargs.get("family", "ParagraphStyles")
+        family = kwargs["family"]
 
         # In-process dispatch to the same reader page_get_style_properties uses — not an error
         # bounce and not a nested LLM call.
@@ -1534,7 +1534,7 @@ class StyleUpdate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
-            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family. Default: ParagraphStyles."),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family.", default="ParagraphStyles"),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from."},
             "property_updates": {
                 "type": "object",
@@ -1647,7 +1647,7 @@ class StyleCreate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the new style."},
-            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family. Default: ParagraphStyles."),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family.", default="ParagraphStyles"),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from (e.g. 'Standard', 'Default Paragraph Style')."},
             "property_updates": {
                 "type": "object",
@@ -1776,7 +1776,7 @@ class StyleClone(ToolWriterStyleBase):
         "properties": {
             "style": {"type": "string", "description": "Name of the style to copy."},
             "new_style": {"type": "string", "description": "Name of the new style. Must not already exist."},
-            "family": enum_param(["ParagraphStyles", "PageStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
+            "family": enum_param(["ParagraphStyles", "PageStyles", "CharacterStyles"], "Style family.", default="ParagraphStyles"),
         },
         "required": ["style", "new_style"],
     }
@@ -1793,7 +1793,7 @@ class StyleClone(ToolWriterStyleBase):
         if style_name == new_name:
             return self._tool_error("new_style must be a different name from style.", code="INVALID_PARAM")
 
-        family = kwargs.get("family") or "ParagraphStyles"
+        family = kwargs["family"]
         # Schema enum: ParagraphStyles, PageStyles, CharacterStyles.
 
         token_err = _no_character_style_token_error(self, family, style_name)

@@ -41,7 +41,7 @@ def _style(doc):
 
 def _get(doc, ctx, region, **kwargs):
     return PageGetHeaderFooterText().execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), region=region, **kwargs,
+        _tool_ctx(doc, ctx), style=_style_name(doc), region=region, **{"include_images": True, **kwargs},
     )
 
 
@@ -360,7 +360,7 @@ def test_replace_emoji_in_header_uno(ctx, doc):
     tool = PageReplaceHeaderFooterText()
     res = tool.execute(
         _tool_ctx(doc, ctx), style=_style_name(doc), region="header",
-        old_content="😀", content="X",
+        old_content="😀", content="X", all_matches=False,
     )
     assert res["status"] == "ok", res
     assert header_text.getString() == "AXB"

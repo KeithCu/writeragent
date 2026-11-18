@@ -25,7 +25,7 @@ def test_create_paragraph_style_uno(ctx, doc):
     
     style_name = "AgentCustomPara"
     tool = StyleCreate()
-    res = tool.execute(tool_ctx, style=style_name, parent_style="Standard", property_updates={"CharWeight": 150.0, "CharColor": "#FF0000"})
+    res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", parent_style="Standard", property_updates={"CharWeight": 150.0, "CharColor": "#FF0000"})
     
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
     
@@ -47,7 +47,7 @@ def test_create_conditional_style_uno(ctx, doc):
     style_name = "AgentCondPara"
     rules = [{"context": "Table", "target_style": "Heading 1"}]
     tool = StyleCreate()
-    res = tool.execute(tool_ctx, style=style_name, conditional_rules=rules)
+    res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", conditional_rules=rules)
     
     # In PyUNO, ParaStyleConditions is a read-only property (attribute = 1)
     # and cannot be modified programmatically in a real Writer instance.
@@ -69,7 +69,7 @@ def test_update_style_parent_uno(ctx, doc):
     para_styles.insertByName(style_name, created)
     
     tool = StyleUpdate()
-    res = tool.execute(tool_ctx, style=style_name, parent_style="Heading 1")
+    res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", parent_style="Heading 1")
     
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
     style = doc.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name)
@@ -87,7 +87,7 @@ def test_update_style_para_adjust_and_missing_font_uno(ctx, doc):
     para_styles.insertByName(style_name, created)
 
     res = StyleUpdate().execute(
-        tool_ctx, style=style_name,
+        tool_ctx, style=style_name, family="ParagraphStyles",
         property_updates={"ParaAdjust": "center", "CharFontName": "DefinitelyMissingFontXYZ"},
     )
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
@@ -136,7 +136,7 @@ def test_clone_paragraph_style_uno(ctx, doc):
     src.setPropertyValue("CharWeight", 150.0)
     src.setPropertyValue("ParaTopMargin", 400)
 
-    res = StyleClone().execute(tool_ctx, style="CloneSrcPara", new_style="CloneDstPara")
+    res = StyleClone().execute(tool_ctx, style="CloneSrcPara", new_style="CloneDstPara", family="ParagraphStyles")
 
     assert res["status"] == "ok", res
     assert res["properties_copied"] >= 1

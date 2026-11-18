@@ -275,12 +275,22 @@ def test_frame_insert_default_size_and_undo_path():
         mutate()
         return None
 
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(
+        FrameInsert(),
+        SimpleNamespace(doc_type="writer", caller="test"),
+        "frame_insert",
+        {"target": "beginning", "text": "hello", "name": "MyFrame"},
+    )
+    assert prep.error is None
+
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
         patch("plugin.writer.specialized.textframes.mm_to_unit", side_effect=lambda mm: int(mm * 100)),
     ):
-        res = FrameInsert().execute(ctx, target="beginning", text="hello", name="MyFrame")
+        res = FrameInsert().execute(ctx, **prep.kwargs)
 
     assert res["status"] == "ok"
     doc.createInstance.assert_called_with("com.sun.star.text.TextFrame")
@@ -324,9 +334,9 @@ def test_frame_insert_invalid_width_and_anchor():
 
     ctx = MagicMock(doc=MagicMock())
     tool = FrameInsert()
-    bad_w = tool.execute(ctx, width_mm=0)
+    bad_w = tool.execute(ctx, width_mm=0, height_mm=30.0, anchor_type=0)
     assert bad_w["code"] == "INVALID_PARAM"
-    bad_a = tool.execute(ctx, anchor_type=5)
+    bad_a = tool.execute(ctx, width_mm=80.0, height_mm=30.0, anchor_type=5)
     assert bad_a["code"] == "INVALID_PARAM"
 
 

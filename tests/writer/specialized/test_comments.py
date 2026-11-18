@@ -105,14 +105,14 @@ def test_comment_scan_tasks_with_prefixes():
     ctx.services.document.find_paragraph_for_range.return_value = None
 
     # Unresolved only (default)
-    res = CommentScanTasks().execute(ctx)
+    res = CommentScanTasks().execute(ctx, unresolved_only=True)
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert [t["prefix"] for t in res["tasks"]] == ["TODO-AI", "NOTE"]
 
     # Filter by specific prefix
     fields.createEnumeration.side_effect = lambda: _FiniteEnum([f1, f2, f3, f4])
-    res_filtered = CommentScanTasks().execute(ctx, prefix_filter="NOTE")
+    res_filtered = CommentScanTasks().execute(ctx, prefix_filter="NOTE", unresolved_only=True)
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
     assert res_filtered["tasks"][0]["prefix"] == "NOTE"
@@ -377,7 +377,7 @@ def test_comment_resolve_miss_returns_error():
     doc.getTextFields.return_value.createEnumeration.return_value = _FiniteEnum([])
     ctx = MagicMock(doc=doc)
 
-    res = CommentResolve().execute(ctx, name="missing")
+    res = CommentResolve().execute(ctx, name="missing", author="AI")
     assert res["status"] == "error"
     assert res["code"] == "COMMENT_NOT_FOUND"
 
@@ -406,7 +406,7 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
 
     ctx = MagicMock(doc=doc)
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = CommentResolve().execute(ctx, name="target", resolution="Fixed")
+        res = CommentResolve().execute(ctx, name="target", resolution="Fixed", author="AI")
     assert res["status"] == "ok"
     assert res.get("reply_name") == "ReplyName"
     host.insertTextContent.assert_called_once()
@@ -445,7 +445,7 @@ def test_comment_resolve_assigns_non_empty_name():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = CommentResolve().execute(ctx, name="target", resolution="Done")
+        res = CommentResolve().execute(ctx, name="target", resolution="Done", author="AI")
     assert res["status"] == "ok"
     assert "Name" in assigned
     assert assigned["Name"].startswith("__Annotation__")
@@ -545,7 +545,7 @@ def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
-        res = CommentResolve().execute(ctx, name="target", resolution="Failed to register")
+        res = CommentResolve().execute(ctx, name="target", resolution="Failed to register", author="AI")
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "did not register an annotation" in res["message"]
@@ -580,12 +580,12 @@ def test_comments_none_author_and_content_do_not_raise():
     ctx.services.document = doc_svc
 
     # 1. CommentList with author filter
-    list_res = CommentList().execute(ctx, author_filter="test")
+    list_res = CommentList().execute(ctx, author_filter="test", start_index=0, max_comments=100)
     assert list_res["status"] == "ok"
     assert list_res["comments"] == []
 
     # 2. _comment_scan_tasks
-    scan_res = CommentScanTasks().execute(ctx)
+    scan_res = CommentScanTasks().execute(ctx, unresolved_only=True)
     assert scan_res["status"] == "ok"
     assert scan_res["count"] == 0
 
@@ -599,7 +599,7 @@ def test_comment_list_disposal_is_document_disposed():
     tool = CommentList()
     ctx = MagicMock()
     ctx.doc.getTextFields.side_effect = DocumentDisposedError("gone")
-    res = tool.execute_safe(ctx)
+    res = tool.execute_safe(ctx, start_index=0, max_comments=100)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -705,7 +705,7 @@ def test_comment_list_isolates_bad_comment():
     ctx = MagicMock(doc=doc)
     ctx.services.document = doc_svc
 
-    res = CommentList().execute(ctx)
+    res = CommentList().execute(ctx, start_index=0, max_comments=100)
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert res["comments"][0]["stale"] is True
@@ -728,7 +728,7 @@ def test_comment_list_propagates_real_disposal_from_item():
     ctx = MagicMock(doc=doc)
     ctx.services.document = doc_svc
 
-    res = CommentList().execute_safe(ctx)
+    res = CommentList().execute_safe(ctx, start_index=0, max_comments=100)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -758,7 +758,7 @@ def test_comment_list_per_property_try_keeps_good_properties():
     ctx = MagicMock(doc=doc)
     ctx.services.document = doc_svc
 
-    res = CommentList().execute(ctx)
+    res = CommentList().execute(ctx, start_index=0, max_comments=100)
     assert res["status"] == "ok"
     assert len(res["comments"]) == 1
     assert res["comments"][0]["author"] == "Alice"
@@ -898,7 +898,7 @@ def test_comment_resolve_locked_undo_manager():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
     ctx = MagicMock(doc=doc)
 
-    res = CommentResolve().execute(ctx, name="target")
+    res = CommentResolve().execute(ctx, name="target", author="AI")
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
     field.setPropertyValue.assert_not_called()
@@ -924,7 +924,7 @@ def test_comment_list_author_filter_skips_location_helper_on_mismatch():
     ctx.services.document = doc_svc
 
     with patch("plugin.writer.specialized.comments._read_annotation", return_value={"author": "Alice"}) as mock_read:
-        res = CommentList().execute(ctx, author_filter="Alice")
+        res = CommentList().execute(ctx, author_filter="Alice", start_index=0, max_comments=100)
 
     assert res["count"] == 1
     assert mock_read.call_count == 1
@@ -948,7 +948,7 @@ def test_comment_scan_tasks_reraises_disposal():
     ctx.services.document = doc_svc
 
     with pytest.raises(DocumentDisposedError):
-        CommentScanTasks().execute(ctx)
+        CommentScanTasks().execute(ctx, unresolved_only=True)
 
     # Disposed on Resolved property
     field2 = MagicMock()
@@ -974,7 +974,7 @@ def test_comment_list_without_annotations_skips_paragraph_scan():
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
-    res = CommentList().execute(ctx, author_filter="Rev")
+    res = CommentList().execute(ctx, author_filter="Rev", start_index=0, max_comments=100)
     assert res == {
         "status": "ok",
         "comments": [],
@@ -991,7 +991,7 @@ def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
-    assert CommentScanTasks().execute(ctx) == {"status": "ok", "tasks": [], "count": 0}
+    assert CommentScanTasks().execute(ctx, unresolved_only=True) == {"status": "ok", "tasks": [], "count": 0}
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
@@ -1075,7 +1075,7 @@ def test_comment_list_paging_and_author_filter_order():
         assert page2["has_more"] is False
         assert "next_index" not in page2
 
-        filtered = CommentList().execute(ctx, author_filter="Bot", max_comments=1)
+        filtered = CommentList().execute(ctx, author_filter="Bot", start_index=0, max_comments=1)
         assert filtered["count"] == 1
         assert filtered["comments"][0]["author"] == "Bot"
         assert filtered["has_more"] is False
@@ -1083,7 +1083,7 @@ def test_comment_list_paging_and_author_filter_order():
         clamped = CommentList().execute(ctx, start_index=-5, max_comments=0)
         assert clamped["count"] == 1
 
-        bad_page = CommentList().execute(ctx, max_comments="nope")
+        bad_page = CommentList().execute(ctx, start_index=0, max_comments="nope")
         assert bad_page["status"] == "error"
         assert bad_page["code"] == "INVALID_PARAM"
 
