@@ -302,24 +302,47 @@ def test_build_shape_tree_control_connector_style_and_custom_type():
         "com.sun.star.drawing.ConnectorShape",
         props={"StartShape": shape_a, "EndShape": shape_b},
     )
+    class _FakeEnum:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
     custom_shape = _Shape(
         "com.sun.star.drawing.CustomShape",
         props={
             "FillColor": 0x00FF00,
+            "FillStyle": _FakeEnum("SOLID"),
+            "LineStyle": _FakeEnum("NONE"),
             "ZOrder": 3,
             "CustomShapeGeometry": [_SimpleNameValue("Type", "octagon")],
         },
     )
+    painted_custom = _Shape(
+        "com.sun.star.drawing.CustomShape",
+        props={
+            "FillStyle": _FakeEnum("SOLID"),
+            "LineStyle": _FakeEnum("SOLID"),
+            "CustomShapeGeometry": [
+                _SimpleNameValue("Type", "round-rectangle"),
+                _SimpleNameValue("ViewBox", (0, 0, 21600, 21600)),
+                _SimpleNameValue("Path", ("coords",)),
+            ],
+        },
+    )
 
-    tree = build_shape_tree(_Shapes([control_shape, connector_shape, custom_shape]))
+    tree = build_shape_tree(_Shapes([control_shape, connector_shape, custom_shape, painted_custom]))
 
     assert tree[0]["control"]["type"] == "checkbox"
     assert tree[0]["control"]["state"] == 0
     assert tree[1]["connected_start"] == {"name": "NodeA", "text": "Alpha"}
     assert tree[1]["connected_end"] == {"name": "NodeB", "text": "Beta"}
     assert tree[2]["style"]["FillColor"] == "#00FF00"
+    assert tree[2]["style"]["FillStyle"] == "SOLID"
+    assert tree[2]["style"]["LineStyle"] == "NONE"
     assert tree[2]["style"]["ZOrder"] == 3
     assert tree[2]["custom_shape_type"] == "octagon"
+    assert tree[2]["custom_geometry_empty"] is True
+    assert tree[3]["custom_shape_type"] == "round-rectangle"
+    assert "custom_geometry_empty" not in tree[3]
 
 
 def test_build_shape_tree_geometry_missing_property_degrades():

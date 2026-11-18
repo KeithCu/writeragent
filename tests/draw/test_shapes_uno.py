@@ -14,7 +14,7 @@ from com.sun.star.beans import PropertyValue
 
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.shapes import DeleteShape, GetDrawSummary, GroupShapes, UpsertShape
-from plugin.draw.tree import find_shape_on_page
+from plugin.draw.tree import GetDrawTree, find_shape_on_page
 from plugin.framework.tool import ToolContext
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
@@ -98,12 +98,7 @@ def test_calc_shapes_target_active_sheet(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_writer_octagon_geometry_after_add(ctx, doc):
-    """Writer reapplies CustomShapeGeometry after add so the shape paints.
-
-    Draw and Impress must not do that second write (it can abort soffice).
-    This test is the Writer exception: the process stays up and the geometry
-    has a type plus Path or ViewBox.
-    """
+    """Writer reapplies CustomShapeGeometry after add so the geometry has Type plus Path or ViewBox."""
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
     created = UpsertShape().execute(
         tctx,
@@ -122,6 +117,66 @@ def test_writer_octagon_geometry_after_add(ctx, doc):
     names = {str(prop.Name) for prop in geom}
     assert "Type" in names
     assert "Path" in names or "ViewBox" in names
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_octagon_geometry_after_add(ctx, doc):
+    """Draw reapplies CustomShapeGeometry after add so ViewBox and Path expand and shapes paint."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    for idx, shape_type in enumerate(("octagon", "round-rectangle", "trapezoid")):
+        created = UpsertShape().execute(
+            tctx,
+            action="create",
+            shape_type=shape_type,
+            page=0,
+            x=1000 + idx * 5000,
+            y=1000,
+            width=4000,
+            height=4000,
+            fill_color="#FF0000",
+        )
+        assert created.get("status") == "ok", (shape_type, created)
+        shape = page.getByIndex(page.getCount() - 1)
+        geom = {str(prop.Name): prop.Value for prop in shape.getPropertyValue("CustomShapeGeometry")}
+        assert geom.get("Type") == shape_type, (shape_type, geom)
+        assert geom.get("ViewBox") is not None, (shape_type, geom)
+        assert geom.get("Path"), (shape_type, geom)
+        assert getattr(shape.getPropertyValue("FillStyle"), "value", None) == "SOLID"
+
+    tree = GetDrawTree().execute(tctx, page=0)["tree"]
+    assert len(tree) == 3
+    for node in tree:
+        assert node["style"]["FillStyle"] == "SOLID"
+        assert "LineStyle" in node["style"]
+        assert "custom_geometry_empty" not in node
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_impress_octagon_geometry_after_add(ctx, doc):
+    """Impress reapplies CustomShapeGeometry after add so ViewBox and Path expand and shapes paint."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    created = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="octagon",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=4000,
+        fill_color="#FF0000",
+    )
+    assert created.get("status") == "ok", created
+    shape = page.getByIndex(page.getCount() - 1)
+    geom = {str(prop.Name): prop.Value for prop in shape.getPropertyValue("CustomShapeGeometry")}
+    assert geom.get("Type") == "octagon", geom
+    assert geom.get("ViewBox") is not None, geom
+    assert geom.get("Path"), geom
+    assert getattr(shape.getPropertyValue("FillStyle"), "value", None) == "SOLID"
 
 
 @native_test
