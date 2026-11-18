@@ -148,7 +148,7 @@ def format_user_memory_prompt_block() -> str:
         user_mem = store.read()
         if user_memory_is_blank(user_mem):
             return ""
-        return fenced_data_block("[USER PROFILE / MEMORY] The only way to read saved memory.", cap_injected_prompt_blob(user_mem), tag="profile")
+        return fenced_data_block("[USER PROFILE / MEMORY] Saved memory (read-only snapshot; update it with memory_upsert).", cap_injected_prompt_blob(user_mem), tag="profile")
     except Exception:
         logging.getLogger(__name__).exception("Failed to read user memory for prompt")
     return ""

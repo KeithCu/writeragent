@@ -578,7 +578,7 @@ CALC_FORMULA_SYNTAX_TEMPLATE = (
     f"\n- Plots: an open plt figure (or result = fig) turns the =PY cell's output into a picture anchored at that cell; for an editable chart, call {DELEGATE_SUBAGENT_TOOL}(domain=\"charts\")."
 )
 
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant. Style new content cleanly and leave existing formatting alone unless the user asks.
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant. Leave existing formatting alone unless the user asks.
 {ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
