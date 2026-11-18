@@ -572,11 +572,11 @@ CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"}
 
 
 CALC_FORMULA_SYNTAX_TEMPLATE = (
-    """FORMULAS: Write formulas in Calc syntax:
+    """FORMULAS: Write formulas in Calc syntax only:
 - Arguments: use `;` between arguments, e.g. =IF(A1>0; "Y"; "N").
 - Ranges and absolute refs: use A1:B5 for ranges and $A$1 for absolute references.
 - Other sheets: use Sheet2.A1, or $'My Sheet'.A1:B5 when the sheet name has spaces.
-- Inline arrays: use `;` between columns and `|` between rows, e.g. {1;2|3;4}.
+- Inline arrays: use `;` between columns and `|` between rows in every locale, e.g. {1;2|3;4}.
 - Examples: =SUM(Sheet2.A1:A5; $B$1) and =VLOOKUP(A2; $'My Sheet'.$A$2:$C$20; 3; 0).
 - Python in a cell: =PY("result = …"; DataRange) via write_range (omit DataRange if unused; where to place it and how it spills is on write_range).
 {venv_policy}

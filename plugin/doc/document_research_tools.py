@@ -117,8 +117,7 @@ class GetGuidance(ToolBase):
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
         f"open document's type (for Writer: {writer_topic_list_text()}). "
         f"Calc: {calc_topic_list_text()}. Draw and Impress: {draw_topic_list_text()}. "
-        "Use this when unsure how an edit, the review modes, search, or image ops work. "
-        "The no-topic index also returns current_local_datetime."
+        "Use this when unsure how an edit, the review modes, search, or image ops work."
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of
     # the ambient text and relies on pulling them from here (same single source, same topics).
@@ -145,15 +144,17 @@ class GetGuidance(ToolBase):
         doc_type = None if ctx.doc is None else (doc_type_str_from_doc(ctx.doc) or "writer")
         raw = (kwargs.get("topic") or "").strip()
         if not raw:
-            # Index call is a natural early MCP step — stamp the clock for hosts that ignore
-            # initialize.instructions (#374 Bug 1).
-            return {
+            index: dict[str, Any] = {
                 "status": "ok",
                 "doc_type": doc_type,
                 "topics": list_topics(doc_type),
                 "index": manual_index(doc_type),
-                "current_local_datetime": format_mcp_clock_context(),
             }
+            # WriterAgent's own LLM calls already carry today's date (response_normalizers.prepare_chat_messages);
+            # MCP hosts may drop initialize.instructions, so an MCP index call carries the clock (#374 Bug 1).
+            if ctx.caller == "mcp":
+                index["current_local_datetime"] = format_mcp_clock_context()
+            return index
         section = get_section(raw, doc_type)
         if section is None:
             return self._tool_error(

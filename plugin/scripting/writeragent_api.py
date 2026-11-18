@@ -705,7 +705,7 @@ class _CalcProxy:
         """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
 
         Args:
-            range_name (optional): Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (optional): Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("detect_errors", range=range_name))
 
@@ -757,7 +757,7 @@ class _CalcProxy:
         """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge.
 
         Args:
-            range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             center (optional): Center content (default: true).
             unmerge (optional): Split merged cells instead of merging (default: false).
         """
@@ -767,7 +767,7 @@ class _CalcProxy:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
 
         Args:
-            range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
@@ -802,7 +802,7 @@ class _CalcProxy:
         """Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html.
 
         Args:
-            range_name (required): Target cell(s) or range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Target cell(s) or range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             bold (optional): Bold font.
             italic (optional): Italic font.
             font_size (optional): Font size (points).
@@ -824,7 +824,7 @@ class _CalcProxy:
         """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
-            range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
             sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
             ascending (optional): true = smallest first (default); false = largest/highest first.
@@ -836,10 +836,10 @@ class _CalcProxy:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
-            range_name (required): Target range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
-            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not mix them in one formula. 2-D array: one inner array per row; must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
+            range_name (required): Target range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
+            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Formulas use Calc syntax only (=SUM(A1;B1), Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
             array (optional): Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).
-            source (optional): Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
+            source (optional): Optional source block to copy (A1 or Sheet.A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
         """
         return _result(call_host_tool("write_range", range=range_name, values=values, array=array, source=source))
 
@@ -853,7 +853,7 @@ class _CellCommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.
 
         Args:
-            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             text (required): Comment text.
             sheet (optional): Sheet name (active sheet if omitted).
         """
@@ -863,7 +863,7 @@ class _CellCommentProxy:
         """Delete the comment (annotation) from a specific cell.
 
         Args:
-            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("cell_comment_delete", cell=cell, sheet=sheet))
@@ -1036,9 +1036,9 @@ class _ConditionalFormattingProxy:
         """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
-            range_name (required): Cell range to apply the rule to (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Cell range to apply the rule to (A1:D10 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             operator (required): Condition operator. One of: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE.
-            formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
+            formula1 (optional): First formula/value. For FORMULA, the condition in Calc syntax (e.g. 'A1>100' or 'AND($A1>1;$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
             style (optional): Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.
             bg_color (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
@@ -1051,7 +1051,7 @@ class _ConditionalFormattingProxy:
         """List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present.
 
         Args:
-            range_name (optional): Cell range (A1:D10 or a named range); omit to scan the used area. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (optional): Cell range (A1:D10 or a named range); omit to scan the used area. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("conditional_formatting_list", range=range_name))
 
@@ -1059,7 +1059,7 @@ class _ConditionalFormattingProxy:
         """Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices.
 
         Args:
-            range_name (required): Cell range (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Cell range (A1:D10 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             rule_index (optional): 0-based index of the rule to remove. If omitted, all rules are cleared.
         """
         return _result(call_host_tool("conditional_formatting_remove", range=range_name, rule_index=rule_index))
@@ -1719,7 +1719,7 @@ class _ManualProxy:
     """Proxy for manual tools."""
 
     def read(self, *, topic: str | None = None) -> _Item:
-        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
+        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work.
 
         Args:
             topic (optional): Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list.
@@ -1781,7 +1781,7 @@ class _NamedRangeProxy:
 
         Args:
             name (required): Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.
-            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too).
+            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').
             scope (optional): Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').
             base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
@@ -1792,7 +1792,7 @@ class _NamedRangeProxy:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
-            range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
             scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
         """
@@ -1813,7 +1813,7 @@ class _NamedRangeProxy:
         Args:
             name (required): Current name of the range to edit.
             new_name (optional): New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces.
-            content (optional): New formula or range address content (Sheet1!A1:B5 is accepted too).
+            content (optional): New formula or range address content.
             scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
             base_cell (optional): New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
@@ -2416,7 +2416,7 @@ class _SheetProxy:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
             has_header (optional): First row is headers only (default true).
         """
@@ -2426,7 +2426,7 @@ class _SheetProxy:
         """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (optional): First row is headers only (default true).
         """
         return _result(call_host_tool("sheet_clear_filter", range=range_name, has_header=has_header))
@@ -2454,7 +2454,7 @@ class _SheetProxy:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("sheet_get_filter", range=range_name))
 

@@ -53,12 +53,14 @@ When drafting or revising document text, run the output through these rules (sil
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
 
-# Scope rules live on the code-owned heading rather than HUMANIZER_GUIDANCE alone, because
-# a user's seeded SKILL.md keeps whatever text it was originally seeded with.
+# Scope rules live on this code-owned heading rather than in HUMANIZER_GUIDANCE, because
+# a user's seeded SKILL.md keeps whatever text it was first seeded with. The heading therefore
+# decides where first person, opinions and tangents may appear, even when an older seeded body asks for them.
 HUMANIZER_PROMPT_HEADING = (
     "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document. "
-    "By default keep the document's existing voice and formality — do not add first person, opinions, "
-    "tangents, or casual phrasing unless the document already writes that way or the user asks. "
+    "Keep the document's existing voice and formality: first person, opinions, tangents, and casual "
+    "phrasing belong in chat replies only, even where the guidance below suggests them, unless the "
+    "document already writes that way or the user asks. "
     "Minimal corrections (\"fix this\": spelling and grammar in the current sentence) are exempt.]"
 )
 

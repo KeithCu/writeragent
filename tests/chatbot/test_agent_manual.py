@@ -39,8 +39,9 @@ DRAW_DOC = FakeDoc({"com.sun.star.drawing.DrawingDocument"})
 
 
 class FakeCtx:
-    def __init__(self, doc):
+    def __init__(self, doc, caller="chat"):
         self.doc = doc
+        self.caller = caller
 
 
 def test_list_topic_entries_matches_list_topics():
@@ -207,8 +208,14 @@ def test_get_guidance_no_topic_returns_writer_index():
     assert res["status"] == "ok" and res["doc_type"] == "writer"
     assert set(list_topics("writer")).issubset(set(res["topics"]))
     assert "manual_read" in res["index"]
-    assert "current_local_datetime" in res
-    assert "Current local date and time:" in res["current_local_datetime"]
+
+
+def test_get_guidance_index_clock_only_for_mcp():
+    mcp_res = GetGuidance().execute(FakeCtx(WRITER_DOC, caller="mcp"))
+    assert "Current local date and time:" in mcp_res["current_local_datetime"]
+
+    chat_res = GetGuidance().execute(FakeCtx(WRITER_DOC))
+    assert "current_local_datetime" not in chat_res
 
 
 def test_get_guidance_topic_returns_section():
