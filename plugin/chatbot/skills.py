@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 
+from plugin.chatbot.memory import cap_injected_prompt_blob
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.errors import ConfigError
 from plugin.framework.prompts import fenced_data_block
@@ -56,10 +57,9 @@ If the user provides a personal writing sample or style preference, match that r
 # a user's seeded SKILL.md keeps whatever text it was originally seeded with.
 HUMANIZER_PROMPT_HEADING = (
     "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document. "
-    "By default apply it to rhythm and word choice only; use first person, opinions, or tangents only when "
-    "the existing document already writes that way, and never make a polished, professional document casual "
-    "unless the user asks. Minimal corrections (\"fix this\": spelling and grammar in the current sentence) "
-    "are exempt.]"
+    "By default keep the document's existing voice and formality — do not add first person, opinions, "
+    "tangents, or casual phrasing unless the document already writes that way or the user asks. "
+    "Minimal corrections (\"fix this\": spelling and grammar in the current sentence) are exempt.]"
 )
 
 
@@ -140,9 +140,6 @@ class SkillStore:
 
 def format_humanizer_guidance_prompt_block() -> str:
     """Return fenced humanizer guidance if enabled in settings, else empty string."""
-    # In-function import breaks the skills -> memory -> skills/prompts cycle if any,
-    # and keeps config lookup lazy until prompt assembly.
-    from plugin.chatbot.memory import cap_injected_prompt_blob
     from plugin.framework.config import get_config
 
     try:
