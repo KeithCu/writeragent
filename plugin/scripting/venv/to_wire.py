@@ -5,17 +5,15 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Single wire serialization walker for pickle and JSON boundaries."""
+"""Single wire serialization walker for the LibreOffice pickle boundary."""
 from __future__ import annotations
 
-import base64
 import datetime
 import decimal
 import fractions
 import io
-import math
 import sys
-from typing import Any, Literal
+from typing import Any
 
 from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
 from plugin.scripting.calc_range import CalcRange
@@ -222,29 +220,15 @@ def _tree_contains_dict(tree: Any) -> bool:
     return False
 
 
-def _json_clean_packed(val: Any) -> Any:
-    if isinstance(val, float):
-        return None if not math.isfinite(val) else val
-    if isinstance(val, list):
-        return [_json_clean_packed(x) for x in val]
-    if isinstance(val, tuple):
-        return tuple(_json_clean_packed(x) for x in val)
-    if isinstance(val, dict):
-        return {k: _json_clean_packed(v) for k, v in val.items()}
-    return val
-
-
 def to_wire(
     obj: Any,
     *,
-    target: Literal["pickle", "json"],
     force: ForceBinary = "auto",
 ) -> Any:
-    """Convert a Python value to wire-safe format for pickle or JSON.
+    """Convert a Python value to wire-safe format for the LibreOffice pickle boundary.
 
     One recursion, depth-capped at 64, with cycle detection.
     """
-    effective_force: ForceBinary = "never" if target == "json" else force
     seen: set[int] = set()
 
     # Resolved once per call; every node of the walk reads these four.
@@ -273,22 +257,16 @@ def to_wire(
                 return _walk(val.values[0][0], depth, is_packing_root)
             return _walk(val.values, depth, True)
 
-        if target == "pickle" and is_calc_range_payload(val):
+        if is_calc_range_payload(val):
             return val
 
         # 2. Matplotlib Figure
         if mpl_fig is not None and isinstance(val, mpl_fig.Figure):
-            payload = figure_to_image_payload(val)
-            if target == "json":
-                payload["data"] = base64.b64encode(payload["data"]).decode("ascii")
-            return payload
+            return figure_to_image_payload(val)
 
         # 3. PIL Image
         if pil_mod is not None and isinstance(val, pil_mod.Image):
-            payload = _pil_image_to_payload(val)
-            if target == "json":
-                payload["data"] = base64.b64encode(payload["data"]).decode("ascii")
-            return payload
+            return _pil_image_to_payload(val)
 
         # 4. ndarray
         if np_mod is not None and isinstance(val, np_mod.ndarray):
@@ -297,17 +275,12 @@ def to_wire(
                 py_tree = _temporal_ndarray_to_python(val, pd_mod)
                 return _walk(py_tree, depth, is_packing_root=True)
             if kind == "O":
-                packed = child_pack_result(val, force=effective_force)
+                packed = child_pack_result(val, force=force)
                 if isinstance(packed, dict):
-                    if target == "json":
-                        packed = _json_clean_packed(packed)
                     return packed
                 return _walk(packed, depth, is_packing_root=False)
             if kind is not None and is_numeric_wire_kind(kind):
-                packed = child_pack_result(val, force=effective_force)
-                if target == "json":
-                    packed = _json_clean_packed(packed)
-                return packed
+                return child_pack_result(val, force=force)
             return _walk(val.tolist(), depth, is_packing_root=True)
 
         # 5. np.datetime64 / np.timedelta64 before np.integer
@@ -317,10 +290,7 @@ def to_wire(
                 if converted is not val:
                     return _walk(converted, depth, is_packing_root)
             elif isinstance(val, (np_mod.integer, np_mod.floating, np_mod.bool_)):
-                packed = child_pack_result(val, force=effective_force)
-                if target == "json":
-                    packed = _json_clean_packed(packed)
-                return packed
+                return child_pack_result(val, force=force)
 
         # 6. DataFrame
         if pd_mod is not None and isinstance(val, pd_mod.DataFrame):
@@ -363,45 +333,24 @@ def to_wire(
                     return out_dict
                 if isinstance(val, (set, frozenset)):
                     elements = [_walk(item, depth + 1, is_packing_root=True) for item in val]
-                    if target == "json":
-                        return elements
                     return _set_or_list(val, elements)
                 if isinstance(val, list):
                     rebuilt_list = [_walk(item, depth + 1, is_packing_root=False) for item in val]
                     if is_packing_root and not _tree_contains_dict(rebuilt_list):
-                        packed_list = child_pack_result(rebuilt_list, force=effective_force)
-                        if target == "json":
-                            packed_list = _json_clean_packed(packed_list)
-                        return packed_list
+                        return child_pack_result(rebuilt_list, force=force)
                     return rebuilt_list
                 if isinstance(val, tuple):
                     rebuilt_tuple = tuple(
                         _walk(item, depth + 1, is_packing_root=False) for item in val
                     )
-                    if target == "json":
-                        return rebuilt_tuple
                     if is_packing_root and not _tree_contains_dict(rebuilt_tuple):
-                        return child_pack_result(rebuilt_tuple, force=effective_force)
+                        return child_pack_result(rebuilt_tuple, force=force)
                     return rebuilt_tuple
             finally:
                 seen.discard(oid)
 
         # 9. Scalars
-        if target == "pickle" and isinstance(val, HOST_PICKLE_LEAF_TYPES):
-            return val
-        if val is None:
-            return None
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, int):
-            return val
-        if isinstance(val, float):
-            return None if not math.isfinite(val) else val
-        if isinstance(val, str):
-            return val
-        if isinstance(val, (bytes, bytearray)):
-            return base64.b64encode(val).decode("ascii")
-        if isinstance(val, complex):
+        if isinstance(val, HOST_PICKLE_LEAF_TYPES):
             return val
 
         if isinstance(val, datetime.datetime):
@@ -413,10 +362,7 @@ def to_wire(
         if isinstance(val, datetime.timedelta):
             return val.total_seconds() / 86400.0
         if isinstance(val, (decimal.Decimal, fractions.Fraction)):
-            flt = float(val)
-            if target == "json":
-                return None if not math.isfinite(flt) else flt
-            return flt
+            return float(val)
         if isinstance(val, range):
             return _walk(list(val), depth, is_packing_root)
 
@@ -449,10 +395,7 @@ def to_wire(
             arr = val.to_numpy(copy=False)
             kind = _dtype_kind(arr)
             if kind is not None and is_numeric_wire_kind(kind):
-                packed = child_pack_result(arr, force=effective_force)
-                if target == "json":
-                    packed = _json_clean_packed(packed)
-                return packed
+                return child_pack_result(arr, force=force)
         except Exception:
             pass  # an extension dtype whose to_numpy or pack fails takes the object grid below
         if isinstance(val, pd_mod.DataFrame):
