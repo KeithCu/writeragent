@@ -125,6 +125,7 @@ def test_execute_clones_view_cursor_via_own_text():
 
     ctx = MagicMock()
     ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 1
     order = []
 
     def track_goto(rng, expand):
@@ -490,6 +491,7 @@ def test_execute_skips_lock_when_page_hop_fails():
     doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
     ctx = MagicMock()
     ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 4
     result = tool.execute(ctx, page=3)
     assert result.get("status") == "ok"
     doc.lockControllers.assert_not_called()
@@ -613,6 +615,7 @@ def test_execute_page_zero_scans_first_page(monkeypatch):
     doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
     ctx = MagicMock()
     ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 2
 
     res0 = GetPageObjects().execute(ctx, page=0)
     assert res0["status"] == "ok"
@@ -631,6 +634,24 @@ def test_execute_negative_page_is_error():
     res = GetPageObjects().execute(ctx, page=-1)
     assert res["status"] == "error"
     assert "non-negative" in res["message"]
+
+
+def test_execute_page_past_end_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    ctx.services.document.get_page_count.return_value = 2
+    res = GetPageObjects().execute(ctx, page=2)
+    assert res["status"] == "error"
+    assert res["message"] == "Page 2 does not exist (document has 2 page(s); first page = 0)."
+
+
+def test_execute_page_count_unresolved_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    ctx.services.document.get_page_count.return_value = 0
+    res = GetPageObjects().execute(ctx, page=0)
+    assert res["status"] == "error"
+    assert "Cannot resolve page count" in res["message"]
 
 
 def test_execute_paragraph_reports_zero_based_page():

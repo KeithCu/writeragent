@@ -1738,9 +1738,9 @@ class AdvancedSearch(ToolBaseDummy):
             "query": {"type": "string", "description": ("Search query. Examples: 'climate change', 'energy AND renewable', 'solar OR wind', 'climate NOT politics', 'ocean NEAR/3 warming'")},
             "max_results": {"type": "integer", "description": "Maximum results to return (default: 20)"},
             "context_paragraphs": {"type": "integer", "description": "Paragraphs of context around each match (default: 1)"},
-            "around_page": {"type": "integer", "description": ("Restrict results to paragraphs near this page (optional). Enables page numbers in results.")},
+            "around_page": {"type": "integer", "description": ("Restrict results to paragraphs near this 0-based page index (first page = 0; optional). Enables page numbers in results.")},
             "page_radius": {"type": "integer", "description": ("Page radius for around_page filter (default: 1, meaning +/-1 page)")},
-            "include_pages": {"type": "boolean", "description": ("Add page numbers to results. Automatic when around_page is set. (default: false)")},
+            "include_pages": {"type": "boolean", "description": ("Add 0-based page numbers (first page = 0) to results. Automatic when around_page is set. (default: false)")},
         },
         "required": ["query"],
     }
@@ -1775,7 +1775,8 @@ class AdvancedSearch(ToolBaseDummy):
                 lo = around_page - page_radius
                 hi = around_page + page_radius
                 before_count = len(result["matches"])
-                result["matches"] = [m for m in result["matches"] if lo <= m.get("page", 0) <= hi]
+                # Matches without a mapped page cannot be placed near any page.
+                result["matches"] = [m for m in result["matches"] if m.get("page") is not None and lo <= m["page"] <= hi]
                 result["returned"] = len(result["matches"])
                 result["filtered_by_page"] = {"around_page": around_page, "page_radius": page_radius, "before_filter": before_count}
 
@@ -1783,7 +1784,7 @@ class AdvancedSearch(ToolBaseDummy):
 
 
 def _build_page_map(doc: Any) -> dict[int, int]:
-    """Build a mapping of paragraph_index to page number.
+    """Build a mapping of paragraph_index to 0-based page index.
 
     No module cache is kept because documents mutate, id() can be reused, and a failed
     walk would be cached indefinitely as {}. Uses with_view_cursor_left_body_locked
@@ -1806,7 +1807,10 @@ def _build_page_map(doc: Any) -> dict[int, int]:
             for para in iter_elements(enum):
                 try:
                     vc.gotoRange(para.getStart(), False)
-                    page_map[idx] = vc.getPage()
+                    lo_page = vc.getPage()
+                    # 0 = unset/not laid out; LibreOffice pages are 1-based.
+                    if lo_page > 0:
+                        page_map[idx] = lo_page - 1
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("advanced_search: page lookup failed for paragraph %s", idx, exc_info=True)
