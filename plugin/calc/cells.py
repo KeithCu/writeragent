@@ -887,6 +887,7 @@ class SortRange(ToolCalcRangeBase):
 
 
 _STRUCTURE_START_DESCRIPTION = 'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").'
+_STRUCTURE_COUNT_DEFAULT = 1
 
 
 class _StructureTool(ToolBase):
@@ -903,7 +904,7 @@ class _StructureTool(ToolBase):
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
         # The schema makes count an integer; it does not read a minimum, so 0 and negatives stop here.
-        count: int = kwargs.get("count", 1)
+        count: int = kwargs.get("count", _STRUCTURE_COUNT_DEFAULT)
         if count < 1:
             return self._tool_error(f"count must be an integer >= 1, got {count}", code="INVALID_PARAM")
 
@@ -947,7 +948,7 @@ class DeleteStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "default": 1, "description": "Number to delete."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to delete."},
             "confirm": {
                 "type": "boolean",
                 "default": False,
@@ -973,7 +974,7 @@ class InsertStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "default": 1, "description": "Number to insert."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to insert."},
             "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],

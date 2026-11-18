@@ -2405,3 +2405,46 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 2
     assert "Formulas use Calc syntax:" in res["warnings"][1]["message"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "base_kwargs"),
+    [
+        ("read_range", {"range": "A1"}),
+        ("merge_cells", {"range": "A1:B2"}),
+        ("delete_structure", {"structure_type": "rows", "start": 1}),
+        ("insert_structure", {"structure_type": "rows", "start": 1}),
+    ],
+)
+def test_core_calc_schema_defaults_match_runtime(tool_name, base_kwargs):
+    """Omitting a defaulted core Calc parameter must match passing its schema default."""
+    tool = _tool(tool_name)
+    defaults = {
+        k: spec["default"]
+        for k, spec in tool.parameters["properties"].items()
+        if "default" in spec
+    }
+    assert defaults, f"{tool_name} has no schema defaults"
+
+    def _run(extra_kwargs):
+        ctx = SimpleNamespace(doc=MagicMock())
+        with (
+            patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+            patch("plugin.calc.cells.CellInspector") as inspector_cls,
+            patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+        ):
+            inspector_cls.return_value.read_range.return_value = [[{"address": "A1", "value": 1}]]
+            manipulator = manipulator_cls.return_value
+            manipulator.merge_cells.return_value = SimpleNamespace(merged=True, hidden_count=0, hidden_cells=[])
+            manipulator.delete_structure.return_value = {"message": "deleted"}
+            manipulator.insert_structure.return_value = {"message": "inserted"}
+            res = tool.execute(ctx, **base_kwargs, **extra_kwargs)
+            return res, inspector_cls.return_value.mock_calls, manipulator.mock_calls
+
+    omitted_res, omitted_insp, omitted_manip = _run({})
+    explicit_res, explicit_insp, explicit_manip = _run(defaults)
+
+    assert omitted_res["status"] == "ok"
+    assert omitted_res == explicit_res
+    assert omitted_insp == explicit_insp
+    assert omitted_manip == explicit_manip
