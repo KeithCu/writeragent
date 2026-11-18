@@ -30,11 +30,8 @@ from plugin.framework.prompts import (
     attach_sheets_create_completion_instruction,
     build_specialized_sub_agent_instructions,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
-    DELEGATION_PUBLIC_WEB_HINT,
-    DELEGATION_USER_FILE_DATA_HINT,
-    delegation_math_to_python_hint,
     images_specialized_sub_agent_hint,
-    python_orchestrator_routing_line,
+    PYTHON_ROUTING_HINT,
     python_specialized_sub_agent_hint,
     get_document_research_workflow_hint,
 )
@@ -586,8 +583,7 @@ _WRITER_DELEGATE_DESCRIPTION = (
     "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
     f"{_DELEGATE_RESULT_LINE} "
     "For document_research and web_research, describe what to research in task (topics, sections, depth). "
-    f"{delegation_math_to_python_hint(delegate_tool=DELEGATE_SUBAGENT_TOOL)} "
-    f"{python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}"
+    f"{PYTHON_ROUTING_HINT}"
 )
 
 # The Calc domain list lives in the sidebar prompt's CALC SUB-AGENTS block and in MCP's domain property (to_mcp_schema / narrow_delegate_domain_enums).
@@ -599,7 +595,6 @@ _CALC_DELEGATE_DESCRIPTION = (
 _DRAW_DELEGATE_LEAD = (
     "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
     f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
-    f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
 )
 
 _DRAW_DELEGATE_DESCRIPTION = (

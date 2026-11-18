@@ -63,19 +63,14 @@ log = logging.getLogger(__name__)
 
 def _parse_structure_start(
     structure_type: str, start_raw: Any
-) -> tuple[int | str | None, str | None, str | None]:
-    """Validate structure start; optional sheet prefix from a qualified string.
+) -> tuple[int | str | None, str | None]:
+    """Validate a structure start (row number or column letter).
 
-    Strict start validation: non-ASCII digits, floats, bools, and cell addresses rejected.
+    Strict: non-ASCII digits, floats, bools, cell addresses and sheet-prefixed values are rejected.
 
-    Returns (start, sheet_prefix, error_message).
+    Returns (start, error_message).
     """
-    sheet_prefix: str | None = None
-    local_raw = start_raw
-
-    if isinstance(start_raw, str):
-        sheet_prefix, local = split_sheet_prefix(start_raw.strip())
-        local_raw = local
+    local_raw = start_raw.strip() if isinstance(start_raw, str) else start_raw
 
     if structure_type == "rows":
         if type(local_raw) is int:
@@ -83,14 +78,14 @@ def _parse_structure_start(
         elif isinstance(local_raw, str) and local_raw.isascii() and local_raw.isdigit():
             row_val = int(local_raw)
         else:
-            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+            return None, 'start for rows must be a 1-based row number (for example 5 or "5")'
         if row_val < 1:
-            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
-        return row_val, sheet_prefix, None
+            return None, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        return row_val, None
 
     if isinstance(local_raw, str) and local_raw.isascii() and local_raw.isalpha():
-        return local_raw.upper(), sheet_prefix, None
-    return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
+        return local_raw.upper(), None
+    return None, 'start for columns must be a column letter (for example "C")'
 
 
 def opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
@@ -892,10 +887,7 @@ class SortRange(ToolCalcRangeBase):
         )
 
 
-_STRUCTURE_START_DESCRIPTION = (
-    'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). '
-    "Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet."
-)
+_STRUCTURE_START_DESCRIPTION = 'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").'
 
 
 class _StructureTool(ToolBase):
@@ -916,16 +908,17 @@ class _StructureTool(ToolBase):
         if count < 1:
             return self._tool_error(f"count must be an integer >= 1, got {count}", code="INVALID_PARAM")
 
-        start, sheet_prefix, start_err = _parse_structure_start(structure_type, kwargs["start"])
+        start, start_err = _parse_structure_start(structure_type, kwargs["start"])
         if start_err:
             return self._tool_error(start_err, code="INVALID_PARAM")
 
-        if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
-            return self._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.", code="INVALID_PARAM")
+        sheet_name: str | None = kwargs.get("sheet")
+        if sheet_name and not is_agent_visible_sheet(sheet_name):
+            return self._tool_error(f"Cannot modify internal sheet '{sheet_name}'.", code="INVALID_PARAM")
 
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        sheet = bridge.get_sheet(sheet_prefix) if sheet_prefix is not None else None
+        sheet = bridge.get_sheet(sheet_name) if sheet_name else None
         try:
             assert start is not None
             if self.insert:
@@ -963,6 +956,7 @@ class DeleteStructure(_StructureTool):
                     "Default false: such a delete is refused and nothing changes."
                 ),
             },
+            "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],
     }
@@ -980,6 +974,7 @@ class InsertStructure(_StructureTool):
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
             "count": {"type": "integer", "description": "Number to insert (default 1)."},
+            "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],
     }

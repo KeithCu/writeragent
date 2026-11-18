@@ -690,16 +690,17 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None) -> _Item:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None, sheet: str | None = None) -> _Item:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
             count (optional): Number to delete (default 1).
             confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm))
+        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm, sheet=sheet))
 
     def detect_errors(self, *, range_name: list[str] | None = None) -> _Item:
         """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
@@ -735,15 +736,16 @@ class _CalcProxy:
         """
         return _result(call_host_tool("insert_html", cell=cell, html=html))
 
-    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> _Item:
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None, sheet: str | None = None) -> _Item:
         """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
             count (optional): Number to insert (default 1).
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count))
+        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count, sheet=sheet))
 
     def list_functions(self, *, filter: str | None = None) -> _Item:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
@@ -2375,7 +2377,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
@@ -2393,6 +2395,8 @@ class _ShapeProxy:
             fill_style (optional): Fill style. One of: solid, transparent, none.
             line_color (optional): Line border color.
             line_width (optional): Line width, 1/100 mm.
+            line_start (optional): Arrowhead at the start of a line or connector ('none' clears). One of: none, arrow.
+            line_end (optional): Arrowhead at the end of a line or connector ('none' clears). One of: none, arrow.
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
@@ -2404,7 +2408,7 @@ class _ShapeProxy:
             corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
             rotation_angle (optional): Rotation angle in degrees.
         """
-        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
+        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, line_start=line_start, line_end=line_end, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
 
 shape = _ShapeProxy()
 

@@ -135,13 +135,3 @@ def test_filter_unavailable_delegate_domains_skips_odd_entries_and_does_not_muta
     assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
     assert filtered[1:] == ["junk", junk, {"type": "function"}]
 
-
-@pytest.mark.parametrize("service", ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"])
-@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_get_vision_core_directive_is_empty_outside_draw(_mock_avail, service):
-    from plugin.vision.vision_availability import get_vision_core_directive
-
-    doc = MagicMock()
-    doc.supportsService.side_effect = lambda svc: svc == service
-    assert get_vision_core_directive(doc, MagicMock()) == ""
-
