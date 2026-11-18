@@ -102,7 +102,7 @@ The popup completes a single word (`accept_selected()` on Enter). Commands with 
 
 ## Do not
 
-- Skills / `SKILL.md` catalogs, user-defined `/` plugins, or a second prompt library. (The humanizer `SKILL.md` in `plugin/chatbot/skills.py` is ambient prompt guidance, not a command system.)
+- Skills / `SKILL.md` catalogs, user-defined `/` plugins, or a second prompt library. (The humanizer in `plugin/chatbot/skills.py` is built-in ambient prompt guidance, not a command system.)
 - New tools invented only to give a command something to call. Presets reuse Edit Selection and normal chat turns; `/remember` reuses the memory store; `/undo` reuses compound undo; `/attach` reuses document research and open-document listing.
 - Commands that only duplicate a dropdown, button, or menu item.
 - LibreOffice native menus or a WriterAgent menu item that *is* the feature. `/` lives in the Ask box.
