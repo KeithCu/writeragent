@@ -382,9 +382,9 @@ class DrawShapes:
         Shapes are created via the document's factory (``doc.createInstance``);
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
-        For CustomShape, ``EnhancedCustomShapeGeometry`` must be applied **before**
-        ``page.add`` to prevent an immediate abort on some LibreOffice versions. Writer
-        and Calc will require re-applying it after add to paint correctly.
+        For CustomShape, ``EnhancedCustomShapeGeometry`` is applied **before**
+        ``page.add`` and re-applied after add in ``UpsertShape`` so the preset
+        geometry expands (ViewBox, Path, Equations, Handles) and the shape paints.
         """
         try:
             if doc is None:
@@ -494,6 +494,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
     # Background/Fill Color
+    fill_color_set = False
     if kwargs.get("fill_color"):
         color_str = kwargs.get("fill_color")
         color_str_l = (color_str or "").strip().lower()
@@ -508,6 +509,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
+                fill_color_set = True
                 _try(
                     failed_props,
                     "fill_color",
@@ -517,11 +519,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                     ),
                 )
 
-    # Fill Style (solid, transparent, etc)
-    if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
+    # Fill Style (solid, transparent, etc; ensure fill is visible when fill_color is set)
+    if (kwargs.get("fill_style") or fill_color_set) and hasattr(shape, "FillStyle"):
 
         def _apply_fill_style() -> None:
-            style_str = kwargs["fill_style"].lower()
+            style_str = (kwargs.get("fill_style") or "solid").lower()
             if style_str in ("none", "transparent"):
                 shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
             elif style_str == "solid":
@@ -771,9 +773,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         draw_shapes = DrawShapes()
 
         try:
-            # Apply EnhancedCustomShapeGeometry *inside* safe_create_shape (before
-            # page.add). Setting Type=octagon after add replaces the live SdrRectObj
-            # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
+            # Apply EnhancedCustomShapeGeometry before page.add, then re-apply after add below.
             shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
         except DrawError as e:
             # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
@@ -786,10 +786,9 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             _try_writer_at_page_shape_finalize(ctx.doc, shape, actual_idx)
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
 
-            # Re-apply EnhancedCustomShapeGeometry after add. While Draw works with the pre-add
-            # geometry, Writer (after AT_PAGE anchor) and Calc require re-applying it so
-            # CustomShapes actually paint correctly on the sheet/page.
-            if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
+            # Re-apply EnhancedCustomShapeGeometry after add on all document types so
+            # LibreOffice expands the preset geometry (ViewBox, Path, etc.) and the shape paints.
+            if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
             failed_props = _apply_shape_properties(shape, kwargs)

@@ -81,11 +81,7 @@ def _invoke_set_property(obj, method, args):
 
 
 def test_shape_upsert_octagon_sets_geometry_before_page_add():
-    """CustomShape Type/engine must be set before page.add; never again after.
-
-    Post-add CustomShapeGeometry Type=octagon replaces the live SdrRectObj and
-    can abort soffice (SfxItemPool::unregisterNameOrIndex).
-    """
+    """CustomShape Type/engine are set before page.add, and Type is re-applied after add."""
     events: list = []
     shape = _RecordingShape(events)
 
@@ -154,9 +150,9 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     geom_props = geom_value if isinstance(geom_value, tuple) else (geom_value,)
     assert any(getattr(p, "Name", None) == "Type" and getattr(p, "Value", None) == "octagon" for p in geom_props), events
 
-    # Double-apply after add is the crashy swap; fill/line may still set after add.
-    assert not any(i > add_idx for i in engine_idxs), events
-    assert not any(i > add_idx for i in geom_idxs), events
+    # Post-add re-apply of CustomShapeGeometry expands preset geometry on Draw too.
+    assert any(i > add_idx for i in geom_idxs), events
+    assert any(i > add_idx for i in engine_idxs), events
 
 
 def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
@@ -1009,6 +1005,35 @@ def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch,
         failed = _apply_shape_properties(shape, props)
         if not isinstance(expected, type):
             assert failed == expected
+
+
+def test_apply_shape_properties_color_forces_solid_style():
+    def _make_shape():
+        shape = MagicMock()
+        shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+        shape.FillStyle = True
+        shape.LineStyle = True
+        return shape
+
+    with patch("plugin.draw.shapes._drawing_enum", side_effect=lambda enum_name, member: (enum_name, member)):
+        s1 = _make_shape()
+        assert _apply_shape_properties(s1, {"fill_color": "#FF0000"}) == []
+        assert ("FillColor", 0xFF0000) in [c.args for c in s1.setPropertyValue.call_args_list]
+        assert ("FillStyle", ("FillStyle", "SOLID")) in [c.args for c in s1.setPropertyValue.call_args_list]
+
+        s2 = _make_shape()
+        assert _apply_shape_properties(s2, {"fill_color": "#FF0000", "fill_style": "none"}) == []
+        fill_styles = [c.args[1] for c in s2.setPropertyValue.call_args_list if c.args[0] == "FillStyle"]
+        assert fill_styles == [("FillStyle", "NONE")]
+
+        s3 = _make_shape()
+        assert _apply_shape_properties(s3, {"fill_color": "not_a_color"}) == ["fill_color"]
+        assert not any(c.args[0] == "FillStyle" for c in s3.setPropertyValue.call_args_list)
+
+        s4 = _make_shape()
+        assert _apply_shape_properties(s4, {"line_color": "#0000FF"}) == []
+        assert ("LineColor", 0x0000FF) in [c.args for c in s4.setPropertyValue.call_args_list]
+        assert ("LineStyle", ("LineStyle", "SOLID")) in [c.args for c in s4.setPropertyValue.call_args_list]
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():
