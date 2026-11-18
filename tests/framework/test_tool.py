@@ -311,6 +311,7 @@ def test_execute_leaves_parameter_without_default_omitted():
     assert none_sent["status"] == "ok"
     assert "occurrence" not in none_sent["kwargs"]
 
+
 def test_get_collection():
     tool = ValidTool()
 

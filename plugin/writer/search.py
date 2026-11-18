@@ -50,6 +50,7 @@ MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
 SEARCH_CASE_SENSITIVE_DEFAULT = False
 
+
 def case_sensitive_param() -> dict[str, Any]:
     """Schema property for search tools whose omitted case_sensitive means case-insensitive.
 

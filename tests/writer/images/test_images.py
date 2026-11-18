@@ -189,6 +189,7 @@ def test_image_generate_omitted_size_uses_settings_through_dispatch():
 
     prepared = prepare_tool_call(ImageGenerate(), ctx, "image_generate", {"prompt": "a cat"})
     assert prepared.error is None
+    assert "aspect_ratio" not in prepared.kwargs and "base_size" not in prepared.kwargs
 
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
