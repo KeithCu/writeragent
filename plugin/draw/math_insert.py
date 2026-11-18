@@ -131,6 +131,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
     specialized_domain: ClassVar[str | None] = "math"
+    specialized_domain_description: ClassVar[str | None] = "Insert an editable LibreOffice Math formula from LaTeX or MathML on a page."
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
         from plugin.draw.bridge import DrawBridge

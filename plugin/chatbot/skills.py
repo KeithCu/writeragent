@@ -56,7 +56,7 @@ If the user provides a personal writing sample or style preference, match that r
 # Scope rules live on the code-owned heading rather than HUMANIZER_GUIDANCE alone, because
 # a user's seeded SKILL.md keeps whatever text it was originally seeded with.
 HUMANIZER_PROMPT_HEADING = (
-    "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document. "
+    "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document (body, cell, slide, or shape text), not for chat replies. "
     "By default keep the document's existing voice and formality — do not add first person, opinions, "
     "tangents, or casual phrasing unless the document already writes that way or the user asks. "
     "Minimal corrections (\"fix this\": spelling and grammar in the current sentence) are exempt.]"

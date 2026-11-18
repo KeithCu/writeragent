@@ -147,7 +147,8 @@ class ToolDrawVisionBase(ToolDrawSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Runs OCR on the currently selected image and returns the recognized text."
+        "Runs OCR on the selected picture and returns its exact text; the page is unchanged. "
+        "Use this call for OCR. If no picture is selected, ask the user to select it."
     )
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 

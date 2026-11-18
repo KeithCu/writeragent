@@ -110,6 +110,7 @@ messages:   user / assistant / tool history          append-only, never rewritte
      2026-11-09), so keeping the snapshot inside any `tool_result` invalidates the entire
      cache on document edit; splitting it out keeps the prefix cached while commit
      2fd9c1777 (#3093) preserves the folded format for other providers (e.g. gpt-oss-20b).
+     On sidebar user turns, the snapshot block starts with `\n\n` so template concatenation never glues it to the user's words, and `_is_tail_text` ignores the leading whitespace.
    - **Other providers:** need nothing. They benefit from the stable prefix
      automatically.
 5. **Later, only if measurements justify it:** split the document body, which changes

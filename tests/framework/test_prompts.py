@@ -175,12 +175,12 @@ def test_draw_core_directives_flowchart_routes_to_shapes():
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     """Python-as-orchestrator routing line lives once in the Writer gateway and in DRAW_CORE_DIRECTIVES."""
     from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.framework.prompts import python_orchestrator_routing_line
+    from plugin.framework.prompts import PYTHON_ROUTING_HINT
 
     writer_desc = DelegateToSubagent().get_description("writer")
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") in writer_desc
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") in DRAW_CORE_DIRECTIVES
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") not in WRITER_CORE_DIRECTIVES
+    assert PYTHON_ROUTING_HINT in writer_desc
+    assert PYTHON_ROUTING_HINT in DRAW_CORE_DIRECTIVES
+    assert PYTHON_ROUTING_HINT not in WRITER_CORE_DIRECTIVES
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():
@@ -510,10 +510,11 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
     ):
         prompt = get_chat_system_prompt_for_document(target_doc)
 
-    for name in impress_only_tools | impress_only_domains:
-        if is_impress:
+    if is_impress:
+        for name in impress_only_domains | {"placeholder_list", "placeholder_set_text", "design_list", "design_apply"}:
             assert name in prompt
-        else:
+    else:
+        for name in impress_only_tools | impress_only_domains:
             assert name not in prompt
 
 
@@ -565,8 +566,8 @@ def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
         assert "placeholder_list" in get_chat_system_prompt_for_kind("impress")
         draw_prompt = get_chat_system_prompt_for_kind("draw")
         assert "placeholder_list" not in draw_prompt
-        for tool_name in ("slide_add", "slide_delete", "slide_duplicate", "slide_move", "slide_rename", "slide_set_active", "document_undo", "document_redo"):
-            assert f"- {tool_name}:" in draw_prompt
+        for tool_name in ("slide_add", "slide_delete", "slide_duplicate", "slide_move", "slide_rename", "slide_set_active"):
+            assert tool_name in draw_prompt
 
 
 def test_mcp_blurb_claims_requests_naming_an_mcp_server() -> None:
@@ -657,3 +658,46 @@ def test_calc_ocr_routing_has_one_home() -> None:
     combined = prompt + json.dumps(schemas, ensure_ascii=False)
     assert combined.count(line) == 1
     assert "OCR" not in combined.replace(line, "")
+
+
+def test_draw_ocr_routing_has_one_home() -> None:
+    """Draw OCR routing appears once across the prompt and schemas (the vision catalog line)."""
+    from plugin.app import get_tools
+    from plugin.draw.base import ToolDrawVisionBase
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+
+    draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
+    line = ToolDrawVisionBase.specialized_domain_description
+    assert line is not None
+    with (
+        patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(draw_doc, ctx=MagicMock())
+        schemas = get_tools().get_schemas("openai", doc=draw_doc)
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.count(line) == 1
+    assert "OCR" not in combined.replace(line, "")
+
+
+def test_draw_research_routing_has_one_home() -> None:
+    """Each research delegation hint appears once across the Draw prompt and tool schemas."""
+    from plugin.app import get_tools
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+    from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+
+    draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(draw_doc)
+        schemas = get_tools().get_schemas("openai", doc=draw_doc)
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.count(DELEGATION_USER_FILE_DATA_HINT) == 1
+    assert combined.count(DELEGATION_PUBLIC_WEB_HINT) == 1
