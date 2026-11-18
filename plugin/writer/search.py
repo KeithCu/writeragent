@@ -1587,15 +1587,23 @@ class SearchInDocument(ToolBase):
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
-            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+            "regex": {"type": "boolean", "default": False, "description": "Use regular expression (ICU syntax)."},
+            "case_sensitive": {
+                "type": "boolean",
+                "default": SEARCH_CASE_SENSITIVE_DEFAULT,
+                "description": (
+                    "Case-sensitive match. "
+                    "The result includes matched_case_sensitive for the mode that ran."
+                ),
+            },
             "max_results": {
                 "type": "integer",
-                "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
+                "default": DEFAULT_SEARCH_RESULTS,
+                "description": "Maximum results to return. Must be a positive integer.",
             },
-            "return_offsets": {"type": "boolean", "description": (
+            "return_offsets": {"type": "boolean", "default": False, "description": (
                 "If true, returns {start, end, text} character offsets for body text only "
-                "(no regex, no shapes/comments). Default: false.")},
+                "(no regex, no shapes/comments).")},
         },
         "required": ["pattern"],
     }

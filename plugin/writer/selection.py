@@ -56,7 +56,7 @@ class SetSelection(ToolBase):
         "type": "object",
         "properties": {
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match to select when search_text repeats (default 0)."},
+            "occurrence": {"type": "integer", "minimum": 0, "default": 0, "description": "0-based match to select when search_text repeats."},
             "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
             "char_start": {"type": "integer", "minimum": 0, "description": "Alternative to search_text: 0-based start character offset (body text)."},
             "char_end": {"type": "integer", "minimum": 0, "description": "End character offset (exclusive), required with char_start."},
