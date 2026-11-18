@@ -23,7 +23,7 @@ from plugin.doc.visual_helpers import anchor_type_index
 from plugin.framework.client.http_transport import HttpResult
 from plugin.framework.errors import DocumentDisposedError, NetworkError
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.framework.tool import ToolContext, ToolRegistry
+from plugin.framework.tool import ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.images.image_utils import IMAGE_DOWNLOAD_MAX_BYTES
 from plugin.writer.images.images import (
     ImageCropAndHighlight,
@@ -168,6 +168,45 @@ def test_image_generate_forwards_stop_checker():
         res = ImageGenerate().execute(ctx, prompt="a stop checked cat")
     assert res["status"] == "ok"
     assert svc.generate_image.call_args.kwargs.get("cancel") is scope
+
+
+def test_image_generate_omitted_size_uses_settings_through_dispatch():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/new.png"], None)
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    base_side_effect = _image_tool_config_side_effect(512)
+
+    def _cfg(key, default=None):
+        if key == "image_base_size":
+            return 512
+        if key == "image_default_aspect":
+            return "landscape_16_9"
+        return base_side_effect(key)
+
+    prepared = prepare_tool_call(ImageGenerate(), ctx, "image_generate", {"prompt": "a cat"})
+    assert prepared.error is None
+    assert "aspect_ratio" not in prepared.kwargs and "base_size" not in prepared.kwargs
+
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image"),
+        patch("plugin.writer.images.images.get_config", side_effect=_cfg),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, **prepared.kwargs)
+
+    assert res["status"] == "ok"
+    gen_kwargs = svc.generate_image.call_args.kwargs
+    assert gen_kwargs["height"] == 512
+    assert gen_kwargs["width"] == 896
+    assert gen_kwargs["aspect_ratio"] == "16:9"
 
 
 def test_image_generate_inserts_even_if_stopped_after_download():

@@ -43,6 +43,7 @@ In `plugin/calc/manipulator.py`, `_parse_json_array_string` walks the string wit
 - **Strings from numbers**: non-bool `int`/`float` convert to `str` when the schema type includes `string`.
 - **Arrays & objects**: JSON strings starting with `[` or `{` are parsed; a parsed dict becomes `[dict]` for array-only types, and other bare non-list values wrap into `[value]` for arrays.
 - **Unique-match enums**: string enum misses are matched only when a unique string member matches under (a) casefold + space/hyphen→`_`, (b) plural `s`, or (c) one edit for values of 5+ characters; ambiguous or unmatched values fall through to `VALIDATION_ERROR`.
+- **Schema defaults**: after `validate()` passes, `prepare_tool_call` fills omitted optional parameters from the schema `"default"` (deep-copied). Properties without a `"default"` stay omitted (three-state parameters rely on this); `RemoteMcpTool` opts out via `fills_schema_defaults=False`. A schema `"default"` must equal what `execute` does when the key is absent; config-driven values such as `image_generate`'s size and aspect ratio take no schema default.
 
 ## 6. Robust Linebreak Normalization
 **Problem**: LLMs (especially when streaming or acting as a sub-agent) are inconsistent with line endings, often mixing `\n`, `\r\n`, and occasionally `\n\r` or legacy `\r`. This breaks structural operations like paragraph splitting (`split("\n\n")`) and can cause search/replace failures if the AI's response uses a different sequence than the document's internal representation.

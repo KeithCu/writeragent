@@ -243,7 +243,13 @@ def test_search_in_document_null_max_results_uses_the_default():
     ctx = SimpleNamespace(doc_type="writer", caller="test")
     prep = prepare_tool_call(SearchInDocument(), ctx, "search", {"pattern": "test", "max_results": None})
     assert prep.error is None
-    assert prep.kwargs == {"pattern": "test"}
+    assert prep.kwargs == {
+        "pattern": "test",
+        "regex": False,
+        "case_sensitive": False,
+        "max_results": 20,
+        "return_offsets": False,
+    }
 
 
 def test_search_in_document_default_max_results_is_20():

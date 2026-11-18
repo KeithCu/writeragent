@@ -400,6 +400,7 @@ def test_bypass_thread_guard_still_works_via_registry(monkeypatch):
         parameters = {"type": "object", "properties": {}}
         uno_services = None
         doc_types = None
+        fills_schema_defaults = True
 
         def get_parameters(self, doc_type=None):
             return self.parameters

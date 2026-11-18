@@ -50,10 +50,17 @@ MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
 SEARCH_CASE_SENSITIVE_DEFAULT = False
 
-CASE_SENSITIVE_DESCRIPTION = (
-    "Case-sensitive match (default: false). "
-    "The result includes matched_case_sensitive for the mode that ran."
-)
+
+def case_sensitive_param() -> dict[str, Any]:
+    """Schema property for search tools whose omitted case_sensitive means case-insensitive.
+
+    The exact-first ladder tools use LADDER_CASE_SENSITIVE_DESCRIPTION and no default.
+    """
+    return {
+        "type": "boolean",
+        "default": SEARCH_CASE_SENSITIVE_DEFAULT,
+        "description": "Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.",
+    }
 
 
 def resolve_case_sensitive(raw: Any) -> bool:
@@ -1588,14 +1595,7 @@ class SearchInDocument(ToolBase):
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "default": False, "description": "Use regular expression (ICU syntax)."},
-            "case_sensitive": {
-                "type": "boolean",
-                "default": SEARCH_CASE_SENSITIVE_DEFAULT,
-                "description": (
-                    "Case-sensitive match. "
-                    "The result includes matched_case_sensitive for the mode that ran."
-                ),
-            },
+            "case_sensitive": case_sensitive_param(),
             "max_results": {
                 "type": "integer",
                 "default": DEFAULT_SEARCH_RESULTS,

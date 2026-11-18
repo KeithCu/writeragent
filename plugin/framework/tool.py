@@ -34,6 +34,7 @@ cancel is ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 
 from __future__ import annotations
 
+import copy
 import difflib
 import logging
 import queue
@@ -307,6 +308,8 @@ class ToolBase(_ToolErrorMixin, ABC):
     # When False, the MCP executor runs the tool even with no document open (e.g. the
     # tool_find discovery meta-tool); the default requires an open document.
     requires_document: bool = True
+    # When True, prepare_tool_call gives an omitted optional parameter its JSON Schema "default".
+    fills_schema_defaults: ClassVar[bool] = True
     # Extra tools this domain's sub-agent should see, by name. Core readers
     # (get_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
@@ -552,7 +555,7 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     ``WriterAgentToolCallingAgent`` skips smolagents' own ``validate_tool_arguments``
     for adapters, so sub-agents get the same coercion, unknown-key drop, and
     ``VALIDATION_ERROR`` payload. Steps: allow-list filter, optional-null drop,
-    ``coerce_call_args``, and ``tool.validate()``.
+    ``coerce_call_args``, ``tool.validate()``, then schema defaults.
     """
     # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
     # from API/LLM) do not cause "Unknown parameter" validation errors.
@@ -591,6 +594,17 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
         # under another name (paragraph_index): show which names were dropped.
         extra = {"ignored_parameters": ignored} if ignored else {}
         return PreparedToolCall(kwargs, ignored, common_details, make_tool_error(err, code="VALIDATION_ERROR", **common_details, **extra))
+    if tool.fills_schema_defaults:
+        # Omitted optional parameters take their schema default here, so chat,
+        # MCP, wa.* scripts and sub-agents all reach execute with the same
+        # values. A property without "default" stays omitted, which three-state
+        # parameters rely on. deepcopy keeps a mutable default (e.g.
+        # field_insert.properties={}) from being shared between calls. The fill
+        # runs after validate() because defaults are code constants that the
+        # registry test pins.
+        for key, spec in props.items():
+            if key not in kwargs and isinstance(spec, dict) and "default" in spec:
+                kwargs[key] = copy.deepcopy(spec["default"])
     return PreparedToolCall(kwargs, ignored, common_details, None)
 
 

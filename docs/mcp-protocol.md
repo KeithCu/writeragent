@@ -969,7 +969,7 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
 
-Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false** for read tools; shared constant `SEARCH_CASE_SENSITIVE_DEFAULT` in [`search.py`](../plugin/writer/search.py)),
+Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false** for read tools; shared property `case_sensitive_param()` in [`search.py`](../plugin/writer/search.py) for Writer, Calc, Draw and research grep search tools),
 `max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
 no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern is validated by LibreOffice's ICU engine via `TextSearch2` before searching (LibreOffice itself reports a bad pattern as zero hits); floating shapes and comments use Python `re` with no separate check (ICU-only syntax matches nothing there). Read search tools across domains share this case-insensitive default (omitted or JSON `null` means case-insensitive) and report `matched_case_sensitive`. Writer edit and anchor tools use the exact-first ladder (exact case first, insensitive fallback only when nothing matches); `apply_content`, `apply_style`, `set_selection`, `add_comment`, `footnotes_insert`, `page_insert_break`, and `page_replace_header_footer_text` report both `matched_case_sensitive` and `matched_folded` (cursor-only specialized `target='search'` inserts and TOC tools use the ladder without adding those fields).
 

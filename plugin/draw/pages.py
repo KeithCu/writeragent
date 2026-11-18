@@ -32,7 +32,7 @@ from plugin.framework.uno_context import uno_same
 from plugin.writer.search import (
     DEFAULT_SEARCH_RESULTS,
     MAX_SEARCH_HITS,
-    SEARCH_CASE_SENSITIVE_DEFAULT,
+    case_sensitive_param,
     invalid_regex_tool_message,
     resolve_case_sensitive,
     search_results_cap_hint,
@@ -320,14 +320,7 @@ class SearchSlides(ToolBase):
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "default": False, "description": "Use regular expression."},
-            "case_sensitive": {
-                "type": "boolean",
-                "default": SEARCH_CASE_SENSITIVE_DEFAULT,
-                "description": (
-                    "Case-sensitive match. "
-                    "The result includes matched_case_sensitive for the mode that ran."
-                ),
-            },
+            "case_sensitive": case_sensitive_param(),
             "max_results": {
                 "type": "integer",
                 "default": DEFAULT_SEARCH_RESULTS,

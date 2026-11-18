@@ -119,7 +119,7 @@ class GetDocumentContent(ToolBase):
             "max_chars": {"type": "integer", "description": "Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters)."},
             "start": {"type": "integer", "description": "Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end."},
             "end": {"type": "integer", "description": "Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'."},
-            "include_images": {"type": "boolean", "default": False, "description": "Include embedded image data (base64) in export. An image comes back as its wrapper with the picture's name (<div|span ... id=\"Name\"><img src=\"\"/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture."},
+            "include_images": {"type": "boolean", "default": False, "description": "Include embedded image data (base64) in export. When false, an image comes back as its wrapper with the picture's name (<div|span ... id=\"Name\"><img src=\"\"/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture."},
         },
         "required": [],
     }

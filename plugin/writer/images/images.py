@@ -271,14 +271,17 @@ class ImageGenerate(ToolWriterImageBase):
                 "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
                 "Omit while a graphic is selected to edit in place; omit with no selection to create a new image."
             )},
-            "aspect_ratio": {"type": "string", "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"], "default": "square"},
+            "aspect_ratio": {
+                "type": "string",
+                "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"],
+                "description": "Omit to use the aspect ratio set in Settings.",
+            },
             "base_size": {
                 "type": "integer",
                 "description": (
-                    "Generate resolution in pixels (> 0, default 1024). "
+                    "Generate resolution in pixels (> 0). Omit to use the size set in Settings. "
                     "On-page display is capped independently (~135mm longer edge)."
                 ),
-                "default": DEFAULT_IMAGE_BASE_SIZE,
             },
             "width": {"type": "integer", "description": "Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
             "height": {"type": "integer", "description": "Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
