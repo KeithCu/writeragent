@@ -5,7 +5,7 @@
 Process pool supervisor for a bounded set of child workers.
 
 Spawn, handshake, framed request, and reap live in ``plugin.framework.warm_child``
-(``spawn_managed_child_with_handshake``, ``framed_request_roundtrip``) and
+(``ChildSlot._spawn_child``, ``framed_request_roundtrip``) and
 ``plugin.framework.child_runtime`` (``Deadline``, ``announce_ready``, ``error_dict``).
 ``process_worker.BaseProcessWorker`` is the slot that calls them. Formula and vision
 share that slot. Kokoro uses ``warm_child.WarmChild``. This module is the multi-slot
@@ -447,7 +447,7 @@ class BaseProcessPool:
             self._cond.notify_all()
         # request_shutdown takes _lifecycle_lock. Keep that outside _cond so
         # a lease waiting on the condition is not stuck behind the flag.
-        # Adopt then either sees the flag or publishes a child kill() signals.
+        # ``_publish`` then either sees the flag or publishes a child kill() signals.
         for w in workers_to_kill:
             w.request_shutdown()
         # Reaping worker processes can take seconds (kill + wait).

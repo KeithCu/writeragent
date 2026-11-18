@@ -21,12 +21,13 @@ from plugin.framework.child_runtime import Deadline
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.warm_child import (
     Child,
+    ChildSlot,
     ChildSpec,
     Death,
     Supervisor,
     WarmChild,
     _SpawnRequest,
-    spawn_managed_child_with_handshake,
+    stderr_thread_name,
 )
 
 
@@ -185,7 +186,7 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
     warm.kill()
     t.join(timeout=10)
     assert not t.is_alive()
-    assert warm._child is None or not warm.is_alive()
+    assert warm.child is None or not warm.is_alive()
     script2 = _stdio_worker(tmp_path)
     warm2 = WarmChild(_spec(tmp_path, script2), supervisor=supervisor)
     try:
@@ -325,7 +326,7 @@ def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Superv
     managed = ManagedSubprocess.wrap_existing(proc, label="slow-child")
     warm = WarmChild(_spec(tmp_path, "pass"), supervisor=supervisor)
     child = Child(managed, worker_name="test", worker_id=0)
-    warm._child = child
+    warm.child = child
 
     calls: list[str] = []
 
@@ -437,7 +438,7 @@ def _managed_with_popen() -> ManagedSubprocess:
     return ManagedSubprocess.wrap_existing(_FakePopen(), label="spawn-helper-test")
 
 
-def test_spawn_helper_refused_signals_without_pipe_io(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_child_slot_refused_signals_only_its_own_child(monkeypatch: pytest.MonkeyPatch) -> None:
     read_calls: list[str] = []
 
     def fail_read(*args: Any, **kwargs: Any) -> tuple[str, Any]:
@@ -445,26 +446,52 @@ def test_spawn_helper_refused_signals_without_pipe_io(monkeypatch: pytest.Monkey
         raise AssertionError("read_ready_frame_during_io must not run on refused")
 
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
-    managed = _managed_with_popen()
-    tag, extra, spawned = spawn_managed_child_with_handshake(
-        managed,
+    sentinel = {"status": "error", "code": "SENTINEL", "message": "refused"}
+
+    class _RefusingSlot(ChildSlot):
+        def _publish_refusal(self) -> dict[str, Any] | None:
+            return sentinel
+
+    slot = _RefusingSlot()
+    outcome = slot._spawn_child(
+        _managed_with_popen(),
         worker_name="warm-test",
         worker_id=0,
-        is_alive=lambda: True,
-        max_payload_bytes=1024,
-        unpacker=None,
-        start=lambda unused: None,
-        publish=lambda unused: False,
+        start=lambda _m: None,
         deadline=None,
         cap_sec=5.0,
+        max_payload_bytes=1024,
+        unpacker=None,
     )
-    assert tag == "refused"
-    assert extra is None
+    assert outcome.tag == "refused"
+    assert outcome.detail is sentinel
     assert read_calls == []
-    assert spawned.was_signaled()
+    assert outcome.child is not None
+    assert outcome.child.was_signaled()
+    assert slot.child is None
+
+    occupied = ChildSlot()
+    existing = Child(_managed_with_popen(), worker_name="warm-test", worker_id=0)
+    occupied.child = existing
+    outcome2 = occupied._spawn_child(
+        _managed_with_popen(),
+        worker_name="warm-test",
+        worker_id=0,
+        start=lambda _m: None,
+        deadline=None,
+        cap_sec=5.0,
+        max_payload_bytes=1024,
+        unpacker=None,
+    )
+    assert outcome2.tag == "refused"
+    assert outcome2.detail["code"] == "WORKER_SPAWN_FAILED"
+    assert not existing.was_signaled()
+    assert occupied.child is existing
+    assert outcome2.child is not None
+    assert outcome2.child.was_signaled()
 
 
-def test_spawn_helper_budget_exhausted_skips_begin_io(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_child_slot_budget_exhausted_kills_without_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     read_calls: list[str] = []
 
     def fail_read(*args: Any, **kwargs: Any) -> tuple[str, Any]:
@@ -473,55 +500,81 @@ def test_spawn_helper_budget_exhausted_skips_begin_io(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
     monkeypatch.setattr("plugin.framework.warm_child.spawn_budget", lambda deadline: None)
-    managed = _managed_with_popen()
-    tag, extra, spawned = spawn_managed_child_with_handshake(
-        managed,
+    slot = ChildSlot()
+    outcome = slot._spawn_child(
+        _managed_with_popen(),
         worker_name="warm-test",
         worker_id=0,
-        is_alive=lambda: True,
-        max_payload_bytes=1024,
-        unpacker=None,
-        start=lambda unused: None,
-        publish=lambda unused: True,
+        start=lambda _m: None,
         deadline=Deadline(15.0),
         cap_sec=5.0,
+        max_payload_bytes=1024,
+        unpacker=None,
     )
-    assert tag == "budget_exhausted"
-    assert extra is None
+    assert outcome.tag == "budget_exhausted"
+    assert outcome.published is True
     assert read_calls == []
-    assert spawned._io_owner is None
+    assert outcome.child is not None
+    assert outcome.child._io_owner is None
+    assert outcome.child.was_signaled()
+    assert slot.child is None
 
 
-def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_child_slot_read_exception_reports_failed_and_empties_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    err = RuntimeError("handshake read failed")
+
     def boom(*args: Any, **kwargs: Any) -> tuple[str, Any]:
-        raise RuntimeError("handshake read failed")
+        raise err
 
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", boom)
-    managed = _managed_with_popen()
-    published: list[Child] = []
+    slot = ChildSlot()
+    outcome = slot._spawn_child(
+        _managed_with_popen(),
+        worker_name="warm-test",
+        worker_id=0,
+        start=lambda _m: None,
+        deadline=None,
+        cap_sec=5.0,
+        max_payload_bytes=1024,
+        unpacker=None,
+    )
+    assert outcome.tag == "failed"
+    assert outcome.detail is err
+    assert outcome.published is True
+    assert slot.child is None
+    assert outcome.child is not None
+    assert outcome.child._io_owner is None
+    assert outcome.child.was_signaled()
 
-    def publish(child: Child) -> bool:
-        published.append(child)
-        return True
 
-    with pytest.raises(RuntimeError, match="handshake read failed"):
-        spawn_managed_child_with_handshake(
-            managed,
-            worker_name="warm-test",
-            worker_id=0,
-            is_alive=lambda: True,
-            max_payload_bytes=1024,
-            unpacker=None,
-            start=lambda unused: None,
-            publish=publish,
-            deadline=None,
-            cap_sec=5.0,
-        )
-    assert len(published) == 1
-    spawned = published[0]
-    assert spawned._io_owner is not None
-    spawned.end_io()
-    assert spawned._io_owner is None
+def test_child_slot_timeout_reports_returncode_before_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.read_ready_frame_during_io",
+        lambda *args, **kwargs: ("timeout", None),
+    )
+    slot = ChildSlot()
+    outcome = slot._spawn_child(
+        _managed_with_popen(),
+        worker_name="warm-test",
+        worker_id=0,
+        start=lambda _m: None,
+        deadline=None,
+        cap_sec=5.0,
+        max_payload_bytes=1024,
+        unpacker=None,
+    )
+    assert outcome.tag == "timeout"
+    assert outcome.detail is None
+    assert slot.child is None
+    assert outcome.child is not None
+    assert outcome.child.was_signaled()
+
+
+def test_stderr_thread_name() -> None:
+    assert stderr_thread_name("Kokoro", fallback="worker", worker_id=1) == "wa-kokoro-w1-stderr"
+    assert stderr_thread_name("---", fallback="worker", worker_id=3) == "wa-worker-w3-stderr"
+    assert stderr_thread_name("Venv Worker", fallback="warm") == "wa-venv-worker-stderr"
+    assert stderr_thread_name("---", fallback="warm") == "wa-warm-stderr"
 
 
 def test_lease_cancel_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervisor) -> None:
@@ -608,7 +661,7 @@ def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> Non
         with pytest.raises(OSError):
             with warm.lease(Deadline(5.0)) as leased:
                 assert not isinstance(leased, dict)
-        assert warm._child is None
+        assert warm.child is None
     finally:
         warm.retire()
 
@@ -988,7 +1041,7 @@ def test_spawn_exception_after_publish_kills_child_and_reports(
             assert isinstance(leased, dict)
             assert leased["code"] == "WORKER_SPAWN_FAILED"
             assert "handshake boom" in leased["error"]
-        assert warm._child is None
+        assert warm.child is None
         assert len(recorded) == 1
         assert recorded[0].managed.popen is not None
         assert recorded[0].managed.popen.poll() is not None
@@ -1011,6 +1064,6 @@ def test_spawn_start_runtime_error_before_publish_reports(
             assert isinstance(leased, dict)
             assert leased["code"] == "WORKER_SPAWN_FAILED"
             assert "Supervisor spawn timed out" in leased["error"]
-        assert warm._child is None
+        assert warm.child is None
     finally:
         warm.retire()
