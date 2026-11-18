@@ -136,7 +136,7 @@ def _make_doc_with_sheets():
         ("sheet_switch", {"sheet": "NoSuchSheet"}, True),
         ("sheet_rename", {"old_name": "NoSuchSheet", "new_name": "NewName"}, False),
         ("sheet_delete", {"sheet": "NoSuchSheet"}, False),
-        ("sheet_protect", {"sheet": "NoSuchSheet"}, False),
+        ("sheet_protect", {"sheet": "NoSuchSheet", "protect": True}, False),
     ],
 )
 def test_sheet_tool_missing_name_returns_uno_object_error(tool_name, kwargs, check_hint):

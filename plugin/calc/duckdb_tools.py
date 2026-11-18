@@ -74,7 +74,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 ),
             },
             "data_range": {"type": "string", "description": "Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity."},
-            "headers": {"type": "boolean", "description": "First row of data_range (or preloaded) contains column headers (default true)."},
+            "headers": {"type": "boolean", "default": True, "description": "First row of data_range (or preloaded) contains column headers."},
             "tables": {
                 "type": "object",
                 "additionalProperties": {
@@ -105,7 +105,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         # files is {SQL table name: basename or basename#Sheet}; nested values are not schema-checked, hence str().
         file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if str(v).strip()]
         data_range = str(kwargs.get("data_range") or "").strip() or None
-        headers = bool(kwargs.get("headers", True))
+        headers: bool = kwargs["headers"]
         tables = dict(kwargs.get("tables") or {})
         if data_range:
             if "data" in tables:

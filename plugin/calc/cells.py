@@ -835,8 +835,8 @@ class SortRange(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to sort. {CALC_RANGE_LIST_NOTE}"},
-            "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
-            "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
+            "sort_column": {"type": "integer", "default": 0, "description": ("0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.")},
+            "ascending": {"type": "boolean", "default": True, "description": ("true = smallest first; false = largest/highest first.")},
             "then_by": {
                 "type": "array",
                 "items": {
@@ -861,12 +861,12 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        sort_column: int = kwargs.get("sort_column", 0)
+        sort_column: int = kwargs["sort_column"]
         # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound for every key lives in range_sort.
         if sort_column < 0:
             return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
-        ascending: bool = kwargs.get("ascending", True)
+        ascending: bool = kwargs["ascending"]
 
         then_by = parse_then_by(kwargs.get("then_by", []))
         if then_by is None:

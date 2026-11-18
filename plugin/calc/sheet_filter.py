@@ -49,7 +49,8 @@ _RANGE_PARAM_SCHEMA: dict[str, Any] = {
 }
 _HAS_HEADER_PARAM_SCHEMA: dict[str, Any] = {
     "type": "boolean",
-    "description": "First row is headers only (default true).",
+    "default": True,
+    "description": "First row is headers only.",
 }
 
 
@@ -126,7 +127,7 @@ def _run_filter(
     criteria: list[dict[str, Any]],
 ) -> str:
     range_name = range_args(kwargs.get("range"), exactly_one=True)[0]
-    has_header = bool(kwargs.get("has_header", True))
+    has_header: bool = kwargs["has_header"]
     cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
     ra = cell_range.getRangeAddress()
     range_width = ra.EndColumn - ra.StartColumn + 1

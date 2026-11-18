@@ -42,11 +42,11 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
+            "regex": {"type": "boolean", "default": False, "description": "Use regular expression (ICU syntax)."},
             "case_sensitive": case_sensitive_param(),
-            "max_results": {"type": "integer", "minimum": 1, "description": "Maximum results to return (default: 50). Must be a positive integer."},
+            "max_results": {"type": "integer", "minimum": 1, "default": 50, "description": "Maximum results to return. Must be a positive integer."},
             "sheet": {"type": "string", "description": "Sheet to search (active sheet if omitted)."},
-            "all_sheets": {"type": "boolean", "description": "Search all sheets (default: false)."},
+            "all_sheets": {"type": "boolean", "default": False, "description": "Search all sheets."},
         },
         "required": ["pattern"],
     }
@@ -57,12 +57,12 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         if not pattern:
             return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
-        max_results = kwargs.get("max_results", 50)
+        max_results = kwargs["max_results"]
         # Type is settled by the schema; minimum is advertised but not enforced, so the bound is checked here.
         if max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
 
-        use_regex = kwargs.get("regex", False)
+        use_regex = kwargs["regex"]
         if use_regex:
             _validate_regex(ctx, pattern)
 
@@ -74,7 +74,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             regex=use_regex,
             case_sensitive=case_sensitive,
             max_results=max_results,
-            all_sheets=kwargs.get("all_sheets", False),
+            all_sheets=kwargs["all_sheets"],
             sheet_name=kwargs.get("sheet"),
             cancel=scope,
         )
@@ -92,10 +92,10 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         "properties": {
             "search": {"type": "string", "description": "Text or regex pattern to find."},
             "replace": {"type": "string", "description": "Replacement text."},
-            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
+            "regex": {"type": "boolean", "default": False, "description": "Use regular expression (ICU syntax)."},
             "case_sensitive": case_sensitive_param(),
             "sheet": {"type": "string", "description": "Sheet to operate on (active sheet if omitted)."},
-            "all_sheets": {"type": "boolean", "description": "Replace across all sheets (default: false)."},
+            "all_sheets": {"type": "boolean", "default": False, "description": "Replace across all sheets."},
         },
         "required": ["search", "replace"],
     }
@@ -108,13 +108,13 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         if not search:
             return self._tool_error("search is required.", code="INVALID_PARAM")
 
-        use_regex = kwargs.get("regex", False)
+        use_regex = kwargs["regex"]
         if use_regex:
             _validate_regex(ctx, search)
 
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         total = 0
-        for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=kwargs.get("all_sheets", False), sheet_name=kwargs.get("sheet")):
+        for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=kwargs["all_sheets"], sheet_name=kwargs.get("sheet")):
             rd = sheet.createReplaceDescriptor()
             configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=case_sensitive)
             rd.ReplaceString = replace

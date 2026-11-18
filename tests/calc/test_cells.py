@@ -1976,18 +1976,20 @@ def test_sort_range_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
+        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1, ascending=True)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
         manipulator.range_sort.return_value = "Sorted"
-        res_ok = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True)
+        prep_ok = prepare_tool_call(_tool("sort_range"), SimpleNamespace(doc_type="calc"), "sort_range", {"range": ["A1:B2"], "has_header": True})
+        assert prep_ok.error is None
+        res_ok = _tool("sort_range").execute_safe(ctx, **prep_ok.kwargs)
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", [(0, True)], has_header=True)
 
         manipulator.range_sort.reset_mock()
-        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, then_by=[{"column": 0}])
+        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=0, ascending=True, then_by=[{"column": 0}])
         assert res_bad_then_by["status"] == "error"
         assert res_bad_then_by["code"] == "INVALID_PARAM"
         manipulator.range_sort.assert_not_called()
@@ -2006,7 +2008,7 @@ def test_sort_range_validation():
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
-        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True, sort_column=0, ascending=True)
         assert res_multi["status"] == "ok"
         assert res_multi["message"] == "A done. B done."
 

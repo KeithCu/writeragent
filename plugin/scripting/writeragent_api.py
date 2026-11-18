@@ -710,12 +710,12 @@ class _CalcProxy:
         """
         return _result(call_host_tool("detect_errors", range=range_name))
 
-    def evaluate_formula(self, formula: str, *, cell: str | None = None) -> _Item:
+    def evaluate_formula(self, formula: str, *, cell: str = 'A1') -> _Item:
         """Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets.
 
         Args:
             formula (required): The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'.
-            cell (optional): Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5' (defaults to 'A1'). A sheet prefix is ignored. A defined name is rejected.
+            cell (optional): Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5'. A sheet prefix is ignored. A defined name is rejected.
         """
         return _result(call_host_tool("evaluate_formula", formula=formula, cell=cell))
 
@@ -774,29 +774,29 @@ class _CalcProxy:
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
 
-    def replace_cells(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool = False, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def replace_cells(self, search: str, replace: str, *, regex: bool = False, case_sensitive: bool = False, sheet: str | None = None, all_sheets: bool = False) -> _Item:
         """Find and replace text or values in a Calc spreadsheet. Returns count of replacements made.
 
         Args:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
-            regex (optional): Use regular expression (ICU syntax, default: false).
+            regex (optional): Use regular expression (ICU syntax).
             case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
-            all_sheets (optional): Replace across all sheets (default: false).
+            all_sheets (optional): Replace across all sheets.
         """
         return _result(call_host_tool("replace_cells", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets))
 
-    def search_cells(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool = False, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def search_cells(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, sheet: str | None = None, all_sheets: bool = False) -> _Item:
         """Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (ICU syntax, default: false).
+            regex (optional): Use regular expression (ICU syntax).
             case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
+            max_results (optional): Maximum results to return. Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
-            all_sheets (optional): Search all sheets (default: false).
+            all_sheets (optional): Search all sheets.
         """
         return _result(call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets))
 
@@ -822,14 +822,14 @@ class _CalcProxy:
         """
         return _result(call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit))
 
-    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None, then_by: list[Any] | None = None) -> _Item:
+    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int = 0, ascending: bool = True, then_by: list[Any] | None = None) -> _Item:
         """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
             range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
-            sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
-            ascending (optional): true = smallest first (default); false = largest/highest first.
+            sort_column (optional): 0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.
+            ascending (optional): true = smallest first; false = largest/highest first.
             then_by (optional): Optional tie-break keys, applied in order when the keys before them are equal (sort_column/ascending is always the first key). Each item: {"column": 0-based index inside the range, "ascending": true|false}. Omit for a one-key sort.
         """
         return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, then_by=then_by, has_header=has_header))
@@ -1778,25 +1778,25 @@ memory = _MemoryProxy()
 class _NamedRangeProxy:
     """Proxy for named_range tools."""
 
-    def add(self, name: str, content: str, *, scope: str | None = None, base_cell: str | None = None, flags: builtins.list[str] | None = None) -> _Item:
+    def add(self, name: str, content: str, *, scope: str = 'global', base_cell: str = 'A1', flags: builtins.list[str] | None = None) -> _Item:
         """Defines a new named range or formula expression in the workbook (global) or specific sheet. Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria').
 
         Args:
             name (required): Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.
             content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').
-            scope (optional): Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').
-            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error.
+            scope (optional): Scope of the name: 'global' or a specific sheet name (e.g. 'Sheet1').
+            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Without a sheet prefix it is on the scope sheet (the first sheet for global scope). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
         """
         return _result(call_host_tool("named_range_add", name=name, content=content, scope=scope, base_cell=base_cell, flags=flags))
 
-    def create_from_titles(self, range_name: builtins.list[str], *, border: str | None = None, scope: str | None = None) -> _Item:
+    def create_from_titles(self, range_name: builtins.list[str], *, border: str = 'top', scope: str = 'global') -> _Item:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
             range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
-            scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
+            border (optional): Which edge contains the title labels: 'top', 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
+            scope (optional): Container scope for creating the names: 'global' or specific sheet name.
         """
         return _result(call_host_tool("named_range_create_from_titles", range=range_name, border=border, scope=scope))
 
@@ -1831,11 +1831,11 @@ class _NamedRangeProxy:
         """
         return _result(call_host_tool("named_range_get_info", name=name, scope=scope))
 
-    def list(self, *, scope: str | None = None) -> _Item:
+    def list(self, *, scope: str = 'global') -> _Item:
         """Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name).
 
         Args:
-            scope (optional): Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name.
+            scope (optional): Scope to list: 'global', 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name.
         """
         return _result(call_host_tool("named_range_list", scope=scope))
 
@@ -2416,22 +2416,22 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
-    def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool | None = None) -> _Item:
+    def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool = True) -> _Item:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
             range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
-            has_header (optional): First row is headers only (default true).
+            has_header (optional): First row is headers only.
         """
         return _result(call_host_tool("sheet_apply_filter", range=range_name, has_header=has_header, criteria=criteria))
 
-    def clear_filter(self, range_name: list[str], *, has_header: bool | None = None) -> _Item:
+    def clear_filter(self, range_name: list[str], *, has_header: bool = True) -> _Item:
         """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets').
 
         Args:
             range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            has_header (optional): First row is headers only (default true).
+            has_header (optional): First row is headers only.
         """
         return _result(call_host_tool("sheet_clear_filter", range=range_name, has_header=has_header))
 
@@ -2462,12 +2462,12 @@ class _SheetProxy:
         """
         return _result(call_host_tool("sheet_get_filter", range=range_name))
 
-    def hide(self, sheet: str, *, visible: bool | None = None) -> _Item:
+    def hide(self, sheet: str, *, visible: bool = False) -> _Item:
         """Hides or shows a sheet tab (visible=false hides; default hides).
 
         Args:
             sheet (required): Name of the sheet.
-            visible (optional): True to show the tab; false to hide (default: false).
+            visible (optional): True to show the tab; false to hide.
         """
         return _result(call_host_tool("sheet_hide", sheet=sheet, visible=visible))
 
@@ -2480,12 +2480,12 @@ class _SheetProxy:
         """
         return _result(call_host_tool("sheet_move", sheet=sheet, position=position))
 
-    def protect(self, *, sheet: str | None = None, protect: bool | None = None) -> _Item:
+    def protect(self, *, sheet: str | None = None, protect: bool = True) -> _Item:
         """Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
-            protect (optional): True to protect, False to unprotect (default: True).
+            protect (optional): True to protect, False to unprotect.
         """
         return _result(call_host_tool("sheet_protect", sheet=sheet, protect=protect))
 
@@ -2733,14 +2733,14 @@ slide = _SlideProxy()
 class _SqlProxy:
     """Proxy for sql tools."""
 
-    def query_folder(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> _Item:
+    def query_folder(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool = True, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> _Item:
         """Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) or {named_range: "SalesData"} (Calc named/database range). Absolute range: {range: "Sales.A1:F500"} stays frozen A1. Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. Optional tables file="budget.xlsx" reads that sibling instead of the active doc. Host prepares all UNO data + validates. Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION.
 
         Args:
             sql (required): Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.
             files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table).
             data_range (optional): Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity.
-            headers (optional): First row of data_range (or preloaded) contains column headers (default true).
+            headers (optional): First row of data_range (or preloaded) contains column headers.
             tables (optional): Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.
             task_hint (optional): Optional hint for logging/context.
         """
