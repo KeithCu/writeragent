@@ -886,3 +886,58 @@ def test_shape_upsert_wrap_text_off_draw_custom_shape(ctx, doc):
     shape = page.getByIndex(res["index"])
     assert shape.getPropertyValue("TextWordWrap") is False
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_arrowheads_line_and_connector(ctx, doc):
+    from plugin.draw.tree import build_shape_tree
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    for shape_type, y in (("line", 1000), ("connector", 3000)):
+        created = upsert.execute(
+            tctx,
+            action="create",
+            shape_type=shape_type,
+            page=0,
+            x=1000,
+            y=y,
+            width=4000,
+            height=0 if shape_type == "line" else 1000,
+            line_end="arrow",
+            line_start="none",
+        )
+        assert created.get("status") == "ok", created
+        shape = page.getByIndex(created["index"])
+        assert shape.getPropertyValue("LineEndName") == "Arrow"
+        assert len(shape.getPropertyValue("LineEnd").Coordinates) > 0
+        assert shape.getPropertyValue("LineEndWidth") >= 300
+        assert shape.getPropertyValue("LineStartName") == ""
+        assert len(shape.getPropertyValue("LineStart").Coordinates) == 0
+
+    tree = build_shape_tree(page)
+    for node in tree:
+        assert node["style"]["LineEndName"] == "Arrow"
+        assert "LineStartName" not in node["style"]
+
+    edited = upsert.execute(
+        tctx,
+        action="edit",
+        index=0,
+        page=0,
+        line_end="none",
+        line_start="arrow",
+    )
+    assert edited.get("status") == "ok", edited
+    line_shape = page.getByIndex(0)
+    assert line_shape.getPropertyValue("LineEndName") == ""
+    assert len(line_shape.getPropertyValue("LineEnd").Coordinates) == 0
+    assert line_shape.getPropertyValue("LineStartName") == "Arrow"
+    assert len(line_shape.getPropertyValue("LineStart").Coordinates) > 0
+    tree_after = build_shape_tree(page)
+    assert tree_after[0]["style"]["LineStartName"] == "Arrow"
+    assert "LineEndName" not in tree_after[0]["style"]
+
+

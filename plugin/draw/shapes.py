@@ -471,6 +471,25 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
 
 
+_DEFAULT_ARROWHEAD_WIDTH = 300
+
+
+def _arrowhead_coords(enabled: bool) -> Any:
+    """PolyPolygonBezierCoords for the built-in 'Arrow' marker or an empty marker."""
+    # Host boundary: uno/com.sun.star are only available inside LibreOffice or with UNO stubs.
+    import uno
+    from com.sun.star.awt import Point
+
+    if not enabled:
+        return uno.createUnoStruct("com.sun.star.drawing.PolyPolygonBezierCoords", Coordinates=(), Flags=())
+    normal = _drawing_enum("PolygonFlags", "NORMAL")
+    return uno.createUnoStruct(
+        "com.sun.star.drawing.PolyPolygonBezierCoords",
+        Coordinates=((Point(10, 0), Point(0, 30), Point(20, 30), Point(10, 0)),),
+        Flags=((normal, normal, normal, normal),),
+    )
+
+
 def _try(failed: list[str], name: str, fn: Any) -> None:
     if not uno_write(fn):
         failed.append(name)
@@ -557,6 +576,32 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
 
         _try(failed_props, "line_style", _apply_line_style)
+
+    # Line Start / End arrowheads
+    for param, name_prop, poly_prop, width_prop in (
+        ("line_start", "LineStartName", "LineStart", "LineStartWidth"),
+        ("line_end", "LineEndName", "LineEnd", "LineEndWidth"),
+    ):
+        marker = kwargs.get(param)
+        if marker is not None and hasattr(shape, name_prop):
+
+            def _apply_arrowhead(
+                marker_val: str = str(marker).strip().lower(),
+                np: str = name_prop,
+                pp: str = poly_prop,
+                wp: str = width_prop,
+            ) -> None:
+                if marker_val == "arrow":
+                    shape.setPropertyValue(np, "Arrow")
+                    shape.setPropertyValue(pp, _arrowhead_coords(True))
+                    line_w = kwargs.get("line_width")
+                    width = max(_DEFAULT_ARROWHEAD_WIDTH, int(line_w) * 3) if line_w is not None else _DEFAULT_ARROWHEAD_WIDTH
+                    shape.setPropertyValue(wp, width)
+                else:
+                    shape.setPropertyValue(np, "")
+                    shape.setPropertyValue(pp, _arrowhead_coords(False))
+
+            _try(failed_props, param, _apply_arrowhead)
 
     # Character properties (font, size, color, bold, italic)
     if (
@@ -683,6 +728,16 @@ class UpsertShape(_AnyDocumentShapeTool):
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
             "line_color": {"type": "string", "description": "Line border color"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
+            "line_start": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the start of a line or connector ('none' clears).",
+            },
+            "line_end": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the end of a line or connector ('none' clears).",
+            },
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},

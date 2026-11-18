@@ -2375,7 +2375,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
@@ -2393,6 +2393,8 @@ class _ShapeProxy:
             fill_style (optional): Fill style. One of: solid, transparent, none.
             line_color (optional): Line border color.
             line_width (optional): Line width, 1/100 mm.
+            line_start (optional): Arrowhead at the start of a line or connector ('none' clears). One of: none, arrow.
+            line_end (optional): Arrowhead at the end of a line or connector ('none' clears). One of: none, arrow.
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
@@ -2404,7 +2406,7 @@ class _ShapeProxy:
             corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
             rotation_angle (optional): Rotation angle in degrees.
         """
-        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
+        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, line_start=line_start, line_end=line_end, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
 
 shape = _ShapeProxy()
 
