@@ -42,7 +42,7 @@ import logging
 import re
 import threading
 import time
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, ClassVar, Sequence
 
 from plugin.framework import keystore
 from plugin.framework.client.errors import NetworkError
@@ -783,6 +783,8 @@ class RemoteMcpTool(ToolBase):
 
     is_mutation: bool | None = False
     requires_document: bool = False
+    # The remote server applies its own defaults; filling them would change the call the user approves.
+    fills_schema_defaults: ClassVar[bool] = False
 
     def __init__(self, server: dict[str, Any], spec: dict[str, Any], schema: dict[str, Any]) -> None:
         self._server: dict[str, Any] = server

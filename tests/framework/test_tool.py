@@ -245,6 +245,72 @@ def test_execute_strips_unknown_kwargs_when_properties_empty():
     assert result["status"] == "ok"
     assert result["kwargs"] == {}
 
+
+def test_execute_fills_schema_default_for_omitted_parameter():
+    """Omitted optional parameters receive deep-copied schema defaults through execute."""
+
+    class CaptureDefaultsTool(ToolBase):
+        name = "capture_defaults"
+        description = "capture defaults"
+        parameters = {
+            "type": "object",
+            "properties": {
+                "depth": {"type": "integer", "default": 1},
+                "opts": {"type": "object", "default": {}},
+            },
+        }
+        uno_services = None
+
+        def execute(self, ctx, **kwargs):
+            captured = dict(kwargs)
+            captured["opts"] = dict(kwargs["opts"])
+            kwargs["opts"]["x"] = 1
+            return {"status": "ok", "kwargs": captured}
+
+    reg = _make_registry(CaptureDefaultsTool())
+    ctx = _make_ctx("writer")
+    first = reg.execute("capture_defaults", ctx)
+    assert first["status"] == "ok"
+    assert first["kwargs"] == {"depth": 1, "opts": {}}
+
+    second = reg.execute("capture_defaults", ctx)
+    assert second["status"] == "ok"
+    assert second["kwargs"] == {"depth": 1, "opts": {}}
+
+    explicit = reg.execute("capture_defaults", ctx, depth=3)
+    assert explicit["status"] == "ok"
+    assert explicit["kwargs"]["depth"] == 3
+
+
+def test_execute_leaves_parameter_without_default_omitted():
+    """Properties without a schema default stay omitted even when caller passes None."""
+
+    class CaptureThreeStateTool(ToolBase):
+        name = "capture_three_state"
+        description = "capture three-state"
+        parameters = {
+            "type": "object",
+            "properties": {
+                "occurrence": {"type": "integer"},
+                "depth": {"type": "integer", "default": 1},
+            },
+        }
+        uno_services = None
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "kwargs": dict(kwargs)}
+
+    reg = _make_registry(CaptureThreeStateTool())
+    ctx = _make_ctx("writer")
+    omitted = reg.execute("capture_three_state", ctx)
+    assert omitted["status"] == "ok"
+    assert "occurrence" not in omitted["kwargs"]
+    assert omitted["kwargs"] == {"depth": 1}
+
+    none_sent = reg.execute("capture_three_state", ctx, occurrence=None)
+    assert none_sent["status"] == "ok"
+    assert "occurrence" not in none_sent["kwargs"]
+
 def test_get_collection():
     tool = ValidTool()
 
@@ -1613,6 +1679,7 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
         parameters = {"type": "object", "properties": {}}
         uno_services = None
         doc_types = None
+        fills_schema_defaults = True
 
         def get_parameters(self, doc_type=None):
             return self.parameters
@@ -1660,6 +1727,7 @@ def _guard_probe_registry():
         parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
         uno_services = None
         doc_types = None
+        fills_schema_defaults = True
 
         def get_parameters(self, doc_type=None):
             return self.parameters

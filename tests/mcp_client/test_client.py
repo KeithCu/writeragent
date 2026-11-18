@@ -16,8 +16,18 @@ from unittest.mock import patch
 import pytest
 
 from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.tool import prepare_tool_call
 from plugin.mcp_client import client as mcp_client
-from plugin.mcp_client.client import MCP_SUB_AGENT_HINT, UNTRUSTED_NOTE, McpClientError, McpServerConnection, mcp_domain_tools, render_call_result
+from plugin.mcp_client.client import (
+    MCP_SUB_AGENT_HINT,
+    UNTRUSTED_NOTE,
+    McpClientError,
+    McpServerConnection,
+    RemoteMcpTool,
+    convert_mcp_schema,
+    mcp_domain_tools,
+    render_call_result,
+)
 from plugin.mcp_client.client_helpers import format_approval_arguments
 
 TOKEN = "test-token"
@@ -1518,3 +1528,19 @@ def test_headers_strip_whitespace_from_values(fake):
     headers = conn._headers()
     assert headers["X-Custom"] == "val"
     assert headers["X-Auth-Token"] == "secret"
+
+
+def test_remote_tool_call_does_not_fill_remote_defaults():
+    spec = {
+        "name": "list",
+        "description": "d",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "default": 10}},
+        },
+    }
+    schema = convert_mcp_schema("srv", spec)
+    tool = RemoteMcpTool({"name": "srv", "url": "http://localhost"}, spec, schema)
+    prepared = prepare_tool_call(tool, SimpleNamespace(doc_type=None, caller=None), tool.name or "", {})
+    assert prepared.error is None
+    assert prepared.kwargs == {}

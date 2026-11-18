@@ -774,26 +774,26 @@ class _CalcProxy:
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
 
-    def replace_cells(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def replace_cells(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool = False, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
         """Find and replace text or values in a Calc spreadsheet. Returns count of replacements made.
 
         Args:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
             regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
             all_sheets (optional): Replace across all sheets (default: false).
         """
         return _result(call_host_tool("replace_cells", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets))
 
-    def search_cells(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def search_cells(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool = False, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
         """Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values.
 
         Args:
             pattern (required): Search string or regex pattern.
             regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
             all_sheets (optional): Search all sheets (default: false).
@@ -1453,14 +1453,14 @@ class _ImageProxy:
         """
         return _result(call_host_tool("image_extract_structure", image_name=image_name, insert_into_document=insert_into_document, params=params))
 
-    def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> _Item:
+    def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str | None = None, base_size: int | None = None, width: int | None = None, height: int | None = None, image_model: str | None = None) -> _Item:
         """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
 
         Args:
             prompt (required): Descriptive prompt for image generation or editing.
             source_image (optional): Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit while a graphic is selected to edit in place; omit with no selection to create a new image.
-            aspect_ratio (optional): One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
-            base_size (optional): Generate resolution in pixels (> 0, default 1024). On-page display is capped independently (~135mm longer edge).
+            aspect_ratio (optional): Omit to use the aspect ratio set in Settings. One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
+            base_size (optional): Generate resolution in pixels (> 0). Omit to use the size set in Settings. On-page display is capped independently (~135mm longer edge).
             width (optional): Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution.
             height (optional): Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution.
             image_model (optional): Override Settings image model for this request (endpoint / OpenRouter).
@@ -3031,12 +3031,12 @@ class _WriterProxy:
             max_chars (optional): Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters).
             start (optional): Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end.
             end (optional): Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'.
-            include_images (optional): Include embedded image data (base64) in export. An image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
+            include_images (optional): Include embedded image data (base64) in export. When false, an image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
         """
         return _result(call_host_tool("get_content", scope=scope, max_chars=max_chars, start=start, end=end, include_images=include_images))
 
     def get_tree(self, *, strategy: str = 'first_lines', depth: int = 1) -> _Item:
-        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines (default), full. depth=0 for unlimited, depth=1 (default) for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines, full. depth=0 for unlimited, depth=1 for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
             strategy (optional): Content to include with headings. One of: heading_only, first_lines, full.
