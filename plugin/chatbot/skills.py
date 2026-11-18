@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 
-from plugin.chatbot.memory import cap_injected_prompt_blob
 from plugin.framework import config as framework_config
 from plugin.framework.prompts import fenced_data_block
 
@@ -49,8 +48,8 @@ When drafting or revising document text, run the output through these rules (sil
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
 
-# Scope rules live on this code-owned heading so chat replies keep their natural tone while
-# document edits preserve the document's existing voice and formality.
+# Scope rules sit on the heading rather than in HUMANIZER_GUIDANCE so the guidance body stays a
+# generic style list; the heading decides where it applies (document prose, not chat replies).
 HUMANIZER_PROMPT_HEADING = (
     "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document (body, cell, slide, or shape text), not for chat replies. "
     "Keep the document's existing voice and formality: first person, opinions, tangents, and casual "
@@ -60,26 +59,15 @@ HUMANIZER_PROMPT_HEADING = (
 )
 
 
-class SkillStore:
-    """Built-in skill guidance provider (currently humanizer only)."""
-
-    def get_humanizer_guidance(self) -> str:
-        """Return the built-in humanizer rules."""
-        return HUMANIZER_GUIDANCE
-
-
 def format_humanizer_guidance_prompt_block() -> str:
     """Return fenced humanizer guidance if enabled in settings, else empty string."""
     try:
         if framework_config.get_config("chatbot.humanizer_enabled"):
-            hstore = SkillStore()
-            hguidance = hstore.get_humanizer_guidance()
-            if hguidance:
-                return fenced_data_block(
-                    HUMANIZER_PROMPT_HEADING,
-                    cap_injected_prompt_blob(hguidance),
-                    tag="humanizer",
-                )
+            return fenced_data_block(
+                HUMANIZER_PROMPT_HEADING,
+                HUMANIZER_GUIDANCE.strip(),
+                tag="humanizer",
+            )
     except Exception:
         log.exception("Failed to inject humanizer guidance")
     return ""
