@@ -29,6 +29,7 @@ New features and bugfixes **must include tests**.
 
 Explain the code that is here **now** for a reader who does not know this project (two or three short sentences where needed; avoid cryptic one-liners).
 - **No “what went wrong” boilerplate:** No “this used to…”, “previously…”, “Bugfix:”, or postmortems. Stating in present tense what would break if the code were absent is fine.
+- **Rewrite comments whole.** When changing a comment, replace the full sentence; never leave half of the old one beside the new one.
 - **Upstream quirks:** When matching LibreOffice / UNO / upstream behavior, **cite the exact source** (file + line or function).
 
 ---
@@ -62,6 +63,18 @@ Explain the code that is here **now** for a reader who does not know this projec
 - **Do not start raw threads for background work.** Use `run_in_background` (pass `dedicated=True` for servers, infinite loops, and jobs another thread will `join()`) and `AsyncProcess` for long subprocesses ([docs/framework/threading.md](docs/framework/threading.md)). Wrap document-model access at boundaries with `guard_uno`, and use `ToolContext.get_ctx()` rather than raw `self.ctx` ([docs/framework/uno-thread-safety.md](docs/framework/uno-thread-safety.md)).
 - **Surface errors through the shared helpers.** Prefer `WriterAgentException`, `format_error_payload` (`errors`), and `_tool_error` for tools. UI lifecycle uses `suppress_disposed`; document tools re-raise disposal via `is_disposal` / `DocumentDisposedError`—do not catch `uno.Exception` to hide disposal ([docs/framework/exception-policy.md](docs/framework/exception-policy.md)).
 - **Two products, one OXT at a time.** WriterAgent (`plugin/main.py`) vs. LibrePy (`plugin/main_core.py`, `extension-core/`). Dual-install overlay is **not shipped** ([docs/scripting/librepy-split.md](docs/scripting/librepy-split.md)).
+
+---
+
+## Habits reviews keep removing
+
+These are the most common findings in recent reviews (details and examples: [docs/framework/excess-complexity-archaeology.md](docs/framework/excess-complexity-archaeology.md)). Avoid them in new code.
+- **No defensive code for states that can't occur.** No `getattr`/`hasattr`/`isinstance`/`try` guards around values whose type or presence is already guaranteed (a method every document has, a dict a function always returns, a generated module's attribute).
+- **Decide a fact once.** Validate, default, clamp or look something up at one owner and pass the result along; don't re-check it at every layer or inside a loop.
+- **Imports at the top.** Use an in-function import only at a host/child/bundle boundary, for real weight, or for a named cycle, and say which in a short comment. Never repeat a guarded import of the same module in several functions; use one helper.
+- **One owner, no copies.** Before writing a helper, search for an existing one (e.g. doc-type detection); call it instead of adding a near-copy.
+- **No investigation residue.** Remove timers, extra logging and debug dumps added while chasing a bug before committing.
+- **Public API, not private reach-ins.** Don't read another module's `_private` names; expose a property or function.
 
 ---
 
