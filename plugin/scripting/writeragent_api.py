@@ -2548,13 +2548,13 @@ sheet = _SheetProxy()
 class _SlideProxy:
     """Proxy for slide tools."""
 
-    def add(self, *, page: int | None = None, activate: bool | None = None, layout: str | None = None) -> _Item:
+    def add(self, *, page: int | None = None, activate: bool = True, layout: str = 'text') -> _Item:
         """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master.
 
         Args:
             page (optional): 0-based index where to insert the new slide (defaults to appending at the end if omitted).
-            activate (optional): Whether to switch the view to the new slide (default: true).
-            layout (optional): Impress layout name (default: 'text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
+            activate (optional): Whether to switch the view to the new slide.
+            layout (optional): Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
         """
         return _result(call_host_tool("slide_add", page=page, activate=activate, layout=layout))
 
@@ -2566,12 +2566,12 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_delete", page=page))
 
-    def duplicate(self, page: int, *, activate: bool | None = None) -> _Item:
+    def duplicate(self, page: int, *, activate: bool = True) -> _Item:
         """Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide.
 
         Args:
             page (required): 0-based index of the slide to duplicate.
-            activate (optional): Whether to switch the view to the new slide (default: true).
+            activate (optional): Whether to switch the view to the new slide.
         """
         return _result(call_host_tool("slide_duplicate", page=page, activate=activate))
 
@@ -2650,14 +2650,14 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_rename", page=page, name=name))
 
-    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None) -> _Item:
+    def search(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20) -> _Item:
         """Search text in slide shapes (including grouped descendants and table cells) and speaker notes. Each match reports the page, shape name, matched text, and shape index when available.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
+            regex (optional): Use regular expression.
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
         """
         return _result(call_host_tool("slide_search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results))
 

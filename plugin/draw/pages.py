@@ -30,9 +30,9 @@ from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
 from plugin.writer.search import (
-    CASE_SENSITIVE_DESCRIPTION,
     DEFAULT_SEARCH_RESULTS,
     MAX_SEARCH_HITS,
+    SEARCH_CASE_SENSITIVE_DEFAULT,
     invalid_regex_tool_message,
     resolve_case_sensitive,
     search_results_cap_hint,
@@ -45,6 +45,7 @@ log = logging.getLogger("writeragent.draw.pages")
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
 _DEFAULT_IMPRESS_LAYOUT = "text"
+_DEFAULT_ACTIVATE = True
 
 
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
@@ -96,8 +97,8 @@ class AddSlide(ToolBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
-            "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"},
-            "layout": {"type": "string", "description": ("Impress layout name (default: 'text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
+            "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"},
+            "layout": {"type": "string", "default": _DEFAULT_IMPRESS_LAYOUT, "description": ("Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
         },
         "required": [],
     }
@@ -110,8 +111,8 @@ class AddSlide(ToolBase):
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
-        activate = kwargs.get("activate", True)
-        switch_view = bool(activate if activate is not None else True)
+        activate = kwargs.get("activate")
+        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
 
         layout_name: str | None = None
         if is_impress(ctx.doc):
@@ -318,11 +319,19 @@ class SearchSlides(ToolBase):
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+            "regex": {"type": "boolean", "default": False, "description": "Use regular expression."},
+            "case_sensitive": {
+                "type": "boolean",
+                "default": SEARCH_CASE_SENSITIVE_DEFAULT,
+                "description": (
+                    "Case-sensitive match. "
+                    "The result includes matched_case_sensitive for the mode that ran."
+                ),
+            },
             "max_results": {
                 "type": "integer",
-                "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
+                "default": DEFAULT_SEARCH_RESULTS,
+                "description": "Maximum results to return. Must be a positive integer.",
             },
         },
         "required": ["pattern"],
@@ -449,15 +458,15 @@ class SetActivePage(ToolBase):
 class DuplicateSlide(_SlideMutationTool):
     name: str | None = "slide_duplicate"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"}}, "required": ["page"]}
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs["page"]
         bridge = DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)  # range check only
-        activate = kwargs.get("activate", True)
-        switch_view = bool(activate if activate is not None else True)
+        activate = kwargs.get("activate")
+        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
         bridge.duplicate_slide(page_idx, switch=switch_view)
         # The copy is inserted immediately after the source. Do not re-read
         # After duplicate with switch, the active index is page_idx + 1, not getNumber().
