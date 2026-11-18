@@ -184,6 +184,7 @@ class TestTreeServiceSearch:
         doc.unlockControllers = MagicMock(side_effect=lambda: order.append("unlock"))
 
         vc.jumpToPage = MagicMock(side_effect=lambda _p: order.append("jumpToPage"))
+        vc.getPage.return_value = 6
         vc.jumpToStartOfPage = MagicMock()
         vc.getStart = MagicMock()
 
@@ -212,7 +213,7 @@ class TestTreeServiceSearch:
         assert result["para_index"] == 1
 
         # Verify jumpToPage was called
-        vc.jumpToPage.assert_called_once_with(5)
+        vc.jumpToPage.assert_called_once_with(6)
 
         # Verify lock, jump, unlock, then restore order
         doc.lockControllers.assert_called_once()
@@ -226,6 +227,7 @@ class TestTreeServiceSearch:
 
         doc.getCurrentController.return_value = controller
         controller.getViewCursor.return_value = vc
+        vc.getPage.return_value = 6
         vc.getText.side_effect = RuntimeError("cannot clone")
 
         self.tree_svc._doc_svc.get_paragraph_ranges.return_value = []
@@ -233,7 +235,7 @@ class TestTreeServiceSearch:
 
         result = self.tree_svc.resolve_writer_locator(doc, "page", "5")
         assert result["para_index"] == 1
-        vc.jumpToPage.assert_called_once_with(5)
+        vc.jumpToPage.assert_called_once_with(6)
         doc.lockControllers.assert_not_called()
         doc.unlockControllers.assert_not_called()
 

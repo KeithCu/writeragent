@@ -1038,3 +1038,46 @@ def test_live_selection_range_and_snapshot():
     model.getCurrentController.assert_not_called()
 
 
+class _FakePageViewCursor:
+    def __init__(self, page_count: int) -> None:
+        self.page_count = page_count
+        self.page = 1
+        self.jump_calls: list[int] = []
+
+    def jumpToPage(self, target: int) -> bool:
+        if target > 0x7FFF or target < -0x8000:
+            raise ValueError("VALUE is out of range!")
+        self.jump_calls.append(target)
+        # Matches SwRootFrame::SetCurrPage: valid 1..count lands there; anything else lands on last page.
+        self.page = target if 1 <= target <= self.page_count else self.page_count
+        return True
+
+    def jumpToLastPage(self) -> bool:
+        self.page = self.page_count
+        return True
+
+    def getPage(self) -> int:
+        return self.page
+
+
+def test_jump_view_cursor_to_page_lands_on_lo_page():
+    from plugin.doc.text_helpers import jump_view_cursor_to_page
+
+    vc = _FakePageViewCursor(3)
+    assert jump_view_cursor_to_page(vc, 0) is None
+    assert vc.getPage() == 1
+    assert jump_view_cursor_to_page(vc, 2) is None
+    assert vc.getPage() == 3
+
+
+def test_jump_view_cursor_to_page_missing_page_returns_count():
+    from plugin.doc.text_helpers import jump_view_cursor_to_page
+
+    vc = _FakePageViewCursor(3)
+    assert jump_view_cursor_to_page(vc, 3) == 3
+    assert vc.getPage() == 3
+    assert jump_view_cursor_to_page(vc, -1) == 3
+    assert vc.getPage() == 3
+    vc.jump_calls.clear()
+    assert jump_view_cursor_to_page(vc, 40000) == 3
+    assert vc.jump_calls == []

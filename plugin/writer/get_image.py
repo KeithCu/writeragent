@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
-from plugin.doc.text_helpers import clone_text_range
+from plugin.doc.text_helpers import clone_text_range, jump_view_cursor_to_page
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
@@ -68,8 +68,8 @@ def _with_page_png(page: int, export: Any) -> tuple[bytes | None, str | None]:
 def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
 
-    *page* is model-facing (first page = 0). jumpToPage is 1-based, so the only conversion is
-    ``lo_page = page + 1`` here — error text still quotes the 0-based index the model sent.
+    *page* is model-facing (first page = 0); jump_view_cursor_to_page converts it to Writer's
+    1-based page — error text still quotes the 0-based index the model sent.
 
     NATIVE LibreOffice path ONLY — the writer_png_Export graphic filter, targeted per page with the
     view cursor (jumpToPage): cross-platform, no external binary, no PDF round-trip, and the filter
@@ -92,14 +92,8 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
 
     try:
-        # jumpToPage / getPage are 1-based Writer APIs; *page* is 0-based at the tool boundary.
-        lo_page = page + 1
-        vc.jumpToPage(lo_page)
-        actual = int(vc.getPage())
-        if actual != lo_page:
-            # jumpToPage clamps out-of-range targets; jump to the end to report the real total.
-            vc.jumpToLastPage()
-            total = int(vc.getPage())
+        total = jump_view_cursor_to_page(vc, page)
+        if total is not None:
             return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
         # UNO imports only here: nothing above needs them, so validation/error paths stay
         # exception-free even where the uno module is unavailable (e.g. mocked test envs).

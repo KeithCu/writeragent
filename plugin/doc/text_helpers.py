@@ -920,6 +920,24 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
                 log.debug("with_view_cursor_left_body_locked: restore view cursor failed (%s)", type(exc).__name__)
 
 
+def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:
+    """Move the Writer view cursor to the start of 0-based *page* (first page = 0).
+
+    Returns None when the cursor landed on *page*; otherwise returns the document's page
+    count and leaves the cursor on the last page. XTextViewCursor.jumpToPage is 1-based and
+    reports success for a missing page: SwRootFrame::SetCurrPage
+    (sw/source/core/layout/trvlfrm.cxx) stops on the last page, and jumpToPage(0) lands
+    there too, so the landed page is compared instead. jumpToPage takes a sal_Int16, so
+    larger values raise CannotConvertException and are not passed.
+    """
+    if 0 <= page < 0x7FFF:
+        vc.jumpToPage(page + 1)
+        if int(vc.getPage()) == page + 1:
+            return None
+    vc.jumpToLastPage()
+    return int(vc.getPage())
+
+
 @main_thread_only
 def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> Any:
     """Return a text cursor that selects the character range [start_offset, end_offset).
