@@ -61,7 +61,7 @@ class GetDocumentTree(ToolBase):
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"strategy": enum_param(["heading_only", "first_lines", "full"], "Content to include with headings (default: first_lines)"), "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
+        "properties": {"strategy": enum_param(["heading_only", "first_lines", "full"], "Content to include with headings", default="first_lines"), "depth": {"type": "integer", "default": 1, "description": "Max tree depth (0=unlimited)"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]

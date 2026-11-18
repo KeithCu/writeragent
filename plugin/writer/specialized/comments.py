@@ -165,8 +165,8 @@ class AddComment(ToolBase):
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
         "case_sensitive": {"type": "boolean", "description": f"For search: {LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-        "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
-        "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
+        "occurrence": {"type": "integer", "default": 0, "description": "0-based match to comment on when search repeats. Ignored when parent_name is set."},
+        "author": {"type": "string", "default": "WriterAgent", "description": "Comment author."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
     }, "required": ["content"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
