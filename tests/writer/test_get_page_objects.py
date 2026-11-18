@@ -645,6 +645,15 @@ def test_execute_page_past_end_is_error():
     assert res["message"] == "Page 2 does not exist (document has 2 page(s); first page = 0)."
 
 
+def test_execute_page_count_unresolved_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    ctx.services.document.get_page_count.return_value = 0
+    res = GetPageObjects().execute(ctx, page=0)
+    assert res["status"] == "error"
+    assert "Cannot resolve page count" in res["message"]
+
+
 def test_execute_paragraph_reports_zero_based_page():
     draw = MagicMock()
     draw.getCount.return_value = 0

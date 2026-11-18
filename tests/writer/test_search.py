@@ -545,7 +545,7 @@ def test_advanced_search_around_page_is_zero_based():
     enum.nextElement.side_effect = [para0, para1, para2]
 
     vc = MagicMock()
-    vc.getPage.side_effect = [1, 3, 4]
+    vc.getPage.side_effect = [1, 0, 4]
 
     doc = MagicMock()
     doc.getText.return_value.createEnumeration.return_value = enum
@@ -555,7 +555,7 @@ def test_advanced_search_around_page_is_zero_based():
     idx_svc.search_boolean.return_value = {
         "matches": [
             {"paragraph_index": 0, "text": "first"},
-            {"paragraph_index": 1, "text": "second"},
+            {"paragraph_index": 1, "text": "unlaid_out"},
             {"paragraph_index": 2, "text": "third"},
             {"paragraph_index": 99, "text": "unmapped"},
         ]
@@ -564,11 +564,11 @@ def test_advanced_search_around_page_is_zero_based():
     ctx.doc = doc
     ctx.services.writer_index = idx_svc
 
-    res = AdvancedSearch().execute(ctx, query="test", around_page=0, page_radius=0)
+    res = AdvancedSearch().execute(ctx, query="test", around_page=0, page_radius=1)
     assert res["status"] == "ok"
     assert res["matches"] == [{"paragraph_index": 0, "text": "first", "page": 0}]
     assert res["returned"] == 1
-    assert res["filtered_by_page"] == {"around_page": 0, "page_radius": 0, "before_filter": 4}
+    assert res["filtered_by_page"] == {"around_page": 0, "page_radius": 1, "before_filter": 4}
 
 
 def test_search_in_document_missing_pattern_returns_invalid_param():

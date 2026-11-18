@@ -1775,6 +1775,7 @@ class AdvancedSearch(ToolBaseDummy):
                 lo = around_page - page_radius
                 hi = around_page + page_radius
                 before_count = len(result["matches"])
+                # Matches without a mapped page cannot be placed near any page.
                 result["matches"] = [m for m in result["matches"] if m.get("page") is not None and lo <= m["page"] <= hi]
                 result["returned"] = len(result["matches"])
                 result["filtered_by_page"] = {"around_page": around_page, "page_radius": page_radius, "before_filter": before_count}
@@ -1807,6 +1808,7 @@ def _build_page_map(doc: Any) -> dict[int, int]:
                 try:
                     vc.gotoRange(para.getStart(), False)
                     lo_page = vc.getPage()
+                    # 0 = unset/not laid out; LibreOffice pages are 1-based.
                     if lo_page > 0:
                         page_map[idx] = lo_page - 1
                 except Exception as exc:
