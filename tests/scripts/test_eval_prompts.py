@@ -60,7 +60,7 @@ def test_calc_eval_sort_line_omits_formula_tools() -> None:
     # Naming write_range / =PY in the because-clause primed weak
     # models to call the tool we want them to avoid (glm-5.3-flash; see docs/eval/oss-20b-eval.md).
     calc = get_calc_eval_chat_system_prompt()
-    sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
+    sort_line = next(line for line in calc.splitlines() if "To reorder rows" in line)
     assert "write_range" not in sort_line
     assert "=PY" not in sort_line
 
