@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -474,20 +474,35 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
 _DEFAULT_ARROWHEAD_WIDTH = 300
 
 
-def _arrowhead_coords(enabled: bool) -> Any:
-    """PolyPolygonBezierCoords for the built-in 'Arrow' marker or an empty marker."""
+def _arrow_coords() -> Any:
+    """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (svx/source/xoutdev/xtablend.cxx:62-67)."""
     # Host boundary: uno/com.sun.star are only available inside LibreOffice or with UNO stubs.
     import uno
     from com.sun.star.awt import Point
 
-    if not enabled:
-        return uno.createUnoStruct("com.sun.star.drawing.PolyPolygonBezierCoords", Coordinates=(), Flags=())
     normal = _drawing_enum("PolygonFlags", "NORMAL")
     return uno.createUnoStruct(
         "com.sun.star.drawing.PolyPolygonBezierCoords",
         Coordinates=((Point(10, 0), Point(0, 30), Point(20, 30), Point(10, 0)),),
         Flags=((normal, normal, normal, normal),),
     )
+
+
+def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
+    """Apply or clear a line-end marker ('arrow' or 'none') on a shape."""
+    name_prop = f"{prefix}Name"
+    if marker.strip().lower() == "arrow":
+        shape.setPropertyValue(name_prop, "Arrow")
+        # Write the polygon explicitly too: when "Arrow" is missing from the model's XLineEndList,
+        # SetFillAttribute (svx/source/unodraw/unoshape.cxx:1345-1369) falls back to storing only the name.
+        shape.setPropertyValue(prefix, _arrow_coords())
+        # Scale width from the shape's current LineWidth so create and edit match (at least 300 = 3 mm).
+        line_w = uno_read(lambda: shape.getPropertyValue("LineWidth"), 0)
+        width = max(_DEFAULT_ARROWHEAD_WIDTH, line_w * 3) if isinstance(line_w, int) and not isinstance(line_w, bool) else _DEFAULT_ARROWHEAD_WIDTH
+        shape.setPropertyValue(f"{prefix}Width", width)
+    else:
+        # Empty name puts an empty polygon in svx/source/unodraw/unoshape.cxx:1404-1413.
+        shape.setPropertyValue(name_prop, "")
 
 
 def _try(failed: list[str], name: str, fn: Any) -> None:
@@ -578,30 +593,13 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "line_style", _apply_line_style)
 
     # Line Start / End arrowheads
-    for param, name_prop, poly_prop, width_prop in (
-        ("line_start", "LineStartName", "LineStart", "LineStartWidth"),
-        ("line_end", "LineEndName", "LineEnd", "LineEndWidth"),
-    ):
+    for param, prefix in (("line_start", "LineStart"), ("line_end", "LineEnd")):
         marker = kwargs.get(param)
-        if marker is not None and hasattr(shape, name_prop):
-
-            def _apply_arrowhead(
-                marker_val: str = str(marker).strip().lower(),
-                np: str = name_prop,
-                pp: str = poly_prop,
-                wp: str = width_prop,
-            ) -> None:
-                if marker_val == "arrow":
-                    shape.setPropertyValue(np, "Arrow")
-                    shape.setPropertyValue(pp, _arrowhead_coords(True))
-                    line_w = kwargs.get("line_width")
-                    width = max(_DEFAULT_ARROWHEAD_WIDTH, int(line_w) * 3) if line_w is not None else _DEFAULT_ARROWHEAD_WIDTH
-                    shape.setPropertyValue(wp, width)
-                else:
-                    shape.setPropertyValue(np, "")
-                    shape.setPropertyValue(pp, _arrowhead_coords(False))
-
-            _try(failed_props, param, _apply_arrowhead)
+        if marker is not None:
+            if not hasattr(shape, f"{prefix}Name"):
+                failed_props.append(param)
+            else:
+                _try(failed_props, param, lambda p=prefix, m=str(marker): _set_arrowhead(shape, p, m))
 
     # Character properties (font, size, color, bold, italic)
     if (

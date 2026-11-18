@@ -940,4 +940,3 @@ def test_shape_upsert_arrowheads_line_and_connector(ctx, doc):
     assert tree_after[0]["style"]["LineStartName"] == "Arrow"
     assert "LineEndName" not in tree_after[0]["style"]
 
-

@@ -1419,6 +1419,7 @@ def test_shape_upsert_arrowheads_create_and_edit() -> None:
         page.getCount.return_value = 1
         page.getByIndex.return_value = line
         line.setPropertyValue.reset_mock()
+        line.getPropertyValue.return_value = 200
 
         edited = UpsertShape().execute(
             ctx,
@@ -1431,4 +1432,14 @@ def test_shape_upsert_arrowheads_create_and_edit() -> None:
         edit_calls = [(c.args[0], c.args[1]) for c in line.setPropertyValue.call_args_list]
         assert ("LineStartName", "Arrow") in edit_calls
         assert ("LineEndName", "") in edit_calls
-        assert any(prop == "LineStartWidth" and val >= 300 for prop, val in edit_calls)
+        assert ("LineStartWidth", 600) in edit_calls
+
+        no_line_props = MagicMock(spec=["Name", "getShapeType", "getPosition", "getSize", "setPosition", "setSize"])
+        no_line_props.Name = "NoLine"
+        no_line_props.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+        no_line_props.getPosition.return_value = MagicMock(X=100, Y=100)
+        no_line_props.getSize.return_value = MagicMock(Width=1000, Height=500)
+        page.getByIndex.return_value = no_line_props
+        warned = UpsertShape().execute(ctx, action="edit", index=0, line_end="arrow")
+        assert warned["status"] == "ok"
+        assert any("line_end" in w for w in warned.get("warnings", []))
