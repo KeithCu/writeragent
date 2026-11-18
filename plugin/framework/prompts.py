@@ -557,11 +557,11 @@ To reorder rows, call {DELEGATE_SUBAGENT_TOOL}(domain="ranges"); do not rewrite 
 Say in task whether row 1 holds labels, so they stay on top."""
 
 
-# Order and judgement only; the injected snapshot covers size/headers, while read caps, fill-down, =PY placement, and populate-after-create live where they do now.
-CALC_WORKFLOW = """WORKFLOW:
+# Order and judgement only; the injected sheet snapshot covers size/headers. Read caps live on read_range (description and truncated hint), fill-down on write_range's values parameter, =PY placement on write_range's description, and populate-after-create on the sheets hop's instruction field.
+CALC_WORKFLOW = f"""WORKFLOW:
 1. Use the sheet context you were given; call get_sheet_summary only when it lacks what you need (another sheet, first empty row/column, charts, merges).
 2. Do the work with tools. Use ranges, not one cell at a time.
-   To use a new sheet, create it first with delegate_to_subagent(domain="sheets").
+   To use a new sheet, create it first with {DELEGATE_SUBAGENT_TOOL}(domain="sheets").
 3. If you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
 
 
