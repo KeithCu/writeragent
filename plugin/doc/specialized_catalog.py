@@ -35,6 +35,11 @@ _CHARTS_NEUTRAL_HINT = (
     "`headers` and `rows` parameters."
 )
 
+_SHAPES_HINT = (
+    f"{SHAPE_UNITS_RULE} "
+    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert.'
+)
+
 _LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
         None: _FOOTNOTES_DIRECT_HINT,
@@ -48,7 +53,7 @@ _LOOP_HINTS: dict[str, dict[str | None, str]] = {
         "Draw": _CHARTS_HEADERS_ROWS_HINT,
         None: _CHARTS_NEUTRAL_HINT,
     },
-    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), SHAPE_UNITS_RULE),
+    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), _SHAPES_HINT),
 }
 
 
@@ -147,7 +152,8 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
         ):
             dom = entry["domain"]
             desc = entry["description"]
-            if dom not in seen or len(desc) > len(seen[dom]):
+            # labels iterates Writer, Calc, Draw; keep the first non-empty description so Writer wins cross-app merges regardless of length.
+            if dom not in seen or not seen[dom]:
                 seen[dom] = desc
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 

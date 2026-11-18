@@ -184,7 +184,8 @@ class ChatSession:
             else:
                 parts = [{"type": "text", "text": str(content or "")}]
             if tail:
-                parts.append({"type": "text", "text": tail})
+                # Many chat templates join text parts with no separator; the blank line keeps the user's last words off the snapshot header.
+                parts.append({"type": "text", "text": f"\n\n{tail}"})
             new_last = dict(last, content=parts)
             return view[:-1] + [new_last]
 

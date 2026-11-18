@@ -337,3 +337,29 @@ def test_loop_hint_shapes_states_units_for_every_label() -> None:
     for label in ("Writer", "Calc", "Draw"):
         assert loop_hint("shapes", label) == expected
 
+
+def test_every_catalog_domain_has_a_description() -> None:
+    from collections import defaultdict
+
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+
+    get_tools()
+    for label in ("Writer", "Calc", "Draw"):
+        entries = catalog_entries_from_base(agent_label=label)
+        assert entries
+        descs_by_domain: dict[str, list[str]] = defaultdict(list)
+        for entry in entries:
+            descs_by_domain[entry["domain"]].append(entry["description"].strip())
+        for domain, descs in descs_by_domain.items():
+            assert any(descs), f"{label} domain {domain!r} has an empty description"
+
+
+def test_merged_vision_catalog_prefers_writer() -> None:
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+    from plugin.writer.specialized_base import ToolWriterVisionBase
+
+    get_tools()
+    merged = {e["domain"]: e["description"] for e in get_specialized_domain_catalog(agent_label=None)}
+    assert merged["vision"] == ToolWriterVisionBase.specialized_domain_description

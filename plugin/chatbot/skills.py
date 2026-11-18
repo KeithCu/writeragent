@@ -57,7 +57,7 @@ If the user provides a personal writing sample or style preference, match that r
 # a user's seeded SKILL.md keeps whatever text it was first seeded with. The heading therefore
 # decides where first person, opinions and tangents may appear, even when an older seeded body asks for them.
 HUMANIZER_PROMPT_HEADING = (
-    "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document. "
+    "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document (body, cell, slide, or shape text), not for chat replies. "
     "Keep the document's existing voice and formality: first person, opinions, tangents, and casual "
     "phrasing belong in chat replies only, even where the guidance below suggests them, unless the "
     "document already writes that way or the user asks. "
