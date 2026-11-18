@@ -125,8 +125,10 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     removed: allowing it would re-enter the warm worker.
 
     When this build has no ``writeragent_api`` (LibrePy), a domain string is
-    unrestricted, same as ``None``. A name that is not a ``DOMAIN_TOOLS`` key
-    adds nothing, so it stays limited to ``document_list_open``.
+    unrestricted, same as ``None``; an empty allowlist there would refuse every
+    document tool with the =PY() disabled message. A name that is not a
+    ``DOMAIN_TOOLS`` key adds nothing, so it stays limited to
+    ``document_list_open``.
     """
     # Broad catalog access is intentional; re-entry guard in venv_worker covers deadlock;
     # do not narrow the catalog without a product ask.

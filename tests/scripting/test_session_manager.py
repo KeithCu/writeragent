@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -994,8 +995,9 @@ def test_unsaved_workbook_key_is_never_empty() -> None:
     assert sid == "calc:unsaved-stable-id"
 
 
-def test_focused_component_without_model_falls_back_to_single_calc() -> None:
-    from unittest.mock import MagicMock
+def test_focused_component_without_model_falls_back_to_single_calc(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from plugin.framework.thread_guard import unwrap_uno
 
     ctx = MagicMock()
@@ -1011,16 +1013,16 @@ def test_focused_component_without_model_falls_back_to_single_calc() -> None:
     desktop.getComponents.return_value = components
 
     with (
+        caplog.at_level(logging.DEBUG, logger="plugin.scripting.session_manager"),
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", side_effect=lambda m: m is calc_model),
     ):
         found = session_manager.focused_calc_document(ctx)
     assert unwrap_uno(found) is calc_model
+    assert "focused component unusable" not in caplog.text
 
 
 def test_enumerated_matching_models_empty_when_desktop_or_walk_fails() -> None:
-    from unittest.mock import MagicMock
-
     ctx = MagicMock()
     with patch("plugin.scripting.session_manager.get_desktop", side_effect=RuntimeError("no desktop")):
         assert session_manager._enumerated_matching_models(ctx, lambda _m: True) == []

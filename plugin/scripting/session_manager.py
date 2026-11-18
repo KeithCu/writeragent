@@ -110,7 +110,10 @@ def focused_calc_document(ctx: Any) -> Any | None:
     doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
         try:
-            # getCurrentComponent() returns the frame's controller or component window when the frame has no model (framework/source/services/desktop.cxx Desktop::impl_getFrameComponent, e.g. Start Center). Neither has getCurrentController, so read it as None.
+            # getCurrentComponent() returns the frame's controller or component
+            # window when the frame has no model (Start Center;
+            # framework/source/services/desktop.cxx Desktop::impl_getFrameComponent).
+            # Neither has getCurrentController, so read it as None.
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
             # Headless soffice returns None from getCurrentController(), so a
             # missing controller still counts: requiring one would skip the open
