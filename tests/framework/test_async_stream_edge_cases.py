@@ -28,7 +28,7 @@ def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> No
     def worker(worker_q) -> None:
         worker_q.put((StreamQueueKind.STOPPED, None))
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=DummyToolkit()):
         run_async_worker_with_drain(
             MagicMock(),
             worker,

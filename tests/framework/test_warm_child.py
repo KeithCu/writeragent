@@ -841,7 +841,7 @@ def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() ->
     managed._proc = _FakeProc()  # type: ignore[assignment]
     req = _SpawnRequest(managed)
 
-    req.finish()
+    req.finish_spawn()
     assert req.done.is_set()
     assert not kill_called
 
@@ -873,7 +873,7 @@ def test_spawn_request_finish_after_give_up_kills_child() -> None:
     assert req.abandoned
     assert not kill_called
 
-    req.finish()
+    req.finish_spawn()
     assert kill_called
     assert req.done.is_set()
 
@@ -885,7 +885,7 @@ def test_spawn_request_finish_without_popen_does_not_kill() -> None:
 
     assert req.give_up() is True
     assert req.abandoned
-    req.finish()
+    req.finish_spawn()
     assert req.done.is_set()
 
 
@@ -968,3 +968,49 @@ def test_child_signal_kills_grandchild() -> None:
             except OSError:
                 pass
         managed.kill_tree()
+
+
+@pytest.mark.parametrize("exc_type", [OSError, RuntimeError])
+def test_spawn_exception_after_publish_kills_child_and_reports(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch, exc_type: type[Exception]
+) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    recorded: list[Child] = []
+
+    def _boom(child: Child, *_args: Any, **_kwargs: Any) -> Any:
+        recorded.append(child)
+        raise exc_type("handshake boom")
+
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _boom)
+    try:
+        with warm.lease(Deadline(10.0)) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "WORKER_SPAWN_FAILED"
+            assert "handshake boom" in leased["error"]
+        assert warm._child is None
+        assert len(recorded) == 1
+        assert recorded[0].managed.popen is not None
+        assert recorded[0].managed.popen.poll() is not None
+    finally:
+        warm.retire()
+
+
+def test_spawn_start_runtime_error_before_publish_reports(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+
+    def _fail(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("Supervisor spawn timed out")
+
+    monkeypatch.setattr(supervisor, "spawn", _fail)
+    try:
+        with warm.lease(Deadline(10.0)) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "WORKER_SPAWN_FAILED"
+            assert "Supervisor spawn timed out" in leased["error"]
+        assert warm._child is None
+    finally:
+        warm.retire()

@@ -43,7 +43,7 @@ def _gc_policy_tests_no_ticker_thread(request, monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "plugin.framework.worker_pool.run_in_background",
+        "plugin.framework.gc_policy.run_in_background",
         _record_run_in_background,
     )
     yield
