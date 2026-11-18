@@ -471,8 +471,8 @@ def test_build_page_map_rebuilds_and_unlocks(caplog):
     # Call twice -> rebuilt twice, no cache
     pm1 = _build_page_map(doc)
     pm2 = _build_page_map(doc)
-    assert pm1 == {0: 3}
-    assert pm2 == {0: 3}
+    assert pm1 == {0: 2}
+    assert pm2 == {0: 2}
     assert doc.getText.return_value.createEnumeration.call_count == 2
     assert doc.lockControllers.call_count == 2
     assert doc.unlockControllers.call_count == 2
@@ -487,7 +487,7 @@ def test_build_page_map_rebuilds_and_unlocks(caplog):
     vc.getPage.return_value = 5
 
     pm3 = _build_page_map(doc)
-    assert pm3 == {0: 5}
+    assert pm3 == {0: 4}
     doc.unlockControllers.assert_called_once()
 
     # Controller failure returns {} and does not lock, logs exception
@@ -534,6 +534,41 @@ def test_advanced_search_invalid_syntax_returns_invalid_param():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert "Boolean query syntax error" in res["message"]
+
+
+def test_advanced_search_around_page_is_zero_based():
+    from plugin.writer.search import AdvancedSearch
+
+    para0, para1, para2 = MagicMock(), MagicMock(), MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, True, False]
+    enum.nextElement.side_effect = [para0, para1, para2]
+
+    vc = MagicMock()
+    vc.getPage.side_effect = [1, 3, 4]
+
+    doc = MagicMock()
+    doc.getText.return_value.createEnumeration.return_value = enum
+    doc.getCurrentController.return_value.getViewCursor.return_value = vc
+
+    idx_svc = MagicMock()
+    idx_svc.search_boolean.return_value = {
+        "matches": [
+            {"paragraph_index": 0, "text": "first"},
+            {"paragraph_index": 1, "text": "second"},
+            {"paragraph_index": 2, "text": "third"},
+            {"paragraph_index": 99, "text": "unmapped"},
+        ]
+    }
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.writer_index = idx_svc
+
+    res = AdvancedSearch().execute(ctx, query="test", around_page=0, page_radius=0)
+    assert res["status"] == "ok"
+    assert res["matches"] == [{"paragraph_index": 0, "text": "first", "page": 0}]
+    assert res["returned"] == 1
+    assert res["filtered_by_page"] == {"around_page": 0, "page_radius": 0, "before_filter": 4}
 
 
 def test_search_in_document_missing_pattern_returns_invalid_param():

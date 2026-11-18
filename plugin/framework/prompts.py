@@ -420,6 +420,7 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
 - Review/feedback/suggestions: comment_add on specific passages (positive and negative).
+- Tool page indices are 0-based; the user and the status bar count pages from 1, so the user's page 3 is page=2, and say page N+1 when replying to the user.
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error."""
 
 

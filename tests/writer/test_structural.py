@@ -229,6 +229,7 @@ def test_get_page_objects_disposal_and_error_handling():
     doc_disp.getDrawPage.return_value.getCount.return_value = 0
     ctx = MagicMock()
     ctx.doc = doc_disp
+    ctx.services.document.get_page_count.return_value = 1
 
     with pytest.raises((DisposedException, DocumentDisposedError)):
         GetPageObjects().execute(ctx, page=0)
@@ -279,6 +280,8 @@ def test_nav_goto_page_failed_jump_reports_error():
     vc = MagicMock()
     vc.jumpToPage.return_value = True
     vc.getPage.return_value = 7
+    saved = MagicMock()
+    vc.getText.return_value.createTextCursorByRange.return_value = saved
     doc = MagicMock()
     doc.getCurrentController.return_value.getViewCursor.return_value = vc
     ctx = MagicMock()
@@ -288,6 +291,8 @@ def test_nav_goto_page_failed_jump_reports_error():
     assert res["status"] == "error"
     assert "Page 99 does not exist" in res["message"]
     assert "7 page(s)" in res["message"]
+    assert "first page = 0" in res["message"]
+    vc.gotoRange.assert_called_once_with(saved, False)
 
 
 def test_clone_heading_block_without_writer_tree_service_is_tool_error():
