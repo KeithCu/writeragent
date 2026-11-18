@@ -2046,12 +2046,12 @@ class _PageCommentProxy:
         """
         return _result(call_host_tool("page_comment_delete", index=index, page=page))
 
-    def list(self, *, page: int | None = None, offset: int | None = None) -> _Item:
+    def list(self, *, page: int | None = None, offset: int = 0) -> _Item:
         """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
 
         Args:
             page (optional): 0-based page index (all pages if omitted).
-            offset (optional): Skip this many comments in deck order (default 0).
+            offset (optional): Skip this many comments in deck order.
 
         Iterator form: ``for item in wa.page_comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.page_comment)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.page_comment)``. It passes no optional arguments (page); filter the items in Python.
         """
@@ -2312,13 +2312,13 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width))
 
-    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> _Item:
+    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str = 'horizontal_flow', connections: list[Any] | None = None) -> _Item:
         """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
 
         Args:
             nodes (required):
             page (optional): 0-based page (slide) index; the active page if omitted.
-            layout (optional): How to place nodes (default: horizontal_flow). One of: horizontal_flow, vertical_flow, grid, custom.
+            layout (optional): How to place nodes. One of: horizontal_flow, vertical_flow, grid, custom.
             connections (optional):
         """
         return _result(call_host_tool("shape_create_diagram", page=page, layout=layout, nodes=nodes, connections=connections))
@@ -2575,12 +2575,12 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_duplicate", page=page, activate=activate))
 
-    def get_header_footer(self, page: int, *, is_master_page: bool | None = None) -> _Item:
+    def get_header_footer(self, page: int, *, is_master_page: bool = False) -> _Item:
         """Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
             page (required): 0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).
-            is_master_page (optional): If True, read the master page linked to the slide at page. Defaults to False.
+            is_master_page (optional): If True, read the master page linked to the slide at page.
         """
         return _result(call_host_tool("slide_get_header_footer", page=page, is_master_page=is_master_page))
 
@@ -2669,12 +2669,12 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_set_active", page=page))
 
-    def set_header_footer(self, page: int, *, is_master_page: bool | None = None, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> _Item:
+    def set_header_footer(self, page: int, *, is_master_page: bool = False, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> _Item:
         """Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
             page (required): 0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
-            is_master_page (optional): If True, update the master page linked to the slide at page. Defaults to False.
+            is_master_page (optional): If True, update the master page linked to the slide at page.
             header (optional): Header text. Slide master only (written to the master's header shape); not available on a normal slide.
             footer (optional): The text for the footer. Setting it enables footer_visible unless footer_visible is passed.
             date_time (optional): The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed.
@@ -2704,13 +2704,13 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_set_master", page=page, master=master))
 
-    def set_notes(self, text: str, *, page: int | None = None, append: bool | None = None) -> _Item:
+    def set_notes(self, text: str, *, page: int | None = None, append: bool = False) -> _Item:
         """Set or replace speaker notes on an Impress slide.
 
         Args:
             text (required): Speaker notes text.
             page (optional): 0-based page (slide) index; the active page if omitted.
-            append (optional): Append to existing notes instead of replacing (default: false).
+            append (optional): Append to existing notes instead of replacing.
         """
         return _result(call_host_tool("slide_set_notes", text=text, page=page, append=append))
 

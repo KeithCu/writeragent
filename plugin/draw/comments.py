@@ -190,13 +190,13 @@ class ListPageComments(ToolDrawCommentBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (all pages if omitted)."},
-            "offset": {"type": "integer", "description": "Skip this many comments in deck order (default 0)."},
+            "offset": {"type": "integer", "default": 0, "description": "Skip this many comments in deck order."},
         },
         "required": [],
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        offset = kwargs.get("offset", 0)
+        offset = kwargs["offset"]
         if type(offset) is not int or offset < 0:
             return self._tool_error("offset must be a non-negative integer.", code="INVALID_PARAM")
 

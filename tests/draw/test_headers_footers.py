@@ -268,7 +268,7 @@ def test_field_table_matches_set_schema():
 
 def test_set_slide_footer_text_implies_visible():
     page = _FakePage()
-    res = _run_set(_FakePages([page]), page=0, footer="X")
+    res = _run_set(_FakePages([page]), page=0, is_master_page=False, footer="X")
     assert res["status"] == "ok"
     assert res["updated_properties"] == 2
     assert page.props == {"FooterText": "X", "IsFooterVisible": True}
@@ -276,7 +276,7 @@ def test_set_slide_footer_text_implies_visible():
 
 def test_set_slide_explicit_false_wins():
     page = _FakePage()
-    res = _run_set(_FakePages([page]), page=0, footer="X", footer_visible=False)
+    res = _run_set(_FakePages([page]), page=0, is_master_page=False, footer="X", footer_visible=False)
     assert res["status"] == "ok"
     assert page.props["FooterText"] == "X"
     assert page.props["IsFooterVisible"] is False
@@ -284,7 +284,7 @@ def test_set_slide_explicit_false_wins():
 
 def test_set_slide_date_time_implies_fixed_and_visible():
     page = _FakePage()
-    res = _run_set(_FakePages([page]), page=0, date_time="2024-01-01")
+    res = _run_set(_FakePages([page]), page=0, is_master_page=False, date_time="2024-01-01")
     assert res["status"] == "ok"
     assert res["updated_properties"] == 3
     assert page.props["DateTimeText"] == "2024-01-01"
@@ -294,7 +294,7 @@ def test_set_slide_date_time_implies_fixed_and_visible():
 
 def test_set_slide_rejects_header():
     page = _FakePage()
-    res = _run_set(_FakePages([page]), page=0, header="H")
+    res = _run_set(_FakePages([page]), page=0, is_master_page=False, header="H")
     assert res["status"] == "error"
     assert "header" in res["message"]
     assert page.props == {}
@@ -308,7 +308,7 @@ def test_set_slide_write_failure_names_key():
             super().setPropertyValue(name, value)
 
     page = ExplodingPage()
-    res = _run_set(_FakePages([page]), page=0, footer="X")
+    res = _run_set(_FakePages([page]), page=0, is_master_page=False, footer="X")
     assert res["status"] == "error"
     assert "footer" in res["message"]
     assert res.get("updated_properties", res.get("details", {}).get("updated_properties")) == 1

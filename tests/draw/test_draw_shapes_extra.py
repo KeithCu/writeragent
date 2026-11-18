@@ -1,11 +1,13 @@
 # WriterAgent — unit tests for align/distribute/graphic/diagram tools
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.draw.shapes import AlignShapes, CreateDiagram, DistributeShapes
+from plugin.framework.tool import prepare_tool_call
 
 
 class _Pos:
@@ -103,6 +105,16 @@ def test_create_diagram_numeric_ids_pass_connection_check():
     page = MagicMock()
     page.Width = 28000
     page.Height = 15750
+    prepared = prepare_tool_call(
+        CreateDiagram(),
+        SimpleNamespace(doc_type="impress", caller=None),
+        "shape_create_diagram",
+        {
+            "nodes": [{"id": 1, "text": "A"}, {"id": 2, "text": "B"}],
+            "connections": [{"from": 1, "to": "2"}],
+        },
+    )
+    assert prepared.error is None
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
@@ -112,12 +124,9 @@ def test_create_diagram_numeric_ids_pass_connection_check():
                 {"status": "ok", "index": 1},
             ]
             mock_conn.return_value = {"status": "ok", "index": 2}
-            out = CreateDiagram().execute(
-                ctx,
-                nodes=[{"id": 1, "text": "A"}, {"id": 2, "text": "B"}],
-                connections=[{"from": 1, "to": "2"}],
-            )
+            out = CreateDiagram().execute(ctx, **prepared.kwargs)
     assert out["status"] == "ok"
+    assert out["layout"] == "horizontal_flow"
     assert len(out["connections"]) == 1
 
 
@@ -133,6 +142,7 @@ def test_create_diagram_unknown_connection_creates_nothing():
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             out = CreateDiagram().execute(
                 ctx,
+                layout="horizontal_flow",
                 nodes=[{"id": "a", "text": "A"}],
                 connections=[{"from": "a", "to": "missing"}],
             )
@@ -240,6 +250,7 @@ def test_create_diagram_cleanup_reraises_disposed():
             with pytest.raises(DisposedException):
                 CreateDiagram().execute(
                     ctx,
+                    layout="horizontal_flow",
                     nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
                 )
 
@@ -269,6 +280,7 @@ def test_create_diagram_cleanup_continues_past_live_runtime_exception():
             ]
             out = CreateDiagram().execute(
                 ctx,
+                layout="horizontal_flow",
                 nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}, {"id": "c", "text": "C"}],
             )
     assert out["status"] == "error"

@@ -1235,7 +1235,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
         "type": "object",
         "properties": {
             "page": DRAW_PAGE_PROPERTY,
-            "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "description": "How to place nodes (default: horizontal_flow)"},
+            "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "default": "horizontal_flow", "description": "How to place nodes"},
             "nodes": {
                 "type": "array",
                 "items": {
@@ -1281,7 +1281,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
             if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
 
-        layout_name = kwargs.get("layout") or "horizontal_flow"
+        layout_name = kwargs["layout"]
         from plugin.draw.bridge import page_size
 
         page_w, page_h = page_size(page) or (layout.DEFAULT_PAGE_WIDTH, layout.DEFAULT_PAGE_HEIGHT)
