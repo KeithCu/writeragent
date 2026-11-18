@@ -35,7 +35,7 @@ GitHub. Those comments are stripped on read. ``save`` does not validate,
 write, or emit ``config:changed`` when the coerced value already matches the
 stored value, or the schema default when that key is omitted from the file.
 The default itself is not a change. If nothing changed, it does not write or emit.
-Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory, skills, history JSON, harper cache) do not fsync.
+Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory, external editor, history JSON, harper cache) do not fsync.
 
 Concurrency: ``save`` and ``update_config_mapping`` hold ``_config_write_lock``
 (an ``RLock``) across the read, merge, validate, keystore writes, and file

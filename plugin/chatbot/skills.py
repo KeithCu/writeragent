@@ -8,23 +8,18 @@
 
 """Minimal skills support, starting with the humanizer (inspired by Hermes-agent).
 
-Re-uses the exact same user profile storage pattern as MemoryStore (user_config_dir + subdirectory).
 The primary delivery mechanism is **ambient prompt injection** (see get_chat_system_prompt_for_document),
 exactly like memory injection. This gives the model the rules "for free"
 during any writing or document work without a separate tool call.
 
-Users can turn the skill on/off via Settings and edit the rules by editing the SKILL.md file
-(or via a future in-app editor). The file in the user profile always wins over the built-in default.
+Users can turn the skill on/off via Settings; the guidance always uses the built-in default.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
-from plugin.chatbot.memory import cap_injected_prompt_blob
-from plugin.framework.config import atomic_write_text, user_config_dir
-from plugin.framework.errors import ConfigError
+from plugin.framework import config as framework_config
 from plugin.framework.prompts import fenced_data_block
 
 log = logging.getLogger(__name__)
@@ -53,9 +48,8 @@ When drafting or revising document text, run the output through these rules (sil
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
 
-# Scope rules live on this code-owned heading rather than in HUMANIZER_GUIDANCE, because
-# a user's seeded SKILL.md keeps whatever text it was first seeded with. The heading therefore
-# decides where first person, opinions and tangents may appear, even when an older seeded body asks for them.
+# Scope rules sit on the heading rather than in HUMANIZER_GUIDANCE so the guidance body stays a
+# generic style list; the heading decides where it applies (document prose, not chat replies).
 HUMANIZER_PROMPT_HEADING = (
     "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document (body, cell, slide, or shape text), not for chat replies. "
     "Keep the document's existing voice and formality: first person, opinions, tangents, and casual "
@@ -65,95 +59,15 @@ HUMANIZER_PROMPT_HEADING = (
 )
 
 
-def strip_skill_front_matter(content: str) -> str:
-    """Strip leading YAML front matter delimited by exact '---' lines."""
-    if not content:
-        return ""
-    text = content
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return text.strip()
-
-    # Very light front-matter strip (--- ... --- or just the body after first ---)
-    for idx, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            return "\n".join(lines[idx + 1:]).strip()
-    return text.strip()
-
-
-class SkillStore:
-    """File-backed skill storage, modeled directly on MemoryStore for minimal new concepts.
-
-    Currently supports only the humanizer skill (easy to generalize later).
-    Lives under the same user profile directory as memories/ so users have one place
-    to find and edit their agent "personality" files.
-    """
-
-    skills_dir: str
-
-    def __init__(self) -> None:
-        config_dir = user_config_dir()
-        if config_dir is None:
-            raise ConfigError("User configuration directory is not available to resolve skill store path")
-        self.skills_dir = os.path.join(config_dir, "skills")
-
-    def get_humanizer_skill_path(self) -> str:
-        """Return the full path to the editable SKILL.md for display in UI / docs."""
-        return os.path.join(self.skills_dir, "humanizer", "SKILL.md")
-
-    def get_humanizer_guidance(self) -> str:
-        """Return the current humanizer rules.
-
-        User-edited file always wins. Falls back to the built-in default if missing or empty.
-        Strips a simple YAML front-matter block if present (for Hermes compatibility).
-
-        On first access we proactively write the default SKILL.md into the user's profile
-        so they can immediately open and customize it.
-        """
-        path = self.get_humanizer_skill_path()
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
-            stripped = strip_skill_front_matter(content)
-            # A front-matter-only file splits to an empty body.
-            # That is the same as a missing file: use HUMANIZER_GUIDANCE
-            # so the prompt still gets the humanizer rules.
-            if stripped:
-                return stripped
-        except FileNotFoundError:
-            # Seed the editable file from the built-in default the first time anyone asks for it.
-            self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
-        except (OSError, UnicodeDecodeError) as e:
-            log.warning("Failed to read user humanizer skill: %s", e)
-
-        return HUMANIZER_GUIDANCE
-
-    def write_humanizer_guidance(self, content: str) -> None:
-        """Persist a user-edited version of the humanizer rules."""
-        try:
-            path = self.get_humanizer_skill_path()
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            atomic_write_text(path, content.strip() + "\n", prefix=".skill-")
-        except OSError as e:
-            log.exception("Failed to write humanizer skill: %s", e)
-
-
 def format_humanizer_guidance_prompt_block() -> str:
     """Return fenced humanizer guidance if enabled in settings, else empty string."""
-    from plugin.framework.config import get_config
-
     try:
-        if get_config("chatbot.humanizer_enabled"):
-            hstore = SkillStore()
-            hguidance = hstore.get_humanizer_guidance()
-            if hguidance:
-                return fenced_data_block(
-                    HUMANIZER_PROMPT_HEADING,
-                    cap_injected_prompt_blob(hguidance),
-                    tag="humanizer",
-                )
+        if framework_config.get_config("chatbot.humanizer_enabled"):
+            return fenced_data_block(
+                HUMANIZER_PROMPT_HEADING,
+                HUMANIZER_GUIDANCE.strip(),
+                tag="humanizer",
+            )
     except Exception:
         log.exception("Failed to inject humanizer guidance")
     return ""

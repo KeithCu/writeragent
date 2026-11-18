@@ -61,7 +61,7 @@ A user (or an eval harness) has two or three windows open in the same LibreOffic
 | Draw sidebar | That Draw model (`com.sun.star.drawing.DrawingDocument`) | Draw **core** tools + `delegate_to_subagent` | A **third** `ChatSession` + `ToolCallingMixin` |
 | Impress sidebar | That Impress model (`com.sun.star.presentation.PresentationDocument`; also supports `DrawingDocument`) | Same Draw **core** tools + `delegate_to_subagent` | A **fourth** `ChatSession` + `ToolCallingMixin` |
 
-They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
+They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
 
 **What the user wants:** the Writer agent can send the Calc agent Calc work, or the Draw agent Draw work (and any reverse), in natural language. The other sidebar **shows the message and runs it**. A reply comes back later on the caller’s transcript as a **new user turn**. Writer never advertises `write_range` or `shape_upsert`; Calc never advertises `apply_content`.
 
@@ -132,7 +132,7 @@ That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until
 | MCP `tools/call` + `document_url` | External host can target any open doc | Loopback HTTP is not two sidebars chatting. v1 **does not** advertise or execute this tool for MCP. MCP already pops `document_url` as the *caller* doc — another reason not to share this name on that wire. |
 | MCP result toast | `_on_mcp_result` posts onto **a** sidebar | External call display, not a peer send. |
 | `EventBus` | Sync pub/sub | Process events, not a conversation. |
-| `history_db` / memory / skills | Shared disk | Persistence ≠ a turn. Mixing app tool traces in one session is the anti-pattern. |
+| `history_db` / memory | Shared disk | Persistence ≠ a turn. Mixing app tool traces in one session is the anti-pattern. |
 | udprops | Already stores `WriterAgentSessionID` | Identity, not a mailbox. |
 | Collabora / coolwsd | Kit IPC | Different product — [§6](#6-non-goals). |
 

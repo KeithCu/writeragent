@@ -731,7 +731,7 @@ def tts_short_answers_prompt_suffix() -> str:
 def fenced_data_block(heading: str, body: str, *, tag: str) -> str:
     """Wrap injected text in <<<tag>>> … <<<</tag>>> so the model reads it as data, not tool instructions.
 
-    USER.md, additional instructions and SKILL.md are user-editable, and memory_upsert can store any
+    USER.md and additional instructions are user-editable, and memory_upsert can store any
     string, so a marker inside the body would end the block early. A space after ``<<<`` keeps an
     embedded opener or closer (the closer has four left brackets) from matching the wrapper.
     """

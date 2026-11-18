@@ -93,7 +93,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Optional modules and guards
 
 - **`sqlite3`** may be typed as optional; Pyright wants **`assert sqlite3 is not None`** on paths that use it after **`HAS_SQLITE`**.
-- **`user_config_dir()`** as **`str | None`**: filesystem stores should **`raise ConfigError`** rather than joining on **`None`** (**`MemoryStore`**, **`SkillsStore`**).
+- **`user_config_dir()`** as **`str | None`**: filesystem stores should **`raise ConfigError`** rather than joining on **`None`** (**`MemoryStore`**).
 
 ### smolagents and FSM helpers
 
