@@ -1243,7 +1243,7 @@ class ApplyStyle(FrameworkToolBase):
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
                 "Direct (hand-set) formatting on the target, ParagraphStyles only. "
-                "'none' keeps all of it. "
+                "'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. "
                 "'style_props' (default) drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. "
                 "'all' drops every direct override, like Ctrl+M; refused with target='full_document'.")},
         },
