@@ -1799,16 +1799,25 @@ def test_edit_selection_passes_pinned_range_to_html_import():
 
 
 def test_one_string_and_list_content_reach_import_the_same() -> None:
-    from plugin.writer.apply_document_content import EditParams
+    from plugin.writer import html_import
 
-    tool = ApplyDocumentContent()
-    list_params = tool._parse_edit_params(MagicMock(), {"content": ["<h1>A</h1>", "<p>B</p>"], "target": "end"})
-    str_params = tool._parse_edit_params(MagicMock(), {"content": "<h1>A</h1>\n<p>B</p>", "target": "end"})
+    ctx = _edit_ctx()
+    with patch.object(
+        html_import,
+        "insert_content_at_position",
+        return_value=html_import_styles.WriteReport(),
+    ) as mock_insert, patch(
+        "plugin.writer.apply_document_content.attach_edited_context",
+        side_effect=lambda res, _a: res,
+    ):
+        res_list = ApplyDocumentContent().execute(ctx, content=["<h1>A</h1>", "<p>B</p>"], target="end")
+        res_str = ApplyDocumentContent().execute(ctx, content="<h1>A</h1>\n<p>B</p>", target="end")
 
-    assert isinstance(list_params, EditParams)
-    assert isinstance(str_params, EditParams)
-    assert list_params == str_params
-    assert str_params.content == "<h1>A</h1>\n<p>B</p>"
+    assert res_list["status"] == "ok"
+    assert res_str["status"] == "ok"
+    assert mock_insert.call_count == 2
+    assert mock_insert.call_args_list[0] == mock_insert.call_args_list[1]
+    assert mock_insert.call_args_list[0].args[2] == "<h1>A</h1>\n<p>B</p>"
 
 
 

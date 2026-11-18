@@ -113,7 +113,7 @@ def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, crea
 
 # The one statement that tool indexes are internal. It sits in TOOL_USAGE_PATTERNS, which is the
 # sidebar's ambient prompt and the MCP "editing" manual topic; tool descriptions that return
-# para_index or paragraph_index do not repeat it.
+# para_index or paragraph_index do not repeat it (guarded by test_paragraph_index_rule_has_one_home).
 PARAGRAPH_INDEX_DIRECTIVE = (
     "para_index, paragraph_index, and other tool indexes are internal and shift as the document changes; "
     "never cite them to the user. To point at a place, quote the first few words of its text "
@@ -393,8 +393,9 @@ Answer every question in the sidebar — about LibreOffice, this assistant, or r
 Follow CHAT RESPONSE FORMAT for sidebar replies."""
 
 # Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
-# to upload or paste) plus the web/general-knowledge boundary vs. document_research. Python/shapes
-# routing and the research `task` hint are in DelegateToSpecializedWriter.description.
+# to upload or paste) plus the web/general-knowledge boundary vs. document_research. The
+# web_research trigger is its catalog line; python/shapes routing and the research `task` hint
+# are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
@@ -402,7 +403,7 @@ For public facts or general knowledge, answer yourself or {DELEGATE_SUBAGENT_TOO
 
 
 TRANSLATION_RULES = """TRANSLATION: Translate text yourself — there is no translate tool; never decline or claim you lack one.
-- When the user only wants to know what the text says, answer in the sidebar.
+- When the user only wants to know what the text says, reply directly without editing the document.
 - Write into the document only when asked: to replace the original, read it with get_content(scope=full|selection) and call apply_content(target='full_document'|'selection') once; to put the translation below the original, insert it after that text (target='end', or target='search' with position='after').
 - For a long document, translate section by section with target='search' and start_anchor/end_anchor instead of one full_document call, and keep image wrappers (<div|span ... id="Name">) exactly as get_content returned them."""
 
@@ -423,8 +424,8 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
-- Comments: comment_add adds new comments and replies; delegate domain='comments' to list, edit, resolve, or delete them.
-- When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered in the sidebar.
+- Comments: comment_add adds new comments and replies; tools to list, edit, resolve, or delete comments live in the 'comments' domain.
+- When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered directly without document comments.
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error.
 - {PARAGRAPH_INDEX_DIRECTIVE}"""
 
