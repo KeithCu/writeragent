@@ -155,76 +155,6 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     assert any(i > add_idx for i in engine_idxs), events
 
 
-def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
-    """Calc SpreadsheetDocument: re-apply EnhancedCustomShapeGeometry after page.add.
-
-    Pre-add Type alone leaves geometry Type-only (no Path) so CustomShapes do not
-    paint on the sheet; Writer already re-applies for TextDocument.
-    """
-    events: list = []
-    shape = _RecordingShape(events)
-
-    page = MagicMock()
-    page_shapes: list = []
-
-    def page_add(added):
-        events.append(("page.add",))
-        page_shapes.append(added)
-
-    page.add.side_effect = page_add
-    page.getCount.side_effect = lambda: len(page_shapes)
-    page.getByIndex.side_effect = lambda i: page_shapes[i]
-
-    pages = MagicMock()
-    pages.getCount.return_value = 1
-    pages.getByIndex.return_value = page
-
-    doc = MagicMock()
-
-    def supports(svc: str) -> bool:
-        return svc == "com.sun.star.sheet.SpreadsheetDocument"
-
-    doc.supportsService.side_effect = supports
-    doc.createInstance.side_effect = lambda _type: shape
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.active_page_index = 0
-
-    with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("uno.invoke", side_effect=_invoke_set_property),
-        patch("uno.Any", side_effect=lambda _type, value: value),
-    ):
-        bridge = bridge_cls.return_value
-        bridge.get_pages.return_value = pages
-        bridge.resolve_page.return_value = (page, 0)
-        bridge.get_active_page_index.return_value = 0
-
-        result = UpsertShape().execute(
-            ctx,
-            action="create",
-            shape_type="star24",
-            x=2000,
-            y=5000,
-            width=4000,
-            height=4000,
-            fill_color="blue",
-        )
-
-    assert result["status"] == "ok"
-    assert result["geometry_applied"] is True
-
-    add_idx = next(i for i, ev in enumerate(events) if ev[0] == "page.add")
-    geom_idxs = [i for i, ev in enumerate(events) if ev[0] == "setPropertyValue" and ev[1] == "CustomShapeGeometry"]
-    engine_idxs = [i for i, ev in enumerate(events) if ev[0] == "setPropertyValue" and ev[1] == "CustomShapeEngine"]
-
-    assert any(i < add_idx for i in geom_idxs), events
-    assert any(i > add_idx for i in geom_idxs), events
-    assert any(i < add_idx for i in engine_idxs), events
-    assert any(i > add_idx for i in engine_idxs), events
-
-
 def test_writer_invalidate_does_not_call_process_events_to_idle() -> None:
     """Writer draw-layer invalidate helper must not nest a VCL pump."""
     doc = MagicMock()
@@ -1034,6 +964,12 @@ def test_apply_shape_properties_color_forces_solid_style():
         assert _apply_shape_properties(s4, {"line_color": "#0000FF"}) == []
         assert ("LineColor", 0x0000FF) in [c.args for c in s4.setPropertyValue.call_args_list]
         assert ("LineStyle", ("LineStyle", "SOLID")) in [c.args for c in s4.setPropertyValue.call_args_list]
+
+        s5 = _make_shape()
+        s5.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+        assert _apply_shape_properties(s5, {"fill_color": "#FF0000"}) == []
+        assert ("LineColor", 0xFF0000) in [c.args for c in s5.setPropertyValue.call_args_list]
+        assert not any(c.args[0] == "FillStyle" for c in s5.setPropertyValue.call_args_list)
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():

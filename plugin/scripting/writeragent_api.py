@@ -2359,7 +2359,7 @@ class _ShapeProxy:
         return _result(call_host_tool("shape_get_summary", page=page))
 
     def get_tree(self, *, page: int | None = None) -> _Item:
-        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
+        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. CustomShapes with custom_geometry_empty=true have no Path/ViewBox and will not paint (recreate them; edit does not re-apply geometry). Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
             page (optional): 0-based page (slide) index; the active page if omitted.

@@ -154,6 +154,32 @@ def test_draw_octagon_geometry_after_add(ctx, doc):
 
 
 @native_test
+@with_native_doc("impress", reuse=False)
+def test_impress_octagon_geometry_after_add(ctx, doc):
+    """Impress reapplies CustomShapeGeometry after add so ViewBox and Path expand and shapes paint."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    created = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="octagon",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=4000,
+        fill_color="#FF0000",
+    )
+    assert created.get("status") == "ok", created
+    shape = page.getByIndex(page.getCount() - 1)
+    geom = {str(prop.Name): prop.Value for prop in shape.getPropertyValue("CustomShapeGeometry")}
+    assert geom.get("Type") == "octagon", geom
+    assert geom.get("ViewBox") is not None, geom
+    assert geom.get("Path"), geom
+    assert getattr(shape.getPropertyValue("FillStyle"), "value", None) == "SOLID"
+
+
+@native_test
 @with_native_doc("draw")
 def test_shape_upsert_axis_aligned_line(ctx, doc):
     """Horizontal and vertical lines have a zero side. Rectangles do not."""

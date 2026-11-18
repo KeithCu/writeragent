@@ -383,8 +383,13 @@ class DrawShapes:
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
         For CustomShape, ``EnhancedCustomShapeGeometry`` is applied **before**
-        ``page.add`` and re-applied after add in ``UpsertShape`` so the preset
-        geometry expands (ViewBox, Path, Equations, Handles) and the shape paints.
+        ``page.add`` so ``SvxShape::setPropertyValue`` buffers ``Type``
+        (``svx/source/unodraw/unoshape.cxx:566``) instead of swapping it on a
+        live default ``SdrRectObj`` (which can abort in
+        ``SfxItemPool::unregisterNameOrIndex``), and re-applied after add in
+        ``UpsertShape`` so ``SvxCustomShape::setPropertyValue`` runs
+        ``MergeDefaultAttributes()`` (``svx/source/unodraw/unoshap2.cxx:1733-1749``)
+        to expand ``ViewBox`` and ``Path``.
         """
         try:
             if doc is None:
@@ -509,12 +514,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
-                fill_color_set = True
+                is_line = "LineShape" in shape.getShapeType()
+                if not is_line:
+                    fill_color_set = True
                 _try(
                     failed_props,
                     "fill_color",
                     lambda: shape.setPropertyValue(
-                        "LineColor" if "LineShape" in shape.getShapeType() else "FillColor",
+                        "LineColor" if is_line else "FillColor",
                         color,
                     ),
                 )
@@ -773,7 +780,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         draw_shapes = DrawShapes()
 
         try:
-            # Apply EnhancedCustomShapeGeometry before page.add, then re-apply after add below.
+            # Pre-add write sets Type before page.add so SdrObjCustomShape is created with
+            # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
             shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
         except DrawError as e:
             # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
@@ -786,8 +794,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             _try_writer_at_page_shape_finalize(ctx.doc, shape, actual_idx)
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
 
-            # Re-apply EnhancedCustomShapeGeometry after add on all document types so
-            # LibreOffice expands the preset geometry (ViewBox, Path, etc.) and the shape paints.
+            # Post-add write triggers SvxCustomShape::setPropertyValue -> MergeDefaultAttributes()
+            # (svx/source/unodraw/unoshap2.cxx:1733-1749) so ViewBox and Path are built and the shape paints.
             if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 

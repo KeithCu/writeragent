@@ -485,13 +485,15 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
         for prop in ["FillColor", "FillStyle", "LineColor", "LineStyle", "ZOrder", "RotateAngle", "LineWidth"]:
             val: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
             if val is not None:
-                if prop in ["FillColor", "LineColor"] and isinstance(val, int) and val != -1:
+                if prop in ("FillStyle", "LineStyle"):
+                    style[prop] = val.value
+                elif prop in ("FillColor", "LineColor") and isinstance(val, int) and val != -1:
                     style[prop] = f"#{val:06X}"
-                elif prop in ["FillStyle", "LineStyle"]:
-                    style[prop] = getattr(val, "value", val)
                 else:
                     style[prop] = val
 
+        # Flag CustomShapes with no Path/ViewBox: they will not paint and must be
+        # recreated because shape_upsert(action="edit") does not re-apply geometry.
         geom_props: Any = uno_read(lambda: shape.getPropertyValue("CustomShapeGeometry"), None)
         if geom_props:
             has_path_or_viewbox = False
@@ -523,7 +525,9 @@ class GetDrawTree(ToolBase):
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
-        "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
+        "value/state. CustomShapes with custom_geometry_empty=true have no Path/ViewBox and will not "
+        "paint (recreate them; edit does not re-apply geometry). Address shapes by name from this tree "
+        "— draw-page index shifts when other shapes sit between fields."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
