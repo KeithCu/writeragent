@@ -954,8 +954,6 @@ class PythonWorkerManager:
         timeout_sec: float | int,
         cancel: SendCancellation | None = None,
     ) -> bytes | FailedAfterStart:
-        if not self._is_worker_alive():
-            raise RuntimeError("worker terminated concurrently")
         return self._read_frame_bytes(stdout, timeout_sec, cancel=cancel)
 
     def _read_frame_bytes(
