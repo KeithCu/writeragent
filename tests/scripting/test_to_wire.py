@@ -8,12 +8,12 @@ from typing import Any
 import pytest
 
 from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
-from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME
+from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, is_split_grid
 from plugin.scripting.venv.to_wire import to_wire
 
 
 def test_pickle_scalars_and_leaves():
-    """Pickle preserves float nan, bytes, sets; drops tz; rejects sNaN."""
+    """Pickle preserves float nan, bytes, sets; drops tz; rejects sNaN; packs large lists."""
     nan_val = to_wire(float("nan"))
     assert isinstance(nan_val, float)
     assert math.isnan(nan_val)
@@ -25,6 +25,8 @@ def test_pickle_scalars_and_leaves():
 
     dt = datetime.datetime(2026, 8, 13, 14, 30, tzinfo=datetime.timezone.utc)
     assert to_wire(dt) == "2026-08-13T14:30:00"
+
+    assert is_split_grid(to_wire(list(range(200))))
 
     with pytest.raises(ValueError):
         to_wire(decimal.Decimal("sNaN"))
