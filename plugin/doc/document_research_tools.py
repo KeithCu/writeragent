@@ -12,13 +12,11 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from plugin.chatbot.agent_manual import (
-    calc_topic_list_text,
-    draw_topic_list_text,
     get_section,
     list_topics,
     manual_index,
     normalize_topic,
-    writer_topic_list_text,
+    topic_list_text,
 )
 from plugin.framework.doc_type import doc_type_str_from_doc
 from plugin.doc.document_research import get_open_documents, list_nearby_files
@@ -108,16 +106,22 @@ class ListOpenDocuments(ToolBase):
             return user_stopped_payload()
 
 
+_MANUAL_READ_LEAD = (
+    "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
+    "call with a topic to read just that section (so you don't load everything). "
+)
+_MANUAL_READ_TAIL = "Use this when unsure how an edit, the review modes, search, or image ops work."
+
+
 class GetGuidance(ToolBase):
     """On-demand how-to-use manual for the WriterAgent tools (agent pulls one topic at a time)."""
 
     name: str | None = "manual_read"
     description: str = (
-        "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
-        "call with a topic to read just that section (so you don't load everything). Topics follow the "
-        f"open document's type (for Writer: {writer_topic_list_text()}). "
-        f"Calc: {calc_topic_list_text()}. Draw and Impress: {draw_topic_list_text()}. "
-        "Use this when unsure how an edit, the review modes, search, or image ops work."
+        _MANUAL_READ_LEAD
+        + f"Topics follow the open document's type (for Writer: {topic_list_text('writer')}). "
+        + f"Calc: {topic_list_text('calc')}. Draw and Impress: {topic_list_text('draw')}. "
+        + _MANUAL_READ_TAIL
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of
     # the ambient text and relies on pulling them from here (same single source, same topics).
@@ -132,6 +136,12 @@ class GetGuidance(ToolBase):
         },
         "required": [],
     }
+
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Name only a known document type's topics; an unprobed type (None) lists every type's topics."""
+        if doc_type is None:
+            return self.description
+        return f"{_MANUAL_READ_LEAD}Topics for this document type: {topic_list_text(doc_type)}. {_MANUAL_READ_TAIL}"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Guidance must match the document being worked on (a Calc session must never read Writer

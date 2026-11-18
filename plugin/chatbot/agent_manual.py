@@ -199,21 +199,6 @@ def _app(doc_type: str | None) -> str:
     return label if label in _MANUALS else "generic"
 
 
-def writer_topic_list_text() -> str:
-    """Comma-separated list of canonical Writer topic ids in display order."""
-    return ", ".join(t.id for t in _WRITER_TOPICS)
-
-
-def calc_topic_list_text() -> str:
-    """Comma-separated list of canonical Calc topic ids in display order."""
-    return ", ".join(t.id for t in _CALC_TOPICS)
-
-
-def draw_topic_list_text() -> str:
-    """Comma-separated list of canonical Draw/Impress topic ids in display order."""
-    return ", ".join(t.id for t in _DRAW_TOPICS)
-
-
 def list_topic_entries(doc_type: str | None = "writer") -> list[tuple[str, str]]:
     """Canonical topic ids and summaries in display order for a document type."""
     return [(t.id, t.summary) for t in _MANUALS[_app(doc_type)]]
@@ -222,6 +207,11 @@ def list_topic_entries(doc_type: str | None = "writer") -> list[tuple[str, str]]
 def list_topics(doc_type: str | None = "writer") -> list[str]:
     """Canonical topic ids in display order for a document type."""
     return [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
+
+
+def topic_list_text(doc_type: str | None) -> str:
+    """Comma-separated canonical topic ids for *doc_type* in display order."""
+    return ", ".join(list_topics(doc_type))
 
 
 def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic | None:

@@ -1242,15 +1242,10 @@ class ApplyStyle(FrameworkToolBase):
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
-                "What to do with direct (hand-set) formatting on the target, ParagraphStyles only. "
-                "'style_props' (default) drops the font name/size override and the paragraph "
-                "indents/alignment so the style's own values show, keeping bold/italic/colour. "
-                "The name means 'let the style's properties win' for the font/size/indent the "
-                "style governs — not 'clear only what this style defines'. "
-                "'none' keeps a hand-set font (historical; the style can look unchanged). "
-                "'all' drops every direct override (Ctrl+M). "
-                "'all' is not allowed with target='full_document' — that would flatten emphasis "
-                "across the whole document; style each range instead.")},
+                "Direct (hand-set) formatting on the target, ParagraphStyles only. "
+                "'none' keeps all of it. "
+                "'style_props' (default) drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. "
+                "'all' drops every direct override, like Ctrl+M; refused with target='full_document'.")},
         },
         "required": ["style"],
     }

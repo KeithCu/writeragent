@@ -2222,3 +2222,15 @@ def test_prune_image_cache_drops_oldest(tmp_path):
     assert not f1.exists()
     assert f2.exists()
 
+
+@pytest.mark.parametrize(
+    "tool_cls",
+    [ImageGetInfo, ImageSetProperties, ImageCropAndHighlight, ImageDelete, ImageReplace],
+)
+def test_image_tools_advertise_sheet_index_only_on_calc(tool_cls):
+    tool = tool_cls()
+    assert "sheet_index" in tool.get_parameters("calc")["properties"]
+    assert "sheet_index" in tool.get_parameters(None)["properties"]
+    assert "sheet_index" not in tool.get_parameters("writer")["properties"]
+    assert "sheet_index" not in tool.get_parameters("draw")["properties"]
+

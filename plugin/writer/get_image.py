@@ -18,7 +18,7 @@ import base64
 import logging
 import os
 import tempfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
@@ -203,6 +203,10 @@ class GetImage(ToolBase):
         },
         "required": [],
     }
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        return visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services: list[str] | None = [
         TEXT_DOCUMENT_SERVICE,

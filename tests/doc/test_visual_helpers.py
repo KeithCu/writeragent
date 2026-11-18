@@ -900,3 +900,20 @@ def test_graphic_objects_in_selection_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
+
+
+def test_without_sheet_index_off_calc():
+    params = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "sheet_index": {"type": "integer"}},
+        "required": ["name"],
+    }
+    impress = visual_helpers.without_sheet_index_off_calc(params, "impress")
+    assert "sheet_index" not in impress["properties"]
+    assert "sheet_index" in params["properties"]
+
+    assert visual_helpers.without_sheet_index_off_calc(params, "calc") is params
+    assert visual_helpers.without_sheet_index_off_calc(params, None) is params
+
+    no_sheet = {"type": "object", "properties": {"name": {"type": "string"}}, "required": []}
+    assert visual_helpers.without_sheet_index_off_calc(no_sheet, "writer") is no_sheet

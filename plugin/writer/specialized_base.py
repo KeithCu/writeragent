@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawSpecialBase, ToolDrawTableBase
-from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
+from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, without_sheet_index_off_calc
 from plugin.framework.prompts import DELEGATION_MCP_HINT, DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import LADDER_CASE_SENSITIVE_DESCRIPTION
@@ -133,6 +133,9 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
     )
     # Writer + Draw/Impress graphic hosts; ignore keeps the shared constant assignable.
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        return without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
 
 
 class ToolWriterVisionBase(ToolWriterSpecialBase):

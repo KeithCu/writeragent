@@ -388,7 +388,8 @@ def test_user_memory_failure_logs_exception_and_prompt_continues(caplog):
         skill_cls.return_value.get_humanizer_guidance.return_value = "HUMANIZER_PROBE"
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
-    assert "USER PROFILE" not in prompt
+    assert "[USER PROFILE / MEMORY] Saved memory" not in prompt
+    assert "<<<profile>>>" not in prompt
     assert "HUMANIZER_PROBE" in prompt
     memory_logs = _injection_error_records(caplog, "user memory")
     assert len(memory_logs) == 1
