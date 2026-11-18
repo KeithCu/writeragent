@@ -263,13 +263,13 @@ def test_evaluate_formula(ctx, doc):
     eval_tool = EvaluateFormula()
 
     # Simple valid formula evaluation
-    res = eval_tool.execute(tctx, formula="=2+3")
+    res = eval_tool.execute(tctx, formula="=2+3", cell="A1")
     assert res.get("status") == "ok", f"evaluate_formula failed: {res}"
     assert res.get("result") == 5.0, f"Expected 5.0, got {res.get('result')}"
     assert res.get("result_type") == "formula", f"Expected formula type, got {res.get('result_type')}"
 
     # Text formula evaluation
-    res_text = eval_tool.execute(tctx, formula='=CONCATENATE("Hello"; " "; "World")')
+    res_text = eval_tool.execute(tctx, formula='=CONCATENATE("Hello"; " "; "World")', cell="A1")
     assert res_text.get("status") == "ok", f"evaluate_formula text failed: {res_text}"
     assert res_text.get("result") == "Hello World", f"Expected 'Hello World', got {res_text.get('result')}"
 
@@ -283,7 +283,7 @@ def test_evaluate_formula(ctx, doc):
     assert res_rel.get("result") == 30.0, f"Expected 30.0, got {res_rel.get('result')}"
 
     # Error formula evaluation (e.g. division by zero)
-    res_err = eval_tool.execute(tctx, formula="=1/0")
+    res_err = eval_tool.execute(tctx, formula="=1/0", cell="A1")
     assert res_err.get("status") == "error", f"Expected error status, got {res_err}"
     assert res_err.get("code") == "CALC_ERROR", f"Expected CALC_ERROR, got {res_err}"
     assert "error_code" in res_err, f"Expected error_code in response: {res_err}"
@@ -294,13 +294,13 @@ def test_evaluate_formula(ctx, doc):
     was_modified = doc.isModified() if hasattr(doc, "isModified") else False
 
     # Numeric zero formula evaluation
-    res_zero = eval_tool.execute(tctx, formula="=1-1")
+    res_zero = eval_tool.execute(tctx, formula="=1-1", cell="A1")
     assert res_zero.get("status") == "ok", f"evaluate_formula zero failed: {res_zero}"
     assert res_zero.get("result") == 0.0, f"Expected 0.0, got {res_zero.get('result')}"
     assert isinstance(res_zero.get("result"), float), "Expected float 0.0"
 
     # String zero formula evaluation
-    res_str_zero = eval_tool.execute(tctx, formula='="0"')
+    res_str_zero = eval_tool.execute(tctx, formula='="0"', cell="A1")
     assert res_str_zero.get("status") == "ok", f"evaluate_formula string zero failed: {res_str_zero}"
     assert res_str_zero.get("result") == "0", f"Expected '0', got {res_str_zero.get('result')}"
     assert isinstance(res_str_zero.get("result"), str), "Expected string '0'"

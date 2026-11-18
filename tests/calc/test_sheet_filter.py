@@ -38,9 +38,9 @@ def test_apply_sheet_filter_disposal_propagates():
         bridge_cls.return_value.resolve_range_or_address.side_effect = DisposedException("gone")
         tool = ApplySheetFilter()
         with pytest.raises(DisposedException):
-            tool.execute(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
+            tool.execute(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}], has_header=True)
 
-        result = tool.execute_safe(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
+        result = tool.execute_safe(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}], has_header=True)
         assert result["status"] == "error"
         assert result["code"] == "DOCUMENT_DISPOSED"
 
@@ -51,8 +51,8 @@ def test_apply_sheet_filter_runtime_exception_reaches_execute_safe():
         bridge_cls.return_value.resolve_range_or_address.side_effect = RuntimeException("no descriptor")
         tool = ApplySheetFilter()
         with pytest.raises(RuntimeException):
-            tool.execute(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
-        result = tool.execute_safe(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
+            tool.execute(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}], has_header=True)
+        result = tool.execute_safe(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}], has_header=True)
     assert result["status"] == "error"
     assert result["code"] == "TOOL_EXECUTION_ERROR"
     assert "no descriptor" in result["message"]
@@ -64,7 +64,7 @@ def test_clear_sheet_filter_disposal_propagates():
         bridge_cls.return_value.resolve_range_or_address.side_effect = DisposedException("gone")
         tool = ClearSheetFilter()
         with pytest.raises(DisposedException):
-            tool.execute(ctx, range=["A1:B2"])
+            tool.execute(ctx, range=["A1:B2"], has_header=True)
 
 
 def test_get_sheet_filter_disposal_propagates():
@@ -226,7 +226,7 @@ def test_field_greater_than_or_equal_range_width():
 
         tool = ApplySheetFilter()
         with pytest.raises(ToolExecutionError, match="out of bounds") as exc:
-            tool.execute(ctx, range=["A1:B10"], criteria=[{"field": 2, "operator": "EQUAL", "value": "x"}])
+            tool.execute(ctx, range=["A1:B10"], criteria=[{"field": 2, "operator": "EQUAL", "value": "x"}], has_header=True)
         assert exc.value.code == "INVALID_PARAM"
 
 
@@ -295,13 +295,14 @@ def test_apply_and_clear_sheet_filter_success():
                 {"field": 0, "operator": "EQUAL", "value": "x"},
                 {"field": 1, "operator": "GREATER", "value": 5, "connection": "OR"},
             ],
+            has_header=True,
         )
         assert res_apply == {"status": "ok", "range": "A1:D10", "criteria_count": 2}
         assert fd2.setFilterFields2.called
         assert xf.filter.called
 
         clear_tool = ClearSheetFilter()
-        res_clear = clear_tool.execute(ctx, range=["A1:D10"])
+        res_clear = clear_tool.execute(ctx, range=["A1:D10"], has_header=True)
         assert res_clear == {"status": "ok", "range": "A1:D10", "cleared": True}
 
 
@@ -325,6 +326,7 @@ def test_sheet_filter_registry_invalid_param_and_no_filter_call():
             ctx,
             range=["A1:B10"],
             criteria=[{"field": 5, "operator": "EQUAL", "value": "x"}],
+            has_header=True,
         )
     assert res_apply["status"] == "error"
     assert res_apply["code"] == "INVALID_PARAM"
