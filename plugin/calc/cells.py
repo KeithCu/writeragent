@@ -327,7 +327,7 @@ class ReadCellRange(ToolBase):
                 "enum": ["rows", "cells"],
                 "default": "rows",
                 "description": (
-                    "rows (default): 2D values, formulas and date/time types only where present. "
+                    "rows: 2D values, formulas and date/time types only where present. "
                     "cells: one object per cell with address, value, formula, type, "
                     "format_category, and format_code."
                 ),
@@ -745,8 +745,8 @@ class MergeCells(ToolBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to merge. {CALC_RANGE_LIST_NOTE}"},
-            "center": {"type": "boolean", "description": "Center content (default: true)"},
-            "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
+            "center": {"type": "boolean", "default": True, "description": "Center content"},
+            "unmerge": {"type": "boolean", "default": False, "description": "Split merged cells instead of merging"},
         },
         "required": ["range"],
     }
@@ -947,12 +947,13 @@ class DeleteStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to delete (default 1)."},
+            "count": {"type": "integer", "default": 1, "description": "Number to delete."},
             "confirm": {
                 "type": "boolean",
+                "default": False,
                 "description": (
                     "Set true to delete even when formulas or named ranges would turn into #REF!. "
-                    "Default false: such a delete is refused and nothing changes."
+                    "When false, such a delete is refused and nothing changes."
                 ),
             },
             "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
@@ -972,7 +973,7 @@ class InsertStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to insert (default 1)."},
+            "count": {"type": "integer", "default": 1, "description": "Number to insert."},
             "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],
