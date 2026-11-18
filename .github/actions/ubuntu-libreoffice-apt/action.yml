@@ -10,8 +10,11 @@ runs:
         . /etc/os-release
         pkgs="libreoffice libreoffice-dev python3-uno gettext"
         pkg_hash=$(printf '%s' "$pkgs" | sha256sum | cut -c1-12)
+        # Omit ImageVersion so runners on different mirrors share one cache; apt-get treats it as a download cache and fetches missing/newer deps.
+        # Keep the OS release in restore_prefix to isolate Ubuntu versions, and append a monthly bucket to force periodic refreshes.
         restore_prefix="${RUNNER_OS}-${VERSION_ID}-${VERSION_CODENAME}-lo-v3-"
-        cache_key="${restore_prefix}${pkg_hash}"
+        bucket=$(date -u +%Y-%m)
+        cache_key="${restore_prefix}${pkg_hash}-${bucket}"
         echo "key=${cache_key}" >> "$GITHUB_OUTPUT"
         echo "restore-prefix=${restore_prefix}" >> "$GITHUB_OUTPUT"
         echo "LibreOffice apt cache key: ${cache_key}"
@@ -64,6 +67,8 @@ runs:
           exit 1
         fi
 
+        sudo apt-get autoclean -qq
+        rm -f "$HOME/apt-lo-debs"/*.deb
         for deb in /var/cache/apt/archives/*.deb; do
           cp -n "$deb" "$HOME/apt-lo-debs/" || true
         done
