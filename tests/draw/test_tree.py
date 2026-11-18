@@ -300,7 +300,12 @@ def test_build_shape_tree_control_connector_style_and_custom_type():
     shape_b = _Shape("com.sun.star.drawing.TextShape", name="NodeB", text="Beta")
     connector_shape = _Shape(
         "com.sun.star.drawing.ConnectorShape",
-        props={"StartShape": shape_a, "EndShape": shape_b},
+        props={
+            "StartShape": shape_a,
+            "EndShape": shape_b,
+            "LineStartName": "",
+            "LineEndName": "Arrow",
+        },
     )
     class _FakeEnum:
         def __init__(self, value: str) -> None:
@@ -335,6 +340,8 @@ def test_build_shape_tree_control_connector_style_and_custom_type():
     assert tree[0]["control"]["state"] == 0
     assert tree[1]["connected_start"] == {"name": "NodeA", "text": "Alpha"}
     assert tree[1]["connected_end"] == {"name": "NodeB", "text": "Beta"}
+    assert tree[1]["style"]["LineEndName"] == "Arrow"
+    assert "LineStartName" not in tree[1]["style"]
     assert tree[2]["style"]["FillColor"] == "#00FF00"
     assert tree[2]["style"]["FillStyle"] == "SOLID"
     assert tree[2]["style"]["LineStyle"] == "NONE"

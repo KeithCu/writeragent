@@ -606,7 +606,7 @@ DRAW_CORE_DIRECTIVES = f"""When the user refers to another file, document, sprea
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task (paths not required).
 {PYTHON_ROUTING_HINT}
-For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
+For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect; ask for arrowheads in task when the user wants arrows), then check the delegation status and counts it returns."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.

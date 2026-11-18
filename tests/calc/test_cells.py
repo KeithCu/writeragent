@@ -2068,8 +2068,11 @@ def test_insert_structure_validation_matches_delete():
             manipulator.insert_structure.assert_not_called()
 
 
-def test_delete_structure_sheet_prefix_passes_sheet():
-
+@pytest.mark.parametrize("tool_name,verb,extra_kwargs", [
+    ("insert_structure", "insert_structure", {}),
+    ("delete_structure", "delete_structure", {"confirm": False}),
+])
+def test_structure_sheet_param_passes_sheet(tool_name, verb, extra_kwargs):
     ctx = SimpleNamespace(doc=MagicMock())
     sheet = MagicMock()
     with (
@@ -2078,9 +2081,11 @@ def test_delete_structure_sheet_prefix_passes_sheet():
     ):
         bridge_cls.return_value.get_sheet.return_value = sheet
         manipulator = manipulator_cls.return_value
-        manipulator.delete_structure.return_value = {"message": "ok", "sheet": "Sheet2"}
-        _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Sheet2.5")
-        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet, confirm=False)
+        getattr(manipulator, verb).return_value = {"message": "ok", "sheet": "Sheet2"}
+        res = _tool(tool_name).execute_safe(ctx, structure_type="rows", start=5, sheet="Sheet2")
+        assert res["status"] == "ok"
+        bridge_cls.return_value.get_sheet.assert_called_once_with("Sheet2")
+        getattr(manipulator, verb).assert_called_once_with("rows", 5, count=1, sheet=sheet, **extra_kwargs)
 
 
 def test_delete_structure_forwards_confirm():
@@ -2109,12 +2114,11 @@ def test_delete_structure_refs_would_break_keeps_code_and_details():
         assert res["details"]["broken_cells"] == ["Sheet1.C1", "Other.A1"]
 
 
-def test_delete_structure_rejects_internal_sheet_prefix():
-
+def test_delete_structure_rejects_internal_sheet():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="_hidden.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, sheet="_hidden")
         assert res["status"] == "error"
         assert "internal" in res["message"]
         manipulator.delete_structure.assert_not_called()
@@ -2132,10 +2136,26 @@ def test_delete_structure_missing_sheet_is_uno_object_error():
             "No sheet named 'Missing'.",
             details={"available": ["Sheet1"]},
         )
-        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Missing.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, sheet="Missing")
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert res["details"]["available"] == ["Sheet1"]
+
+
+@pytest.mark.parametrize("tool_name,structure_type,start", [
+    ("delete_structure", "rows", "Sheet2.5"),
+    ("delete_structure", "columns", "Sheet2.C"),
+    ("insert_structure", "rows", "'My Sheet'.5"),
+])
+def test_structure_start_rejects_sheet_prefix(tool_name, structure_type, start):
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool(tool_name).execute_safe(ctx, structure_type=structure_type, start=start)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        manipulator.insert_structure.assert_not_called()
+        manipulator.delete_structure.assert_not_called()
 
 
 def test_delete_structure_rejects_cell_address_as_row_start():

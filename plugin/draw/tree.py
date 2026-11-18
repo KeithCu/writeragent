@@ -482,13 +482,26 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
                     node[key] = {"name": _safe_attr(linked, "Name"), "text": _shape_text(linked).strip()}
 
         style: dict[str, Any] = {}
-        for prop in ["FillColor", "FillStyle", "LineColor", "LineStyle", "ZOrder", "RotateAngle", "LineWidth"]:
+        for prop in [
+            "FillColor",
+            "FillStyle",
+            "LineColor",
+            "LineStyle",
+            "ZOrder",
+            "RotateAngle",
+            "LineWidth",
+            "LineStartName",
+            "LineEndName",
+        ]:
             val: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
             if val is not None:
                 if prop in ("FillStyle", "LineStyle"):
                     style[prop] = val.value
                 elif prop in ("FillColor", "LineColor") and isinstance(val, int) and val != -1:
                     style[prop] = f"#{val:06X}"
+                elif prop in ("LineStartName", "LineEndName"):
+                    if val:
+                        style[prop] = val
                 else:
                     style[prop] = val
 

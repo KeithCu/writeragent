@@ -1351,3 +1351,95 @@ def test_shape_upsert_negative_size_create_and_edit() -> None:
         assert res_edit["status"] == "ok"
         assert (rect.setPosition.call_args[0][0].X, rect.setPosition.call_args[0][0].Y) == (600, 2000)
         assert (rect.setSize.call_args[0][0].Width, rect.setSize.call_args[0][0].Height) == (400, 600)
+
+
+def test_shape_upsert_arrowheads_create_and_edit() -> None:
+    from plugin.draw.shapes import UpsertShape
+
+    ok, _err = UpsertShape().validate(
+        action="create",
+        shape_type="line",
+        x=100,
+        y=100,
+        width=2000,
+        height=0,
+        line_end="arrow",
+        line_start="none",
+    )
+    assert ok is True
+
+    bad_ok, bad_err = UpsertShape().validate(
+        action="create",
+        shape_type="line",
+        x=100,
+        y=100,
+        width=2000,
+        height=0,
+        line_end="invalid_marker",
+    )
+    assert bad_ok is False
+    assert bad_err is not None and "line_end" in bad_err
+
+    line = MagicMock()
+    line.Name = "Line 1"
+    line.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+    line.getPosition.return_value = MagicMock(X=100, Y=100)
+    line.getSize.return_value = MagicMock(Width=2000, Height=0)
+
+    page = MagicMock()
+    page.getCount.return_value = 0
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = line
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        created = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="line",
+            x=100,
+            y=100,
+            width=2000,
+            height=0,
+            line_end="arrow",
+            line_start="none",
+        )
+        assert created["status"] == "ok"
+        set_calls = [(c.args[0], c.args[1]) for c in line.setPropertyValue.call_args_list]
+        assert ("LineStartName", "") in set_calls
+        assert ("LineEndName", "Arrow") in set_calls
+        assert any(prop == "LineEndWidth" and val >= 300 for prop, val in set_calls)
+        assert any(prop == "LineEnd" for prop, _val in set_calls)
+
+        page.getCount.return_value = 1
+        page.getByIndex.return_value = line
+        line.setPropertyValue.reset_mock()
+        line.getPropertyValue.return_value = 200
+
+        edited = UpsertShape().execute(
+            ctx,
+            action="edit",
+            index=0,
+            line_end="none",
+            line_start="arrow",
+        )
+        assert edited["status"] == "ok"
+        edit_calls = [(c.args[0], c.args[1]) for c in line.setPropertyValue.call_args_list]
+        assert ("LineStartName", "Arrow") in edit_calls
+        assert ("LineEndName", "") in edit_calls
+        assert ("LineStartWidth", 600) in edit_calls
+
+        no_line_props = MagicMock(spec=["Name", "getShapeType", "getPosition", "getSize", "setPosition", "setSize"])
+        no_line_props.Name = "NoLine"
+        no_line_props.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+        no_line_props.getPosition.return_value = MagicMock(X=100, Y=100)
+        no_line_props.getSize.return_value = MagicMock(Width=1000, Height=500)
+        page.getByIndex.return_value = no_line_props
+        warned = UpsertShape().execute(ctx, action="edit", index=0, line_end="arrow")
+        assert warned["status"] == "ok"
+        assert any("line_end" in w for w in warned.get("warnings", []))

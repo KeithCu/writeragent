@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -471,6 +471,40 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
 
 
+_DEFAULT_ARROWHEAD_WIDTH = 300
+
+
+def _arrow_coords() -> Any:
+    """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (svx/source/xoutdev/xtablend.cxx:62-67)."""
+    # Host boundary: uno/com.sun.star are only available inside LibreOffice or with UNO stubs.
+    import uno
+    from com.sun.star.awt import Point
+
+    normal = _drawing_enum("PolygonFlags", "NORMAL")
+    return uno.createUnoStruct(
+        "com.sun.star.drawing.PolyPolygonBezierCoords",
+        Coordinates=((Point(10, 0), Point(0, 30), Point(20, 30), Point(10, 0)),),
+        Flags=((normal, normal, normal, normal),),
+    )
+
+
+def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
+    """Apply or clear a line-end marker ('arrow' or 'none') on a shape."""
+    name_prop = f"{prefix}Name"
+    if marker.strip().lower() == "arrow":
+        shape.setPropertyValue(name_prop, "Arrow")
+        # Write the polygon explicitly too: when "Arrow" is missing from the model's XLineEndList,
+        # SetFillAttribute (svx/source/unodraw/unoshape.cxx:1345-1369) falls back to storing only the name.
+        shape.setPropertyValue(prefix, _arrow_coords())
+        # Scale width from the shape's current LineWidth so create and edit match (at least 300 = 3 mm).
+        line_w = uno_read(lambda: shape.getPropertyValue("LineWidth"), 0)
+        width = max(_DEFAULT_ARROWHEAD_WIDTH, line_w * 3) if isinstance(line_w, int) and not isinstance(line_w, bool) else _DEFAULT_ARROWHEAD_WIDTH
+        shape.setPropertyValue(f"{prefix}Width", width)
+    else:
+        # Empty name puts an empty polygon in svx/source/unodraw/unoshape.cxx:1404-1413.
+        shape.setPropertyValue(name_prop, "")
+
+
 def _try(failed: list[str], name: str, fn: Any) -> None:
     if not uno_write(fn):
         failed.append(name)
@@ -557,6 +591,15 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
 
         _try(failed_props, "line_style", _apply_line_style)
+
+    # Line Start / End arrowheads
+    for param, prefix in (("line_start", "LineStart"), ("line_end", "LineEnd")):
+        marker = kwargs.get(param)
+        if marker is not None:
+            if not hasattr(shape, f"{prefix}Name"):
+                failed_props.append(param)
+            else:
+                _try(failed_props, param, lambda p=prefix, m=str(marker): _set_arrowhead(shape, p, m))
 
     # Character properties (font, size, color, bold, italic)
     if (
@@ -683,6 +726,16 @@ class UpsertShape(_AnyDocumentShapeTool):
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
             "line_color": {"type": "string", "description": "Line border color"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
+            "line_start": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the start of a line or connector ('none' clears).",
+            },
+            "line_end": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the end of a line or connector ('none' clears).",
+            },
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},

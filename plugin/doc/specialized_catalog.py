@@ -35,6 +35,11 @@ _CHARTS_NEUTRAL_HINT = (
     "`headers` and `rows` parameters."
 )
 
+_SHAPES_HINT = (
+    f"{SHAPE_UNITS_RULE} "
+    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert.'
+)
+
 _LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
         None: _FOOTNOTES_DIRECT_HINT,
@@ -48,7 +53,7 @@ _LOOP_HINTS: dict[str, dict[str | None, str]] = {
         "Draw": _CHARTS_HEADERS_ROWS_HINT,
         None: _CHARTS_NEUTRAL_HINT,
     },
-    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), SHAPE_UNITS_RULE),
+    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), _SHAPES_HINT),
 }
 
 
