@@ -424,7 +424,7 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
-- Comments: comment_add adds new comments and replies; tools to list, edit, resolve, or delete comments live in the 'comments' domain.
+- Comments: comment_add adds new comments and replies; for listing, editing, resolving, or deleting, delegate domain='comments'.
 - When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered directly without document comments.
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error.
 - {PARAGRAPH_INDEX_DIRECTIVE}"""
@@ -471,6 +471,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"{APPLY_DOCUMENT_TARGET_RULES}\n{SUB_AGENT_H
 HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
+- Ruby (furigana): <ruby>漢字<rt>かんじ</rt></ruby> becomes live Writer ruby.
 """
 
 
