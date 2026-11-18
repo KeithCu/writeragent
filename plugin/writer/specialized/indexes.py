@@ -1046,7 +1046,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             "hyperlink_url": {"type": "string", "description": "Outline target (#…|outline) or text-table target (#Name|table) for the new row only. Omit to leave the new row unlinked."},
             "position": enum_param(
                 ["before", "after", "end"],
-                "Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end.",
+                "Where to insert the one row. before/after need old_content. end appends after the last TOC entry.",
+                default="end",
             ),
             "old_content": {"type": "string", "description": "Plain text of the existing TOC entry to insert before or after. Not used when position is end."},
             "level": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Contents N paragraph style (1-10). Omit to clone the sibling entry's style."},
@@ -1079,8 +1080,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         url, url_error = _outline_url(kwargs.get("hyperlink_url"))
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
-        # schema enum. Omitted position defaults to end.
-        position = kwargs.get("position") or "end"
+        position = kwargs["position"]
         old_content = kwargs.get("old_content")
         occurrence, occurrence_error = parse_non_negative_int(kwargs.get("occurrence"))
         if position == "end":
@@ -1233,7 +1233,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         "type": "object",
         "properties": {
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
-            "include_links": {"type": "boolean", "description": "Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.", "default": False},
+            "include_links": {"type": "boolean", "description": "Include internal hyperlink URLs on each row. Outline links are preserved automatically during renames.", "default": False},
         },
         "required": [],
     }
@@ -1252,7 +1252,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
-        include_links = bool(kwargs.get("include_links"))
+        include_links = kwargs["include_links"]
         _unused_idx, anchor, position, err = _resolve_toc_target(self, doc, index)
         if err is not None:
             return err
@@ -1324,7 +1324,7 @@ class IndexesCreate(ToolWriterIndexBase):
                 "The type of index to create.",
             ),
             "title": {"type": "string", "description": "The title for the index (e.g., 'Table of Contents')."},
-            "create_from_outline": {"type": "boolean", "description": "Whether to create the index from the document outline (mainly for toc). Default true."},
+            "create_from_outline": {"type": "boolean", "default": True, "description": "Whether to create the index from the document outline (mainly for toc)."},
             **target_params("the index"),
         },
         "required": ["kind"],
@@ -1335,7 +1335,7 @@ class IndexesCreate(ToolWriterIndexBase):
         doc = ctx.doc
         index_kind = kwargs["kind"]
         title = kwargs.get("title")
-        create_from_outline = kwargs.get("create_from_outline", True)
+        create_from_outline = kwargs["create_from_outline"]
 
         # schema enum rejects an unknown kind before execute.
         service_name = _INDEX_KIND_TO_SERVICE[index_kind]

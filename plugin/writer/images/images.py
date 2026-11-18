@@ -1065,7 +1065,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                     "required": ["box"],
                 },
             },
-            "units": enum_param(["px", "percent"], "Units of every box (default px)."),
+            "units": enum_param(["px", "percent"], "Units of every box.", default="px"),
             "width_mm": {"type": "number", "description": "Display width in millimetres (default: keep the current width)."},
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
@@ -1089,7 +1089,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         if source is None:
             return self._tool_error("Image '%s' has no picture data to mark." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        units = kwargs.get("units") or "px"
+        units = kwargs["units"]
         width_px: int | None = None
         height_px: int | None = None
 
@@ -1177,7 +1177,7 @@ class ImageDownload(ToolWriterImageBase):
         "type": "object",
         "properties": {
             "url": {"type": "string", "description": "URL of the image to download."},
-            "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."},
+            "force": {"type": "boolean", "default": False, "description": "Force re-download even if cached."},
         },
         "required": ["url"],
     }
@@ -1188,7 +1188,7 @@ class ImageDownload(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs["url"]
-        force = kwargs.get("force", False)
+        force = kwargs["force"]
         cancel = ctx.send_cancellation
 
         dl_result = _download_for_tool(self, url, force=force, cancel=cancel)
@@ -1249,20 +1249,23 @@ class ImageInsert(ToolWriterImageBase):
             "target": enum_param(
                 ["body", "header", "footer", "header_first", "footer_first"],
                 (
-                    "Writer insertion target (default: body). header/footer write the shared "
+                    "Writer insertion target. header/footer write the shared "
                     "page-style region. header_first/footer_first write the first-page letterhead "
                     "(set first_is_shared=false first, or the first page still shares HeaderText)."
                 ),
+                default="body",
             ),
             "style": {
                 "type": "string",
-                "description": "Page style for header/footer target (default: Standard).",
+                "default": "Standard",
+                "description": "Page style for header/footer target.",
             },
             "auto_height": {
                 "type": "boolean",
+                "default": True,
                 "description": (
                     "When target is a header/footer region, grow the region with the image "
-                    "(default: true) so a taller logo does not overlap the body. "
+                    "so a taller logo does not overlap the body. "
                     "Set false to keep a fixed header/footer height."
                 ),
             },
@@ -1287,8 +1290,8 @@ class ImageInsert(ToolWriterImageBase):
 
         locator = kwargs.get("locator")
         paragraph_index = kwargs.get("paragraph")
-        target = kwargs.get("target", "body")
-        style_name = kwargs.get("style", "Standard")
+        target = kwargs["target"]
+        style_name = kwargs["style"]
 
         cancel = ctx.send_cancellation
         local_path = _local_image_path(self, image_path, cancel)
@@ -1335,7 +1338,7 @@ class ImageInsert(ToolWriterImageBase):
                     width_mm=width_mm,
                     height_mm=height_mm,
                     style_name=style_name,
-                    auto_height=kwargs.get("auto_height", True),
+                    auto_height=kwargs["auto_height"],
                     ctx=ctx.ctx,
                 )
                 graphic = placed["graphic"]

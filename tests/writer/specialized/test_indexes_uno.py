@@ -57,7 +57,7 @@ def test_indexes_cite_insert_list_and_table(ctx, doc):
     assert cite["location"]
 
     created = IndexesCreate().execute(
-        tctx, kind="bibliography", title="References", target="end"
+        tctx, kind="bibliography", title="References", target="end", create_from_outline=True
     )
     assert created.get("status") == "ok", created
 
@@ -80,7 +80,7 @@ def test_indexes_cite_insert_list_and_table(ctx, doc):
 def test_indexes_list_bibliography_kind_uses_service_name(ctx, doc):
     """getImplementationName() is SwXDocumentIndex; kind must still be bibliography."""
     tctx = _tool_ctx(ctx, doc)
-    IndexesCreate().execute(tctx, kind="bibliography", title="Works Cited", target="end")
+    IndexesCreate().execute(tctx, kind="bibliography", title="Works Cited", target="end", create_from_outline=True)
     listed = IndexesList().execute(tctx)
     assert listed.get("count") >= 1, listed
     bib = next(item for item in listed["indexes"] if item["type"] == "bibliography")
@@ -160,7 +160,7 @@ def test_toc_update_clears_direct_character_color_uno(ctx, doc):
     text.setString("")
     _add_heading(text, "Alpha title", True)
     tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     indexes = doc.getDocumentIndexes()
     toc = indexes.getByIndex(0)
@@ -181,7 +181,7 @@ def _toc_fixture(ctx, doc):
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
     tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
     entries = _tab_paragraphs(doc)
@@ -530,7 +530,7 @@ def test_delete_last_toc_entry_and_bad_occurrence_uno(ctx, doc):
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
     tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="end")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="end", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
     protected = bool(toc.getPropertyValue("IsProtected"))
@@ -749,7 +749,7 @@ def test_toc_entry_insert_delete_without_a_toc_uno(ctx, doc):
     deleted = IndexesDeleteTocEntry().execute(tctx, old_content="paragraph")
     assert deleted.get("status") == "error", deleted
     assert "table of contents" in deleted.get("message", ""), deleted
-    inserted = IndexesInsertTocEntry().execute(tctx, content="Ghost")
+    inserted = IndexesInsertTocEntry().execute(tctx, content="Ghost", position="end")
     assert inserted.get("status") == "error", inserted
     assert "table of contents" in inserted.get("message", ""), inserted
     assert doc.getDocumentIndexes().getCount() == 0
@@ -814,7 +814,7 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
     table.setName("Taula69")
     table.getCellByName("A1").setString("Annex")
     tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
     entries = _tab_paragraphs(doc)
@@ -885,13 +885,13 @@ def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
     _add_body_paragraph(text, "After paragraph")
     tctx = _tool_ctx(ctx, doc)
     created = IndexesCreate().execute(
-        tctx, kind="toc", title="Contents", target="search", old_content="TOC_PLACEHOLDER"
+        tctx, kind="toc", title="Contents", target="search", old_content="TOC_PLACEHOLDER", create_from_outline=True
     )
     assert created.get("status") == "ok", created
     body = text.getString()
     assert body.index("Intro paragraph") < body.index("Contents") < body.index("After paragraph"), body
 
-    listed = IndexesListTocEntries().execute(tctx)
+    listed = IndexesListTocEntries().execute(tctx, include_links=False)
 
     assert listed.get("status") == "ok", listed
     assert listed["count"] == 2, listed
@@ -908,10 +908,10 @@ def test_list_toc_entries_links_on_request_uno(ctx, doc):
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
     tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
 
-    listed_default = IndexesListTocEntries().execute(tctx)
+    listed_default = IndexesListTocEntries().execute(tctx, include_links=False)
     assert listed_default.get("status") == "ok", listed_default
     assert listed_default.get("count") == 2
     assert "hyperlink_url" not in listed_default["entries"][0]
@@ -964,7 +964,7 @@ def test_indexes_create_end_is_one_undo_step(ctx, doc):
     tctx = _tool_ctx(ctx, doc)
     um = doc.getUndoManager()
     um.clear()
-    res = IndexesCreate().execute(tctx, kind="toc", target="end")
+    res = IndexesCreate().execute(tctx, kind="toc", target="end", create_from_outline=True)
     assert res.get("status") == "ok", res
     assert len(um.getAllUndoActionTitles()) == 1
     assert doc.getDocumentIndexes().getCount() == 1

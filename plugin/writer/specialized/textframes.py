@@ -277,11 +277,12 @@ class FrameInsert(ToolWriterTextFramesBase):
             **target_params("the text frame"),
             "name": {"type": "string", "description": "Optional frame name (from frame_list when set)."},
             "text": {"type": "string", "description": "Initial text placed inside the frame."},
-            "width_mm": {"type": "number", "description": "Frame width in millimetres (default 80)."},
-            "height_mm": {"type": "number", "description": "Frame height in millimetres (default 30)."},
+            "width_mm": {"type": "number", "default": 80.0, "description": "Frame width in millimetres."},
+            "height_mm": {"type": "number", "default": 30.0, "description": "Frame height in millimetres."},
             "anchor_type": {
                 "type": "integer",
-                "description": ("Anchor type: 0=AT_PARAGRAPH (default), 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
+                "default": 0,
+                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
             },
         },
         "required": [],
@@ -291,13 +292,11 @@ class FrameInsert(ToolWriterTextFramesBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name")
         text = kwargs.get("text") or ""
-        width_mm = kwargs.get("width_mm")
-        height_mm = kwargs.get("height_mm")
-        anchor_type = kwargs.get("anchor_type", 0)
+        width_mm = kwargs["width_mm"]
+        height_mm = kwargs["height_mm"]
+        anchor_type = kwargs["anchor_type"]
 
         for param_name, val in (("width_mm", width_mm), ("height_mm", height_mm), ("anchor_type", anchor_type)):
-            if val is None:
-                continue
             err = _validate_frame_measurement(self, param_name, val)
             if err is not None:
                 return err
@@ -314,8 +313,8 @@ class FrameInsert(ToolWriterTextFramesBase):
 
         frame = doc.createInstance("com.sun.star.text.TextFrame")
         size = Size()
-        size.Width = mm_to_unit(width_mm if width_mm is not None else 80.0)
-        size.Height = mm_to_unit(height_mm if height_mm is not None else 30.0)
+        size.Width = mm_to_unit(width_mm)
+        size.Height = mm_to_unit(height_mm)
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 

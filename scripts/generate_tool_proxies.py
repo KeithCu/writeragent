@@ -822,7 +822,7 @@ def paging_start_param(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) 
             continue
         params = _collect_params(tool)
         start = next(
-            (p for p in params if not p.required and p.schema_key in PAGED_START_PARAMS and p.annotation == "int | None"),
+            (p for p in params if not p.required and p.schema_key in PAGED_START_PARAMS and p.annotation.removesuffix(" | None") == "int"),
             None,
         )
         if start is None:

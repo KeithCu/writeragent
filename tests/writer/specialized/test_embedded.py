@@ -56,7 +56,7 @@ def test_embedded_insert_rejects_bad_object_type_and_bool_cell():
 
 def test_embedded_insert_rejects_width_without_height():
     ctx = MagicMock()
-    res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", width=1000)
+    res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", width=1000, data=[])
     assert res["status"] == "error"
     assert ctx.doc.createInstance.call_count == 0
 
@@ -251,7 +251,7 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
-        res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
+        res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end", data=[])
 
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
@@ -274,6 +274,7 @@ def test_embedded_insert_duplicate_name_rejected_before_undo_step():
             object_type="spreadsheet",
             target="end",
             name="Sales",
+            data=[],
         )
 
     assert res["status"] == "error"
@@ -295,7 +296,7 @@ def test_embedded_insert_get_embedded_object_failure():
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
-        res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
+        res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end", data=[])
 
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
