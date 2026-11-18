@@ -24,13 +24,15 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
+    clone_text_range,
     get_string_without_tracked_deletions,
     iter_elements,
     jump_view_cursor_to_page,
+    page_not_found_message,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
 from plugin.doc.visual_helpers import safe_get_property
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
@@ -73,9 +75,13 @@ class NavGotoPage(ToolWriterStructuralBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page = kwargs["page"]
         vc = ctx.doc.getCurrentController().getViewCursor()
+        # jump_view_cursor_to_page moves to the last page on a miss; restore so a failed call leaves the caret untouched.
+        saved = best_effort(lambda: clone_text_range(vc), "save view cursor before nav_goto_page")
         total = jump_view_cursor_to_page(vc, page)
         if total is not None:
-            return self._tool_error(f"Page {page} does not exist (document has {total} page(s); first page = 0).")
+            if saved is not None:
+                best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after failed nav_goto_page")
+            return self._tool_error(page_not_found_message(page, total))
         update_selection_pin(ctx, vc)
         return {"status": "ok", "page": page}
 
@@ -104,6 +110,11 @@ class GetPageObjects(ToolBase):
         if page is not None:
             if page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based, first page = 0).")
+            total = doc_svc.get_page_count(doc)
+            if total <= 0:
+                return self._tool_error("Cannot resolve page count.")
+            if page >= total:
+                return self._tool_error(page_not_found_message(page, total))
             lo_page = page + 1
         else:
             lo_page = 0
@@ -127,7 +138,7 @@ class GetPageObjects(ToolBase):
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     return self._tool_error("Cannot resolve view cursor page: %s" % exc)
-            if lo_page is None or lo_page <= 0:
+            if lo_page <= 0:
                 return self._tool_error("Cannot resolve page: invalid page %s" % lo_page)
 
         controller = doc.getCurrentController()

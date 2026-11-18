@@ -320,9 +320,16 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
 
     nav0 = NavGotoPage().execute(tool_ctx, page=0)
     assert nav0 == {"status": "ok", "page": 0}
+    vc = doc.getCurrentController().getViewCursor()
+    assert vc.getPage() == 1
     nav_bad = NavGotoPage().execute(tool_ctx, page=2)
     assert nav_bad.get("status") == "error"
     assert "2 page(s)" in nav_bad.get("message", "")
+    assert vc.getPage() == 1
+
+    obj_bad = GetPageObjects().execute(tool_ctx, page=2)
+    assert obj_bad.get("status") == "error"
+    assert "2 page(s)" in obj_bad.get("message", "")
 
     assert resolve_locator(doc, "page:1")["para_index"] == 1
     with pytest.raises(ToolExecutionError, match="2 page\\(s\\)"):

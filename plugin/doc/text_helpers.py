@@ -938,6 +938,11 @@ def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:
     return int(vc.getPage())
 
 
+def page_not_found_message(page: int, total: int) -> str:
+    """Format the error message for an out-of-range 0-based page index."""
+    return f"Page {page} does not exist (document has {total} page(s); first page = 0)."
+
+
 @main_thread_only
 def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> Any:
     """Return a text cursor that selects the character range [start_offset, end_offset).
