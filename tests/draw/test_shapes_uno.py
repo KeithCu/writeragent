@@ -576,3 +576,55 @@ def test_shape_upsert_negative_size_and_line_direction(ctx, doc):
     edited_poly = [[(p.X, p.Y) for p in seq] for seq in rtl_line.getPropertyValue("PolyPolygon")]
     assert edited_poly == [[(6000, 4000), (5000, 4500)]]
 
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_shape_upsert_negative_line_direction(ctx, doc):
+    """Writer lines with negative width preserve direction and stay in anchor coords."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rtl_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2890,
+        height=0,
+    )
+    assert rtl_res.get("status") == "ok", rtl_res
+    line = page.getByIndex(rtl_res["index"])
+    pos1 = line.getPosition()
+    size1 = line.getSize()
+    assert abs(pos1.X - 2110) <= 2
+    assert abs(pos1.Y - 3000) <= 2
+    assert abs(size1.Width - 2890) <= 2
+    assert size1.Height == 0
+    poly1 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert len(poly1) == 1 and len(poly1[0]) == 2
+    assert poly1[0][0][0] > poly1[0][1][0]
+    assert abs((poly1[0][0][0] - poly1[0][1][0]) - 2890) <= 2
+
+    # Edit with negative width only (no x/y): stays at Y without a margin jump and keeps RTL.
+    edit_neg = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=-1000)
+    assert edit_neg.get("status") == "ok", edit_neg
+    pos2 = line.getPosition()
+    assert abs(pos2.Y - pos1.Y) <= 2
+    assert abs(pos2.X - (pos1.X - 1000)) <= 2
+    poly2 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly2[0][0][0] > poly2[0][1][0]
+    assert abs((poly2[0][0][0] - poly2[0][1][0]) - 1000) <= 2
+
+    # Edit with positive width only (no x/y): getPosition() stays unchanged and direction flips LTR.
+    edit_pos = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=1500)
+    assert edit_pos.get("status") == "ok", edit_pos
+    pos3 = line.getPosition()
+    assert abs(pos3.X - pos2.X) <= 2
+    assert abs(pos3.Y - pos2.Y) <= 2
+    poly3 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly3[0][0][0] < poly3[0][1][0]
+    assert abs((poly3[0][1][0] - poly3[0][0][0]) - 1500) <= 2
+

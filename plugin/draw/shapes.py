@@ -312,12 +312,30 @@ def _normalize_negative_span(x: int, y: int, width: int, height: int) -> tuple[i
 
 
 def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> None:
-    """Set a LineShape's start/end points via PolyPolygon so direction is exact on edit."""
+    """Set a LineShape's start/end points via PolyPolygon, preserving app layer offset.
+
+    Once a LineShape is on the page, setSize with a negative span rescales/flips
+    relative to its existing bounding box (and Writer ignores negative direction),
+    so endpoints must be written through PolyPolygon instead.
+    """
     # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
     import uno
     from com.sun.star.awt import Point
 
-    pts = ((Point(x, y), Point(x + width, y + height)),)
+    # Writer's SwXShape::getPosition returns anchor-relative coords while PolyPolygon
+    # is in draw-layer page coords; add the current bbox-to-position delta so both
+    # Draw/Calc (delta 0) and Writer land at the caller's coordinates.
+    dx = dy = 0
+    poly = shape.getPropertyValue("PolyPolygon")
+    flat = [pt for seq in poly for pt in seq] if poly else []
+    if flat:
+        pos = shape.getPosition()
+        dx = min(pt.X for pt in flat) - pos.X
+        dy = min(pt.Y for pt in flat) - pos.Y
+
+    pts = ((Point(x + dx, y + dy), Point(x + width + dx, y + height + dy)),)
+    # Bare tuples raise IllegalArgumentException through pyuno's Any-typed setPropertyValue;
+    # uno_mod: Any avoids stub errors where uno.Any is typed as taking str | Type.
     uno_mod: Any = uno
     shape.setPropertyValue("PolyPolygon", uno_mod.Any("[][]com.sun.star.awt.Point", pts))
 
@@ -340,9 +358,9 @@ class DrawShapes:
         """Reject a size LibreOffice will not use as a shape box.
 
         A ``LineShape`` may have one zero side (horizontal or vertical) and
-        may have negative width or height (which LibreOffice interprets as
-        direction from the start point). Other shapes need both sides
-        positive. Both sides zero is always invalid.
+        may have negative width or height (applied via ``PolyPolygon`` after
+        insertion so direction is preserved in all apps). Other shapes need
+        both sides positive. Both sides zero is always invalid.
         """
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
@@ -610,8 +628,8 @@ class UpsertShape(_AnyDocumentShapeTool):
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
             "x": {"type": "integer", "description": "X position, 1/100 mm (required only for action='create')"},
             "y": {"type": "integer", "description": "Y position, 1/100 mm (required only for action='create')"},
-            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed for lines)"},
-            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed for lines)"},
+            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
+            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "text": {"type": "string", "description": "Text content"},
             "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
@@ -722,6 +740,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             shape_name = _ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+            if _is_line_shape_type(uno_type) and (width < 0 or height < 0):
+                _set_line_endpoints(shape, x, y, width, height)
             _try_writer_invalidate_and_pump(ctx.doc)
         except Exception:
             # Remove the half-built shape; execute_safe reports the error (or disposal).
@@ -787,32 +807,31 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         has_pos = "x" in kwargs or "y" in kwargs
         has_size = "width" in kwargs or "height" in kwargs
         is_line = _is_line_shape_type(shape.getShapeType())
-        reapply_size: Any = None
+
+        cur_pos = shape.getPosition() if (has_pos or has_size) else None
+        cur_size = shape.getSize() if has_size else None
+        target_x = kwargs.get("x", cur_pos.X) if cur_pos is not None else 0
+        target_y = kwargs.get("y", cur_pos.Y) if cur_pos is not None else 0
+        target_w = kwargs.get("width", cur_size.Width) if cur_size is not None else 0
+        target_h = kwargs.get("height", cur_size.Height) if cur_size is not None else 0
 
         if has_size:
-            size = shape.getSize()
-            new_w = kwargs.get("width", size.Width)
-            new_h = kwargs.get("height", size.Height)
-            if is_line and (new_w < 0 or new_h < 0):
-                pos = shape.getPosition()
-                _set_line_endpoints(shape, kwargs.get("x", pos.X), kwargs.get("y", pos.Y), new_w, new_h)
+            if is_line:
+                _set_line_endpoints(shape, target_x, target_y, target_w, target_h)
             else:
-                if not is_line and (new_w < 0 or new_h < 0):
-                    pos = shape.getPosition()
-                    norm_x, norm_y, new_w, new_h = _normalize_negative_span(kwargs.get("x", pos.X), kwargs.get("y", pos.Y), new_w, new_h)
+                norm_x, norm_y, target_w, target_h = _normalize_negative_span(target_x, target_y, target_w, target_h)
+                if has_pos or norm_x != target_x or norm_y != target_y:
                     shape.setPosition(Point(norm_x, norm_y))
-                elif has_pos:
-                    pos = shape.getPosition()
-                    shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
-                reapply_size = Size(new_w, new_h)
-                shape.setSize(reapply_size)
+                shape.setSize(Size(target_w, target_h))
         elif has_pos:
-            pos = shape.getPosition()
-            shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
+            shape.setPosition(Point(target_x, target_y))
 
         failed_props = _apply_shape_properties(shape, kwargs)
-        if "text" in kwargs and reapply_size is not None:
-            shape.setSize(reapply_size)
+        if "text" in kwargs and has_size:
+            if is_line:
+                _set_line_endpoints(shape, target_x, target_y, target_w, target_h)
+            else:
+                shape.setSize(Size(target_w, target_h))
 
         result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": shape.Name or ""}
         if failed_props:
