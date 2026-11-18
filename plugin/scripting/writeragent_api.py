@@ -690,14 +690,14 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None, sheet: str | None = None) -> _Item:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int = 1, confirm: bool = False, sheet: str | None = None) -> _Item:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
             start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
-            count (optional): Number to delete (default 1).
-            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            count (optional): Number to delete.
+            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. When false, such a delete is refused and nothing changes.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm, sheet=sheet))
@@ -736,13 +736,13 @@ class _CalcProxy:
         """
         return _result(call_host_tool("insert_html", cell=cell, html=html))
 
-    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None, sheet: str | None = None) -> _Item:
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int = 1, sheet: str | None = None) -> _Item:
         """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
             start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
-            count (optional): Number to insert (default 1).
+            count (optional): Number to insert.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count, sheet=sheet))
@@ -755,13 +755,13 @@ class _CalcProxy:
         """
         return _result(call_host_tool("list_functions", filter=filter))
 
-    def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> _Item:
+    def merge_cells(self, range_name: list[str], *, center: bool = True, unmerge: bool = False) -> _Item:
         """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge.
 
         Args:
             range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            center (optional): Center content (default: true).
-            unmerge (optional): Split merged cells instead of merging (default: false).
+            center (optional): Center content.
+            unmerge (optional): Split merged cells instead of merging.
         """
         return _result(call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge))
 
@@ -770,7 +770,7 @@ class _CalcProxy:
 
         Args:
             range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
+            format (optional): rows: 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
 
