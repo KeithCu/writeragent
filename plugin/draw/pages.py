@@ -45,6 +45,7 @@ log = logging.getLogger("writeragent.draw.pages")
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
 _DEFAULT_IMPRESS_LAYOUT = "text"
+_DEFAULT_ACTIVATE = True
 
 
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
@@ -96,7 +97,7 @@ class AddSlide(ToolBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
-            "activate": {"type": "boolean", "default": True, "description": "Whether to switch the view to the new slide"},
+            "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"},
             "layout": {"type": "string", "default": _DEFAULT_IMPRESS_LAYOUT, "description": ("Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
         },
         "required": [],
@@ -110,8 +111,8 @@ class AddSlide(ToolBase):
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
-        activate = kwargs.get("activate", True)
-        switch_view = bool(activate if activate is not None else True)
+        activate = kwargs.get("activate")
+        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
 
         layout_name: str | None = None
         if is_impress(ctx.doc):
@@ -457,15 +458,15 @@ class SetActivePage(ToolBase):
 class DuplicateSlide(_SlideMutationTool):
     name: str | None = "slide_duplicate"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "default": True, "description": "Whether to switch the view to the new slide"}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"}}, "required": ["page"]}
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs["page"]
         bridge = DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)  # range check only
-        activate = kwargs.get("activate", True)
-        switch_view = bool(activate if activate is not None else True)
+        activate = kwargs.get("activate")
+        switch_view = _DEFAULT_ACTIVATE if activate is None else bool(activate)
         bridge.duplicate_slide(page_idx, switch=switch_view)
         # The copy is inserted immediately after the source. Do not re-read
         # After duplicate with switch, the active index is page_idx + 1, not getNumber().
