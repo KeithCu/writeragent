@@ -122,24 +122,15 @@ PARAGRAPH_INDEX_DIRECTIVE = (
 )
 
 
-def delegation_math_to_python_hint(*, delegate_tool: str = DELEGATE_SUBAGENT_TOOL) -> str:
-    """Writer delegate description and Draw core directives: route computational math to the python sub-agent."""
-    return f'For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), do not answer from memory—use {delegate_tool}(domain="python") for fast local numeric computation.'
-
-
-def python_orchestrator_routing_line(*, delegate_tool: str = DELEGATE_SUBAGENT_TOOL) -> str:
-    """Draw main-chat line and Writer delegate description: python-as-orchestrator stays on domain=python.
-
-    A plain shape request still goes to domain=shapes. Only bias when the user
-    asked for the python specialized path (script, via python, python agent,
-    compute-then-place). Calc does not use this: its delegate enum hides python.
-    """
-    return (
-        "When asked to make a script or run Python, or to use the python sub-agent "
-        "(via python / python agent) to compute and place shapes or other domain objects, "
-        f'use {delegate_tool}(domain="python") rather than domain="shapes". '
-        'A plain shape request (for example draw a rectangle) still uses domain="shapes".'
-    )
+# Writer delegate description and Draw core directives (Calc's delegate enum hides python). A plain
+# shape request stays on domain=shapes; only computation, or an explicit ask for Python or the python
+# sub-agent, goes to domain=python.
+PYTHON_ROUTING_HINT: str = (
+    f'Call {DELEGATE_SUBAGENT_TOOL}(domain="python") for computational or numeric math (exact values, primes, '
+    "statistics, symbolic algebra) instead of answering from memory, and when the user asks for a script, for Python, "
+    "or for the python sub-agent to compute and place shapes or other objects; "
+    'a plain shape request (for example draw a rectangle) uses domain="shapes".'
+)
 
 
 # image_generate edits the selected graphic whenever one is selected ('selection' explicitly,
@@ -610,14 +601,11 @@ Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Order
 # Draw
 # ---------------------------------------------------------------------------
 
-# Route flowcharts/process diagrams through the shapes sub-agent and verify via its return payload.
-DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
+# Draw main chat: the file-research rule the domain catalog cannot carry, python routing, and flowchart routing. The document_research and web_research triggers are their catalog lines.
+DRAW_CORE_DIRECTIVES = f"""When the user refers to another file, document, spreadsheet, or sheet by name or path (e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt") or asks to pull, read, search, or reference data from one:
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
-
-{delegation_math_to_python_hint(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
-{python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task (paths not required).
+{PYTHON_ROUTING_HINT}
 For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect; ask for arrowheads in task when the user wants arrows), then check the delegation status and counts it returns."""
 
 
@@ -625,9 +613,8 @@ For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shape
 IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
 
 
-# F: omitted from the assembled Draw prompt when the chat model has no vision.
-# Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
-DRAW_GET_IMAGE_TOOL_LINE = "- image_get: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside shape_get_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
+# Omitted from the assembled Draw prompt when the chat model has no vision. Exact text in a picture is the vision domain's catalog line, so this line covers visual judgment only.
+DRAW_GET_IMAGE_TOOL_LINE = "- image_get: when you need to see a page or picture to judge layout and look."
 
 IMPRESS_TEXT_FILLS_BLOCK = (
     "IMPRESS TEXT FILLS:\n"
@@ -637,23 +624,14 @@ IMPRESS_TEXT_FILLS_BLOCK = (
     "4. page on these tools is 0-based.\n"
     "5. Users and the slide pane count from 1, so slide 3 is index 2.\n\n"
 )
-IMPRESS_LIST_DESIGNS_TOOL_LINE = "- design_list: List shipped Impress .otp designs (e.g. Metropolis).\n"
-IMPRESS_PLACEHOLDER_READ_TOOL_LINES = (
-    "- placeholder_list: List text placeholders (title, subtitle, body) on a slide (Impress).\n"
-    "- placeholder_get_text: Get text from a slide placeholder by role or index.\n"
-)
-IMPRESS_APPLY_DESIGN_TOOL_LINE = "- design_apply: Restyle the open Impress deck from a listed .otp. Does not open a new presentation.\n"
-IMPRESS_SET_PLACEHOLDER_TOOL_LINE = "- placeholder_set_text: Set text on a slide placeholder by role or index (Impress).\n"
+IMPRESS_DESIGN_TOOL_LINE = "- design_list, then design_apply: when the user wants a new look for the whole deck.\n"
 # Registered for PresentationDocument only; _assemble_chat_prompt removes them for Draw documents.
 IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
     IMPRESS_TEXT_FILLS_BLOCK,
-    IMPRESS_LIST_DESIGNS_TOOL_LINE,
-    IMPRESS_PLACEHOLDER_READ_TOOL_LINES,
-    IMPRESS_APPLY_DESIGN_TOOL_LINE,
-    IMPRESS_SET_PLACEHOLDER_TOOL_LINE,
+    IMPRESS_DESIGN_TOOL_LINE,
 )
 
-DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant. Make new content visually clear, use color purposefully, and match the existing style.
 {ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
@@ -661,31 +639,15 @@ DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impres
 {GENERIC_EDIT_CONFIRMATION_RULES}
 
 WORKFLOW:
-1. Understand the user's request.
-2. If needed, use shape_get_tree first on Draw documents (or slide_list, slide_read_text, get_deck_info) to understand current pages/slides and layout.
-3. Use delegate_to_subagent for shape operations (create, edit, group, paper-form fill via the shapes sub-agent's shape_fill_fields tool) and the other domains listed under DRAW SUB-AGENTS.
-4. Give a short confirmation; when you changed pages/shapes, mention them.
+1. If the user asks a question that does not request a change, or wants feedback, answer it in chat; do not edit the document.
+2. Before editing, read what you need: shape_get_tree for shape names, fill targets, and groups; slide_list, slide_read_text, slide_search, or get_deck_info for slides and text.
+3. Create, edit, or group shapes, and fill paper-form blanks, with {DELEGATE_SUBAGENT_TOOL}(domain="shapes"); domain="forms" is only for live form widgets. Other features are under DRAW SUB-AGENTS.
+4. When you changed pages or shapes, name them in your reply.
 
-{IMPRESS_TEXT_FILLS_BLOCK}TOOLS (grouped by use):
-
-READ:
-- slide_list: List pages/slides in the document.
-{IMPRESS_LIST_DESIGNS_TOOL_LINE}- slide_read_text: Extract text from shapes (including grouped descendants and tables as TSV) and speaker notes from a slide.
-- slide_search: Search shape text and speaker notes across slides (pattern, optional regex).
-- get_deck_info: Slide count, dimensions, master slide names, and Impress status.
-- shape_get_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
+{IMPRESS_TEXT_FILLS_BLOCK}TOOLS:
 {DRAW_GET_IMAGE_TOOL_LINE}
-{IMPRESS_PLACEHOLDER_READ_TOOL_LINES}
-WRITE:
-- slide_add: Insert a new slide (page) at specified index (inherits the assigned master).
-{IMPRESS_APPLY_DESIGN_TOOL_LINE}- slide_delete: Remove a slide (page) by index.
-- slide_duplicate: Duplicate a slide (page) by 0-based index.
-- slide_move: Move a slide (page) from from_page to to_page (0-based).
-- slide_rename: Set a slide (page) Name property.
-- slide_set_active: Switch active slide/page.
-- document_undo: Undo your last document change(s) if an edit went wrong (shared stack; undo only your own steps).
-- document_redo: Redo change(s) you just undid.
-{IMPRESS_SET_PLACEHOLDER_TOOL_LINE}
+{IMPRESS_DESIGN_TOOL_LINE}- slide_add, slide_duplicate, slide_move, slide_rename, slide_delete, slide_set_active: change or switch pages yourself; no sub-agent needed.
+
 {{specialized_delegation}}
 
 {{core_directives}}"""
@@ -846,10 +808,6 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     base = _assemble_chat_prompt(agent, ctx=ctx, uno_services=get_document_uno_services(model))
 
     if ctx is not None:
-        vision_directive = _call_system_prompt_block("vision", model, ctx)
-        if vision_directive:
-            base += "\n\n" + vision_directive
-
         peer_block = _call_system_prompt_block("peer_outer", model, ctx)
         if peer_block:
             base += "\n\n" + peer_block

@@ -97,23 +97,3 @@ def filter_delegate_domains(schemas: list[dict[str, Any]], keep: Callable[[str],
 def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
     """Remove unavailable domains (such as ``vision`` or ``mcp``) from delegate gateway domain enums."""
     return filter_delegate_domains(schemas, lambda d: specialized_domain_available(d, ctx))
-
-
-def get_vision_core_directive(model: Any, ctx: Any) -> str:
-    """OCR delegation hint for Draw/Impress when the local vision stack is configured.
-
-    Writer and Calc carry OCR routing in their vision catalog line (ToolWriterVisionBase,
-    ToolCalcVisionBase), which the domain list shows only when vision is available.
-    """
-    if ctx is None:
-        return ""
-    from plugin.framework import doc_type as _doc_type
-
-    if not _doc_type.is_draw(model) or not vision_venv_configured(ctx):
-        return ""
-    return (
-        'When the user wants OCR or content from an embedded image, '
-        f'call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
-        "That runs OCR on the currently selected image and returns the recognized text "
-        "(the slide stays unchanged). You must use this call to perform OCR."
-    )
