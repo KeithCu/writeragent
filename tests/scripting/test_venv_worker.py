@@ -2078,6 +2078,20 @@ def test_missing_proc_after_concurrent_terminate():
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'worker terminated concurrently' in result['message']
 
+
+def test_dead_worker_before_read_reports_closed_without_response():
+    """A child that exits before _read_response_bytes starts still reports closed-without-response."""
+    mgr, proc = _mock_mgr()
+
+    def _write_then_exit(*_args: object, **_kwargs: object) -> None:
+        proc.poll.return_value = 0
+
+    mgr._write_frame_with_timeout = MagicMock(side_effect=_write_then_exit)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
+    assert result['status'] == 'error'
+    assert result['code'] == 'WORKER_IPC_ERROR'
+    assert 'without a response' in result['message']
+
 def test_cancel_returns_cancelled_code():
     """Stop during the IPC wait kills the worker, does not replay, and returns CANCELLED."""
     mgr, proc = _mock_mgr()
