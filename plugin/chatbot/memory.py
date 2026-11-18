@@ -9,6 +9,7 @@ from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ConfigError, best_effort
+from plugin.framework.prompts import fenced_data_block
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -131,20 +132,11 @@ def user_profile_exists() -> bool:
     return not user_memory_is_blank(val)
 
 
-_PROFILE_DATA_OPEN = "<<<profile>>>"
-_PROFILE_DATA_CLOSE = "<<<</profile>>>"
-
-
-def _cap_injected_prompt_blob(text: str) -> str:
+def cap_injected_prompt_blob(text: str) -> str:
     body = text.strip()
     if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
         return body
     return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + "[truncated]"
-
-
-def _profile_data_block(heading: str, body: str) -> str:
-    safe = body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
-    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
 
 
 def format_user_memory_prompt_block() -> str:
@@ -156,7 +148,7 @@ def format_user_memory_prompt_block() -> str:
         user_mem = store.read()
         if user_memory_is_blank(user_mem):
             return ""
-        return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
+        return fenced_data_block("[USER PROFILE / MEMORY]", cap_injected_prompt_blob(user_mem), tag="profile")
     except Exception:
         logging.getLogger(__name__).exception("Failed to read user memory for prompt")
     return ""

@@ -24,6 +24,7 @@ import os
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.errors import ConfigError
+from plugin.framework.prompts import fenced_data_block
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +34,8 @@ log = logging.getLogger(__name__)
 # while preserving meaning and document intent.
 HUMANIZER_GUIDANCE = """HUMANIZER GUIDANCE (make prose sound natural and human):
 
-Core goal: Remove common AI tells and inject real voice, rhythm, specificity, and personality.
-Apply this to any text you generate or revise for the document.
+Core goal: Remove common AI tells and give the prose natural rhythm and specific, concrete wording.
+Apply this to text you write or rewrite for the document, not to chat replies or minimal corrections.
 
 Key rules (prioritized for office/professional writing):
 - Vary sentence length and structure naturally. Mix short punchy sentences with longer ones.
@@ -44,13 +45,22 @@ Key rules (prioritized for office/professional writing):
 - Eliminate formulaic structures: reflexive three-item lists, "not only X but Y", excessive em-dashes, bolded inline headers, emojis in body text.
 - Drop chatbot artifacts: "Great question!", "I hope this helps", "Let me know if...", "In conclusion, the future looks bright".
 - Avoid hedging and weasel words when you have evidence. Say what you mean directly.
-- For document prose (not chat replies), add soul when appropriate: opinions, uncertainty ("I don't know how to feel about this"), first-person where it fits the voice, small tangents or personality.
 - Preserve the user's intended meaning and any existing document style. Do not over-polish or change voice unless asked.
 
 When drafting or revising document text, run the output through these rules (silently) so the inserted text feels written by a thoughtful human, not generated.
 
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
+
+# Scope rules live on the code-owned heading rather than HUMANIZER_GUIDANCE alone, because
+# a user's seeded SKILL.md keeps whatever text it was originally seeded with.
+HUMANIZER_PROMPT_HEADING = (
+    "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document. "
+    "By default apply it to rhythm and word choice only; use first person, opinions, or tangents only when "
+    "the existing document already writes that way, and never make a polished, professional document casual "
+    "unless the user asks. Minimal corrections (\"fix this\": spelling and grammar in the current sentence) "
+    "are exempt.]"
+)
 
 
 def strip_skill_front_matter(content: str) -> str:
@@ -130,7 +140,9 @@ class SkillStore:
 
 def format_humanizer_guidance_prompt_block() -> str:
     """Return fenced humanizer guidance if enabled in settings, else empty string."""
-    from plugin.chatbot.memory import _cap_injected_prompt_blob, _profile_data_block
+    # In-function import breaks the skills -> memory -> skills/prompts cycle if any,
+    # and keeps config lookup lazy until prompt assembly.
+    from plugin.chatbot.memory import cap_injected_prompt_blob
     from plugin.framework.config import get_config
 
     try:
@@ -138,10 +150,10 @@ def format_humanizer_guidance_prompt_block() -> str:
             hstore = SkillStore()
             hguidance = hstore.get_humanizer_guidance()
             if hguidance:
-                body = _cap_injected_prompt_blob(hguidance)
-                return _profile_data_block(
-                    "[HUMANIZER GUIDANCE — the user turned this on; when it conflicts with the default tone, follow it when generating or revising prose]",
-                    body,
+                return fenced_data_block(
+                    HUMANIZER_PROMPT_HEADING,
+                    cap_injected_prompt_blob(hguidance),
+                    tag="humanizer",
                 )
     except Exception:
         log.exception("Failed to inject humanizer guidance")

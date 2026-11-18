@@ -68,7 +68,7 @@ Not blocking product work. **One item per session.** Each can change user-visibl
 
 | Session | Notes |
 |---------|--------|
-| **Extra instructions in the system prompt** — [`prompts.py`](../plugin/framework/prompts.py) | Done: `_append_additional_instructions` wraps text in the same fence as profile data (`_profile_data_block`). |
+| **Extra instructions in the system prompt** — [`prompts.py`](../plugin/framework/prompts.py) | Done: `_finish_chat_system_prompt` wraps text in the same fence as profile data (`fenced_data_block`). |
 
 Shipped and removed from this table: Stop/cancel, missing-API-key 401, drain-handler `job_done`, connect vs read timeout (`LLM_CONNECT_TIMEOUT_SEC` + Settings `request_timeout` read budget), empty tool `properties` unknown-key check, `TerminationVetoException` re-raise from `_catch_and_log`.
 
