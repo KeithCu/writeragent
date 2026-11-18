@@ -611,6 +611,7 @@ class ImageList(ToolWriterImageBase):
                             page_no = visual_helpers.safe_get_property(graphic, "AnchorPageNo", 0)
                             try:
                                 p = int(page_no)
+                                # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                 if p > 0:
                                     entry["page"] = p - 1
                             except (TypeError, ValueError):
@@ -633,6 +634,7 @@ class ImageList(ToolWriterImageBase):
                                         vc.gotoRange(start, False)
                                         try:
                                             p = int(vc.getPage())
+                                            # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                             if p > 0:
                                                 entry["page"] = p - 1
                                         except (TypeError, ValueError):

@@ -650,4 +650,3 @@ def test_execute_paragraph_reports_zero_based_page():
     res = GetPageObjects().execute(ctx, paragraph=5)
     assert res["status"] == "ok"
     assert res["page"] == 2
-

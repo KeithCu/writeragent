@@ -130,6 +130,7 @@ def _writer_anchor_note(shape: Any) -> str:
         return ""
     if kind == "AT_PAGE":
         page_no = uno_read(lambda: int(shape.getPropertyValue("AnchorPageNo")), 0)
+        # 0 = unset/not laid out; LibreOffice pages are 1-based.
         return " anchor: AT_PAGE page %d" % (page_no - 1) if page_no > 0 else " anchor: AT_PAGE"
 
     def read_excerpt() -> str:

@@ -327,4 +327,3 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     assert resolve_locator(doc, "page:1")["para_index"] == 1
     with pytest.raises(ToolExecutionError, match="2 page\\(s\\)"):
         resolve_locator(doc, "page:2")
-

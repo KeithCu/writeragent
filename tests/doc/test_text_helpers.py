@@ -1081,6 +1081,3 @@ def test_jump_view_cursor_to_page_missing_page_returns_count():
     vc.jump_calls.clear()
     assert jump_view_cursor_to_page(vc, 40000) == 3
     assert vc.jump_calls == []
-
-
-
