@@ -232,48 +232,34 @@ def test_idle_stop_closes_open_thinking():
     assert " /thinking\n" in joined
 
 
-def test_async_worker_flushes_queue_with_raw_and_flush():
-    """A queue with raw and flush is flushed before the terminal item.
+def test_async_worker_flushes_batching_stream_queue():
+    """A BatchingStreamQueue is flushed before the terminal item.
 
-    The drain must not require a BatchingStreamQueue instance. Text stays
-    off the raw queue until flush, so a missed flush leaves the drain empty.
+    With a 30 s interval text reaches the raw queue only through flush, so a
+    missed flush leaves the drain empty.
     """
     from plugin.framework.async_stream import run_async_worker_with_drain
+    from plugin.framework.stream_batch import BatchingStreamQueue
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    raw: StreamQueue = StreamQueue()
-
-    class _HoldingQueue:
-        def __init__(self) -> None:
-            self.raw = raw
-            self._held: list[object] = []
-
-        def put(self, item: object) -> None:
-            self._held.append(item)
-
-        def flush(self) -> None:
-            while self._held:
-                self.raw.put(self._held.pop(0))
-
+    batched = BatchingStreamQueue(StreamQueue(), batch_interval=30.0)
     applied: list[str] = []
-    holder = _HoldingQueue()
 
     def worker(worker_q):
         worker_q.put((StreamQueueKind.CHUNK, "kept"))
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(
             ctx,
             worker,
             lambda text, _is_thinking: applied.append(text),
             lambda _item: None,
             lambda _e: None,
-            q=holder,
+            q=batched,
         )
 
     assert applied == ["kept"]
-    assert holder._held == []
 
 
 def test_async_worker_stop_flushes_batcher_before_worker_returns():
@@ -293,7 +279,7 @@ def test_async_worker_stop_flushes_batcher_before_worker_returns():
         release.wait(5)
 
     try:
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
             run_async_worker_with_drain(
                 ctx,
                 worker,
@@ -331,7 +317,7 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
 
     def run() -> None:
         try:
-            with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+            with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
                 run_async_worker_with_drain(
                     ctx,
                     worker,
@@ -548,7 +534,7 @@ def test_nested_async_worker_does_not_start_before_drain_check(owner: str):
     def worker(_q: queue.Queue) -> None:
         started.append(1)
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=DummyToolkit()):
         with drain_owner_scope(owner):
             run_async_worker_with_drain(MagicMock(), worker, None, None, errors.append)
     assert started == []

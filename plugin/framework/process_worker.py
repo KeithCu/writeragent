@@ -52,7 +52,7 @@ from plugin.framework.warm_child import (
 
 __all__ = ["BaseProcessWorker"]
 
-# Same logger the compute tests capture. The class moved; the log name did not.
+# Pool slots log under compute_service.worker, the name the compute service and its tests capture.
 log = logging.getLogger("compute_service.worker")
 
 
@@ -74,9 +74,6 @@ def _compute_slot_fail_message(
         return f"{worker_name} error: {detail}"
     raise AssertionError(f"unhandled fail code {code!r}")
 
-# ``kill`` stays a call-site choice. Nothing here increments
-# ``tasks_executed``: only a consumed response does, and a ready
-# handshake resets that count.
 # A killing failure while the slot is stopping. _fail_request reports
 # SERVICE_SHUTDOWN instead, and does not kill again. A spent clock passes
 # kill=False and stays EXECUTION_TIMEOUT. HTTP 500 or 200 here would hide a stop.
@@ -231,7 +228,6 @@ class BaseProcessWorker:
         )
         spawned: Child | None = None
         published = False
-        cap_sec = SPAWN_READY_TIMEOUT_SEC
 
         def _publish(child: Child) -> bool:
             nonlocal published
@@ -253,7 +249,7 @@ class BaseProcessWorker:
                 start=functools.partial(supervisor.spawn, timeout_sec=budget),
                 publish=_publish,
                 deadline=deadline,
-                cap_sec=cap_sec,
+                cap_sec=SPAWN_READY_TIMEOUT_SEC,
             )
             spawned = handshake_child
             if tag == "refused":
@@ -295,14 +291,12 @@ class BaseProcessWorker:
         except Exception as exc:
             if spawned is not None:
                 self._end_child_io(spawned)
-            message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
             if not published:
                 if spawned is not None:
                     spawned.signal_from()
-                self._log_spawn_outcome(message, spawned)
             else:
                 self.kill()
-                self._log_spawn_outcome(message, spawned)
+            self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}", spawned)
 
     def is_alive(self) -> bool:
         """True only while the current child's ``poll()`` is None.
@@ -311,10 +305,9 @@ class BaseProcessWorker:
         A child handed to the module reaper is not current, so this is False
         and the slot can be spawned again.
         """
-        # kill() assigns None under _lifecycle_lock while execute's select
-        # loop calls this. A second read of the child could be None and
-        # raise AttributeError, which the write handler reported as
-        # REQUEST_NOT_SERIALIZABLE. Snapshot once before poll().
+        # kill() sets self.child to None under _lifecycle_lock while execute's select
+        # loop calls this. Read self.child once: a second read can see None and
+        # raise AttributeError, which the write handler reports as REQUEST_NOT_SERIALIZABLE.
         child = self.child
         if child is None:
             return False

@@ -18,6 +18,7 @@ import os
 import json
 import pickle
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -1032,25 +1033,18 @@ def _pause_script_alarm() -> tuple[float, float, float] | None:
     """Turn off SIGALRM for the tool_call read. Return (delay, interval, start).
 
     SIGALRM must not fire inside this stdin read, or the harness writes an error
-    frame while the host is still writing the reply. ``signal.alarm(0)`` returns
-    whole seconds. ``setitimer(ITIMER_REAL, 0)`` returns the fraction. Resume
-    puts that fraction back. No ``int(left + 0.999)`` floor of 1. Platforms
-    without ``setitimer`` keep ``alarm``. The timer is process-wide.
+    frame while the host is still writing the reply. ``setitimer(ITIMER_REAL, 0)``
+    returns the fraction, and resume puts that fraction back. The timer is
+    process-wide.
     """
     if sys.platform == "win32":
         return None
     try:
-        import signal
-
-        if hasattr(signal, "setitimer"):
-            delay, interval = signal.setitimer(signal.ITIMER_REAL, 0.0)
-            delay_sec = float(delay)
-            interval_sec = float(interval)
-        else:
-            delay_sec = float(signal.alarm(0))
-            interval_sec = 0.0
-    except (AttributeError, ValueError, OSError):
+        delay, interval = signal.setitimer(signal.ITIMER_REAL, 0.0)
+    except (ValueError, OSError):
         return None
+    delay_sec = float(delay)
+    interval_sec = float(interval)
     if delay_sec <= 0 and interval_sec <= 0:
         return None
     return delay_sec, interval_sec, time.monotonic()
@@ -1133,19 +1127,14 @@ def _resume_script_alarm(paused: tuple[float, float, float] | None) -> bool:
     if sys.platform == "win32":
         return left <= 0
     try:
-        import signal
-
         if left <= 0:
             # This shot is spent. A repeating interval, if one was set, is
             # not the script budget. Put it back so pause did not clear it.
-            if interval > 0 and hasattr(signal, "setitimer"):
+            if interval > 0:
                 signal.setitimer(signal.ITIMER_REAL, interval, interval)
             return True
-        if hasattr(signal, "setitimer"):
-            signal.setitimer(signal.ITIMER_REAL, left, interval)
-        else:
-            signal.alarm(max(1, int(left + 0.999)))
-    except (AttributeError, ValueError, OSError):
+        signal.setitimer(signal.ITIMER_REAL, left, interval)
+    except (ValueError, OSError):
         return False
     return False
 
