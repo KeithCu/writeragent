@@ -40,7 +40,6 @@ returning to VCL between slices is what keeps Stop and paints alive.
 from __future__ import annotations
 
 import functools
-import inspect
 import json
 import logging
 import queue
@@ -74,6 +73,7 @@ from plugin.framework.queue_executor import (
     pump_ui_idle,
 )
 from plugin.framework.send_cancellation import is_cancelled
+from plugin.framework.uno_context import get_toolkit
 
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
@@ -1041,31 +1041,6 @@ def _run_stream_drain_blocking(
         _notify_drain_failure(on_error, outcome, e, "Stream drain loop crashed")
 
 
-def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
-    """Call ``fn(item)`` or ``fn()`` once, from the signature.
-
-    Choose the call before invoking the callback. An exception from the
-    body is not a retry. A ``TypeError`` whose text contains "positional
-    argument" is not an arity mismatch: a ``TypeError`` raised inside the
-    body can contain that text, and calling ``on_done`` again with no
-    arguments runs it twice.
-    """
-    try:
-        signature = inspect.signature(fn)
-    except (TypeError, ValueError):
-        fn(item)
-        return
-    takes_item = False
-    for param in signature.parameters.values():
-        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.VAR_POSITIONAL):
-            takes_item = True
-            break
-    if takes_item:
-        fn(item)
-    else:
-        fn()
-
-
 _TERMINAL_WATCH_KINDS = frozenset((
     StreamQueueKind.STREAM_DONE,
     StreamQueueKind.ERROR,
@@ -1118,32 +1093,25 @@ class StreamQueue(queue.Queue[Any]):
         super().put(item, block, timeout)
 
 
-def _producer_batch(q: Any) -> tuple[queue.Queue[Any], Callable[[], None] | None]:
-    """Return the drain queue and a flush when ``q`` is a producer batcher.
-
-    ``run_async_worker_with_drain`` must not name ``BatchingStreamQueue``.
-    A plain ``queue.Queue`` has neither ``raw`` nor ``flush``, so Stop and
-    the worker finally leave it alone.
-    """
+def _producer_batch(q: StreamQueue | BatchingStreamQueue) -> tuple[queue.Queue[Any], Callable[[], None] | None]:
+    """Return the queue the drain reads and the producer flush (None for a plain ``StreamQueue``)."""
     # crosshair: off
-    raw = getattr(q, "raw", None)
-    flush = getattr(q, "flush", None)
-    if isinstance(raw, queue.Queue) and callable(flush):
-        return raw, cast("Callable[[], None]", flush)
-    return cast("queue.Queue[Any]", q), None
+    if isinstance(q, BatchingStreamQueue):
+        return q.raw, q.flush
+    return q, None
 
 
 def run_async_worker_with_drain(
     ctx: Any,
     worker_fn: Callable[[queue.Queue[Any]], None],
     apply_chunk_fn: Callable[[str, bool], None] | None,
-    on_done_fn: Callable[..., None] | None,
+    on_done_fn: Callable[[Any], None] | None,
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
     on_stopped_fn: Callable[[], None] | None = None,
     name: str = "async-worker",
-    q: Any = None,
+    q: StreamQueue | BatchingStreamQueue | None = None,
     on_approval_required: Callable[[Any], None] | None = None,
 ) -> None:
     """Run a background worker and drain its queue on the main thread.
@@ -1152,9 +1120,9 @@ def run_async_worker_with_drain(
     owner is taken; a drain that fails to start never starts the worker.
     Toolkit may be ``None``.
 
-    ``q`` is a :class:`StreamQueue` or a producer batcher with ``raw`` and
-    ``flush``. The drain reads ``raw`` and calls ``flush`` on Stop and
-    before the terminal item.
+    ``q`` is a :class:`StreamQueue` or a :class:`BatchingStreamQueue` over one.
+    The drain reads the raw queue and calls ``flush`` on Stop and before the
+    terminal item.
 
     ``worker_fn`` is a callable that accepts the queue and produces
     :class:`StreamQueueKind` tuples. It does not need to post a terminal
@@ -1164,9 +1132,9 @@ def run_async_worker_with_drain(
     ``STREAM_DONE``: ``on_error`` returning ``True`` keeps the drain alive
     for a replacement worker (native-audio STT fallback).
 
-    Callback defaults: ``on_error_fn`` and ``on_stopped_fn`` fall back to
-    ``on_done_fn`` or a no-op so the drain loop never fails on a missing
-    handler.
+    Callback defaults: ``on_done_fn`` receives the terminal item;
+    ``on_error_fn`` falls back to a no-op; ``on_stopped_fn`` falls back to
+    ``on_done_fn(None)`` or a no-op.
     """
     # crosshair: off
     if q is None:
@@ -1175,32 +1143,20 @@ def run_async_worker_with_drain(
 
     _real_q, _flush = _producer_batch(q)
 
-    # Watch the real queue's terminal signals for this worker. Overlapping
-    # drains on one queue each subscribe their own cell; see StreamQueue.
-    # A watch that only sees puts through the queue passed to worker_fn misses
-    # send_handlers, which closes over the real queue and puts
-    # ERROR/STREAM_DONE there, so finally always posts a second STREAM_DONE.
-    # That can end a recovered drain (on_error True) on a later iteration.
-    # Tip: a plain queue.Queue cannot report terminal puts, so the wrapper
-    # would always add a second STREAM_DONE. Fail loudly instead.
+    # Watch terminal puts on the queue the drain reads: send_handlers' worker
+    # puts ERROR and STREAM_DONE there directly, not through worker_fn's queue,
+    # and a second STREAM_DONE would end a drain that on_error kept alive.
+    # A plain queue.Queue cannot report terminal puts, so refuse it.
     if not isinstance(_real_q, StreamQueue):
         raise TypeError(f"run_async_worker_with_drain needs a StreamQueue (or a batcher over one), got {type(_real_q).__name__}")
     real_q: StreamQueue = _real_q
 
     def worker_wrapper() -> None:
-        # Skip the STREAM_DONE sentinel when this wrapper or the worker
-        # already queued a terminal item. Always queuing it after ERROR
-        # makes a handler that returns True (keep draining, e.g. STT
-        # fallback) end the job before the replacement worker's chunks.
-        #
-        # Log a flush error, still queue ERROR, and unsubscribe from finally.
-        # Flushing the batcher before ERROR and again before unsubscribe, with
-        # no try, skips that put when flush raises, leaves the failure flag
-        # set so the STREAM_DONE fallback is suppressed.
-        # Skip ERROR if saw_terminal.is_set(). A worker that already queued
-        # a terminal item (such as ERROR) and then raised must not queue a
-        # second ERROR, or a recovery on_error (returning True) runs a
-        # second time against the replacement worker.
+        # Post one terminal item after worker_fn returns or raises: ERROR when it
+        # raised, else STREAM_DONE. Post nothing when a terminal item is already
+        # queued, so an on_error that returns True (STT fallback) keeps draining
+        # the replacement worker and does not run a second time. A flush error is
+        # logged and does not suppress the terminal put.
         error_item: tuple[Any, Any] | None = None
         saw_terminal = real_q.subscribe_terminal()
         try:
@@ -1224,18 +1180,14 @@ def run_async_worker_with_drain(
         finally:
             real_q.unsubscribe_terminal(saw_terminal)
 
-    from plugin.framework.uno_context import get_toolkit
-
     toolkit = get_toolkit(ctx)
 
-    # Refuse before spawn: this helper refuses every current owner, including
-    # "stream", before spawning a worker thread. The underlying drain would
-    # accept "stream" (nesting depth) and reject a different name. Refusing here
-    # ensures Extend, image, web, and agent tasks do not nest a second consumer
-    # over an active stream. Callers that must overlap two documents call
-    # run_stream_drain_loop directly. A different owner ("mcp", "outer") must
-    # not spawn either, as the drain would raise and leave the worker writing
-    # to an unread queue.
+    # Refuse any existing drain owner before spawning, including "stream":
+    # Extend, image, web, and agent tasks must not start a second consumer over
+    # a live chat stream. run_stream_drain_loop would nest under a same-name
+    # owner and raise for a different one, leaving the worker writing to a
+    # queue nobody reads. Callers that must overlap two documents call
+    # run_stream_drain_loop directly.
     existing_owner = get_drain_owner()
     if existing_owner is not None:
         nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
@@ -1248,7 +1200,7 @@ def run_async_worker_with_drain(
 
     def on_stream_done_wrapper(item: Any) -> bool:
         if on_done_fn:
-            _call_item_or_zero_arg(on_done_fn, item)
+            on_done_fn(item)
         # Return True so _handle_stream_done_like sets outcome.done and the drain loop exits.
         # NEXT_TOOL is not a terminal exit; STREAM_DONE / FINAL_DONE / TOOL_DONE end the drain.
         kind, _payload = split_stream_item(item)
@@ -1258,11 +1210,7 @@ def run_async_worker_with_drain(
 
     resolved_apply_chunk = apply_chunk_fn or (lambda _text, _is_thinking: None)
     resolved_on_error = on_error_fn or (lambda _payload: None)
-    resolved_on_stopped = on_stopped_fn or (
-        (lambda: _call_item_or_zero_arg(on_done_fn, None))
-        if on_done_fn is not None
-        else (lambda: None)
-    )
+    resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn(None)) if on_done_fn is not None else (lambda: None))
 
     # Chat's tool loop passes flush_pending so Stop emits text still inside the 250ms batcher.
     def _spawn_worker() -> None:
@@ -1291,7 +1239,7 @@ def run_stream_completion_async(
     system_prompt: Any,
     max_tokens: Any,
     apply_chunk_fn: Callable[[str, bool], None] | None,
-    on_done_fn: Callable[..., None] | None,
+    on_done_fn: Callable[[], None],
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
@@ -1325,7 +1273,7 @@ def run_stream_completion_async(
         ctx,
         worker,
         apply_chunk_fn=apply_chunk_fn,
-        on_done_fn=on_done_fn,
+        on_done_fn=lambda _item: on_done_fn(),
         on_error_fn=on_error_fn,
         on_status_fn=on_status_fn,
         cancel=cancel,

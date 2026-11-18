@@ -175,7 +175,7 @@ def stream_completion(
     system_prompt: str,
     max_tokens: int,
     apply_chunk_fn: ApplyChunkFn,
-    on_done_fn: Callable[..., None],
+    on_done_fn: Callable[[], None],
     on_error_fn: ErrorFn,
     *,
     cancel: SendCancellation | None = None,

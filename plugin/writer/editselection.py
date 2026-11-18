@@ -110,7 +110,7 @@ def _stream_into_session(
         if not is_thinking:
             session.append_chunk(chunk_text)
 
-    def on_done(_item: Any = None) -> None:
+    def on_done() -> None:
         try:
             warning = session.finish()
             if warning:

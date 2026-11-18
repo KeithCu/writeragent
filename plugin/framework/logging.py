@@ -238,10 +238,8 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
-        # Flush is rate-limited to at most once per second, and nothing else
-        # flushed the tail after a burst. A crash then lost recent warnings.
-        # WARNING+ always force-flushes so those records reach disk without
-        # waiting for the 1s interval.
+        # flush() is rate-limited to once per second. WARNING+ force-flushes so
+        # a crash right after a burst still leaves those records on disk.
         if record.levelno >= logging.WARNING:
             self.flush(force=True)
 
@@ -337,15 +335,14 @@ def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     """Return the process's debug-log handler, creating it when the path changes.
 
-    One handler, stored on sys. A module global opened a second FileHandler
-    on the same path when LibreOffice imported this package twice, and the
-    two fds fought over rotation.
+    One handler, stored with ``process_global`` so a second import of this
+    package reuses it; two FileHandlers on one path rotate on separate fds.
     """
     path = _shared()["debug_log_path"]
     if not isinstance(path, str) or not path:
         raise RuntimeError("debug log path is not set")
     current = _debug_file_handler_from_sys()
-    if current is not None and getattr(current, "baseFilename", "") == path:
+    if current is not None and current.baseFilename == path:
         return current
     # A path change must close the previous FileHandler before the replace,
     # or its fd stays alive. A close error must not block the new file.
@@ -373,7 +370,7 @@ def get_debug_log_path() -> str | None:
 
 
 def _is_matching_debug_handler(handler: logging.Handler) -> bool:
-    return isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == _shared()["debug_log_path"]
+    return isinstance(handler, logging.FileHandler) and handler.baseFilename == _shared()["debug_log_path"]
 
 
 def _strip_stray_handlers(logger: logging.Logger) -> bool:
@@ -472,11 +469,11 @@ def init_logging(ctx: Any | None = None) -> None:
 
             logger = log
             plugin_logger = logging.getLogger("plugin")
-            # Logger.setLevel always calls manager._clear_cache(), even for the same level.
-            # That takes logging._lock and empties every logger's level cache.
-            # llm_client called init_logging per request on the worker, so every thread's
-            # next log call missed the cache and took _lock. Under SolarMutex that was half of
-            # the mr1_t6 deadlock. Only touch the level when it actually changes.
+            # Logger.setLevel always calls manager._clear_cache(), which takes
+            # logging._lock and empties every logger's level cache. init_logging
+            # can run per request on a worker, so an unconditional setLevel makes
+            # every thread's next log call take _lock; under SolarMutex that
+            # deadlocks (mr1_t6). Only touch the level when it changes.
             if logger.level != numeric_level:
                 logger.setLevel(numeric_level)
 
@@ -542,32 +539,31 @@ def _install_global_exception_hooks() -> None:
 
         sys.excepthook = _writeragent_excepthook
 
-        if getattr(threading, "excepthook", None) is not None:
-            _original_threading_excepthook = threading.excepthook
+        _original_threading_excepthook = threading.excepthook
 
-            def _writeragent_threading_excepthook(args: Any) -> None:
+        def _writeragent_threading_excepthook(args: Any) -> None:
+            try:
+                msg = "Unhandled exception in thread %s: %s\n%s" % (
+                    getattr(args, "thread", None),
+                    getattr(args, "exc_type", args),
+                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+                    if getattr(args, "exc_type", None)
+                    else "",
+                )
                 try:
-                    msg = "Unhandled exception in thread %s: %s\n%s" % (
-                        getattr(args, "thread", None),
-                        getattr(args, "exc_type", args),
-                        "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
-                        if getattr(args, "exc_type", None)
-                        else "",
-                    )
-                    try:
-                        payload = format_error_payload(args.exc_value)
-                        msg += f"\nPayload context: {payload.get('details', {})}"
-                    except Exception:
-                        log.debug("threading excepthook: format_error_payload failed", exc_info=True)
-                    log.error(f"[Excepthook] {msg.strip()}")
-                except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
-                    pass
-                try:
-                    _original_threading_excepthook(args)
+                    payload = format_error_payload(args.exc_value)
+                    msg += f"\nPayload context: {payload.get('details', {})}"
                 except Exception:
-                    log.debug("original threading.excepthook failed", exc_info=True)
+                    log.debug("threading excepthook: format_error_payload failed", exc_info=True)
+                log.error(f"[Excepthook] {msg.strip()}")
+            except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
+                pass
+            try:
+                _original_threading_excepthook(args)
+            except Exception:
+                log.debug("original threading.excepthook failed", exc_info=True)
 
-            threading.excepthook = _writeragent_threading_excepthook
+        threading.excepthook = _writeragent_threading_excepthook
         return True
 
     process_global("excepthook", _install)

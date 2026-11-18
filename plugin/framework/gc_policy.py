@@ -37,6 +37,9 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework import blocking_wait
+from plugin.framework.worker_pool import run_in_background
+
 if TYPE_CHECKING:
     from types import FrameType
 
@@ -82,8 +85,6 @@ def install(executor: Any) -> bool:
         # A forked child (multiprocessing 'fork') has no main-thread ticker.
         os.register_at_fork(after_in_child=gc.enable)
     gc.callbacks.append(_sentinel)
-    from plugin.framework.worker_pool import run_in_background
-
     run_in_background(_ticker_loop, executor, name="gc-ticker", daemon=True, dedicated=True)
     log.info("gc_policy: active")
     return True
@@ -157,8 +158,6 @@ def _ticker_loop(executor: Any) -> None:
 def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
     """One ticker wake (test seam). Supply *now* to avoid sleeping."""
     global _posted_at, _reenabled
-    from plugin.framework import blocking_wait
-
     if gc.isenabled() and not blocking_wait.gc_suspended():
         gc.disable()
         _reenabled = True

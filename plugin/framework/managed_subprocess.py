@@ -365,6 +365,7 @@ class ManagedSubprocess:
         is set leaves the instance reusable (worker and raw).
         """
         if self._die_with_parent and sys.platform == "linux":
+            # Lazy: warm_child imports this module, and the LibreHarper bundle ships this file without warm_child or child_runtime.
             from plugin.framework.warm_child import supervisor
 
             # Linux PR_SET_PDEATHSIG follows the thread that calls fork, not the process.
@@ -629,22 +630,20 @@ def _kill_direct(proc: Any) -> None:
     if proc.poll() is None:
         try:
             proc.kill()
-        except (ProcessLookupError, PermissionError, OSError):
+        except OSError:
             pass
 
 
 def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
     if sys.platform == "win32":
-        # Returning when poll() is not None skipped taskkill /T, so
-        # grandchildren of an already-exited worker were left running.
+        # Do not return early when poll() is not None: an exited worker's grandchildren still run, and taskkill /T reaches them.
         _kill_process_tree_win32(proc)
         return
-    # The same early return skipped the process group on POSIX. The worker is
-    # a session leader (start_new_session, so pgid == pid). If it has already
+    # The worker is a session leader (start_new_session, so pgid == pid). If it has already
     # exited, poll() has reaped it and getpgid(pid) raises ProcessLookupError,
-    # but grandchildren can still be in that group. killpg(pid) reaches them.
-    # ProcessLookupError means the group is gone.
+    # but grandchildren can still be in that group; killpg(pid) reaches them.
+    # ProcessLookupError from killpg means the group is gone.
     pid = proc.pid
     # A MagicMock pid is truthy, and int(MagicMock()) is 1. os.getpgid()
     # accepts that, so getpgid(1) is process group 1. killpg(1) is
@@ -665,7 +664,7 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         # pgid != pid and pgid == getpgrp() checks do not cover that window.
         pgid = pid
         fallback = True
-    except (PermissionError, OSError):
+    except OSError:
         _kill_direct(proc)
         return
 
@@ -684,16 +683,9 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
             # recycled into a foreign group. Kill only proc.
             _kill_direct(proc)
         else:
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                _kill_direct(proc)
-            except (PermissionError, OSError):
-                # PermissionError [Errno 1] Operation not permitted in restricted
-                # container environments or when group ownership prevents killpg.
-                # Fall back to killing the direct child.
-                _kill_direct(proc)
-    except (ProcessLookupError, PermissionError, OSError):
+            os.killpg(pgid, signal.SIGKILL)
+    except OSError:
+        # PermissionError (restricted containers, foreign group ownership) or a group that is already gone: kill the direct child.
         _kill_direct(proc)
 
 
@@ -703,7 +695,7 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
     if not pid:
         try:
             proc.kill()
-        except (ProcessLookupError, PermissionError, OSError):
+        except OSError:
             pass
         return
     try:
@@ -718,7 +710,7 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
     except (OSError, subprocess.TimeoutExpired):
         try:
             proc.kill()
-        except (ProcessLookupError, PermissionError, OSError):
+        except OSError:
             pass
         return
     _kill_direct(proc)

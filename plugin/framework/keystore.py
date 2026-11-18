@@ -53,9 +53,13 @@ import secrets
 import sys
 import threading
 import time
-from typing import Any, Protocol, final
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Protocol, final
 
 from plugin.framework.errors import WriterAgentException
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 log = logging.getLogger(__name__)
 
@@ -243,7 +247,12 @@ class _LibSecret:
                 self._g_error_free(err_ptr)
             raise KeystoreError(msg)
 
-    def _make_attrs(self, name: str) -> tuple[ctypes.c_void_p, list[ctypes.c_char_p]]:
+    @contextmanager
+    def _attrs(self, name: str) -> Generator[ctypes.c_void_p]:
+        """Yield the ``service``/``username`` attribute table for *name*, then unref it.
+
+        The table stores raw pointers into *keepalive*, which this frame holds until the unref.
+        """
         table = self._g_hash_table_new(self._g_str_hash, self._g_str_equal)
         keepalive = [
             ctypes.c_char_p(b"service"),
@@ -253,12 +262,14 @@ class _LibSecret:
         ]
         self._g_hash_table_insert(table, ctypes.cast(keepalive[0], ctypes.c_void_p), ctypes.cast(keepalive[1], ctypes.c_void_p))
         self._g_hash_table_insert(table, ctypes.cast(keepalive[2], ctypes.c_void_p), ctypes.cast(keepalive[3], ctypes.c_void_p))
-        return table, keepalive
+        try:
+            yield table
+        finally:
+            self._g_hash_table_unref(table)
 
     def get(self, name: str) -> str | None:
-        table, keepalive = self._make_attrs(name)
         err = ctypes.POINTER(_GError)()
-        try:
+        with self._attrs(name) as table:
             ptr = self._lookupv_sync(ctypes.byref(self._schema), table, None, ctypes.byref(err))
             self._raise_gerror(err)
             if not ptr:
@@ -271,9 +282,6 @@ class _LibSecret:
                 raise KeystoreError(f"Invalid UTF-8 in secret {name!r}: {exc}") from exc
             finally:
                 self._secret_password_free(ptr)
-        finally:
-            self._g_hash_table_unref(table)
-            del keepalive
 
     def _item_exists(self, table: Any) -> bool:
         """True when a matching item exists, locked or not, without prompting."""
@@ -289,11 +297,10 @@ class _LibSecret:
         return True
 
     def set(self, name: str, value: str) -> None:
-        table, keepalive = self._make_attrs(name)
         err = ctypes.POINTER(_GError)()
         label_bytes = f"{SERVICE}: {name}".encode("utf-8")
         value_bytes = value.encode("utf-8")
-        try:
+        with self._attrs(name) as table:
             ok = self._storev_sync(
                 ctypes.byref(self._schema),
                 table,
@@ -306,19 +313,12 @@ class _LibSecret:
             self._raise_gerror(err)
             if not ok:
                 raise KeystoreError("secret_password_storev_sync returned FALSE")
-        finally:
-            self._g_hash_table_unref(table)
-            del keepalive
 
     def delete(self, name: str) -> None:
-        table, keepalive = self._make_attrs(name)
         err = ctypes.POINTER(_GError)()
-        try:
+        with self._attrs(name) as table:
             self._clearv_sync(ctypes.byref(self._schema), table, None, ctypes.byref(err))
             self._raise_gerror(err)
-        finally:
-            self._g_hash_table_unref(table)
-            del keepalive
 
 
 @final

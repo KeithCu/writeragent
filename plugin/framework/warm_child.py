@@ -28,6 +28,7 @@ from plugin.framework.ipc import (
     write_packed_frame_with_timeout,
 )
 from plugin.framework.process_global import process_global
+from plugin.framework import managed_subprocess
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
@@ -64,6 +65,12 @@ def fail_phase_message(phase: FailPhase, detail: str) -> str:
     if phase == "empty":
         return "No response returned from worker."
     raise AssertionError(f"unhandled FailPhase: {phase!r}")
+
+
+def _error_with_tail(code: str, msg: str, child: Child | None) -> dict[str, Any]:
+    """``error_dict`` with *child*'s stderr tail on its own line when there is one."""
+    tail = child.diagnostic_tail() if child is not None else ""
+    return error_dict(code, f"{msg}\n{tail}" if tail else msg)
 
 
 def spawn_budget(deadline: Deadline) -> float | None:
@@ -104,11 +111,11 @@ class Child:
         self._signaled = True
         self.managed.kill_tree()
         me = threading.get_ident()
-        owner = self._io_owner
-        if owner not in (None, me):
-            owner = self._io_owner
-            if owner not in (None, me):
-                return False
+        # One read after setting _signaled is safe: if another thread owns I/O now,
+        # its end_io clears _io_owner before checking _signaled and runs _finish(),
+        # which also re-checks _io_owner under _once.
+        if self._io_owner not in (None, me):
+            return False
         return self._finish()
 
     def diagnostic_tail(self) -> str:
@@ -390,14 +397,10 @@ class WarmChild:
         return child._io_owner
 
     def fail_lease(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
-        msg = fail_phase_message(phase, detail)
         child = self._child
         if child is not None:
             self.kill()
-            tail = child.diagnostic_tail()
-            if tail:
-                msg = f"{msg}\n{tail}"
-        return error_dict(code, msg)
+        return _error_with_tail(code, fail_phase_message(phase, detail), child)
 
     def abandon_for_quit(self) -> None:
         with self._lifecycle_lock:
@@ -636,51 +639,31 @@ class WarmChild:
                     return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was interrupted.")
                 if tag == "not_ready":
                     self.kill()
-                    status = extra
-                    tail = spawned.diagnostic_tail()
-                    msg = f"{self.spec.name} spawn handshake was not ready (status={status!r})"
-                    if tail:
-                        msg = f"{msg}\n{tail}"
-                    return error_dict("WORKER_SPAWN_FAILED", msg)
+                    return _error_with_tail(
+                        "WORKER_SPAWN_FAILED",
+                        f"{self.spec.name} spawn handshake was not ready (status={extra!r})",
+                        spawned,
+                    )
                 if tag == "timeout":
                     self.kill()
-                    tail = spawned.diagnostic_tail()
-                    msg = f"{self.spec.name} spawn handshake timed out"
-                    if tail:
-                        msg = f"{msg}\n{tail}"
-                    return error_dict("EXECUTION_TIMEOUT", msg)
+                    return _error_with_tail("EXECUTION_TIMEOUT", f"{self.spec.name} spawn handshake timed out", spawned)
                 self._generation += 1
                 self._last_active = time.monotonic()
             finally:
                 if spawned.end_io():
                     self._drop_child(spawned)
-        except OSError as exc:
-            if spawned is not None:
-                if spawned.end_io():
-                    self._drop_child(spawned)
-            if not published:
-                if spawned is not None:
-                    spawned.signal_from()
-                raise
-            self.kill()
-            tail = spawned.diagnostic_tail() if spawned is not None else ""
-            msg = f"Failed to spawn {self.spec.name}: {exc}"
-            if tail:
-                msg = f"{msg}\n{tail}"
-            return error_dict("WORKER_SPAWN_FAILED", msg)
         except Exception as exc:
             if spawned is not None:
                 if spawned.end_io():
                     self._drop_child(spawned)
-            if spawned is not None and not published:
-                spawned.signal_from()
-            elif published:
+                if not published:
+                    spawned.signal_from()
+            if published:
                 self.kill()
-            tail = spawned.diagnostic_tail() if spawned is not None else ""
-            msg = f"Failed to spawn {self.spec.name}: {exc}"
-            if tail:
-                msg = f"{msg}\n{tail}"
-            return error_dict("WORKER_SPAWN_FAILED", msg)
+            elif isinstance(exc, OSError):
+                # ChildSpec.log_start_failure=False callers (such as venv_worker's systemd-run retry) retry a missing interpreter on OSError.
+                raise
+            return _error_with_tail("WORKER_SPAWN_FAILED", f"Failed to spawn {self.spec.name}: {exc}", spawned)
         return None
 
 
@@ -719,8 +702,6 @@ class _SpawnRequest:
                 except Exception:
                     log.exception("Error abandoning managed subprocess on spawn timeout")
             self.done.set()
-
-    finish = finish_spawn
 
 
 class Supervisor:
@@ -864,17 +845,15 @@ class Supervisor:
                     warm.abandon_for_quit()
                 except Exception:
                     log.exception("Error abandoning warm child %s for quit", warm.spec.name)
-        from plugin.framework.managed_subprocess import shutdown_all as ms_shutdown_all
-
         # Always call managed_subprocess.shutdown_all so STT/ACP/CDP peers die even without WarmChild threads.
-        ms_shutdown_all()
+        managed_subprocess.shutdown_all()
 
 
 supervisor = process_global("warm_child_supervisor", Supervisor)
 
 
 def _default_supervisor() -> Supervisor:
-    """Module singleton; avoid ``process_global`` from ``WarmChild.__init__``."""
+    """The module ``supervisor``. ``WarmChild.__init__`` cannot name it: its ``supervisor`` parameter shadows it."""
     return supervisor
 
 

@@ -45,7 +45,7 @@ def test_run_async_worker_with_drain_next_tool_keeps_pumping():
     def on_done(item):
         seen.append(item[0] if isinstance(item, tuple) else item)
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(
             ctx,
             worker,
@@ -97,7 +97,7 @@ def test_run_async_worker_with_drain_none_apply_chunk():
         q.put((StreamQueueKind.CHUNK, "hello"))
         q.put((StreamQueueKind.STREAM_DONE, "ok"))
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(
             ctx,
             worker,
@@ -250,7 +250,7 @@ def test_worker_exception_on_error_true_still_applies_later_chunk():
         shared.put((StreamQueueKind.STREAM_DONE, None))
         return True
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(
             ctx,
             worker,
@@ -285,7 +285,7 @@ def test_closed_over_queue_error_skips_wrapper_stream_done():
         shared.put((StreamQueueKind.STREAM_DONE, "ok"))
         return True
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(
             ctx,
             worker,
@@ -324,7 +324,7 @@ def test_worker_error_put_then_raise_queues_single_error(caplog):
         return True
 
     with caplog.at_level(logging.ERROR, logger="plugin.framework.async_stream"):
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
             run_async_worker_with_drain(
                 ctx,
                 worker,
@@ -359,7 +359,7 @@ def test_non_tuple_terminal_skips_wrapper_stream_done():
         def worker(worker_q):
             worker_q.put(terminal)
 
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
             run_async_worker_with_drain(
                 ctx,
                 worker,
@@ -387,7 +387,7 @@ def test_run_async_worker_with_drain_toolkit_none_still_runs():
     def worker(q):
         q.put((StreamQueueKind.STREAM_DONE, {"ok": True}))
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=None):
         run_async_worker_with_drain(
             ctx,
             worker,
@@ -456,7 +456,7 @@ def test_on_done_body_type_error_mentioning_positional_argument_is_not_retried()
         calls.append(item)
         raise TypeError("helper() takes 1 positional argument but 2 were given")
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(ctx, worker, None, on_done, errors.append)
 
     assert len(calls) == 1
@@ -464,22 +464,16 @@ def test_on_done_body_type_error_mentioning_positional_argument_is_not_retried()
     assert errors
 
 
-def test_zero_arg_on_done_is_called_once():
-    from plugin.framework.async_stream import run_async_worker_with_drain
+def test_stream_completion_zero_arg_on_done_is_called_once():
+    from plugin.framework.async_stream import run_stream_completion_async
 
-    ctx = MagicMock()
-    toolkit = DummyToolkit()
+    client = MagicMock()
+    client.stream_completion.return_value = "stop"
     calls = []
     errors = []
 
-    def worker(worker_q):
-        worker_q.put((StreamQueueKind.STREAM_DONE, None))
-
-    def on_done():
-        calls.append("go")
-
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
-        run_async_worker_with_drain(ctx, worker, None, on_done, errors.append)
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=DummyToolkit()):
+        run_stream_completion_async(MagicMock(), client, "p", "s", 10, None, lambda: calls.append("go"), errors.append)
 
     assert calls == ["go"]
     assert errors == []
@@ -500,7 +494,7 @@ def test_on_done_internal_type_error_is_not_retried_as_zero_arg():
         if args:
             raise TypeError("'NoneType' object is not subscriptable")
 
-    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+    with patch("plugin.framework.async_stream.get_toolkit", return_value=toolkit):
         run_async_worker_with_drain(ctx, worker, None, on_done, lambda _e: None)
 
     assert len(calls) == 1
