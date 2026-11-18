@@ -825,16 +825,24 @@ def test_insert_structure_and_unmerge(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_delete_structure_on_prefixed_sheet(ctx, doc):
+def test_structure_on_named_sheet(ctx, doc):
     sheets = doc.getSheets()
     sheets.insertNewByName("Sheet2", sheets.getCount())
+    sheet1 = sheets.getByIndex(0)
+    sheet1.getCellByPosition(0, 0).setString("active")
     sheet2 = sheets.getByName("Sheet2")
     sheet2.getCellByPosition(0, 4).setString("row5")
     sheet2.getCellByPosition(0, 5).setString("row6")
-    res = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
+    res = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5, "sheet": "Sheet2"})
     assert res.get("status") == "ok", res
     assert res["sheet"] == "Sheet2"
     assert sheet2.getCellByPosition(0, 4).getString() == "row6"
+
+    res_ins = _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "columns", "start": "A", "sheet": "Sheet2"})
+    assert res_ins.get("status") == "ok", res_ins
+    assert res_ins["sheet"] == "Sheet2"
+    assert sheet2.getCellByPosition(1, 4).getString() == "row6"
+    assert sheet1.getCellByPosition(0, 0).getString() == "active"
 
 
 @native_test

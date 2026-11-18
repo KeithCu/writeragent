@@ -690,16 +690,17 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None) -> _Item:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None, sheet: str | None = None) -> _Item:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
             count (optional): Number to delete (default 1).
             confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm))
+        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm, sheet=sheet))
 
     def detect_errors(self, *, range_name: list[str] | None = None) -> _Item:
         """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
@@ -735,15 +736,16 @@ class _CalcProxy:
         """
         return _result(call_host_tool("insert_html", cell=cell, html=html))
 
-    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> _Item:
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None, sheet: str | None = None) -> _Item:
         """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
             count (optional): Number to insert (default 1).
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count))
+        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count, sheet=sheet))
 
     def list_functions(self, *, filter: str | None = None) -> _Item:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
