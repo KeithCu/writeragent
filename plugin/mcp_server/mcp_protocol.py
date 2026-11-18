@@ -44,7 +44,7 @@ from plugin.chatbot.agent_manual import (
     list_topic_entries,
     list_topics,
     normalize_topic,
-    writer_topic_list_text,
+    topic_list_text,
 )
 from plugin.framework.doc_type import uno_services_for_document
 from plugin.framework import uno_context
@@ -158,7 +158,7 @@ class _PreparedMcpCall:
 # constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
     " HOW TO USE THESE TOOLS: call manual_read(topic) for the manual — topics follow the open "
-    f"document's type (for Writer: {writer_topic_list_text(include_mcp=True)}); call manual_read() for the current list. "
+    f"document's type (for Writer: {topic_list_text('writer', include_mcp=True)}); call manual_read() for the current list. "
     "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
     "the user's to accept/reject, not yours."
 )

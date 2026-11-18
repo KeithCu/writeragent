@@ -209,25 +209,6 @@ def _topics_for(doc_type: str | None, *, include_mcp: bool = False) -> tuple[_To
     return tuple(t for t in topics if not t.mcp_only)
 
 
-def _topic_list_text(doc_type: str, *, include_mcp: bool = False) -> str:
-    return ", ".join(t.id for t in _topics_for(doc_type, include_mcp=include_mcp))
-
-
-def writer_topic_list_text(*, include_mcp: bool = False) -> str:
-    """Comma-separated list of canonical Writer topic ids in display order."""
-    return _topic_list_text("writer", include_mcp=include_mcp)
-
-
-def calc_topic_list_text() -> str:
-    """Comma-separated list of canonical Calc topic ids in display order."""
-    return _topic_list_text("calc")
-
-
-def draw_topic_list_text() -> str:
-    """Comma-separated list of canonical Draw/Impress topic ids in display order."""
-    return _topic_list_text("draw")
-
-
 def list_topic_entries(doc_type: str | None = "writer", *, include_mcp: bool = False) -> list[tuple[str, str]]:
     """Canonical topic ids and summaries in display order for a document type."""
     return [(t.id, t.summary) for t in _topics_for(doc_type, include_mcp=include_mcp)]
@@ -236,6 +217,11 @@ def list_topic_entries(doc_type: str | None = "writer", *, include_mcp: bool = F
 def list_topics(doc_type: str | None = "writer", *, include_mcp: bool = False) -> list[str]:
     """Canonical topic ids in display order for a document type."""
     return [topic_id for topic_id, _summary in list_topic_entries(doc_type, include_mcp=include_mcp)]
+
+
+def topic_list_text(doc_type: str | None, *, include_mcp: bool = False) -> str:
+    """Comma-separated canonical topic ids for *doc_type* in display order."""
+    return ", ".join(t.id for t in _topics_for(doc_type, include_mcp=include_mcp))
 
 
 def _resolve_topic(topic: str | None, doc_type: str | None = "writer", *, include_mcp: bool = False) -> _Topic | None:

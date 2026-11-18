@@ -12,6 +12,7 @@ Px ↔ 1/100 mm conversion rounds in both directions (`UNITS_PER_INCH` / `PX_PER
 
 from __future__ import annotations
 
+import copy
 from functools import cmp_to_key
 import logging
 import re
@@ -765,3 +766,17 @@ def graphic_from_object(obj: Any) -> Any | None:
         reraise_if_disposed(ex)
         log.debug("graphic_from_object missing Graphic: %s", ex)
     return None
+
+
+def without_sheet_index_off_calc(params: dict[str, Any], doc_type: str | None) -> dict[str, Any]:
+    """Return *params* without ``sheet_index`` when *doc_type* is known and not Calc.
+
+    sheet_index picks between same-named graphics on different Calc sheets
+    (get_graphic_object_by_name); Writer, Draw and Impress graphics have no sheet. None
+    (type not probed, e.g. MCP with no document) keeps the full schema. Never mutates *params*.
+    """
+    if doc_type in (None, "calc") or "sheet_index" not in params["properties"]:
+        return params
+    out = copy.deepcopy(params)
+    del out["properties"]["sheet_index"]
+    return out

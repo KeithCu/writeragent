@@ -18,7 +18,7 @@ from plugin.chatbot.agent_manual import (
     list_topics,
     manual_index,
     normalize_topic,
-    writer_topic_list_text,
+    topic_list_text,
 )
 from plugin.doc.document_research_tools import GetGuidance
 
@@ -172,7 +172,7 @@ def test_sidebar_hybrid_prompt_composition():
         assert template.count(piece) == 1
     for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):
         assert piece not in template          # on-demand, not ambient
-    assert writer_topic_list_text() in GetGuidance.description
+    assert topic_list_text("writer") in GetGuidance().get_description("writer")
     assert "concurrency" not in GetGuidance.description
     assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
@@ -333,5 +333,22 @@ def test_manual_topics_and_aliases_consistency():
                     )
                     if canon_id in mcp_only_ids:
                         assert normalize_topic(alias, app_name, include_mcp=False) is None
+
+
+def test_get_guidance_description_lists_only_the_document_types_topics():
+    tool = GetGuidance()
+    writer_desc = tool.get_description("writer")
+    assert topic_list_text("writer") in writer_desc
+    assert "formula-syntax" not in writer_desc
+
+    calc_desc = tool.get_description("calc")
+    assert topic_list_text("calc") in calc_desc
+    assert "editing-html" not in calc_desc
+
+    assert tool.get_description("impress") == tool.get_description("draw")
+
+    all_desc = tool.get_description(None)
+    for dt in ("writer", "calc", "draw"):
+        assert topic_list_text(dt) in all_desc
 
 

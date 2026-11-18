@@ -333,7 +333,6 @@ def test_draw_page_filter_disposal_propagates():
         {"page": True},
         {"image": True},
         {"selection": "maybe"},
-        {"image": "Logo", "sheet_index": "one"},
     ],
 )
 def test_wrong_argument_types_are_rejected_before_execute(args):
@@ -342,6 +341,42 @@ def test_wrong_argument_types_are_rejected_before_execute(args):
     prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "image_get", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
+
+
+def test_calc_sheet_index_wrong_type_rejected():
+    prep = prepare_tool_call(
+        GetImage(),
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"image": "Logo", "sheet_index": "one"},
+    )
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+
+
+def test_sheet_index_only_reaches_calc():
+    tool = GetImage()
+    writer_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="writer"),
+        "image_get",
+        {"image": "Logo", "sheet_index": 1},
+    )
+    assert writer_prep.error is None
+    assert writer_prep.ignored == ["sheet_index"]
+    assert writer_prep.kwargs == {"image": "Logo"}
+
+    calc_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"image": "Logo", "sheet_index": 1},
+    )
+    assert calc_prep.error is None
+    assert calc_prep.ignored == []
+    assert calc_prep.kwargs == {"image": "Logo", "sheet_index": 1}
+
+    assert "sheet_index" in (GetImage.parameters or {})["properties"]
 
 
 def test_whole_float_page_is_coerced_to_int_before_execute():

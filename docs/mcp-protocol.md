@@ -260,7 +260,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 `tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"` or `tier="specialized_control"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
 - Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
-- Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
+- Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type, and the tool description lists only the target document type's topics when known; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
 - A single gateway: **`delegate_to_subagent`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
 - MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
 
