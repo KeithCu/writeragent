@@ -147,10 +147,11 @@ def python_orchestrator_routing_line(*, delegate_tool: str = DELEGATE_SUBAGENT_T
 # the user's edit wording, or a delete-then-generate (observed: Nemotron Super paraphrased
 # an edit into generate-new).
 IMAGE_EDIT_TASK_RULE: str = (
-    "To edit, change, or restyle an existing or selected image, delegate domain=images and keep the user's "
-    "edit wording in task (for example 'make it look like a wizard') so the images sub-agent edits that "
-    "picture in place with those words; a generate-new paraphrase leads it to restyle with the wrong prompt "
-    "or to delete and insert a new picture."
+    "If the user wants to edit, change, or restyle an existing or selected image, delegate domain=images. "
+    "Put the user's own edit wording in task (for example 'make it look like a wizard'); the images "
+    "sub-agent then edits that picture in place. "
+    "Do not paraphrase it as a request for a new image: the sub-agent would restyle with the wrong prompt "
+    "or delete the picture and insert a new one."
 )
 IMAGE_EDIT_TOOL_RULE: str = (
     "To edit, change, or restyle the selected image, call image_generate with source_image='selection' and the "
@@ -397,8 +398,9 @@ Honor any stated or remembered preferences for color and formatting."""
 # Main sidebar chat only (Writer DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE). Sub-agents use
 # final_answer / reply_to_user / delegate task — not this block.
 SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Chat history is the sidebar only — not the document.
-MUST use apply_content for drafts, reports, and research output; sidebar gets at most a brief confirmation.
-Follow CHAT RESPONSE FORMAT for that short reply."""
+Answers to questions (about LibreOffice, this assistant, these instructions, or anything else) stay in the sidebar; only content meant for the document goes through apply_content.
+MUST use apply_content for drafts, reports, and research output; the sidebar then gets at most a brief confirmation.
+Follow CHAT RESPONSE FORMAT for sidebar replies."""
 
 # Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
 # to upload or paste). The web_research trigger is its catalog line; python/shapes routing and
@@ -435,17 +437,16 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
 - apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
-- In record and wait, NEVER accept or reject changes yourself (no tracking_manage accept/reject) — resolving redlines is the user's decision.
+- In record and wait, NEVER accept or reject changes yourself, including through the tracking sub-agent — resolving redlines is the user's decision.
 - get_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
 
 
-# apply_content rules; also the one home for quote/dash folding used by every Writer search-target tool.
-# Design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
+# apply_content rules its parameter schema cannot carry: quote/dash folding (the one home for every
+# Writer search-target tool) and reach. Position, anchor, and regex details live on apply_content's
+# parameters. Design notes: docs/chat/sidebar-implementation.md § Chat prompt constants, docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- target='search': old_content is a substring and may span paragraphs (newlines). regex=true uses ICU syntax (LibreOffice's engine), not Python re: named groups are (?<name>...).
+- target='search' edits a match of old_content or a start_anchor…end_anchor range; position, anchors, and regex are described on apply_content's parameters.
   Literal search text (here and on other editing tools) matches quotes and dashes as typed first, then any straight/curly quote or dash variant (never for a needle of punctuation alone); matched_case_sensitive and matched_folded in the result name the pass that matched.
-  position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
-- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
@@ -767,25 +768,22 @@ def tts_short_answers_prompt_suffix() -> str:
     return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION
 
 
-_PROFILE_DATA_OPEN = "<<<profile>>>"
-_PROFILE_DATA_CLOSE = "<<<</profile>>>"
+def fenced_data_block(heading: str, body: str, *, tag: str) -> str:
+    """Wrap injected text in <<<tag>>> … <<<</tag>>> so the model reads it as data, not tool instructions.
 
-
-def _profile_data_block(heading: str, body: str) -> str:
-    """Wrap profile text so the model does not treat it as tool instructions.
-
-    A fence marker inside USER.md or additional instructions would end the
-    data block early, and ``memory_upsert`` can persist that string. A space
-    after ``<<<`` stops ``<<<</profile>>>`` (four left brackets) matching the wrapper.
+    USER.md, additional instructions and SKILL.md are user-editable, and memory_upsert can store any
+    string, so a marker inside the body would end the block early. A space after ``<<<`` keeps an
+    embedded opener or closer (the closer has four left brackets) from matching the wrapper.
     """
-    safe = body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
-    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
+    open_tag, close_tag = f"<<<{tag}>>>", f"<<<</{tag}>>>"
+    safe = body.replace(close_tag, f"<<< </{tag}>>>").replace(open_tag, f"<<< {tag}>>>")
+    return f"\n\n{heading}\n{open_tag}\n{safe}\n{close_tag}\n"
 
 
 def _finish_chat_system_prompt(base: str, additional_instructions: str) -> str:
     text = str(additional_instructions or "").strip()
     if text:
-        base += _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
+        base += fenced_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text, tag="profile")
     return base + tts_short_answers_prompt_suffix()
 
 
