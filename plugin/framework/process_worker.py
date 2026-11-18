@@ -305,8 +305,9 @@ class BaseProcessWorker:
         A child handed to the module reaper is not current, so this is False
         and the slot can be spawned again.
         """
-        # kill() sets self.child to None under _lifecycle_lock while execute's select loop calls this.
-        # Read self.child once: a second read can see None and raise AttributeError.
+        # kill() sets self.child to None under _lifecycle_lock while execute's select
+        # loop calls this. Read self.child once: a second read can see None and
+        # raise AttributeError, which the write handler reports as REQUEST_NOT_SERIALIZABLE.
         child = self.child
         if child is None:
             return False

@@ -111,6 +111,9 @@ class Child:
         self._signaled = True
         self.managed.kill_tree()
         me = threading.get_ident()
+        # One read after setting _signaled is safe: if another thread owns I/O now,
+        # its end_io clears _io_owner before checking _signaled and runs _finish(),
+        # which also re-checks _io_owner under _once.
         if self._io_owner not in (None, me):
             return False
         return self._finish()
@@ -658,7 +661,7 @@ class WarmChild:
             if published:
                 self.kill()
             elif isinstance(exc, OSError):
-                # ChildSpec.log_start_failure=False callers retry a missing interpreter on OSError.
+                # ChildSpec.log_start_failure=False callers (such as venv_worker's systemd-run retry) retry a missing interpreter on OSError.
                 raise
             return _error_with_tail("WORKER_SPAWN_FAILED", f"Failed to spawn {self.spec.name}: {exc}", spawned)
         return None

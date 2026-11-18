@@ -232,7 +232,7 @@ def test_idle_stop_closes_open_thinking():
     assert " /thinking\n" in joined
 
 
-def test_async_worker_flushes_queue_with_raw_and_flush():
+def test_async_worker_flushes_batching_stream_queue():
     """A BatchingStreamQueue is flushed before the terminal item.
 
     With a 30 s interval text reaches the raw queue only through flush, so a

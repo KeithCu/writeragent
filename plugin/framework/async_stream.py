@@ -1182,10 +1182,12 @@ def run_async_worker_with_drain(
 
     toolkit = get_toolkit(ctx)
 
-    # Refuse any existing drain owner before spawning, including "stream".
-    # run_stream_drain_loop would nest under a same-name owner and raise for a
-    # different one, leaving the worker writing to a queue nobody reads.
-    # Callers that must overlap two documents call run_stream_drain_loop directly.
+    # Refuse any existing drain owner before spawning, including "stream":
+    # Extend, image, web, and agent tasks must not start a second consumer over
+    # a live chat stream. run_stream_drain_loop would nest under a same-name
+    # owner and raise for a different one, leaving the worker writing to a
+    # queue nobody reads. Callers that must overlap two documents call
+    # run_stream_drain_loop directly.
     existing_owner = get_drain_owner()
     if existing_owner is not None:
         nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
