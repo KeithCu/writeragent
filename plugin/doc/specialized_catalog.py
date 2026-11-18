@@ -41,6 +41,8 @@ _SHAPES_HINT = (
     'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert.'
 )
 
+_INDEXES_HINT = "For a read-only table-of-contents request, report each entry's text and level (links only when asked)."
+
 _LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
         None: _FOOTNOTES_DIRECT_HINT,
@@ -55,6 +57,7 @@ _LOOP_HINTS: dict[str, dict[str | None, str]] = {
         None: _CHARTS_NEUTRAL_HINT,
     },
     "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), _SHAPES_HINT),
+    "indexes": dict.fromkeys((None, "Writer"), _INDEXES_HINT),
 }
 
 
@@ -66,7 +69,7 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
     Footnotes is one sentence for every app. Shapes is the coordinate-unit sentence for
-    every app. Unknown domain or label -> "".
+    every app. Indexes carries the TOC read-only reporting rule. Unknown domain or label -> "".
     """
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 

@@ -52,9 +52,6 @@ If the user provides a personal writing sample or style preference, match that r
 # generic style list; the heading decides where it applies (document prose, not chat replies).
 HUMANIZER_PROMPT_HEADING = (
     "[HUMANIZER GUIDANCE — the user turned this on for prose you write or rewrite in the document (body, cell, slide, or shape text), not for chat replies. "
-    "Keep the document's existing voice and formality: first person, opinions, tangents, and casual "
-    "phrasing belong in chat replies only, even where the guidance below suggests them, unless the "
-    "document already writes that way or the user asks. "
     "Minimal corrections (\"fix this\": spelling and grammar in the current sentence) are exempt.]"
 )
 

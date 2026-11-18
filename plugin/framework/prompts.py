@@ -111,12 +111,13 @@ def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, crea
     return out
 
 
-# Canonical wording for tools that return a para_index / paragraph_index to the model. Those indexes
-# are internal addressing only; the user never sees them and they shift as the document changes, so
-# the model must refer to a place by quoting its text, not by number. Append to such tool
-# descriptions so the rule is stated uniformly wherever an index is exposed (#1).
+# The one statement that tool indexes are internal. It sits in TOOL_USAGE_PATTERNS, which is the
+# sidebar's ambient prompt and the MCP "editing" manual topic; tool descriptions that return
+# para_index or paragraph_index do not repeat it.
 PARAGRAPH_INDEX_DIRECTIVE = (
-    "para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. \"the sentence starting 'The Amazon…'\")."
+    "para_index, paragraph_index, and other tool indexes are internal and shift as the document changes; "
+    "never cite them to the user. To point at a place, quote the first few words of its text "
+    "(for a search match, also its location)."
 )
 
 
@@ -392,15 +393,18 @@ Answer every question in the sidebar — about LibreOffice, this assistant, or r
 Follow CHAT RESPONSE FORMAT for sidebar replies."""
 
 # Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
-# to upload or paste). The web_research trigger is its catalog line; python/shapes routing and
-# the research `task` hint are in DelegateToSpecializedWriter.description.
+# to upload or paste) plus the web/general-knowledge boundary vs. document_research. Python/shapes
+# routing and the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
+For public facts or general knowledge, answer yourself or {DELEGATE_SUBAGENT_TOOL}(domain="web_research") when current sources matter; document_research searches only the user's own files."""
 
 
-TRANSLATION_RULES = """TRANSLATION: Translate text yourself — never decline or claim you lack a translation tool.
-Call get_content(scope=full|selection), translate the text yourself (there is no translate tool), then call apply_content(target='full_document'|'selection', content=translated) once."""
+TRANSLATION_RULES = """TRANSLATION: Translate text yourself — there is no translate tool; never decline or claim you lack one.
+- When the user only wants to know what the text says, answer in the sidebar.
+- Write into the document only when asked: to replace the original, read it with get_content(scope=full|selection) and call apply_content(target='full_document'|'selection') once; to put the translation below the original, insert it after that text (target='end', or target='search' with position='after').
+- For a long document, translate section by section with target='search' and start_anchor/end_anchor instead of one full_document call, and keep image wrappers (<div|span ... id="Name">) exactly as get_content returned them."""
 
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
@@ -412,15 +416,17 @@ CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields
 # Tool-usage workflow patterns (no repeat of apply_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
 # Shared piece: sidebar system prompt + MCP manual (agent_manual topic "editing").
 # Confirm-from-fields is CONFIRM_EDITS_FROM_STRUCTURED_FIELDS (appended last for recency).
-TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
+TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - Earlier document text may be a partial/truncated snapshot — call get_content before a targeted edit that needs the exact current text.
 - Successful apply_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
   Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
-- Review/feedback/suggestions: comment_add on specific passages (positive and negative).
-- If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error."""
+- Comments: comment_add adds new comments and replies; delegate domain='comments' to list, edit, resolve, or delete them.
+- When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered in the sidebar.
+- If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error.
+- {PARAGRAPH_INDEX_DIRECTIVE}"""
 
 
 WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
@@ -439,23 +445,21 @@ APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
-SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
+SUB_AGENT_HTML_CONTENT_RULES = f"""- `content`: prefer a JSON array with one HTML fragment per heading or paragraph; one string is also accepted and is read the same way (the array is joined with newlines).
 {HTML_FRAGMENT_RULES}
 - Math (CRITICAL): Formulas and non-trivial equations go in LaTeX — \\(...\\) inline, \\[\u2026\\] for centered display — never as plain text, escaped HTML, or images.
-  Cutoff: arithmetic on plain numbers in prose (3 × 4 = 12) stays text; anything with variables, fractions, roots, sums, integrals, or matrices is LaTeX.
+  Cutoff: arithmetic on plain numbers in prose (3 × 4 = 12) stays text; anything with variables (x², E = mc²), fractions, roots, sums, integrals, or matrices is LaTeX.
   Simple superscripts and subscripts (H<sub>2</sub>O, 10<sup>th</sup>) use <sup>/<sub>.
-- Named styles: get_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
-  Copy tokens exactly. Prefer named styles; unknown token → Standard.
-  inline style="" is a character override on top of the named style.
+- Headings: use plain <h1>–<h6> (they become Heading 1–6). For other named paragraph styles, get_content marks each block `data-lo-style` = style name with spaces removed (`Text body`→`Textbody`).
+  Copy tokens exactly; unknown token → Standard. Prefer a named style over inline style=""; inline style="" is a character override on top of the named style.
   A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present).
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm"`) reports what a paragraph has set directly — how you tell a hand-formatted block quote from body text.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
+- Good styles (target='full_document'): ["<h2>Section title</h2>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
 - Good field: ["<p>Page <span title=\\"page-number\\"/></p>"]
-- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 """
 
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"{APPLY_DOCUMENT_TARGET_RULES}\n{SUB_AGENT_HTML_CONTENT_RULES}"
@@ -471,8 +475,7 @@ HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 
 WRITER_SEARCH_RULES = """SEARCH:
 - search finds text ANYWHERE — body paragraphs and headings, table cells, text boxes/frames, floating drawing shapes, page headers/footers, and comments.
-- Each match reports WHERE it lives (e.g. "body", "table 'X' cell B2", "text box 'Y'", "shape 'Z'", "header (page style 'Standard')", "comment by 'A'") plus the surrounding text. return_offsets=true is character ranges for a literal body-text match only — not regex, and not tables, shapes, or comments.
-- When pointing the user to a match, quote the first words of its text and its location — never an internal paragraph index."""
+- Each match reports WHERE it lives (e.g. "body", "table 'X' cell B2", "text box 'Y'", "shape 'Z'", "header (page style 'Standard')", "comment by 'A'") plus the surrounding text. return_offsets=true is character ranges for a literal body-text match only — not regex, and not tables, shapes, or comments."""
 
 WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill — don't dump):
 - get_tree(strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids (session-only; not written to disk).

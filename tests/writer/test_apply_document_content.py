@@ -1798,5 +1798,18 @@ def test_edit_selection_passes_pinned_range_to_html_import():
     assert mock_attach.call_args[0][1] is pinned_anchor
 
 
+def test_one_string_and_list_content_reach_import_the_same() -> None:
+    from plugin.writer.apply_document_content import EditParams
+
+    tool = ApplyDocumentContent()
+    list_params = tool._parse_edit_params(MagicMock(), {"content": ["<h1>A</h1>", "<p>B</p>"], "target": "end"})
+    str_params = tool._parse_edit_params(MagicMock(), {"content": "<h1>A</h1>\n<p>B</p>", "target": "end"})
+
+    assert isinstance(list_params, EditParams)
+    assert isinstance(str_params, EditParams)
+    assert list_params == str_params
+    assert str_params.content == "<h1>A</h1>\n<p>B</p>"
+
+
 
 

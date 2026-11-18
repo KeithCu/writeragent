@@ -42,7 +42,7 @@ File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, the
 
 Design notes for prompt authors live in this section so the source file stays scannable.
 
-`SUB_AGENT_HTML_CONTENT_RULES` EXAMPLES must be strict JSON arrays (enforced by test), and quote/dash folding, the `matched_*` result fields, and reach are stated once in `APPLY_DOCUMENT_TARGET_RULES` while `case_sensitive` parameters carry only `LADDER_CASE_SENSITIVE_DESCRIPTION` and position, anchor, and regex details live only on `apply_content`'s parameters. `USER.md` and additional instructions sit in `<<<profile>>>` fences and humanizer guidance sits in `<<<humanizer>>>`, both built by `prompts.fenced_data_block`; the memory heading states that the injected block is the only way to read saved memory, and the humanizer scope rules live in `HUMANIZER_PROMPT_HEADING` while the built-in guidance lives in `HUMANIZER_GUIDANCE`.
+`SUB_AGENT_HTML_CONTENT_RULES` EXAMPLES must be strict JSON arrays (enforced by test), and quote/dash folding, the `matched_*` result fields, and reach are stated once in `APPLY_DOCUMENT_TARGET_RULES` while `case_sensitive` parameters carry only `LADDER_CASE_SENSITIVE_DESCRIPTION` and position, anchor, and regex details live only on `apply_content`'s parameters. `PARAGRAPH_INDEX_DIRECTIVE` is stated once inside `TOOL_USAGE_PATTERNS` (enforced by test) and not on tool descriptions. `comment_add` is core while the `comments` sub-agent lists, edits, resolves, and deletes comments; the `indexes` TOC read-only reporting rule lives in `_LOOP_HINTS["indexes"]`. `USER.md` and additional instructions sit in `<<<profile>>>` fences and humanizer guidance sits in `<<<humanizer>>>`, both built by `prompts.fenced_data_block`; the memory heading states that the injected block is the only way to read saved memory, and the humanizer scope rules live in `HUMANIZER_PROMPT_HEADING` while the built-in guidance lives in `HUMANIZER_GUIDANCE`.
 
 For `apply_content`, search edits in-use header/footer text; body insert targets do not. Page-structure tools are not named here because the main agent cannot call `page_*` tools; turning a region on, or editing a style that is not in use, goes through the `page` delegation catalog line.
 
@@ -52,9 +52,9 @@ For `apply_content`, search edits in-use header/footer text; body insert targets
 
 #### Why a JSON array (not one HTML blob)?
 
-- OpenAI tool schema declares `content` as type `array` ([`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py)). Each element is one heading/paragraph fragment; `execute()` joins with `\n` before Writer HTML import.
+- The OpenAI tool schema declares `content` as `["array", "string"]` ([`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py)). The prompt prefers a JSON array with one HTML fragment per heading or paragraph; a single string is also accepted and is read the same way (`_parse_edit_params` joins a list with `\n` before Writer HTML import).
 - Long answers: block-sized strings are easier for models to emit than one giant tool argument, and JSON parsers handle quotes per element instead of one nested escape soup.
-- Whether array still wins vs a single string is unsettled; `execute()` already accepts a list or a string that parses as JSON array.
+- The prompt has no "Bad" single-string example because a string holding multiple HTML elements is valid and equivalent to the `\n`-joined array.
 
 #### Two escaping layers (models often mix these up)
 
@@ -70,7 +70,7 @@ For `apply_content`, search edits in-use header/footer text; body insert targets
 
 #### Removing the array wrapper?
 
-Possible but non-trivial: tool JSON schema, eval harness, and years of prompt habit. Could widen schema to `string | array` later if single-string documents prove more reliable. Until then: array for documents, single string for sidebar — keep examples separate.
+The schema already accepts `["array", "string"]`. Array examples remain the default for documents (while sidebar replies use a single HTML string) so existing evals and prompt habits stay consistent.
 
 #### Anchor-based range replacement (`start_anchor` / `end_anchor`)
 

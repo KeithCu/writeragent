@@ -1576,12 +1576,10 @@ class SearchInDocument(ToolBase):
         "AND comments (annotations) are all covered. Each match reports WHERE it was found (location, "
         "e.g. \"body\", \"table 'Table1' cell B2\", \"text box 'Frame1'\", \"shape 'Shape 1'\", "
         "\"header (page style 'Standard')\", \"comment by 'Ana'\") plus the surrounding paragraph (or "
-        "shape/comment text) for context. When pointing the user to a match, quote the first few words "
-        "of its text and its location rather than any internal index. "
+        "shape/comment text) for context. "
         "With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax "
         "(validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and "
-        "comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. "
-        "A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit."
+        "comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

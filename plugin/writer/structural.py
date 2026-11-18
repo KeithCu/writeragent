@@ -30,7 +30,6 @@ from plugin.doc.text_helpers import (
 )
 from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
-from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
 
@@ -86,7 +85,7 @@ class GetPageObjects(ToolBase):
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
         "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is "
-        "the object top's offset from the text baseline (negative = above). " + PARAGRAPH_INDEX_DIRECTIVE
+        "the object top's offset from the text baseline (negative = above)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

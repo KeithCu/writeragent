@@ -106,9 +106,7 @@ class GetDocumentContent(ToolBase):
         "end as plain-text offsets in the document_length space). max_chars counts returned HTML and "
         "is approximate. The result may carry warning, truncated, hint, tracked_changes, "
         "tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected "
-        "returns empty content plus a warning. "
-        "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "
-        "and apply_content of that markup recreates live Ruby portions."
+        "returns empty content plus a warning."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
