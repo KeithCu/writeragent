@@ -77,7 +77,7 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, below it in the sheet."
+        "Runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, below it in the sheet. Use this call for OCR."
     )
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
 

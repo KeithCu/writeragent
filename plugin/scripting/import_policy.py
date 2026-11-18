@@ -47,7 +47,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     auto_imports_blurb = (
         f"Pre-imported (no import line needed; importing them again is harmless): {alias_list}. "
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
-        "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
+        "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for plots."
     )
 
     parts = [PYTHON_VENV_SANDBOX_CONTEXT_PREFIX, auto_imports_blurb]

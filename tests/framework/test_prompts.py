@@ -1,6 +1,7 @@
 import gc
 import json
 import logging
+import re
 import weakref
 from unittest.mock import MagicMock, patch
 
@@ -607,3 +608,52 @@ def test_task_rules_reach_main_chat_once(kind: str) -> None:
 
     combined = prompt + json.dumps(schemas, ensure_ascii=False)
     assert combined.count(IMAGE_EDIT_TASK_RULE) == 1
+
+
+def test_calc_prompt_names_only_core_tools_the_calc_chat_has() -> None:
+    """Calc prompt must not name core tools absent from bound schemas (e.g. image_get on text-only models or Writer tools)."""
+    from plugin.app import get_tools
+    from plugin.chatbot import skills
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+
+    calc_doc = _doc_stub_for_services(CALC_DOCUMENT_SERVICE)
+    registry = get_tools()
+    with (
+        patch("plugin.framework.config.get_config", side_effect=lambda key: key == "chatbot.humanizer_enabled"),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+        patch("plugin.chatbot.skills.SkillStore.get_humanizer_guidance", return_value=skills.HUMANIZER_GUIDANCE),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+    ):
+        prompt = get_chat_system_prompt_for_document(calc_doc, ctx=MagicMock())
+        bound = {s["function"]["name"] for s in registry.get_schemas("openai", doc=calc_doc)}
+
+    named = {
+        n
+        for n in registry.tool_names
+        if (t := registry.get(n)) is not None and t.tier == "core" and re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", prompt)
+    } - set(DelegateToSubagent().domains_for_services({CALC_DOCUMENT_SERVICE}))
+    assert named <= bound
+
+
+def test_calc_ocr_routing_has_one_home() -> None:
+    """Calc OCR routing appears once across the prompt and schemas (the vision catalog line)."""
+    from plugin.app import get_tools
+    from plugin.calc.base import ToolCalcVisionBase
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+
+    calc_doc = _doc_stub_for_services(CALC_DOCUMENT_SERVICE)
+    line = ToolCalcVisionBase.specialized_domain_description
+    assert line is not None
+    with (
+        patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(calc_doc, ctx=MagicMock())
+        schemas = get_tools().get_schemas("openai", doc=calc_doc)
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.count(line) == 1
+    assert "OCR" not in combined.replace(line, "")

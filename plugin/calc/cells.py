@@ -636,7 +636,7 @@ class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
     name: str | None = "set_style"
-    description: str = "Applies style and formatting to the specified cell(s) or range(s)."
+    description: str = "Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

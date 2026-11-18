@@ -299,14 +299,6 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
     assert gateway.requires_document_lock({"domain": "vision"}) is True
 
 
-@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
-    from plugin.vision.vision_availability import get_vision_core_directive
-
-    text = get_vision_core_directive(calc_doc, MagicMock())
-    assert 'delegate_to_subagent(domain="vision"' in text
-
-
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, tool_ctx):

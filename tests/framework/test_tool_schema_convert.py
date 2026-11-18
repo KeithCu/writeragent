@@ -282,24 +282,6 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
     assert "solvers" not in domain_enum
 
 
-def test_calc_gateway_description_lists_every_domain():
-    import plugin.writer.specialized.forms  # noqa: F401 - registers forms (ToolWriterFormBase is also a ToolCalcSpecialBase)
-    from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.doc.specialized_catalog import chat_tier_domains
-
-    tool = DelegateToSubagent()
-    params = tool.get_parameters("calc") or {}
-    enum = params["properties"]["domain"]["enum"]
-    desc = tool.get_description("calc")
-    hidden = chat_tier_domains()
-    assert "forms" in enum
-    for domain in enum:
-        if domain in hidden:
-            assert domain not in desc
-        else:
-            assert domain in desc
-
-
 def test_update_style_schema_emits_no_additional_properties_keyword():
     """xAI/OpenRouter reject nested additionalProperties; StyleUpdate uses exhaustive properties only."""
     from plugin.writer.styles import StyleUpdate

@@ -100,28 +100,20 @@ def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any 
 
 
 def get_vision_core_directive(model: Any, ctx: Any) -> str:
-    """OCR delegation hint for Calc and Draw when the local vision stack is configured.
+    """OCR delegation hint for Draw/Impress when the local vision stack is configured.
 
-    Writer carries this routing in its vision catalog line (ToolWriterVisionBase), which
-    the domain list shows only when vision is available.
+    Writer and Calc carry OCR routing in their vision catalog line (ToolWriterVisionBase,
+    ToolCalcVisionBase), which the domain list shows only when vision is available.
     """
     if ctx is None:
         return ""
     from plugin.framework import doc_type as _doc_type
 
-    if not vision_venv_configured(ctx):
-        return ""
-    if _doc_type.is_draw(model):
-        return (
-            'When the user wants OCR or content from an embedded image, '
-            f'call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
-            "That runs OCR on the currently selected image and returns the recognized text "
-            "(the slide stays unchanged). You must use this call to perform OCR."
-        )
-    if not _doc_type.is_calc(model):
+    if not _doc_type.is_draw(model) or not vision_venv_configured(ctx):
         return ""
     return (
-        f'When the user wants OCR or content from an embedded image, call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
-        "That runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, "
-        "below the image. You must use this call to perform OCR."
+        'When the user wants OCR or content from an embedded image, '
+        f'call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
+        "That runs OCR on the currently selected image and returns the recognized text "
+        "(the slide stays unchanged). You must use this call to perform OCR."
     )
