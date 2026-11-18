@@ -63,7 +63,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `shape_get_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | `com.sun.star.text.TextDocument`, `com.sun.star.sheet.SpreadsheetDocument`, `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
-| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | same four document services |
+| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index; bold/italic, h_align/v_align, wrap_text, corner_radius. `line` may have a zero width or height | same four document services |
 | `shape_fill_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
 | `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index, dotted path, or **Name** | same four document services |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | same four document services |

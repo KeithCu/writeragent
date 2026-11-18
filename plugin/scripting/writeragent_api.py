@@ -2375,7 +2375,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
@@ -2396,9 +2396,15 @@ class _ShapeProxy:
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
+            bold (optional): Bold text (false removes bold).
+            italic (optional): Italic text (false removes italic).
+            h_align (optional): Horizontal text alignment inside the shape. One of: left, center, right, justify.
+            v_align (optional): Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center. One of: top, center, bottom.
+            wrap_text (optional): Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label.
+            corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
             rotation_angle (optional): Rotation angle in degrees.
         """
-        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, text_color=text_color, font_size=font_size, font_name=font_name, rotation_angle=rotation_angle))
+        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
 
 shape = _ShapeProxy()
 

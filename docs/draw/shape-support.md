@@ -60,6 +60,16 @@ The tool's JSON schema summarizes CustomShape types **by category** (with a few 
 
 New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, `shape_group`, `table_insert` (Draw/Impress), and `math_insert` always carry a page-unique `Name` (`Shape<n>` when omitted on Draw, Impress, and Calc; Writer's `SwXDrawPage::add` already assigns one) and return it as `name`. Explicit duplicate `name` values on create or index-addressed rename are rejected (`INVALID_PARAM`). When `shape_upsert` (edit by `name`), `shape_delete`, `shape_connect`, `shape_group`, `shape_align`, or `shape_distribute` gets a Name that is not on the page or sheet, the error carries `details.available` (up to 40 shape Names on that page, group children included), `hint`, and `similar`.
 
+### Text styling and box options
+
+`shape_upsert` exposes six optional text and box parameters:
+
+- `bold` / `italic`: forwarded to `apply_character_properties` (`CharWeight` 150.0 / 100.0 and `CharPosture` `FontSlant.ITALIC` / `NONE`).
+- `h_align` (`left`, `center`, `right`, `justify`): sets `TextHorizontalAdjust=BLOCK` and then `ParaAdjust` via `para_adjust_to_uno`. Setting `BLOCK` is required so the text area spans the shape width and `ParaAdjust` aligns against the shape edges; `RectangleShape` and `EllipseShape` default to `TextHorizontalAdjust=CENTER`, which centres the text block at its own width and ignores left/right `ParaAdjust`.
+- `v_align` (`top`, `center`, `bottom`): sets `TextVerticalAdjust` (`TOP`, `CENTER`, `BOTTOM`). Custom shapes and `TextShape` default to top-left (`TextHorizontalAdjust=BLOCK`, `TextVerticalAdjust=TOP`), whereas `RectangleShape` and `EllipseShape` default to centred (`CENTER`/`CENTER`).
+- `wrap_text`: sets `TextWordWrap`. Custom shapes wrap by default in Draw and Impress (`sd/source/core/drawdoc4.cxx:270`) but not in Writer and Calc; `TextShape` always wraps; `RectangleShape` and `EllipseShape` never wrap at a fixed `font_size` (they only wrap under the default `TextFitToSize=AUTOFIT`).
+- `corner_radius`: sets `CornerRadius` in `1/100 mm`. Only `RectangleShape` (plus text, circle, connector, and caption maps) supports `CornerRadius`; on a `CustomShape` (such as `round-rectangle`) it fails and is reported as a `corner_radius` warning.
+
 ## Grouping
 
 `shape_group` (`GroupShapes` in `plugin/draw/shapes.py`, also the Writer and Calc subclasses) passes a temporary `com.sun.star.drawing.ShapeCollection` to `XDrawPage.group`. That service is the global implementation `com.sun.star.drawing.SvxShapeCollection`. Create it with the component-context service manager (`createInstanceWithContext`). Document `createInstance` does not provide it: Writer and Draw raise `ServiceNotRegisteredException`, and Calc returns None.
