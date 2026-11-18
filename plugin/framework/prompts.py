@@ -506,9 +506,9 @@ WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_
 # the safety-critical review-modes piece (a model must know it may not resolve its own
 # tracked changes BEFORE it acts — weaker models never ask first); the reference pieces
 # (search, navigation, images) are pulled on demand through the manual_read tool, so every
-# turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
-# this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
-# topic anyway it just reads an inert rule.
+# turn stays lean. The concurrency topic is MCP-only (_Topic.mcp_only in agent_manual.py), so
+# the sidebar neither sees it in this ambient prompt nor can pull it — the sidebar runs
+# in-process and has no HTTP 429 or document_url targeting.
 #
 # Apply-HTML and confirm-from-fields sit last on purpose (recency): last tokens in the
 # ambient prompt are what the model attends to. Same lesson as attaching

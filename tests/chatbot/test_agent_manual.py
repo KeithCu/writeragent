@@ -46,8 +46,9 @@ class FakeCtx:
 
 def test_list_topic_entries_matches_list_topics():
     for doc_type in ("writer", "calc", "draw", None):
-        ids_from_entries = [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
-        assert ids_from_entries == list_topics(doc_type)
+        for include_mcp in (False, True):
+            ids_from_entries = [topic_id for topic_id, _summary in list_topic_entries(doc_type, include_mcp=include_mcp)]
+            assert ids_from_entries == list_topics(doc_type, include_mcp=include_mcp)
 
 
 def test_topics_and_sections_align():
@@ -62,9 +63,10 @@ def test_normalize_aliases():
     assert normalize_topic("tracked-changes") == "review-modes"
     assert normalize_topic("Tracked_Changes") == "review-modes"
     assert normalize_topic("crop") == "images"
-    assert normalize_topic("429") == "concurrency"
-    assert normalize_topic("multi-document") == "concurrency"
-    assert normalize_topic("document_url") == "concurrency"
+    assert normalize_topic("429") is None
+    assert normalize_topic("429", include_mcp=True) == "concurrency"
+    assert normalize_topic("multi-document", include_mcp=True) == "concurrency"
+    assert normalize_topic("document_url", include_mcp=True) == "concurrency"
     assert normalize_topic("editing") == "editing"
     assert normalize_topic("nonsense") is None
     assert normalize_topic("") is None
@@ -88,7 +90,8 @@ def test_calc_topics_use_calc_manual_not_writer():
     from plugin.framework import prompts as c
 
     topics = list_topics("calc")
-    assert topics == ["workflow", "formula-syntax", "directives", "concurrency"]
+    assert topics == ["workflow", "formula-syntax", "directives"]
+    assert list_topics("calc", include_mcp=True) == ["workflow", "formula-syntax", "directives", "concurrency"]
     assert "review-modes" not in topics and "navigation" not in topics and "editing-html" not in topics
     for topic in topics:
         assert get_section(topic, "calc")
@@ -116,7 +119,9 @@ def test_draw_manual_topics_and_impress_fold():
 def test_no_document_serves_neutral_generic_index():
     assert list_topics(None) == list_topics("generic")
     idx = manual_index(None)
-    assert "editing" in idx and "concurrency" in idx
+    assert "editing" in idx and "concurrency" not in idx
+    mcp_idx = manual_index(None, include_mcp=True)
+    assert "editing" in mcp_idx and "concurrency" in mcp_idx
 
 
 # ---- single source: the prompt pieces feed BOTH channels ---------------------
@@ -168,6 +173,7 @@ def test_sidebar_hybrid_prompt_composition():
     for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):
         assert piece not in template          # on-demand, not ambient
     assert writer_topic_list_text() in GetGuidance.description
+    assert "concurrency" not in GetGuidance.description
     assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
 
@@ -175,9 +181,13 @@ def test_sidebar_hybrid_prompt_composition():
 def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
     """The MCP concurrency contract is served to MCP / agent-backend channels, not the sidebar."""
     from plugin.framework import prompts as c
+    from plugin.mcp_server.mcp_protocol import _MCP_GUIDANCE_POINTER
 
-    concurrency_section = get_section("concurrency", "writer")
+    concurrency_section = get_section("concurrency", "writer", include_mcp=True)
+    assert concurrency_section is not None
+    assert get_section("concurrency", "writer") is None
     assert concurrency_section in full_manual("writer")
+    assert "concurrency" in _MCP_GUIDANCE_POINTER
     assert concurrency_section not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert concurrency_section not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert concurrency_section not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
@@ -188,7 +198,7 @@ def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
 def test_full_manual_contains_every_section_in_order():
     g = full_manual("writer")
     writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
-    positions = [g.index(writer_texts[t]) for t in list_topics("writer")]
+    positions = [g.index(writer_texts[t]) for t in list_topics("writer", include_mcp=True)]
     assert positions == sorted(positions)
 
 
@@ -207,7 +217,28 @@ def test_get_guidance_no_topic_returns_writer_index():
     res = GetGuidance().execute(FakeCtx(WRITER_DOC))
     assert res["status"] == "ok" and res["doc_type"] == "writer"
     assert set(list_topics("writer")).issubset(set(res["topics"]))
+    assert "concurrency" not in res["topics"]
+    assert "concurrency" not in res["index"]
     assert "manual_read" in res["index"]
+
+
+def test_get_guidance_concurrency_mcp_only():
+    for doc, doc_type in ((WRITER_DOC, "writer"), (CALC_DOC, "calc"), (DRAW_DOC, "draw"), (None, "generic")):
+        chat_idx = GetGuidance().execute(FakeCtx(doc, caller="chat"))
+        assert "concurrency" not in chat_idx["topics"]
+        assert "concurrency" not in chat_idx["index"]
+
+        chat_err = GetGuidance().execute(FakeCtx(doc, caller="chat"), topic="concurrency")
+        assert chat_err["status"] == "error" and chat_err["code"] == "UNKNOWN_TOPIC"
+        assert "concurrency" not in chat_err["topics"]
+
+        mcp_idx = GetGuidance().execute(FakeCtx(doc, caller="mcp"))
+        assert "concurrency" in mcp_idx["topics"]
+        assert "concurrency" in mcp_idx["index"]
+
+        mcp_sec = GetGuidance().execute(FakeCtx(doc, caller="mcp"), topic="429")
+        assert mcp_sec["status"] == "ok" and mcp_sec["topic"] == "concurrency"
+        assert mcp_sec["guidance"] == get_section("concurrency", doc_type, include_mcp=True)
 
 
 def test_get_guidance_index_clock_only_for_mcp():
@@ -293,11 +324,14 @@ def test_manual_topics_and_aliases_consistency():
 
     for app_name, topics in _MANUALS.items():
         app_topic_ids = {t.id for t in topics}
+        mcp_only_ids = {t.id for t in topics if t.mcp_only}
         for canon_id, alias_tuple in _ALIASES_BY_TOPIC.items():
             if canon_id in app_topic_ids:
                 for alias in alias_tuple:
-                    assert normalize_topic(alias, app_name) == canon_id, (
+                    assert normalize_topic(alias, app_name, include_mcp=True) == canon_id, (
                         f"Alias {alias} did not resolve to {canon_id} in {app_name}"
                     )
+                    if canon_id in mcp_only_ids:
+                        assert normalize_topic(alias, app_name, include_mcp=False) is None
 
 

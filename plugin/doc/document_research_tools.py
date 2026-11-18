@@ -140,6 +140,7 @@ class GetGuidance(ToolBase):
         # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
         from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
 
+        is_mcp = ctx.caller == "mcp"
         # An unrecognised or closed document reads the Writer guidance.
         doc_type = None if ctx.doc is None else (doc_type_str_from_doc(ctx.doc) or "writer")
         raw = (kwargs.get("topic") or "").strip()
@@ -147,19 +148,20 @@ class GetGuidance(ToolBase):
             index: dict[str, Any] = {
                 "status": "ok",
                 "doc_type": doc_type,
-                "topics": list_topics(doc_type),
-                "index": manual_index(doc_type),
+                "topics": list_topics(doc_type, include_mcp=is_mcp),
+                "index": manual_index(doc_type, include_mcp=is_mcp),
             }
             # WriterAgent's own LLM calls already carry today's date (response_normalizers.prepare_chat_messages);
             # MCP hosts may drop initialize.instructions, so an MCP index call carries the clock (#374 Bug 1).
-            if ctx.caller == "mcp":
+            if is_mcp:
                 index["current_local_datetime"] = format_mcp_clock_context()
             return index
-        section = get_section(raw, doc_type)
+        section = get_section(raw, doc_type, include_mcp=is_mcp)
         if section is None:
+            available = list_topics(doc_type, include_mcp=is_mcp)
             return self._tool_error(
-                "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(list_topics(doc_type))),
+                "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(available)),
                 code="UNKNOWN_TOPIC",
-                top_level={"topics": list_topics(doc_type)},
+                top_level={"topics": available},
             )
-        return {"status": "ok", "doc_type": doc_type, "topic": normalize_topic(raw, doc_type), "guidance": section}
+        return {"status": "ok", "doc_type": doc_type, "topic": normalize_topic(raw, doc_type, include_mcp=is_mcp), "guidance": section}
