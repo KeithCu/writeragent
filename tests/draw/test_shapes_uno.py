@@ -442,3 +442,189 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     assert summary["pages"] == [0]
     assert page.getByIndex(start_count + 1).Name == r2["name"] != ""
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_fill_and_line_style_enums(ctx, doc):
+    """FillStyle, LineStyle, and TextFitToSizeType enums apply and read back cleanly."""
+    import uno
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rect_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=3000,
+        height=2000,
+        fill_style="solid",
+        fill_color="#FF0000",
+        line_color="#0000FF",
+        line_width=100,
+        text="hi",
+    )
+    assert rect_res.get("status") == "ok", rect_res
+    assert "warnings" not in rect_res, rect_res
+    rect = page.getByIndex(rect_res["index"])
+    assert rect.getPropertyValue("FillStyle") == uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    assert rect.getPropertyValue("LineStyle") == uno.Enum("com.sun.star.drawing.LineStyle", "SOLID")
+    assert rect.getPropertyValue("TextFitToSize") == uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT")
+
+    edit_res = upsert.execute(tctx, action="edit", page=0, index=rect_res["index"], fill_style="none")
+    assert edit_res.get("status") == "ok", edit_res
+    assert "warnings" not in edit_res, edit_res
+    assert rect.getPropertyValue("FillStyle") == uno.Enum("com.sun.star.drawing.FillStyle", "NONE")
+
+    line_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=1000,
+        y=4000,
+        width=3000,
+        height=0,
+        line_color="#00FF00",
+        line_width=50,
+    )
+    assert line_res.get("status") == "ok", line_res
+    assert "warnings" not in line_res, line_res
+    line = page.getByIndex(line_res["index"])
+    assert line.getPropertyValue("LineStyle") == uno.Enum("com.sun.star.drawing.LineStyle", "SOLID")
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_negative_size_and_line_direction(ctx, doc):
+    """Negative width/height normalize span and preserve LineShape start->end direction."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rtl_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2890,
+        height=0,
+    )
+    assert rtl_res.get("status") == "ok", rtl_res
+    rtl_line = page.getByIndex(rtl_res["index"])
+    assert (rtl_line.getPosition().X, rtl_line.getPosition().Y) == (2110, 3000)
+    assert (rtl_line.getSize().Width, rtl_line.getSize().Height) == (2890, 0)
+    rtl_poly = [[(p.X, p.Y) for p in seq] for seq in rtl_line.getPropertyValue("PolyPolygon")]
+    assert rtl_poly == [[(5000, 3000), (2110, 3000)]]
+
+    diag_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2000,
+        height=-1000,
+    )
+    assert diag_res.get("status") == "ok", diag_res
+    diag_line = page.getByIndex(diag_res["index"])
+    assert (diag_line.getPosition().X, diag_line.getPosition().Y) == (3000, 2000)
+    assert (diag_line.getSize().Width, diag_line.getSize().Height) == (2000, 1000)
+    diag_poly = [[(p.X, p.Y) for p in seq] for seq in diag_line.getPropertyValue("PolyPolygon")]
+    assert diag_poly == [[(5000, 3000), (3000, 2000)]]
+
+    rect_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2000,
+        height=-1000,
+    )
+    assert rect_res.get("status") == "ok", rect_res
+    rect = page.getByIndex(rect_res["index"])
+    assert (rect.getPosition().X, rect.getPosition().Y) == (3000, 2000)
+    assert (rect.getSize().Width, rect.getSize().Height) == (2000, 1000)
+
+    rect_edit = upsert.execute(tctx, action="edit", page=0, index=rect_res["index"], width=-1500)
+    assert rect_edit.get("status") == "ok", rect_edit
+    assert (rect.getPosition().X, rect.getPosition().Y) == (1500, 2000)
+    assert (rect.getSize().Width, rect.getSize().Height) == (1500, 1000)
+
+    line_edit = upsert.execute(
+        tctx,
+        action="edit",
+        page=0,
+        index=rtl_res["index"],
+        x=6000,
+        y=4000,
+        width=-1000,
+        height=500,
+    )
+    assert line_edit.get("status") == "ok", line_edit
+    assert (rtl_line.getPosition().X, rtl_line.getPosition().Y) == (5000, 4000)
+    assert (rtl_line.getSize().Width, rtl_line.getSize().Height) == (1000, 500)
+    edited_poly = [[(p.X, p.Y) for p in seq] for seq in rtl_line.getPropertyValue("PolyPolygon")]
+    assert edited_poly == [[(6000, 4000), (5000, 4500)]]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_shape_upsert_negative_line_direction(ctx, doc):
+    """Writer lines with negative width preserve direction and stay in anchor coords."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rtl_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2890,
+        height=0,
+    )
+    assert rtl_res.get("status") == "ok", rtl_res
+    line = page.getByIndex(rtl_res["index"])
+    pos1 = line.getPosition()
+    size1 = line.getSize()
+    assert abs(pos1.X - 2110) <= 2
+    assert abs(pos1.Y - 3000) <= 2
+    assert abs(size1.Width - 2890) <= 2
+    assert size1.Height == 0
+    poly1 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert len(poly1) == 1 and len(poly1[0]) == 2
+    assert poly1[0][0][0] > poly1[0][1][0]
+    assert abs((poly1[0][0][0] - poly1[0][1][0]) - 2890) <= 2
+
+    # Edit with negative width only (no x/y): stays at Y without a margin jump and keeps RTL.
+    edit_neg = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=-1000)
+    assert edit_neg.get("status") == "ok", edit_neg
+    pos2 = line.getPosition()
+    assert abs(pos2.Y - pos1.Y) <= 2
+    assert abs(pos2.X - (pos1.X - 1000)) <= 2
+    poly2 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly2[0][0][0] > poly2[0][1][0]
+    assert abs((poly2[0][0][0] - poly2[0][1][0]) - 1000) <= 2
+
+    # Edit with positive width only (no x/y): getPosition() stays unchanged and direction flips LTR.
+    edit_pos = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=1500)
+    assert edit_pos.get("status") == "ok", edit_pos
+    pos3 = line.getPosition()
+    assert abs(pos3.X - pos2.X) <= 2
+    assert abs(pos3.Y - pos2.Y) <= 2
+    poly3 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly3[0][0][0] < poly3[0][1][0]
+    assert abs((poly3[0][1][0] - poly3[0][0][0]) - 1500) <= 2
+
