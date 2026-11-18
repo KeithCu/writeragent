@@ -234,7 +234,7 @@ def _collecting_drain(kinds=None, stop_on_terminal=False):
 
 def _make_tool_registry(execute_return=None, execute_side_effect=None):
     mock_registry = MagicMock()
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
     if execute_side_effect is not None:
         mock_registry.execute.side_effect = execute_side_effect
     else:
@@ -1044,7 +1044,7 @@ def test_specialized_tool_errors_persist_assistant_row():
         panel.session.messages = []
         mock_registry = MagicMock()
         mock_registry.execute.return_value = {"status": "error", "message": "nope"}
-        mock_registry._services = MagicMock()
+        mock_registry.services = MagicMock()
 
         def fake_run_bg(func, **kwargs):
             func()
@@ -1123,7 +1123,7 @@ def test_image_worker_drops_output_after_abort():
 
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
     kinds: list = []
 
     def fake_run_bg(func, **kwargs):
@@ -1157,7 +1157,7 @@ def test_web_worker_drops_output_after_abort():
 
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
     kinds: list = []
 
     def fake_run_bg(func, **kwargs):
@@ -1262,7 +1262,7 @@ def test_run_search_keeps_spawn_scope_after_next_send():
 
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def run_worker(_q, worker_fn, *_args, **_kwargs):
         captured["fn"] = worker_fn
@@ -1290,7 +1290,7 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def run_worker(_q, worker_fn, *_args, **_kwargs):
         captured["fn"] = worker_fn
@@ -1533,7 +1533,7 @@ def test_start_event_mode_determines_executed_tool():
         panel = DummyChatbotPanel()
         mock_registry = MagicMock()
         mock_registry.execute.return_value = {"status": "ok", "result": "done"}
-        mock_registry._services = MagicMock()
+        mock_registry.services = MagicMock()
         mock_turn = MagicMock()
 
         def fake_drain(q, run_search, *args, **kwargs):
@@ -1635,7 +1635,7 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
 
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "error", "message": "fail", "spec_saved": True}
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def fake_run_bg(func, **kwargs):
         func()
@@ -1787,7 +1787,7 @@ def test_specialized_runner_decoder_modes(mode, outcome):
     else:  # error
         mock_registry.execute.return_value = {"status": "error", "message": "something failed"}
 
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def fake_run_bg(func, **kwargs):
         func()
@@ -1830,7 +1830,7 @@ def test_specialized_runner_empty_mode_defaults_to_web_research():
     panel = DummyChatbotPanel()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "ok", "result": "good answer"}
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def fake_run_bg(func, **kwargs):
         func()
@@ -2034,7 +2034,7 @@ def test_web_mode_passes_no_approval_when_prompt_off():
 
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
-    mock_registry._services = MagicMock()
+    mock_registry.services = MagicMock()
 
     def run_worker(_q, worker_fn, *_args, **_kwargs):
         worker_fn()

@@ -888,7 +888,7 @@ def build_tool_execute_fn(
             doc=doc,
             ctx=ctx,
             doc_type=doc_type_str,
-            services=_get_tools()._services,
+            services=_get_tools().services,
             caller="chat",
             active_page_index=active_page_idx,
             status_callback=status_callback,

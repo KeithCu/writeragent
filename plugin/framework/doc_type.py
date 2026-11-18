@@ -18,7 +18,7 @@ import logging
 from enum import Enum, auto
 from typing import Any, Literal
 
-from plugin.framework.errors import best_effort, uno_call, uno_read
+from plugin.framework.errors import uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
 
 DocTypeLabel = Literal["writer", "calc", "draw", "impress", "unknown"]
@@ -222,18 +222,4 @@ def is_impress(model: Any) -> bool:
     if model is None or not hasattr(model, "supportsService"):
         return False
     return bool(model.supportsService(IMPRESS_DOCUMENT_SERVICE))
-
-
-def doc_type_of(doc: Any) -> str | None:
-    """'writer' / 'calc' / 'draw' for a document model, or None when there is no document."""
-    if doc is None:
-        return None
-
-    def _classify() -> str:
-        # One get_document_type walk. Family fold keeps Impress as "draw".
-        # Unknown stays "writer", as when is_calc and is_draw are both false.
-        label = doc_type_family_label(get_document_type(doc))
-        return "writer" if label == "unknown" else label
-
-    return best_effort(_classify, "doc_type_of: could not classify document; defaulting to writer", "writer")
 

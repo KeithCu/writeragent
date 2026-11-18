@@ -32,7 +32,10 @@ def test_resolve_allowed_tools_disabled():
 
 def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
     """No writeragent_api: a domain string must not disable every tool RPC."""
-    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+    from plugin.scripting.host_rpc import domain_proxy_tool_names
+
+    with patch("plugin.scripting.host_rpc._api_module", return_value=None):
+        assert domain_proxy_tool_names("writer") is None
         assert resolve_allowed_tools("writer") is None
         assert resolve_allowed_tools("shapes, footnotes, core") is None
     # The proxy is present: an unknown name is still a real allowlist.
@@ -63,7 +66,6 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
 
     import plugin.scripting.writeragent_api as api
     from plugin.scripting.host_rpc import (
-        _domain_tools_map,
         _proxy_methods_by_tool,
         format_script_api_catalog,
         inner_script_tool_domain,
@@ -75,10 +77,7 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
 
-    tools = _domain_tools_map()
-    assert tools is not None
-    methods = _proxy_methods_by_tool()
-    assert methods is not None
+    methods = _proxy_methods_by_tool(api)
     for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shapes"]):
         _ns, method = methods[tool_name]
         doc = inspect.cleandoc(method.__doc__ or "")
@@ -96,16 +95,16 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
 
 def test_format_script_api_catalog_empty_without_proxy():
     """LibrePy omits writeragent_api; the inner prompt then has no catalog."""
-    from unittest.mock import patch
-
-    from plugin.scripting.host_rpc import format_script_api_catalog, _format_script_api_catalog_cached
+    from plugin.scripting.host_rpc import (
+        _format_script_api_catalog_cached,
+        format_script_api_catalog,
+        format_script_api_help,
+    )
 
     _format_script_api_catalog_cached.cache_clear()
-    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+    with patch("plugin.scripting.host_rpc._api_module", return_value=None):
         assert format_script_api_catalog(["shapes_empty_1"]) == ""
-    _format_script_api_catalog_cached.cache_clear()
-    with patch("plugin.scripting.host_rpc._proxy_methods_by_tool", return_value=None):
-        assert format_script_api_catalog(["shapes_empty_2"]) == ""
+        assert format_script_api_help() == "writeragent API proxies are not available in this build."
 
 
 def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
@@ -196,10 +195,12 @@ def test_handle_tool_call_frame_writes_ok_response():
 
 
 def test_execute_tool_prefers_script_session_document():
+    from plugin.framework.doc_type import DocumentType
+
     focused = MagicMock()
     bound = MagicMock()
     registry = MagicMock()
-    registry._services = {}
+    registry.services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
@@ -207,9 +208,7 @@ def test_execute_tool_prefers_script_session_document():
         patch("plugin.scripting.host_rpc.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
         patch("plugin.app.get_tools", return_value=registry),
-        patch("plugin.framework.doc_type.is_draw", return_value=True),
-        patch("plugin.framework.doc_type.is_calc", return_value=False),
-        patch("plugin.framework.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.DRAW),
     ):
         execute_tool(
             "export_presentation_project",
@@ -223,12 +222,13 @@ def test_execute_tool_prefers_script_session_document():
 
 
 def test_execute_tool_uses_pinned_document_not_front_window():
+    from plugin.framework.doc_type import DocumentType
     from plugin.scripting.session_manager import pin_script_document, release_script_document
 
     focused = MagicMock()
     bound = MagicMock()
     registry = MagicMock()
-    registry._services = {}
+    registry.services = {}
     registry.execute.return_value = {"status": "ok"}
     token = pin_script_document(bound)
     try:
@@ -238,9 +238,7 @@ def test_execute_tool_uses_pinned_document_not_front_window():
             patch("plugin.scripting.host_rpc.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
             patch("plugin.app.get_tools", return_value=registry),
-            patch("plugin.framework.doc_type.is_draw", return_value=True),
-            patch("plugin.framework.doc_type.is_calc", return_value=False),
-            patch("plugin.framework.doc_type.is_writer", return_value=False),
+            patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.DRAW),
         ):
             execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
         mock_desktop.assert_not_called()
@@ -534,19 +532,11 @@ def test_proxy_methods_by_tool_uses_tool_methods():
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
     import plugin.scripting.writeragent_api as api
 
-    methods = _proxy_methods_by_tool()
-    assert methods is not None
+    methods = _proxy_methods_by_tool(api)
     assert "shape_upsert" in methods
     assert methods["shape_upsert"] == ("shape", api.shape.upsert)
     assert "document_list_open" in methods
     assert methods["document_list_open"] == ("document", api.document.list_open)
-
-
-def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch):
-    from plugin.scripting.host_rpc import _proxy_methods_by_tool
-
-    monkeypatch.delattr("plugin.scripting.writeragent_api.TOOL_METHODS")
-    assert _proxy_methods_by_tool() == {}
 
 
 def test_writeragent_api_in_process_rpc_call_preserves_error_code():
@@ -580,12 +570,13 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
 
 
 def test_execute_tool_copies_stop_onto_tool_context():
+    from plugin.framework.doc_type import DocumentType
     from plugin.framework.send_cancellation import SendCancellation
 
     focused = MagicMock()
     bound = MagicMock()
     registry = MagicMock()
-    registry._services = {}
+    registry.services = {}
     tool = MagicMock()
     tool.is_async.return_value = True
     registry.get.return_value = tool
@@ -598,9 +589,7 @@ def test_execute_tool_copies_stop_onto_tool_context():
         patch("plugin.scripting.host_rpc.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.app.get_tools", return_value=registry),
-        patch("plugin.framework.doc_type.is_draw", return_value=True),
-        patch("plugin.framework.doc_type.is_calc", return_value=False),
-        patch("plugin.framework.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.DRAW),
     ):
         execute_tool(
             "export_presentation_project",
@@ -609,6 +598,28 @@ def test_execute_tool_copies_stop_onto_tool_context():
         )
     tctx = registry.execute.call_args.args[1]
     assert tctx.send_cancellation is scope
+    assert tctx.doc_type == "draw"
+    assert tctx.services is registry.services
+
+
+def test_execute_tool_unknown_document_type_is_empty_string():
+    from plugin.framework.doc_type import DocumentType
+
+    bound = MagicMock()
+    registry = MagicMock()
+    registry.services = {}
+    registry.execute.return_value = {"status": "ok"}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
+        patch("plugin.app.get_tools", return_value=registry),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.UNKNOWN),
+    ):
+        execute_tool("shape_upsert", {"action": "create"})
+    tctx = registry.execute.call_args.args[1]
+    assert tctx.doc_type == ""
 
 
 def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
@@ -690,8 +701,7 @@ def test_every_domain_tool_resolves_to_a_proxy_method():
     import plugin.scripting.writeragent_api as api
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
-    methods = _proxy_methods_by_tool()
-    assert methods is not None
+    methods = _proxy_methods_by_tool(api)
     assert methods["style_import"] == ("style", api.style.import_)
     assert methods["sql_query_folder"] == ("sql", api.sql.query_folder)
     missing_or_not_callable = [
@@ -879,4 +889,17 @@ def test_catalog_and_help_show_collection_forms():
     full_help = api.help()
     assert "wa.bookmark[name] (bookmark_get)" in full_help
     assert "__getitem__" not in full_help
+
+
+def test_format_script_api_catalog_app_domains_use_app_namespaces():
+    from plugin.scripting.host_rpc import _format_script_api_catalog_cached, format_script_api_catalog
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["writer", "calc", "draw"])
+    assert "writer:\n" in catalog
+    assert "calc:\n" in catalog
+    assert "draw:\n" in catalog
+    assert "wa.writer.apply_content(" in catalog
+    assert "wa.calc.read_range(" in catalog
+    assert "wa.draw.get_deck_info(" in catalog
 

@@ -465,4 +465,32 @@ def test_parse_run_import_call_spec_literal() -> None:
     assert spec1.get("params") == {"files": ["a.csv"]}
 
 
+@pytest.mark.parametrize(
+    ("service", "should_succeed"),
+    [
+        ("com.sun.star.sheet.SpreadsheetDocument", True),
+        ("com.sun.star.drawing.DrawingDocument", False),
+    ],
+)
+def test_run_domain_symbolic_resolves_doc_type_from_model(service: str, should_succeed: bool) -> None:
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.helper_domain import run_domain
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda name: name == service
+
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+        patch("plugin.scripting.client.run_symbolic", return_value={"status": "ok"}) as mock_run_symbolic,
+    ):
+        if should_succeed:
+            res = run_domain("math", MagicMock(), doc, helper="symbolic_simplify", params={"expression": "x + x"})
+            assert res == {"status": "ok"}
+            mock_run_symbolic.assert_called_once()
+        else:
+            with pytest.raises(ToolExecutionError, match="Writer or Calc"):
+                run_domain("math", MagicMock(), doc, helper="symbolic_simplify", params={"expression": "x + x"})
+            mock_run_symbolic.assert_not_called()
+
+
 

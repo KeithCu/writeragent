@@ -72,7 +72,7 @@ class PanelEventsController:
             return
         from plugin.app import get_tools
 
-        event_bus = getattr(get_tools()._services, "events", None)
+        event_bus = getattr(get_tools().services, "events", None)
         if event_bus:
             # Remember this object and unsubscribe it in disposing.
             # Unsubscribing get_event_bus() leaves this subscription,
