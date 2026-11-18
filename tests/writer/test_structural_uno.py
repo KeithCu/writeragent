@@ -62,7 +62,7 @@ def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
     vc.gotoRange(cell, False)
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = GetPageObjects().execute(tool_ctx, page=1)
+    res = GetPageObjects().execute(tool_ctx, page=0)
     assert res.get("status") == "ok", res
     names = [t.get("name") for t in res.get("tables") or []]
     assert tbl.getName() in names, res
@@ -108,7 +108,7 @@ def test_get_page_objects_from_table_cell_resolves_page_two_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = GetPageObjects().execute(tool_ctx, locator="heading_text:Target Heading on Page Two")
     assert res.get("status") == "ok", res
-    assert res.get("page") == 2, res
+    assert res.get("page") == 1, res
     restored = vc.getPropertyValue("TextTable")
     assert restored is not None
     assert restored.getName() == tbl.getName()
@@ -251,7 +251,7 @@ def test_get_page_objects_reads_draw_shape_text_uno(ctx, doc):
     _rect(doc, "alpha\nbeta")
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = GetPageObjects().execute(tool_ctx, page=1)
+    res = GetPageObjects().execute(tool_ctx, page=0)
     assert res.get("status") == "ok", res
     shapes = res.get("shapes") or []
     assert len(shapes) == 8, res
@@ -259,3 +259,72 @@ def test_get_page_objects_reads_draw_shape_text_uno(ctx, doc):
     assert texts[:6] == [""] * 6
     assert texts[6] == "one"
     assert texts[7] == "alpha\nbeta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
+    """page_get_objects, image_get, nav_goto_page, and page:N locators all use 0-based pages."""
+    import base64
+    import io
+    import pytest
+    from PIL import Image
+    from com.sun.star.awt import Point, Size
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+
+    from plugin.doc.document_helpers import resolve_locator
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.get_image import GetImage
+    from plugin.writer.structural import NavGotoPage
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "First page", False)
+
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    shape.setSize(Size(6000, 6000))
+    shape.setPosition(Point(2000, 2000))
+    shape.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    shape.setPropertyValue("FillColor", 0xFF0000)
+    shape.setPropertyValue("LineColor", 0xFF0000)
+    shape.Name = "RedBox"
+    doc.getDrawPage().add(shape)
+
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    cur.setPropertyValue("BreakType", PAGE_BEFORE)
+    text.insertString(cur, "Second page", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    obj0 = GetPageObjects().execute(tool_ctx, page=0)
+    assert obj0.get("status") == "ok", obj0
+    assert obj0.get("page") == 0, obj0
+    assert [s.get("name") for s in obj0.get("shapes") or []] == ["RedBox"]
+
+    obj1 = GetPageObjects().execute(tool_ctx, page=1)
+    assert obj1.get("status") == "ok", obj1
+    assert obj1.get("page") == 1, obj1
+    assert obj1.get("shapes") == []
+
+    def _red_pixels(page_idx: int) -> int:
+        res = GetImage().execute(tool_ctx, page=page_idx)
+        assert res.get("status") == "ok", res
+        raw = base64.b64decode(res["_mcp_image"]["data"])
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        return sum(1 for r, g, b in img.getdata() if r > 200 and g < 50 and b < 50)
+
+    assert _red_pixels(0) > 100
+    assert _red_pixels(1) == 0
+
+    nav0 = NavGotoPage().execute(tool_ctx, page=0)
+    assert nav0 == {"status": "ok", "page": 0}
+    nav_bad = NavGotoPage().execute(tool_ctx, page=2)
+    assert nav_bad.get("status") == "error"
+    assert "2 page(s)" in nav_bad.get("message", "")
+
+    assert resolve_locator(doc, "page:1")["para_index"] == 1
+    with pytest.raises(ToolExecutionError, match="2 page\\(s\\)"):
+        resolve_locator(doc, "page:2")
+

@@ -33,6 +33,7 @@ from plugin.doc.text_helpers import (
     find_heading_by_chapter_number,
     get_string_without_tracked_deletions,
     iter_heading_nodes,
+    jump_view_cursor_to_page,
     with_view_cursor_left_body_locked,
 )
 
@@ -362,13 +363,15 @@ class TreeService(ServiceBase):
             return self._resolve_bookmark_locator(doc, loc_value)
 
         if loc_type == "page":
-            page_num = int(loc_value)
+            page = int(loc_value)
             try:
                 controller = doc.getCurrentController()
                 vc = controller.getViewCursor()
 
                 def _jump() -> Any:
-                    vc.jumpToPage(page_num)
+                    total = jump_view_cursor_to_page(vc, page)
+                    if total is not None:
+                        raise ToolExecutionError("page %d not found (document has %d page(s); first page = 0)" % (page, total))
                     vc.jumpToStartOfPage()
                     return vc.getStart()
 

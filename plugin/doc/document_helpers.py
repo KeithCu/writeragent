@@ -130,7 +130,7 @@ def _writer_anchor_note(shape: Any) -> str:
         return ""
     if kind == "AT_PAGE":
         page_no = uno_read(lambda: int(shape.getPropertyValue("AnchorPageNo")), 0)
-        return " anchor: AT_PAGE page %d" % page_no if page_no > 0 else " anchor: AT_PAGE"
+        return " anchor: AT_PAGE page %d" % (page_no - 1) if page_no > 0 else " anchor: AT_PAGE"
 
     def read_excerpt() -> str:
         anchor = shape.getAnchor()
@@ -393,7 +393,7 @@ def _unresolved_locator(locator: str) -> ToolExecutionError:
     return ToolExecutionError(
         "Cannot resolve locator '%s'. Use type:value such as paragraph:N, "
         "heading:1.2, chapter_number:3.1, bookmark:NAME, heading_text:Title, "
-        "section:NAME, or page:N." % locator
+        "section:NAME, or page:N (0-based page)." % locator
     )
 
 
@@ -700,7 +700,7 @@ class DocumentService(ServiceBase):
         return _text_helpers.get_document_length(doc)
 
     def get_page_for_paragraph(self, model: Any, para_index: int) -> int:
-        """Return page number for a paragraph by index.
+        """Return LibreOffice's 1-based physical page of the paragraph (callers convert for the model).
 
         Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """

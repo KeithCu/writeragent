@@ -537,7 +537,10 @@ class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
     name: str | None = "image_list"
-    description: str = "List all images/graphic objects in the document with name, dimensions, title, and description."
+    description: str = (
+        "List all images/graphic objects in the document with name, dimensions, title, and description."
+        " On Writer, an entry includes page (0-based, first page = 0) when its page is known."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
 
@@ -609,7 +612,7 @@ class ImageList(ToolWriterImageBase):
                             try:
                                 p = int(page_no)
                                 if p > 0:
-                                    entry["page"] = p
+                                    entry["page"] = p - 1
                             except (TypeError, ValueError):
                                 pass
                         else:
@@ -631,7 +634,7 @@ class ImageList(ToolWriterImageBase):
                                         try:
                                             p = int(vc.getPage())
                                             if p > 0:
-                                                entry["page"] = p
+                                                entry["page"] = p - 1
                                         except (TypeError, ValueError):
                                             pass
                             except Exception as exc:
