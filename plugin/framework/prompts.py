@@ -618,7 +618,7 @@ When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domai
 
 {delegation_math_to_python_hint(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
 {python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
-For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
+For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect; ask for arrowheads in task when the user wants arrows), then check the delegation status and counts it returns."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
