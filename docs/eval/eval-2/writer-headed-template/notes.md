@@ -36,4 +36,4 @@ See [`SOURCE.md`](SOURCE.md).
 
 ## Open
 
-- `[eng L unverified]` Unpark the Writer-on-a-real-template sibling: add a gold package, fixtures, a headed `--task` and an oracle that catches a wiped letterhead or lost named styles, once header fidelity holds. (§ Not ready)
+- `[eng L]` Unpark the Writer-on-a-real-template sibling: add a gold package, fixtures, a headed `--task` and an oracle that catches a wiped letterhead or lost named styles, once header fidelity holds. (§ Not ready)

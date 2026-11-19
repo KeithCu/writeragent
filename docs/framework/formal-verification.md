@@ -1017,6 +1017,6 @@ By following this framework-first approach, we build a solid foundation of verif
 
 - `[eng S]` Add the send-button Stop-while-idle no-op as a Hypothesis property or `@deal.ensure` on `send_state.next_state`. (§ Phase 9: What to work on next (recommended order))
 - `[eng S]` Run CrossHair on a schedule or per commit in CI; today only the manual-dispatch `crosshair-deep.yml` sweep exists. (§ Phase 6: Formal Verification of State Machines)
-- `[eng S unverified]` Add an optional CI job that runs `make verify`. (§ Phase 9: What to work on next (recommended order))
+- `[eng S]` Add an optional CI job that runs `make verify`. (§ Phase 9: What to work on next (recommended order))
 - `[eng M]` Promote the remaining engine-limited `partial` rows in `verification_status.json` (such as `payload_codec`) only once a new oracle or a written bar for `# crosshair: off` exists. (§ Phase 9: What to work on next (recommended order))
 - `[eng S]` Extract pure color and unit helpers (mm/px) from `visual_helpers.py` into a verifiable Tier-0 slice if they are mixed with UNO. (§ Phase 9: What to work on next (recommended order))

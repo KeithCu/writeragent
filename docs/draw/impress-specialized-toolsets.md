@@ -582,7 +582,7 @@ Review row 14 is keep-as-is, with no work: the undo stack is shared with the use
 - `[feature M]` Export tools for PDF, image and video output from Draw and Impress. (§ 5.3 Priority 3: Specialized Domains)
 - `[feature L]` Custom shows, timings and rehearse, and a presenter console with a notes timer. (§ 5.5 Priority 5: Future / Nice-to-Have)
 - `[feature M]` Guides and grid control (snap settings, custom guides) and 3D shape creation. (§ 5.5 Priority 5: Future / Nice-to-Have)
-- `[eng M unverified]` Add a `DrawJSONBackend` to prompt optimization, extend the eval dataset with Draw and Impress examples, and add Draw-specific rubrics. (§ 5.4 Priority 4: Evaluation System Integration)
+- `[eng M]` Extend prompt optimization with Impress examples and Impress-specific rubrics in `scripts/prompt_optimization/dataset.py` (Draw already has `DrawWorld` in `scripts/prompt_optimization/eval_worlds.py`, `LOBackend` `"draw"` / `get_draw_export()` in `scripts/prompt_optimization/tools_lo.py`, and Draw examples `FLOWCHART_GEN`, `ORG_CHART_GEN`, `SOLAR_SLD_GEN` with rubrics in `scripts/prompt_optimization/dataset.py`). (§ 5.4 Priority 4: Evaluation System Integration)
 - `[idea L]` Let the outer agent see nested tool schemas of a `shapes` delegation to check arguments instead of exchanging prose. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
 - `[idea M]` Return OCR text from `get_image` alongside the pixels so OCR no longer needs a vision delegation. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
 - `[idea M]` Let `delegate` accept structured refs (`page`, `shape_name`, `range`) instead of prose conventions in `task`. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
