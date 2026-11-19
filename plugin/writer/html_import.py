@@ -321,7 +321,7 @@ def _insert_mixed_or_plain_html(
     before_para = _paragraph_before(text_obj, cursor) if styled and has_math else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
     # content, so anchor one character to the left and step back right after the import.
-    start_anchor = _insert_start_anchor(text_obj, cursor) if (styled or has_table) and not has_math else None
+    start_anchor = _insert_start_anchor(text_obj, cursor)
 
     if has_math:
         math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
@@ -330,15 +330,16 @@ def _insert_mixed_or_plain_html(
         single = ensure_html_linebreaks(clean)
         insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
 
-    if has_table and not has_math:
-        first = _insert_start_from_anchor(text_obj, start_anchor, cursor)
-        tail = imported_end if imported_end is not None else cursor
-        if text_obj.compareRegionStarts(first, tail.getStart()) != 0:
-            if imported_end is not None:
-                # Move cursor off the leading empty paragraph before disposing it.
-                cursor.gotoRange(imported_end.getStart(), False)
-            with record_changes.record_changes(model, False):
-                _drop_empty_paragraph_before_table(text_obj, first)
+    first = _insert_start_from_anchor(text_obj, start_anchor, cursor)
+    tail = imported_end if imported_end is not None else cursor
+    added_content = text_obj.compareRegionStarts(first, tail.getStart()) != 0
+
+    if has_table and not has_math and added_content:
+        if imported_end is not None:
+            # Move cursor off the leading empty paragraph before disposing it.
+            cursor.gotoRange(imported_end.getStart(), False)
+        with record_changes.record_changes(model, False):
+            _drop_empty_paragraph_before_table(text_obj, first)
 
     if styled:
         # Per-paragraph failures are already logged inside apply_block_lo_styles.
@@ -364,6 +365,7 @@ def _insert_mixed_or_plain_html(
         unapplied_para=failures,
         style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
         math=math_entries,
+        added_content=added_content,
     )
 
 
@@ -478,7 +480,10 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
     ``goRight(1, True)`` over the empty paragraph selects across the whole table
     and its enumeration lists the table as its own element:
     ``[empty paragraph, table]``. Dispose the empty paragraph only when it holds
-    no non-text portion (image, field, bookmark).
+    no non-text portion (image, field, bookmark). ``first_para.dispose()`` is
+    best-effort: ``DelFullPara`` (``sw/source/core/doc/DocumentContentOperationsManager.cxx``)
+    may refuse (e.g. on fieldmark overlap or a lone paragraph in a section) and
+    ``SwXParagraph::dispose`` ignores the return value, leaving the paragraph.
     """
     para_cursor = text_obj.createTextCursorByRange(import_start.getStart())
     para_cursor.gotoStartOfParagraph(False)
@@ -494,6 +499,7 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
         return
     if not _uno_service_true(next_elem, "com.sun.star.text.TextTable"):
         return
+    # Redline portions are change-tracking markers from the tracked import, not real content.
     if _paragraph_has_non_text_portion(first_para, ignore_redlines=True):
         return
     first_para.dispose()
@@ -533,7 +539,9 @@ def _paragraph_has_non_text_portion(para: Any, *, ignore_redlines: bool = False)
     """True when *para* holds an image, field, frame, or other non-text portion.
 
     ``getString()`` is empty for those, so a paragraph holding only a picture
-    would look empty and the import would merge its first block into it.
+    would look empty and the import would merge its first block into it. When
+    *ignore_redlines* is True, ``Redline`` portions are ignored because they
+    are change-tracking markers and carry no content.
     """
     ignored = ("Text", "Redline") if ignore_redlines else ("Text",)
     try:
@@ -691,17 +699,9 @@ def _insert_into_emptied_range(
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     text_obj = cursor.getText()
     leftover = text_obj.createTextCursorByRange(cursor.getStart())
-    anchor = _insert_start_anchor(text_obj, cursor)
     report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
-    start = _insert_start_from_anchor(text_obj, anchor, cursor)
-    added = text_obj.compareRegionStarts(start, leftover.getStart()) != 0
-    if not added and anchor is not None and "<table" in content.lower():
-        # SwUnoCursor::goRight steps over a leading SwTableNode, landing at leftover.
-        span = text_obj.createTextCursorByRange(anchor.getStart())
-        span.gotoRange(leftover.getStart(), True)
-        added = span.getString() not in _PARAGRAPH_BREAKS
-    if added:
+    if report.added_content:
         _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
     return report
 

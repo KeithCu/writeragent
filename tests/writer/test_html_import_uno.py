@@ -1369,6 +1369,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
         ("after+trail", {"target": "search", "old_content": "Body", "position": "after"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "TextTable", "Paragraph:Trail", "Paragraph:Outro"]),
         ("before+tbl", {"target": "search", "old_content": "Body", "position": "before"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Body", "Paragraph:Outro"]),
         ("replace+tbl", {"target": "search", "old_content": "Body"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Outro"]),
+        ("replace_first+tbl", {"target": "search", "old_content": "Intro"}, tbl, ["TextTable", "Paragraph:Body", "Paragraph:Outro"]),
         ("anchors+tbl", {"target": "search", "start_anchor": "Bo", "end_anchor": "dy"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Outro"]),
     ]
 
@@ -1387,11 +1388,15 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
             assert res.get("status") == "ok", (label, "record-accept", res)
             helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
             actual_accept = _body_structure_via_enum(text)
-            expected_accept = (
-                ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:", "Paragraph:Outro"]
-                if label in ("replace+tbl", "anchors+tbl")
-                else expected
-            )
+            # In record mode, replace_single_range_with_content keeps tracked-deleted old text
+            # in the import-start paragraph (so getString() != "" and before-table cleanup
+            # skips it) and sets drop_leftover=False; Accept then empties both paragraphs.
+            if label in ("replace+tbl", "anchors+tbl"):
+                expected_accept = ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:", "Paragraph:Outro"]
+            elif label == "replace_first+tbl":
+                expected_accept = ["Paragraph:", "TextTable", "Paragraph:", "Paragraph:Body", "Paragraph:Outro"]
+            else:
+                expected_accept = expected
             assert actual_accept == expected_accept, (label, "record-accept", actual_accept, expected_accept)
 
             _seed_three()
@@ -1474,7 +1479,8 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         assert res.get("status") == "ok", res
         assert _body_structure_via_enum(text) == ["TextTable", "TextTable", "Paragraph:After", "Paragraph:"], _body_structure_via_enum(text)
 
-        # Empty document + table at end
+        # Empty document + table at end: on a 1-paragraph blank doc, SwHTMLParser opens an
+        # extra split node before the table; cleanup removes the split node and keeps the user's own.
         _seed([""])
         res = ApplyDocumentContent().execute(tctx, content=[tbl], target="end")
         assert res.get("status") == "ok", res
@@ -1498,19 +1504,37 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         assert res.get("status") == "ok", res
         assert _body_structure_via_enum(text) == ["Paragraph:Intro", "TextTable", "Paragraph:Head", "Paragraph:Outro"], _body_structure_via_enum(text)
 
-        # Paragraph with a bookmark (non-text portion) is not disposed
-        _seed(["Intro", "", "Outro"])
+        # Import-start paragraph with a bookmark or anchored graphic is not disposed
+        import uno
+        from pathlib import Path
+        from plugin.writer.html_import import _drop_empty_paragraph_before_table
+
+        _seed(["", "Outro"])
         cur = text.createTextCursor()
         cur.gotoStart(False)
-        cur.gotoNextParagraph(False)
         bm = doc.createInstance("com.sun.star.text.Bookmark")
         bm.setName("kept_bm")
         text.insertTextContent(cur, bm, False)
-        assert doc.getBookmarks().getCount() == 1
         res = ApplyDocumentContent().execute(tctx, content=[tbl], target="search", old_content="Outro", position="before")
         assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"]
+        _drop_empty_paragraph_before_table(text, text.getStart())
         assert doc.getBookmarks().getCount() == 1
-        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
+
+        _seed(["", "Outro"])
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        graphic.setPropertyValue("AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER"))
+        graphic.setPropertyValue("GraphicURL", Path("extension/assets/logo_32.png").resolve().as_uri())
+        text.insertTextContent(cur, graphic, False)
+        res = ApplyDocumentContent().execute(tctx, content=[tbl], target="search", old_content="Outro", position="before")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"]
+        _drop_empty_paragraph_before_table(text, text.getStart())
+        assert doc.getGraphicObjects().getCount() == 1
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

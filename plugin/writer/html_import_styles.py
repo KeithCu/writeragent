@@ -657,6 +657,7 @@ class WriteReport:
     style_tokens: list[str] = field(default_factory=list)
     math: list[dict[str, Any]] = field(default_factory=list)
     snapped_to_paragraph: bool = False
+    added_content: bool = True
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
@@ -664,6 +665,7 @@ class WriteReport:
         self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
         self.math.extend(other.math)
         self.snapped_to_paragraph = self.snapped_to_paragraph or other.snapped_to_paragraph
+        self.added_content = self.added_content and other.added_content
 
 
 def attach_write_report(
