@@ -351,7 +351,7 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 - `get_extension_url` → `PackageInformationProvider.getPackageLocation(id)` or `vnd.sun.star.extension://<id>`.
 - Dialogs: `base + "/Dialogs/" + name + ".xdl"` (file URL when the OXT is unpacked; vnd URL as fallback).
-- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile).
+- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile). `resolve_menu_icon_pixel_size` returns 16 on macOS without probing; VCL on Mac draws URL-loaded images at bitmap size in points, so the 26/32 and 48 assets overflow (issue 3710).
 
 **Dispatch (menu / protocol handler)**
 

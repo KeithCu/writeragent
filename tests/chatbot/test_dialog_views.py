@@ -685,6 +685,16 @@ class TestProviderButtonIcons:
         pick.assert_called_once_with("nvidia", ctx=ctx)
         assert (model.ImageURL) == ("file:///tmp/oxt/assets/nvidia_32.png")
 
+    def test_provider_icon_macos_picks_16(self, monkeypatch):
+        from plugin.chatbot.dialog_views import provider_icon_filename
+        from plugin.framework import menu_icon_dpi as m
+
+        m.reset_menu_icon_dpi_cache()
+        monkeypatch.setattr("sys.platform", "darwin")
+        monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
+        assert provider_icon_filename("openrouter", ctx=MagicMock()) == "openrouter_16.png"
+        assert provider_icon_filename("nvidia", ctx=MagicMock()) == "nvidia_16.png"
+
 
 class TestRecheckGrammarListener:
     def test_click_calls_recheck_helper(self) -> None:
@@ -2342,6 +2352,7 @@ def test_provider_icon_filename(monkeypatch, tmp_path):
     (tmp_path / "openrouter_48.png").write_bytes(b"x")
     assert provider_icon_filename("openrouter", px=16) == "openrouter_16.png"
     assert provider_icon_filename("openrouter", px=48) == "openrouter_48.png"
+    monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
     assert provider_icon_filename("openrouter") == "openrouter_48.png"
 

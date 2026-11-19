@@ -3,9 +3,9 @@ Trademarks of the respective companies; used only to link to their signup pages.
 
 Ship {stem}_16.png, {stem}_32.png, and {stem}_48.png. UnoControlButton does not
 scale graphics to the button. Settings picks the size from VCL DPI via
-provider_icon_filename (1× → 16, mid → 32, HiDPI ~2× → 48). Do not use
-getPosSize height thresholds — AppFont before execute would keep tiny icons on
-HiDPI.
+provider_icon_filename (1× → 16, mid → 32, HiDPI ~2× → 48; macOS always 16
+because VCL draws URL images at point size). Do not use getPosSize height
+thresholds — AppFont before execute would keep tiny icons on HiDPI.
 
 huggingface_48.png (and _16/_32 downscales)
   Source: https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo.png

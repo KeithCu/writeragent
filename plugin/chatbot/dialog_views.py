@@ -91,11 +91,11 @@ _MODEL_LRU_KEYS: dict[str, str] = {
 }
 
 
-# Compact starter buttons: 16 on 1×; HiDPI keeps 48 (UnoControlButton does not
-# scale ImageURL). Mid scales use 32. Do not use dialog getPosSize — AppFont
-# before execute would pick tiny icons on HiDPI (see provider_logos.NOTICE).
+# Compact starter buttons: 16 on 1× and macOS (see menu_icon_dpi.resolve_menu_icon_pixel_size);
+# HiDPI keeps 48 (UnoControlButton does not scale ImageURL) and mid scales use 32.
+# Do not use dialog getPosSize — AppFont before execute would pick tiny icons on HiDPI (see provider_logos.NOTICE).
 _PROVIDER_ICON_PX = (16, 32, 48)
-# menu_icon_dpi returns 16/26/32; map so ~2× still gets the 48 mark that looked good.
+# menu_icon_dpi returns 16/26/32 (always 16 on macOS); map so ~2× still gets the 48 mark that looked good.
 _MENU_PX_TO_PROVIDER = {16: 16, 26: 32, 32: 48}
 
 
@@ -103,7 +103,8 @@ def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) ->
     """Asset basename under extension/assets/ (openrouter_16.png / _32 / _48).
 
     Picks a shipped size from VCL DPI so 1× buttons are not clipped by a 48px
-    mark, while HiDPI keeps the large mark. Probe miss prefers HiDPI large.
+    mark, while HiDPI keeps the large mark (macOS always resolves 16; see
+    menu_icon_dpi.resolve_menu_icon_pixel_size). Probe miss prefers HiDPI large.
     """
     from plugin.framework.menu_icon_dpi import pick_shipped_icon, resolve_menu_icon_pixel_size
 

@@ -37,6 +37,7 @@ def test_one_x_keeps_16(value, expected):
 
 def test_failed_probe_defaults_to_hidpi_large(monkeypatch):
     reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_menu_font_scale", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
@@ -116,6 +117,7 @@ def test_strong_cache_logs_info_once(monkeypatch, caplog):
     skip_if_release_build("log.info stripped in release bundle")
 
     m.reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
     with caplog.at_level(logging.INFO, logger="writeragent.menu_icon_dpi"):
         assert m.resolve_menu_icon_pixel_size() == 16
@@ -127,6 +129,7 @@ def test_strong_cache_logs_info_once(monkeypatch, caplog):
 def test_non_vcl_probe_stays_weak_until_vcl_dpi(monkeypatch):
     """Font/toolbar/env must not freeze the cache before PixelPerMeterX exists."""
     m.reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_menu_font_scale", lambda ctx=None: 1.0)
     monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
@@ -169,3 +172,54 @@ def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
     # Substring in directory name must not be stripped
     paths3 = menu_icon_filesystem_paths("my_assets/icon.png")
     assert all(p.endswith(os.path.join("assets", "my_assets", "icon.png")) for p in paths3)
+
+
+def test_macos_resolves_16_without_probing(monkeypatch):
+    reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "darwin")
+    calls = []
+
+    def _record(name, value):
+        def _probe(*_args, **_kwargs):
+            calls.append(name)
+            return value
+
+        return _probe
+
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", _record("vcl", 2.0))
+    monkeypatch.setattr(m, "probe_menu_font_scale", _record("font", 2.0))
+    monkeypatch.setattr(m, "probe_toolbar_icon_config_px", _record("toolbar", 32))
+    monkeypatch.setattr(m, "probe_env_scale", _record("env", 2.0))
+
+    assert m.resolve_menu_icon_pixel_size() == 16
+    assert calls == []
+    assert m._state.px == 16
+    assert m.resolve_menu_icon_pixel_size() == 16
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.323, 2.0, None])
+def test_macos_ignores_every_dpi_scale(monkeypatch, scale):
+    reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: scale)
+    assert m.resolve_menu_icon_pixel_size() == 16
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+@pytest.mark.parametrize(
+    "scale, expected",
+    [
+        (1.0, 16),
+        (1.323, 26),
+        (2.0, 32),
+        (None, 32),
+    ],
+)
+def test_non_mac_platforms_keep_dpi_probe(monkeypatch, platform, scale, expected):
+    reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", platform)
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: scale)
+    monkeypatch.setattr(m, "probe_menu_font_scale", lambda ctx=None: None)
+    monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
+    monkeypatch.setattr(m, "probe_env_scale", lambda: None)
+    assert m.resolve_menu_icon_pixel_size() == expected
