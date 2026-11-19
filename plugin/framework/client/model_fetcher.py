@@ -790,6 +790,9 @@ def _memo_models_or_fetch(
                 done = _catalog_fetch_waiters.pop(key, [])
 
         provider = get_provider_from_endpoint(endpoint)
+        # Non-OpenRouter hosts populate both slices from one /v1/models GET, so a miss
+        # means that request failed and retrying it here would double a timeout; only
+        # OpenRouter needs a separate GET (/v1/images/models) for the other slice.
         if any(w_kind == "text" for w_kind, _ in done) and text_ids is None:
             text_ids = cached_text_models(endpoint)
             if text_ids is None and kind != "text" and provider == "openrouter":

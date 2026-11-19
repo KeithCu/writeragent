@@ -706,7 +706,7 @@ def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text
          patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint) as mock_ep, \
          patch("plugin.chatbot.panel_factory.get_optional_control", return_value=image_selector):
         el._populate_model_combos(None, image_selector)
-        assert combo_state["items"] == ["(Loading models…)"]
+        assert combo_state["items"] == ["(Connection failed)"]
         assert "(Enter API Key to load models)" not in combo_state["items"]
         assert len(captured_callbacks) == 1
 
@@ -725,7 +725,7 @@ def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text
         mock_set_image_model.assert_not_called()
 
         # Placeholder in box when fetch completes with no image models -> shows endpoint empty-image placeholder.
-        combo_state["text"] = "(Loading models…)"
+        combo_state["text"] = "(Connection failed)"
         captured_callbacks[0]([])
         assert combo_state["items"] == ["(No image models on this endpoint)"]
         assert combo_state["text"] == "(No image models on this endpoint)"

@@ -303,8 +303,6 @@ def populate_combobox_with_lru(
                 to_show.append(_("(Enter API Key to load models)"))
             elif req_cap == "image" and fetch_succeeded:
                 to_show.append(_("(No image models on this endpoint)"))
-            elif skip_remote_fetch and remote_models is None:
-                to_show.append(_("(Loading models…)"))
             else:
                 to_show.append(_("(Connection failed)"))
 

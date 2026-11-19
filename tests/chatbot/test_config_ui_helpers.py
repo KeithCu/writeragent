@@ -842,16 +842,13 @@ def test_anthropic_image_key_present_fetch_ok_no_image_models_shows_no_image_pla
 
 
 @pytest.mark.parametrize(
-    ("skip_remote_fetch", "expected_placeholder"),
+    "skip_remote_fetch",
     [
-        pytest.param(True, "(Loading models…)", id="pending"),
-        pytest.param(False, "(Connection failed)", id="failed"),
+        pytest.param(True, id="pending"),
+        pytest.param(False, id="failed"),
     ],
 )
-def test_anthropic_image_key_present_pending_or_failed_never_shows_api_key_placeholder(
-    skip_remote_fetch: bool,
-    expected_placeholder: str,
-):
+def test_anthropic_image_key_present_pending_or_failed_never_shows_api_key_placeholder(skip_remote_fetch: bool):
     ctrl = MagicMock()
     ctrl.getItemCount.return_value = 0
     with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
@@ -865,7 +862,7 @@ def test_anthropic_image_key_present_pending_or_failed_never_shows_api_key_place
             skip_remote_fetch=skip_remote_fetch,
         )
     items = list(ctrl.addItems.call_args[0][0])
-    assert items == [expected_placeholder]
+    assert items == ["(Connection failed)"]
     assert "(Enter API Key to load models)" not in items
 
 

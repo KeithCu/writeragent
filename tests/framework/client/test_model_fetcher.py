@@ -1990,3 +1990,46 @@ def test_memo_image_models_or_fetch_openrouter_uses_images_models_endpoint():
     finally:
         mf._catalog_memos.clear()
         mf._catalog_fetch_waiters.clear()
+
+
+def test_memo_text_and_image_openrouter_share_one_job_and_fetch_both_endpoints():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://openrouter.ai/api"
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    jobs = []
+    posted = []
+    text_calls: list[list[str]] = []
+    image_calls: list[list[str]] = []
+    urls_called: list[str] = []
+
+    def fake_sync_request(url, **_kwargs):
+        urls_called.append(url)
+        if url.endswith("/images/models"):
+            return {"data": [{"id": "google/gemini-2.5-flash-image"}]}
+        return {"data": [{"id": "anthropic/claude-sonnet-4"}]}
+
+    try:
+        with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="sk-or-test"), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False), \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync_request):
+            assert mf.memo_text_models_or_fetch(endpoint, text_calls.append, task_name="sidebar-models") is None
+            assert mf.memo_image_models_or_fetch(endpoint, image_calls.append, task_name="sidebar-image-models") is None
+            assert len(jobs) == 1
+
+            jobs[0]()
+            assert len(urls_called) == 2
+            assert urls_called[0].endswith("/models")
+            assert urls_called[1].endswith("/images/models")
+            assert len(posted) == 1
+            posted[0]()
+            assert text_calls == [["anthropic/claude-sonnet-4"]]
+            assert image_calls == [["google/gemini-2.5-flash-image"]]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
