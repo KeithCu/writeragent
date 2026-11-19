@@ -155,7 +155,7 @@ Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web
 
 ---
 
-While the current implementation uses standard, unauthenticated HTTP requests via DuckDuckGo Lite, there is prior research on handling authenticated sites or executing JavaScript natively. The following sections are kept for future reference if we need to escalate beyond basic unauthenticated HTML scraping.
+While default page reads use standard, unauthenticated HTTP requests via DuckDuckGo Lite and `urllib.request`, JS-heavy page rendering via a local Chrome or Firefox CDP instance is now shipped (`plugin/contrib/cdp/browser_cdp_tool.py`, `VisitWebpageCdpTool` in `plugin/chatbot/web_research.py`). The following sections cover what remains future reference (authenticated sites, cookie extraction, and connecting to an already-running user browser):
 
 ### A) yt-dlp cookie extraction (reference implementation)
 If there is a need to mimic the user's browser via cookies (to avoid blocks/CAPTCHAs):
@@ -173,7 +173,7 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 - **Marionette**: Firefox's built-in remote protocol via `-marionette` (port 2828). JSON over TCP. 
 - Python clients include `marionette_driver` (Mozilla's maintained client) or the tiny `k0s/marionette_client`.
 
-*Phase 2 roadmap*: Connect to the user's running browser via PyCDP (Chrome) or Marionette (Firefox) when the AI needs to read complex, JS-heavy pages or deeply embedded SPAs. This acts as an opt-in power feature where the user runs a simple launch script.
+*Phase 2 roadmap*: Local Chrome or Firefox CDP (`plugin/contrib/cdp/browser_cdp_tool.py`, `VisitWebpageCdpTool` in `plugin/chatbot/web_research.py`) is shipped for JS-heavy pages. Connecting to the user's already-running Chrome (CDP) or Firefox (Marionette) with their cookies for authenticated or deeply embedded SPAs remains open as an opt-in launch-script feature.
 
 ## 7. Document full-text index (`advanced_search`)
 
