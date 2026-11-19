@@ -192,10 +192,10 @@ Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
 
 ## Open
 
-- `[eng L unverified]` Multimodal and image eval: mock `image_generate` with an image node in state, add vision fixtures, and judge inserted image metadata and caption accuracy. (§ B. Multimodal & Image Evaluation)
-- `[eng S unverified]` Add fixtures `long_summarization.odt` and `complex_calc.ods` and Draw tree golds in `gold_standards.json`. (§ C. Test Fixtures)
-- `[eng S unverified]` UNO tests for the Draw eval path under `tests/draw/`. (§ D. Advanced Reporting & CI)
-- `[eng M unverified]` Score `=PY` spill placement on the LO backend instead of only dest on the string `CalcWorld`. (§ F. Calc `=PY()` placement (shipped in the 17-task pack))
+- `[eng L]` Multimodal and image eval: mock `image_generate` with an image node in state, add vision fixtures, and judge inserted image metadata and caption accuracy. (§ B. Multimodal & Image Evaluation)
+- `[eng S]` Add fixtures `long_summarization.odt` (only `tests/fixtures/summarization_long.odt` exists) and `complex_calc.ods`, plus Draw tree golds for `org_chart_gen` and `solar_sld_gen` in `scripts/prompt_optimization/gold_standards.json` (`flowchart_gen` already has one). (§ C. Test Fixtures)
+- `[eng S]` Dedicated UNO tests for the Draw eval path under `tests/draw/` (`tests/scripts/test_scripted_eval_pack.py::test_scripted_lo_pack_all_pass` already covers `--backend lo --student scripted` for `org_chart_gen` and `solar_sld_gen`, and `tests/draw/test_draw_uno.py` tests `test_get_draw_tree` / `test_upsert_and_verify_shape`). (§ D. Advanced Reporting & CI)
+- `[eng M]` Score `=PY` spill placement on the LO backend instead of only dest on the string `CalcWorld`. (§ F. Calc `=PY()` placement (shipped in the 17-task pack))
 - `[eng M]` Forensic read of the `gpt-oss-20b` sort and tax failures from the 618 details before more shared-prompt edits. (§ Next watches)
 - `[eng M]` Run a k>=3 factorial on 20b and 120b before the next Calc directive edit, then remeasure only sort and tax and merge into the snapshot. (§ Next watches)
 - `[idea S]` Re-check whether required `has_header` on `range_sort` still earns its keep once 20b routing is understood. (§ Next watches)

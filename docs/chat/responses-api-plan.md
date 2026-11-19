@@ -791,5 +791,5 @@ Exit criteria:
 - `[feature M]` OpenAI compaction through `context_management` or standalone `/responses/compact`, with the compacted window kept as the canonical replay input. (§ Phase 9: Responses Compaction)
 - `[eng M]` Persist optional Responses metadata (response ids, output items) inside the existing history JSON message blobs so a restart can resume provider state. (§ Phase 10: Persistence)
 - `[idea M]` Tool-schema hash caching and `allowed_tools` for stable tool lists on OpenAI, and a Conversations API mode if `previous_response_id` proves useful. (§ Milestone 4: Persistence and Optimization)
-- `[eng S unverified]` Settle the OpenRouter beta unknowns by testing: `strict: false` versus `strict: null`, and whether assistant history items need `id` and `status`. (§ Open Questions)
+- `[eng S]` Settle the OpenRouter beta unknowns by testing: `strict: false` versus `strict: null`, and whether assistant history items need `id` and `status`. (§ Open Questions)
 - `[idea S]` Decide whether smolagents runs use stateful Responses within a single run or stay stateless. (§ Phase 4: Responses Session State)
