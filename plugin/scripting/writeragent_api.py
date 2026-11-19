@@ -338,7 +338,13 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
     'slide_transitions': ['slide_get_transition', 'slide_set_transition'],
     'speaker_notes': ['slide_get_notes', 'slide_set_notes'],
     'structural': ['nav_get_heading', 'nav_get_surroundings', 'nav_goto_page', 'nav_list_heading_children'],
-    'styles': ['style_clone', 'style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
+    'styles': [   'style_clone',
+                  'style_create',
+                  'style_format_text',
+                  'style_get_info',
+                  'style_import',
+                  'style_list',
+                  'style_update'],
     'tables': [   'table_delete',
                   'table_get_cells',
                   'table_insert',
@@ -357,7 +363,6 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
                   'get_tree',
                   'page_get_objects',
                   'search',
-                  'set_font',
                   'set_selection']}
 
 TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
@@ -504,7 +509,6 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'section_set_password': ('section', 'set_password'),
     'section_set_protection': ('section', 'set_protection'),
     'section_set_visibility': ('section', 'set_visibility'),
-    'set_font': ('writer', 'set_font'),
     'set_selection': ('writer', 'set_selection'),
     'set_style': ('calc', 'set_style'),
     'shape_align': ('shape', 'align'),
@@ -553,6 +557,7 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'sql_query_folder': ('sql', 'query_folder'),
     'style_clone': ('style', 'clone'),
     'style_create': ('style', 'create'),
+    'style_format_text': ('style', 'format_text'),
     'style_get_info': ('style', 'get_info'),
     'style_import': ('style', 'import_'),
     'style_list': ('style', 'list'),
@@ -2776,6 +2781,20 @@ class _StyleProxy:
         """
         return _result(call_host_tool("style_create", style=style, family=family, parent_style=parent_style, property_updates=property_updates, conditional_rules=conditional_rules))
 
+    def format_text(self, *, properties: dict[str, Any] | None = None, reset: builtins.list[str] | None = None, target: str = 'selection', old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None) -> _Item:
+        """Set or reset direct formatting on text, keeping everything else. properties uses UNO names and the same value forms as style_update: CharWeight (150 bold, 100 normal), CharHeight (points), CharPosture (2 italic), CharFontName/CharFontNameAsian/CharFontNameComplex, CharColor/CharBackColor (hex), ParaAdjust (left/center/right/justify), ParaLineSpacing object, Para*Margin (1/100 mm); any property of a Writer text range is accepted. reset lists names whose hand-set value is dropped so the style shows. Para* names change every paragraph the target touches. target='full_document' covers body text and tables (not headers, footers, frames or footnotes).
+
+        Args:
+            properties (optional): UNO property name to value to set as direct formatting.
+            reset (optional): UNO property names whose direct formatting is removed so the style shows.
+            target (optional): Text to change. One of: selection, full_document, search.
+            old_content (optional): Text to find and change if target = 'search'.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
+            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
+            occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
+        """
+        return _result(call_host_tool("style_format_text", properties=properties, reset=reset, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence))
+
     def get_info(self, style: str, *, family: str = 'ParagraphStyles') -> _Item:
         """Get detailed properties of a named style (font, size, paragraph margins). For family=PageStyles, return the same page-style margins/header/footer payload as page_get_style_properties so the caller does not need a second tool hop.
 
@@ -3057,20 +3076,6 @@ class _WriterProxy:
             return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments).
         """
         return _result(call_host_tool("search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets))
-
-    def set_font(self, *, font: str | None = None, target: str = 'selection', old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None, scripts: str = 'western') -> _Item:
-        """Set the font family of text as direct formatting, keeping size, bold, italic, colour, indents and alignment. Omit font to drop hand-set fonts so the paragraph or character style's font shows. target='full_document' covers body text and all tables (not headers, footers, text frames or footnotes). scripts picks which font slot: 'western' (default), 'asian' for CJK text, 'complex' for right-to-left text, or 'all'.
-
-        Args:
-            font (optional): Font family name (e.g. Arial). Omit to reset to the style font.
-            target (optional): Text to change. One of: selection, full_document, search.
-            old_content (optional): Text to find and change if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
-            occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            scripts (optional): Which font slot to set or reset. One of: western, asian, complex, all.
-        """
-        return _result(call_host_tool("set_font", font=font, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, scripts=scripts))
 
     def set_selection(self, *, search_text: str | None = None, occurrence: int = 0, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> _Item:
         """Select a passage in the document (highlights it for the user and lets a following apply_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Character offsets are returned only for a fully applied char range. The search path returns selected_text and length.

@@ -75,7 +75,7 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 - **Upstream issue:** `Augusto-Zolet/writeragent#6`
 - **Status:** **fixed**
 - **Evidence:**
-  - `set_font` (`plugin/writer/styles.py`) sets `CharFontName*` directly across `selection`, `full_document` (covering body text and all tables), or `search` matches without altering size, emphasis, colour, or paragraph properties; omitting `font` resets direct font overrides so the style font shows.
+  - `style_format_text` (`plugin/writer/styles.py`, `styles` domain) sets `properties={"CharFontName": ...}` (or other UNO `Char*` / `Para*` properties) directly across `selection`, `full_document` (covering body text and all tables), or `search` matches without altering other formatting; `reset=["CharFontName"]` drops direct font overrides so the style font shows.
 - **What remains:** Nothing.
 - **Remaining size:** —
 

@@ -237,7 +237,7 @@ def test_mcp_writer_optional_enums_no_null_in_enum():
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.outline import GetDocumentTree
-    from plugin.writer.styles import ApplyStyle, SetFont
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
 
     def assert_mcp_string_enum(props, key):
         prop = props[key]
@@ -251,9 +251,8 @@ def test_mcp_writer_optional_enums_no_null_in_enum():
     assert_mcp_string_enum(sty, "target")
     assert_mcp_string_enum(sty, "clear_direct")
     assert_mcp_string_enum(sty, "family")
-    sf = to_mcp_schema(SetFont())["inputSchema"]["properties"]
-    assert_mcp_string_enum(sf, "target")
-    assert_mcp_string_enum(sf, "scripts")
+    sft = to_mcp_schema(StyleFormatText())["inputSchema"]["properties"]
+    assert_mcp_string_enum(sft, "target")
     gdc = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
     assert_mcp_string_enum(gdc, "scope")
     gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]

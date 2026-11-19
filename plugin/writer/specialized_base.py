@@ -90,7 +90,10 @@ def _writer_core_tools(*extra: str) -> frozenset[str]:
 
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
-    specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Manage and edit paragraph, character, and list styles, and set or reset direct formatting "
+        "(font, size, weight, colour, alignment, spacing) on selected text, search matches, or the whole document."
+    )
     required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 

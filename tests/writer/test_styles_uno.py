@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.writer.styles import SetFont, StyleClone, StyleCreate, StyleGetInfo, StyleList, StyleUpdate
+from plugin.writer.styles import StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
@@ -283,7 +283,7 @@ def _insert_table(doc, text, cur, rows=2, cols=2):
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_full_document_reaches_tables_keeps_other_formatting_uno(ctx, doc):
+def test_style_format_text_full_document_reaches_tables_keeps_other_formatting_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -304,7 +304,7 @@ def test_set_font_full_document_reaches_tables_keeps_other_formatting_uno(ctx, d
     nested.getCellByName("A1").getText().insertString(c_n, "Nested", False)
 
     before = dict(_portion_fonts(text))
-    res = SetFont().execute(tool_ctx, font="Arial", target="full_document")
+    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document")
     assert res["status"] == "ok", res
     after = dict(_portion_fonts(text))
     for label in ("Body text", "Cell A1", "Nested"):
@@ -318,27 +318,39 @@ def test_set_font_full_document_reaches_tables_keeps_other_formatting_uno(ctx, d
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_scripts_asian_and_complex_slots_uno(ctx, doc):
+def test_style_format_text_asian_and_complex_slots_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
     cur.setPropertyValue("CharFontName", "Liberation Serif")
     text.insertString(cur, "Latin 日本語 عربي", False)
 
-    res_asian = SetFont().execute(tool_ctx, font="Noto Sans CJK JP", target="full_document", scripts="asian")
+    res_asian = StyleFormatText().execute(
+        tool_ctx, properties={"CharFontNameAsian": "Noto Sans CJK JP"}, target="full_document"
+    )
     assert res_asian["status"] == "ok", res_asian
     fonts = _portion_fonts(text)[0][1]
     assert fonts["CharFontName"] == "Liberation Serif"
     assert fonts["CharFontNameAsian"] == "Noto Sans CJK JP"
 
-    res_complex = SetFont().execute(tool_ctx, font="Noto Sans Arabic", target="full_document", scripts="complex")
+    res_complex = StyleFormatText().execute(
+        tool_ctx, properties={"CharFontNameComplex": "Noto Sans Arabic"}, target="full_document"
+    )
     assert res_complex["status"] == "ok", res_complex
     fonts = _portion_fonts(text)[0][1]
     assert fonts["CharFontName"] == "Liberation Serif"
     assert fonts["CharFontNameAsian"] == "Noto Sans CJK JP"
     assert fonts["CharFontNameComplex"] == "Noto Sans Arabic"
 
-    res_all = SetFont().execute(tool_ctx, font="Arial", target="full_document", scripts="all")
+    res_all = StyleFormatText().execute(
+        tool_ctx,
+        properties={
+            "CharFontName": "Arial",
+            "CharFontNameAsian": "Arial",
+            "CharFontNameComplex": "Arial",
+        },
+        target="full_document",
+    )
     assert res_all["status"] == "ok", res_all
     fonts = _portion_fonts(text)[0][1]
     assert fonts["CharFontName"] == "Arial"
@@ -348,7 +360,7 @@ def test_set_font_scripts_asian_and_complex_slots_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_reset_shows_style_font_uno(ctx, doc):
+def test_style_format_text_reset_shows_style_font_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -367,9 +379,9 @@ def test_set_font_reset_shows_style_font_uno(ctx, doc):
     )
     assert su["status"] == "ok", su
 
-    res = SetFont().execute(tool_ctx, target="full_document")
+    res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
     assert res["status"] == "ok", res
-    assert res["font"] is None
+    assert res["after"]["CharFontName"] == "DejaVu Sans"
     after = dict(_portion_fonts(text))
     assert after["Body"]["CharFontName"] == "DejaVu Sans"
     assert after["Body"]["CharWeight"] == 150.0
@@ -378,7 +390,7 @@ def test_set_font_reset_shows_style_font_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_search_all_matches_leaves_neighbours_uno(ctx, doc):
+def test_style_format_text_search_all_matches_leaves_neighbours_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -390,8 +402,8 @@ def test_set_font_search_all_matches_leaves_neighbours_uno(ctx, doc):
     c_a1.setPropertyValue("CharFontName", "Liberation Serif")
     tbl.getCellByName("A1").getText().insertString(c_a1, "alpha beta", False)
 
-    res = SetFont().execute(
-        tool_ctx, font="Arial", target="search", old_content="beta", all_matches=True,
+    res = StyleFormatText().execute(
+        tool_ctx, properties={"CharFontName": "Arial"}, target="search", old_content="beta", all_matches=True,
     )
     assert res["status"] == "ok", res
     assert res["applied_count"] == 2
@@ -404,7 +416,7 @@ def test_set_font_search_all_matches_leaves_neighbours_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_record_mode_format_redlines_reject_restores_uno(ctx, doc):
+def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -418,7 +430,7 @@ def test_set_font_record_mode_format_redlines_reject_restores_uno(ctx, doc):
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = SetFont().execute(tool_ctx, font="Arial", target="full_document")
+        res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="full_document")
         assert res["status"] == "ok", res
         assert res["tracked"] is True
 
@@ -438,7 +450,7 @@ def test_set_font_record_mode_format_redlines_reject_restores_uno(ctx, doc):
         assert restored["Cell"]["CharFontName"] == "Liberation Mono"
 
         count_before_reset = doc.getRedlines().getCount()
-        res_reset = SetFont().execute(tool_ctx, target="full_document")
+        res_reset = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
         assert res_reset["status"] == "ok", res_reset
         assert res_reset["tracked"] is False
         assert doc.getRedlines().getCount() == count_before_reset
@@ -448,7 +460,7 @@ def test_set_font_record_mode_format_redlines_reject_restores_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_set_font_selection_in_table_cell_uno(ctx, doc):
+def test_style_format_text_selection_in_table_cell_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -466,11 +478,98 @@ def test_set_font_selection_in_table_cell_uno(ctx, doc):
     a1_cur.gotoEnd(True)
     doc.getCurrentController().select(a1_cur)
 
-    res = SetFont().execute(tool_ctx, font="Arial", target="selection")
+    res = StyleFormatText().execute(tool_ctx, properties={"CharFontName": "Arial"}, target="selection")
     assert res["status"] == "ok", res
     after = dict(_portion_fonts(text))
     assert after["CellOne"]["CharFontName"] == "Arial"
     assert after["CellTwo"]["CharFontName"] == "Liberation Serif"
     assert after["Body"]["CharFontName"] == "Liberation Serif"
+
+
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_paragraph_props_cover_paragraph_and_reset_in_one_undo_step_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "First target word here\rSecond paragraph stays", False)
+
+    paras = []
+    para_enum = text.createEnumeration()
+    while enum_has_more(para_enum):
+        paras.append(para_enum.nextElement())
+    assert len(paras) == 2
+    orig_adjust_0 = paras[0].getPropertyValue("ParaAdjust")
+    orig_margin_0 = int(paras[0].getPropertyValue("ParaLeftMargin"))
+    orig_adjust_1 = paras[1].getPropertyValue("ParaAdjust")
+    orig_margin_1 = int(paras[1].getPropertyValue("ParaLeftMargin"))
+
+    res = StyleFormatText().execute(
+        tool_ctx,
+        properties={"ParaAdjust": "center", "ParaLeftMargin": 1000, "CharWeight": 150.0},
+        target="search",
+        old_content="target",
+    )
+    assert res["status"] == "ok", res
+    assert paras[0].getPropertyValue("ParaAdjust") == 3
+    assert int(paras[0].getPropertyValue("ParaLeftMargin")) == 1000
+    assert paras[1].getPropertyValue("ParaAdjust") == orig_adjust_1
+    assert int(paras[1].getPropertyValue("ParaLeftMargin")) == orig_margin_1
+
+    portions = _portion_fonts(text)
+    target_weights = [p[1]["CharWeight"] for p in portions if "target" in p[0]]
+    other_weights = [p[1]["CharWeight"] for p in portions if "First" in p[0] or "Second" in p[0]]
+    assert target_weights == [150.0]
+    assert all(w == 100.0 for w in other_weights)
+
+    undo_mgr = doc.getUndoManager()
+    undo_before = len(undo_mgr.getAllUndoActionTitles())
+    res_reset = StyleFormatText().execute(
+        tool_ctx,
+        reset=["ParaAdjust", "ParaLeftMargin", "CharWeight"],
+        target="search",
+        old_content="target",
+    )
+    assert res_reset["status"] == "ok", res_reset
+    assert len(undo_mgr.getAllUndoActionTitles()) == undo_before + 1
+    assert paras[0].getPropertyValue("ParaAdjust") == orig_adjust_0
+    assert int(paras[0].getPropertyValue("ParaLeftMargin")) == orig_margin_0
+    assert all(p[1]["CharWeight"] == 100.0 for p in _portion_fonts(text))
+
+
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_unknown_name_leaves_document_unchanged_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep plain", False)
+
+    res = StyleFormatText().execute(
+        tool_ctx, properties={"CharWeight": 150.0, "Bogus": 1}, target="full_document"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "UNKNOWN_PROPERTY"
+    assert all(p[1]["CharWeight"] == 100.0 for p in _portion_fonts(text))
+
+
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_bad_value_leaves_document_unchanged_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharFontName", "Liberation Serif")
+    text.insertString(cur, "Keep font", False)
+
+    undo_mgr = doc.getUndoManager()
+    undo_before = len(undo_mgr.getAllUndoActionTitles())
+    res = StyleFormatText().execute_safe(
+        tool_ctx, properties={"CharFontName": "Arial", "CharWeight": "bold"}, target="full_document"
+    )
+    assert res["status"] == "error"
+    assert "CharFontName" in res["message"] and "CharWeight" in res["message"]
+    assert all(p[1]["CharFontName"] == "Liberation Serif" for p in _portion_fonts(text))
+    assert len(undo_mgr.getAllUndoActionTitles()) == undo_before
 
 
