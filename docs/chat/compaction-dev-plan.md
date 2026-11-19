@@ -436,10 +436,10 @@ Hermes avoided `tiktoken` in favor of `estimate_tokens_rough`: ASCII at 4 chars/
 
 ## Open
 
-- `[feature S]` Add a `/tokens` slash command showing estimated prompt tokens, the context window and the usage ratio (`/compact` already ships). (§ Future Features, 1. Manual `/compact` and `/tokens` Slash Commands)
-- `[feature S]` Show a subtle notice in the sidebar when auto-compaction happens, such as "Compacted 8 older turns into summary". (§ Future Features, 2. Sidebar UI Notification / Toast)
-- `[feature M]` Let a cheaper or faster model write compaction summaries via a `chat_compaction_model` override. (§ Future Features, 3. Dedicated Compaction Model Override)
-- `[feature S]` Add a `chat_compaction_ratio` config key so power users can change the compaction trigger point. (§ Future Features, 4. User-Configurable Compaction Ratio)
+- `[feature S few]` Add a `/tokens` slash command showing estimated prompt tokens, the context window and the usage ratio (`/compact` already ships). (§ Future Features, 1. Manual `/compact` and `/tokens` Slash Commands)
+- `[feature S many]` Show a subtle notice in the sidebar when auto-compaction happens, such as "Compacted 8 older turns into summary". (§ Future Features, 2. Sidebar UI Notification / Toast)
+- `[feature M few]` Let a cheaper or faster model write compaction summaries via a `chat_compaction_model` override. (§ Future Features, 3. Dedicated Compaction Model Override)
+- `[feature S few]` Add a `chat_compaction_ratio` config key so power users can change the compaction trigger point. (§ Future Features, 4. User-Configurable Compaction Ratio)
 - `[eng M few]` Recover from HTTP 413 payload-too-large in screenshot-heavy Calc sessions by byte-scoring and downscaling or pruning older images. (§ Future Features, 5. HTTP 413 Byte-Based Scoring)
 - `[eng M few]` Reserve `max_tokens` per provider, subtracting `chat_max_tokens` where the engine shares context between prompt and completion. (§ Future Features, 7. Dynamic Provider-Aware `max_tokens` Reservation)
 - `[idea L few]` Use vendor-native server-side compaction (OpenAI `/responses/compact`, Anthropic) on compatible endpoints. (§ Future Features, 8. Native Server-Side Compaction Integration)
