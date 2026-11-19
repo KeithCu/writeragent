@@ -436,9 +436,9 @@ Create-time (Keith 2026-08-27): `[FIRST LAYOUT] root_w=320 max_child_right=1087 
 
 ## Open
 
-- `[idea L]` Render bold, lists and other formatting live during a stream instead of plain stripped text followed by an end-of-stream rerender. (§ Open questions)
-- `[fidelity S]` Preserve real `NumberingRules` when pasting formatted rows into the transcript and drop the manual list-prefix reconstruction. (§ Open questions)
-- `[idea S]` Spellcheck and grammar marking on the transcript control. (§ Open questions)
-- `[idea L]` Out-of-process webview for the transcript if a richer UI is ever wanted. (§ Open questions)
-- `[eng S]` Make the Calc rich-HTML keeper Writer go through the shared `new_blank_writer` factory instead of its own `_wa_calc_html` creation path. (§ Shared hidden Writer factory)
-- `[eng S]` Add the missing explanatory comments on list prefix reconstruction and on why `_create_rich_control_peer` tries several creation attempts. (§ Smaller cleanups)
+- `[idea L many]` Render bold, lists and other formatting live during a stream instead of plain stripped text followed by an end-of-stream rerender. (§ Open questions)
+- `[fidelity S few]` Preserve real `NumberingRules` when pasting formatted rows into the transcript and drop the manual list-prefix reconstruction. (§ Open questions)
+- `[idea S few]` Spellcheck and grammar marking on the transcript control. (§ Open questions)
+- `[idea L few]` Out-of-process webview for the transcript if a richer UI is ever wanted. (§ Open questions)
+- `[eng S few]` Make the Calc rich-HTML keeper Writer go through the shared `new_blank_writer` factory instead of its own `_wa_calc_html` creation path. (§ Shared hidden Writer factory)
+- `[eng S few]` Add the missing explanatory comments on list prefix reconstruction and on why `_create_rich_control_peer` tries several creation attempts. (§ Smaller cleanups)

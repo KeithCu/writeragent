@@ -1177,8 +1177,8 @@ Models are **not** bundled in the OXT; user venv installs them.
 
 ## Open
 
-- `[eng L]` Option B overlay: strip the duplicate `=PY()` add-in, Python menus and bundled `plugin/scripting/` from the WriterAgent OXT so it relies on LibrePy for the Python stack. (§ Still open (option B overlay — not this quality pass))
-- `[eng S]` Add an `org.extension.librepy` extension dependency to WriterAgent's `description.xml` once the strip lands. (§ 7. Implementation order (lowest risk))
-- `[eng M]` Verify LibrePy and WriterAgent installed together: one `=PY()` add-in, chat Python tools using the core worker, and a deploy flow that no longer removes the other OXT. (§ 7. Implementation order (lowest risk))
-- `[feature S]` Re-include the 257 Calc-parity `calc.*` helpers in LibrePy by removing `LIBREPY_CALC_FUNCTIONS_EXCLUDES` once spreadsheet conversion moves into core and parity is validated. (§ Calc-parity `xl` helpers (deferred from LibrePy))
-- `[feature M]` Page-positioned OCR for Draw and Impress in the Vision helpers. (§ Appendix G — Vision/OCR)
+- `[eng L few]` Option B overlay: strip the duplicate `=PY()` add-in, Python menus and bundled `plugin/scripting/` from the WriterAgent OXT so it relies on LibrePy for the Python stack. (§ Still open (option B overlay — not this quality pass))
+- `[eng S few]` Add an `org.extension.librepy` extension dependency to WriterAgent's `description.xml` once the strip lands. (§ 7. Implementation order (lowest risk))
+- `[eng M few]` Verify LibrePy and WriterAgent installed together: one `=PY()` add-in, chat Python tools using the core worker, and a deploy flow that no longer removes the other OXT. (§ 7. Implementation order (lowest risk))
+- `[feature S few]` Re-include the 257 Calc-parity `calc.*` helpers in LibrePy by removing `LIBREPY_CALC_FUNCTIONS_EXCLUDES` once spreadsheet conversion moves into core and parity is validated. (§ Calc-parity `xl` helpers (deferred from LibrePy))
+- `[feature M few]` Page-positioned OCR for Draw and Impress in the Vision helpers. (§ Appendix G — Vision/OCR)

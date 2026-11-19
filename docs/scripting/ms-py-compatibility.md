@@ -520,7 +520,7 @@ Microsoft’s `=PY` is not “Python in a cell.” Authors type `xl("…")` lite
 
 ## Open
 
-- `[feature L]` Python object cards: keep a live object such as a DataFrame in the shared kernel with a compact cell label, an inspect RPC and a preview dialog, so Excel `returnType=1` (Object) cells stop suppressing value egress. (§ 5.6 Python object cards / Value vs Object)
-- `[feature M]` Use `XVolatileResult` with `#BUSY!` interim results in the `=PY()` add-in for long desktop runs. (§ 5.4 Async `#BUSY!` / `#CONNECT!` (medium—and already the right hook))
-- `[idea L]` Optional `=PY_XL` compatibility function with a runtime `xl()` and dynamic dirty registration, quarantined from native `=PY`, if there is measured demand beyond file interchange. (§ 6. “Compatibility” options ranked)
-- `[idea L]` Upstream LibreOffice core work: engine-owned dynamic array spill and a larger or removed `MAXSTRLEN` and curly-quote handling for long `=PY("…")` formula strings. (§ 5.9 Formula lexer hazards (corrected diagnosis; LO core deferred))
+- `[feature L few]` Python object cards: keep a live object such as a DataFrame in the shared kernel with a compact cell label, an inspect RPC and a preview dialog, so Excel `returnType=1` (Object) cells stop suppressing value egress. (§ 5.6 Python object cards / Value vs Object)
+- `[feature M few]` Use `XVolatileResult` with `#BUSY!` interim results in the `=PY()` add-in for long desktop runs. (§ 5.4 Async `#BUSY!` / `#CONNECT!` (medium—and already the right hook))
+- `[idea L few]` Optional `=PY_XL` compatibility function with a runtime `xl()` and dynamic dirty registration, quarantined from native `=PY`, if there is measured demand beyond file interchange. (§ 6. “Compatibility” options ranked)
+- `[idea L few]` Upstream LibreOffice core work: engine-owned dynamic array spill and a larger or removed `MAXSTRLEN` and curly-quote handling for long `=PY("…")` formula strings. (§ 5.9 Formula lexer hazards (corrected diagnosis; LO core deferred))

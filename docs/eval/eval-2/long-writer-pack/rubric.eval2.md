@@ -48,4 +48,4 @@ CLI: `scripts/eval_2_long_writer_oracle.py` or
 
 ## Open
 
-- `[eng S]` Extend the long Writer pack oracle with the deferred checks: exact heading wording, three comments instead of one, and style extras. (§ Soft / later (not v1))
+- `[eng S few]` Extend the long Writer pack oracle with the deferred checks: exact heading wording, three comments instead of one, and style extras. (§ Soft / later (not v1))

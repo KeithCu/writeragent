@@ -73,4 +73,4 @@ not a letter-shift of `rubric_pretty.txt`.
 
 ## Open
 
-- `[eng S]` Harness: open the Draw WriterAgent sidebar deck automatically for a headed trial instead of a human click. (§ Pre-open recipe (v1 cheat))
+- `[eng S few]` Harness: open the Draw WriterAgent sidebar deck automatically for a headed trial instead of a human click. (§ Pre-open recipe (v1 cheat))
