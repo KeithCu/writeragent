@@ -640,8 +640,8 @@ The following items are intentionally decoupled from this core plot egress imple
 
 ## Open
 
-- `[feature L unverified]` Implement native single and multiple plot insertion for `=PY()` in the Collabora engine: parse `images[]` in `anyjson.cxx`, queue `ProcessPendingPlotInserts` after interpretation, size and anchor shapes, and clean up stale shapes on recalculation. (§ 6. Proposed Engine & Kit Modifications)
-- `[eng M unverified]` Add CppUnit tests T1 to T12 for plot egress covering sizing, multi-plot stacking, recalculation replacement, `#BUSY!` stability and ODS/XLSX roundtrips. (§ 9. Verification & Test Plan)
+- `[feature L]` Implement native single and multiple plot insertion for `=PY()` in the Collabora engine: parse `images[]` in `anyjson.cxx`, queue `ProcessPendingPlotInserts` after interpretation, size and anchor shapes, and clean up stale shapes on recalculation. (§ 6. Proposed Engine & Kit Modifications)
+- `[eng M]` Add CppUnit tests T1 to T12 for plot egress covering sizing, multi-plot stacking, recalculation replacement, `#BUSY!` stability and ODS/XLSX roundtrips. (§ 9. Verification & Test Plan)
 - `[feature M]` Interactive client-side resizing of formula-generated plots in the browser. (§ 10. Out of Scope & Future Work)
 - `[idea L]` Interactive web visualizations (Bokeh, Plotly, Altair) in Collabora Online, which needs an iframe rendering sandbox. (§ 10. Out of Scope & Future Work)
 - `[idea M]` In-cell sparklines as cell formatting rather than floating shapes. (§ 10. Out of Scope & Future Work)

@@ -789,5 +789,5 @@ User workflow and feature context: [../enabling_numpy_in_libreoffice.md §3 Mona
 - `[feature L]` Formula bar button or double-click-cell entry to open Edit Python in Cell, which needs research into Calc input line customization. (§ Phase 3 — Broader surfaces)
 - `[idea S]` Optional setting to auto-close the editor on Save instead of staying open. (§ Open questions (decide before large work))
 - `[idea S]` Send sheet and tab names from LibreOffice to the editor on load for sheet-name completion if Jedi alone is not enough. (§ Phase 2D — Jedi autocompletion (child-only, performance-sensitive))
-- `[fidelity S unverified]` Viz plot polish: plot anchor and z-order, replace-existing-chart, and a UNO end-to-end test for `=PYTHON()` image insert. (§ Phase 3 — Broader surfaces)
+- `[fidelity S]` Viz plot z-order polish (cell anchoring and replace-existing-chart slot reuse are shipped in `plugin/calc/python/image_egress.py`, and UNO end-to-end tests are shipped in `tests/calc/python/test_function_uno.py` and `tests/calc/python/test_image_egress_uno.py`; `ZOrder` handling is still missing). (§ Phase 3 — Broader surfaces)
 - `[idea L]` Embedded-Writer Python editor as a lightweight quick-edit surface for Run Python Script if pywebview proves too fragile. (§ 9. Alternative: Embedded Writer as Python Editor (Research Notes))

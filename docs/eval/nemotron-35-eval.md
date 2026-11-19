@@ -197,8 +197,7 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 ## Open
 
 - `[eng M unverified]` [ ] Bucket A: dest + `range_sort` A/B on Lightning, 20b, 120b
-- `[eng S unverified]` [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
-- `[eng S unverified]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
+- `[eng S]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
 - `[eng S unverified]` [ ] Bucket D: Writer apply / don’t-destroy lines
 - `[eng S unverified]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
 - `[eng M unverified]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
