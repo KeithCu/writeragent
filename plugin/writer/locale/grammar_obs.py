@@ -60,7 +60,9 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
     return "".join(chars)
 
 
-_TERMINAL_STATUS_PHASES = ("done", "failed")
+_TERMINAL_STATUS_PHASES = ("done", "ready", "failed")
+# Terminal phases that end the status-bar indicator; "failed" stays visible until the next update.
+_ENDING_STATUS_PHASES = ("done", "ready")
 
 
 def _frame_from_controller(obj: Any) -> Any | None:
@@ -189,6 +191,10 @@ class GrammarStatus:
             length_hint=length_hint,
             routine=routine,
         )
+
+    def ready(self, text: str, *, result: str) -> None:
+        """Harper (or another engine) became ready: terminal, so the status bar ends its indicator after showing *result*."""
+        self._deliver("ready", text, result=result)
 
     def failed(self, text: str, *, result: str = "") -> None:
         with self._lock:
@@ -368,31 +374,34 @@ class StatusBarGrammarStatus(GrammarStatus):
         elif phase == "failed":
             msg = f"{prefix}: Failed ({result})" if result else f"{prefix}: Grammar check failed"
 
+        # XStatusIndicator start/setText/end run Application::Reschedule
+        # (framework/source/helper/statusindicatorfactory.cxx StatusIndicatorFactory::impl_reschedule),
+        # which runs queued main.post work, including later _paint calls, before returning.
+        # self._indicator is updated before each of those calls so a nested _paint sees
+        # the current indicator and never starts a second one that nothing ends.
         try:
-            if routine:
-                if self._indicator is not None:
-                    self._indicator.end()
-                    self._indicator = None
+            if routine or phase in _ENDING_STATUS_PHASES:
+                indicator = self._indicator
+                self._indicator = None
+                if indicator is not None:
+                    if not routine:
+                        indicator.setText(msg)
+                        indicator.setValue(100)
+                    indicator.end()
                 return
-
             frame = resolve_status_bar_frame(get_ctx())
             if frame is None:
                 return
-
-            if phase == "done":
-                if self._indicator is not None:
-                    self._indicator.setText(msg)
-                    self._indicator.setValue(100)
-                    self._indicator.end()
-                    self._indicator = None
-            elif self._indicator is None:
+            indicator = self._indicator
+            if indicator is None:
                 indicator = frame.createStatusIndicator()
-                if indicator is not None:
-                    indicator.start(msg, 100)
+                if indicator is None:
+                    return
                 self._indicator = indicator
+                indicator.start(msg, 100)
             else:
-                self._indicator.setText(msg)
-                self._indicator.setValue(100 if phase == "failed" else 50)
+                indicator.setText(msg)
+                indicator.setValue(100 if phase == "failed" else 50)
         except Exception as e:
             log.debug("[grammar] _paint failed: %s", e)
             self._indicator = None
