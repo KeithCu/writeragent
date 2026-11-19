@@ -910,7 +910,7 @@ Remaining work lives in the child doc (or [§7 backlog](#calc-ux-backlog)). Do *
 - `[feature M unverified]` Context-aware `=PY()` generation from nearby ranges and headers, a pasteable `=PY("…")` template from `=PROMPT()`, and stronger multi-step analysis prompts. (§ Calc UX backlog > AI code synthesis)
 - `[feature M unverified]` Return a DataFrame as a rich Calc table with headers, formats and filters, and optionally keep the first row or column as the pandas Index. (§ Calc UX backlog > Unphased items)
 - `[feature M unverified]` JSON `result` envelope (`__wa_payload__`) so one `=PY()` or agent script can update several cells through `payload_codec` and a host apply step. (§ Calc UX backlog > Unphased items)
-- `[feature S unverified]` Short traceback snippet in the cell error string and an inline stdout or thumbnail preview under the cell. (§ Calc UX backlog > Unphased items)
+- `[feature S]` Short traceback snippet in the cell error string and an inline stdout or thumbnail preview under the cell. (§ Calc UX backlog > Unphased items)
 - `[feature M]` Per-formula `timeout_sec` and idle-worker teardown; today only the global Settings → Python timeout exists. (§ Calc UX backlog > Unphased items)
 - `[eng M]` Shared-kernel soft timeout that sends `SIGINT` then `SIGKILL` and invalidates the DAG state, plus LRU bounds on large DataFrames kept in the shared namespace. (§ Calc UX backlog > Unphased items)
 - `[feature M unverified]` Named ranges, structured tables and `headers` passed into `data` for `=PY()`. (§ Calc UX backlog > Unphased items)
