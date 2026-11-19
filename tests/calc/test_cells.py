@@ -2165,6 +2165,28 @@ def test_mutate_ranges_preserves_writer_agent_exception_details_on_rollback():
     assert res["details"]["available_sheets"] == ["Sheet1"]
 
 
+def test_mutate_ranges_promotes_suggested_call_from_exception_details():
+    from plugin.framework.errors import CalcError, suggest_call
+
+    doc = MagicMock()
+    doc.getUndoManager.return_value = FakeUndoManager()
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.plan_write.side_effect = CalcError(
+            "circular",
+            code="PY_CIRCULAR",
+            details={"data_range": "A1:A2", "suggested_call": suggest_call("write_range", range=["B1"], values="=PY()")},
+        )
+        res = _tool("write_range").execute_safe(ctx, range=["A1"], values="=PY()")
+
+    assert res["status"] == "error"
+    assert res["code"] == "PY_CIRCULAR"
+    assert res["suggested_call"]["arguments"]["range"] == ["B1"]
+    assert res["details"]["data_range"] == "A1:A2"
+    assert "suggested_call" not in res["details"]
+
+
 @pytest.mark.parametrize("tool_name,structure_type,start", [
     ("delete_structure", "rows", "Sheet2.5"),
     ("delete_structure", "columns", "Sheet2.C"),
