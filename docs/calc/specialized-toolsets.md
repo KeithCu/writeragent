@@ -231,5 +231,5 @@ For recent feature additions:
 - `[idea M few]` Rewrite typed `=PY("...xl('A1')...")` formulas into the dependency-tracked form with a cell-input hook. (§ 3.5 Deferred ideas)
 - `[idea M many]` Coerce locale dates and numbers such as `1,5` stored as text, beyond the shipped warn-only check. (§ 3.4 Future ideas)
 - `[idea M many]` Auto-detect the header row on `sort_range` and report `header_detected`, needing its own eval. (§ 3.4 Future ideas)
-- `[idea L]` Promote the most-used tools (sort, new sheet, chart) out of delegation so the prompt describes fewer domains. (§ 3.4 Future ideas)
-- `[idea L]` Render Markdown in the sidebar so the prompt no longer has to demand HTML. (§ 3.4 Future ideas)
+- `[idea L many]` Promote the most-used tools (sort, new sheet, chart) out of delegation so the prompt describes fewer domains. (§ 3.4 Future ideas)
+- `[idea L many]` Render Markdown in the sidebar so the prompt no longer has to demand HTML. (§ 3.4 Future ideas)
