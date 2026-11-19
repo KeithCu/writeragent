@@ -280,4 +280,4 @@ Invalid length prefix still raises `IpcFrameError` with `stdout_rest=` (empty `b
 
 ## Open
 
-- `[eng S]` Revert the `PYTEST_WORKERS=6` cap on `test-run` and related Makefile targets now that the leftover-stdout cause is fixed, if it was only a workaround. (§ Suggested production shape (only after a hypothesis wins))
+- `[eng S few]` Revert the `PYTEST_WORKERS=6` cap on `test-run` and related Makefile targets now that the leftover-stdout cause is fixed, if it was only a workaround. (§ Suggested production shape (only after a hypothesis wins))

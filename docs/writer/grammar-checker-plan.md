@@ -467,7 +467,7 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 
 - `[feature M many]` Structural context hints (heading level, table cell, footnote, list item, tracked change) attached to grammar work items and prompts. (§ G2. Structural / document-context hints to the LLM)
 - `[feature M many]` Feed agent memory and house-style notes into the grammar prompt, with cache keys that account for the active style snapshot. (§ G3. Consume agent memory + house style for grammar suggestions)
-- `[feature M]` Endpoint-aware shared policy between grammar and chat beyond pause-during-agent and the shared LLM lane, with status UX and an adaptive queue. (§ P7)
+- `[feature M many]` Endpoint-aware shared policy between grammar and chat beyond pause-during-agent and the shared LLM lane, with status UX and an adaptive queue. (§ P7)
 - `[fidelity S many]` Close remaining quote-merge gaps for inch marks (`6" tall`) and mixed quote styles in one paragraph. (§ Appendix E: Dialogue splits and false closing-quote warnings)
 - `[eng S many]` Few-shot prompt hardening for quotes, lists and track changes in the grammar prompt. (§ P8)
 - `[eng S few]` Verbose-flag observability for grammar cache hit rate, supersede counts and p50/p95 schedule-to-cache latency. (§ P11)

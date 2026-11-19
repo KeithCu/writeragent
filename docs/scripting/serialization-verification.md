@@ -225,7 +225,7 @@ make crosshair-check
 
 ## Open
 
-- `[eng S]` Optional CI job running `make verify` (or the two serialization verification files) on a schedule or PR label. (§ Next steps)
-- `[eng M]` Define a clear bar for the pack/unpack `# crosshair: off` entry points so `payload_codec` verification status can move from partial. (§ Known gaps)
-- `[eng S]` Harvest `make crosshair-cover` examples into pytest oracles for new edge inputs. (§ Next steps)
-- `[eng S]` Script to refresh `verification_status.json` after CrossHair runs. (§ Next steps)
+- `[eng S few]` Optional CI job running `make verify` (or the two serialization verification files) on a schedule or PR label. (§ Next steps)
+- `[eng M few]` Define a clear bar for the pack/unpack `# crosshair: off` entry points so `payload_codec` verification status can move from partial. (§ Known gaps)
+- `[eng S few]` Harvest `make crosshair-cover` examples into pytest oracles for new edge inputs. (§ Next steps)
+- `[eng S few]` Script to refresh `verification_status.json` after CrossHair runs. (§ Next steps)

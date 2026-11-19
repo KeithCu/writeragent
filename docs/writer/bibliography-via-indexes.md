@@ -253,9 +253,9 @@ v1 shipped as `index_add_mark kind=bibliography`, `index_list_cites`, existing c
 
 ## Open
 
-- `[fidelity S]` Bibliography FieldMaster settings (brackets, numbering, sort keys, locale) exposed through the indexes tools, plus a default master so v1 cites match Insert, Bibliographic Entry. (§ v1 — native UNO (sketch), Open questions item 5)
-- `[fidelity S]` Locator / pages handling for cites beyond the `Pages` and `Chapter` fields. (§ Open questions item 3)
-- `[feature L]` Zotero integration (v2): search the local Zotero API, resolve citekeys, map items to bibliography `Fields`, and refresh existing cites using the same insert and update path. (§ v2 — Zotero (researched, not implemented))
-- `[idea S]` Decide where the Zotero item key sits on `Fields` (`Identifier` versus `CUSTOM*`) and how to handle documents that already carry Zotero plugin marks. (§ Open questions items 2 and 4)
-- `[idea S]` Optional Better BibTeX JSON-RPC citekey lookup and a CSL-formatted preview string in tool results. (§ Citekeys (BBT-style, Zotero-native))
-- `[idea S]` Import entries from LibreOffice's shared Bibliography `.odb` datasource as a cite source. (§ Non-goals (do not confuse with this work))
+- `[fidelity S few]` Bibliography FieldMaster settings (brackets, numbering, sort keys, locale) exposed through the indexes tools, plus a default master so v1 cites match Insert, Bibliographic Entry. (§ v1 — native UNO (sketch), Open questions item 5)
+- `[fidelity S few]` Locator / pages handling for cites beyond the `Pages` and `Chapter` fields. (§ Open questions item 3)
+- `[feature L few]` Zotero integration (v2): search the local Zotero API, resolve citekeys, map items to bibliography `Fields`, and refresh existing cites using the same insert and update path. (§ v2 — Zotero (researched, not implemented))
+- `[idea S few]` Decide where the Zotero item key sits on `Fields` (`Identifier` versus `CUSTOM*`) and how to handle documents that already carry Zotero plugin marks. (§ Open questions items 2 and 4)
+- `[idea S few]` Optional Better BibTeX JSON-RPC citekey lookup and a CSL-formatted preview string in tool results. (§ Citekeys (BBT-style, Zotero-native))
+- `[idea S few]` Import entries from LibreOffice's shared Bibliography `.odb` datasource as a cite source. (§ Non-goals (do not confuse with this work))
