@@ -55,4 +55,4 @@ CLI: `scripts/eval_2_draw_oracle.py` or
 
 ## Open
 
-- `[eng S]` Extend the Draw process-map oracle with the deferred checks: geometry and z-order, diamond vs rectangle conventions, exactly two outgoing connectors from the decision, and style extras like an intended-use footer. (§ Soft / later (not v1))
+- `[eng S few]` Extend the Draw process-map oracle with the deferred checks: geometry and z-order, diamond vs rectangle conventions, exactly two outgoing connectors from the decision, and style extras like an intended-use footer. (§ Soft / later (not v1))
