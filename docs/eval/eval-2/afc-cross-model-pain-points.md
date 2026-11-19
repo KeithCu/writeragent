@@ -168,7 +168,7 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 
 **DO:**
 - **Shipped** in `plugin/calc/sheets.py` on the `sheet_create` `sheet` parameter description (“Exact new sheet title from the request; preserve spaces…”).
-- Optional: ok payload echoes the created name so a rename mistake is visible in the next turn.
+- **Shipped:** the ok payload echoes the name (`sheet=` and the message) in `plugin/calc/sheets.py`.
 
 **Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. MiniMax `Analysis` and oss-120b `SampleTest`/`Sample_old` are the same family. Exact-title hygiene is general Calc hygiene, not an AFC cheat.
 

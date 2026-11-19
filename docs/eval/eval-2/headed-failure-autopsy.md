@@ -99,7 +99,7 @@ Ordered by leverage for Floorstand / future Writer→Calc:
 
 **Keith gate:** eval-2 / GDPval headed = **Gemini 3.8 Flash** until HAPPY; gpt-oss is not the product gate.
 
-**Private local patches** (tip `a58ab1ad`, debug OXT on `writeragent-master`, **not PR’d** — `.bak-scrolly-*`):
+**Private local patches** (tip `a58ab1ad`, debug OXT on `writeragent-master`, **not PR’d** — `.bak-scrolly-*`; item 1 is now shipped):
 
 1. `PEER_INNER_CHOICE_RULES` (now shipped in `plugin/doc/peer_prompt.py`): when the peer doc is meant to be written (empty sheet/form), ask it to **write/fill and include the values** — don’t only extract/return JSON or ask for a dump.
 2. `write_formula_range` description (+1 sentence): a table row is **one value per cell**; don’t put a whole comma-joined row in one cell (Calc-primary CSV-dump lesson).
