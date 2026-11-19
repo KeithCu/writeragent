@@ -73,7 +73,7 @@ Evidence (`notes.txt`, `thinking_and_tools.md`, `score.txt`, `/workspace/fs-*.pn
 
 Ordered by leverage for Floorstand / future Writer→Calc:
 
-1. **DO — Peer-task polarity examples in product prompts (Calc + Draw)**  
+1. **DO — Peer-task polarity examples in product prompts (Calc + Draw; shipped in `PEER_INNER_CHOICE_RULES` in `plugin/doc/peer_prompt.py`)**  
    Teach: when the sibling is an **empty write target**, `send_peer_*` tasks must say **update/fill/write cells** (or Draw fields), not extract/return JSON/dump blank content.  
    **Why:** 0103 vs 0225 is the controlled experiment; Floorstand is the same miss on Calc.
 
@@ -99,9 +99,9 @@ Ordered by leverage for Floorstand / future Writer→Calc:
 
 **Keith gate:** eval-2 / GDPval headed = **Gemini 3.8 Flash** until HAPPY; gpt-oss is not the product gate.
 
-**Private local patches** (tip `a58ab1ad`, debug OXT on `writeragent-master`, **not PR’d** — `.bak-scrolly-*`):
+**Private local patches** (tip `a58ab1ad`, debug OXT on `writeragent-master`, **not PR’d** — `.bak-scrolly-*`; item 1 is now shipped):
 
-1. `PEER_INNER_CHOICE_RULES` (+1 sentence): when the peer doc is meant to be written (empty sheet/form), ask it to **write/fill and include the values** — don’t only extract/return JSON.
+1. `PEER_INNER_CHOICE_RULES` (now shipped in `plugin/doc/peer_prompt.py`): when the peer doc is meant to be written (empty sheet/form), ask it to **write/fill and include the values** — don’t only extract/return JSON or ask for a dump.
 2. `write_formula_range` description (+1 sentence): a table row is **one value per cell**; don’t put a whole comma-joined row in one cell (Calc-primary CSV-dump lesson).
 
 | Stamp | Model | Polarity | Product | Notes |

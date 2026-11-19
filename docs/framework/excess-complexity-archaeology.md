@@ -1070,8 +1070,7 @@ in the same comment-only PR.
   with one caller is a hop; this one is a round trip.
 - **Kind 5, in a chain.** Seven names between "route matched" and "body
   parsed" in the compute server, four of them forwarders that each add one
-  argument, plus a flag (`is_body_route`) that is `True` in every row of the
-  table (08-4).
+  argument (08-4; the `is_body_route` flag is no longer in the code).
 - **Kind 1, drifted.** The column-kind rule in the slow flatten path is
   written nine times beside its owner, and the copies already disagree with
   it for one input (03-2). A duplicate that has diverged is no longer a "no
