@@ -37,7 +37,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 18. [LLM access (deferred)](#18-llm-access-deferred)
 19. [Out of scope](#19-out-of-scope)
 20. [Suggested agent prompt](#20-suggested-agent-prompt)
-21. [Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan)
+21. [Visual/layout HTML fidelity (partly shipped)](#21-visuallayout-html-fidelity-partly-shipped)
 
 ---
 
@@ -646,7 +646,7 @@ def is_vision_result(value: Any) -> bool:
 6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
 7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/html_import.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
-**What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
+**What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (partly shipped)](#21-visuallayout-html-fidelity-partly-shipped).
 
 **Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings. If the **image disappears** after insert, redeploy the extension (older builds imported HTML at the graphic anchor and replaced the selection). Current builds insert a paragraph break after the anchor first; a regression surfaces as `The image was removed during OCR insert.`
 
@@ -824,7 +824,7 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **2** | Settings **Test** reports paddle/ultralytics; install messaging; dedicated vision worker timeout | **Yes — shipped** |
 | **3** | `extract_structure`; export by graphic name (`image_name` param) | **Yes — shipped** |
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
-| **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-deferred-dev-plan)) | **Yes** (planned) |
+| **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-partly-shipped)) | **Yes** (planned) |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
 | **6** | **`image_extract_structure`** via `domain=vision` (gated on venv); **`analyze_image`** multi-helper; optional multimodal hybrid | **Partial — shipped** (`extract_structure` only) |
 
@@ -944,7 +944,7 @@ Copy when handing work to an coding agent:
 
 ---
 
-## 21. Visual/layout HTML fidelity (deferred dev plan)
+## 21. Visual/layout HTML fidelity (partly shipped)
 
 **Status:** **Tier C (multi-column layout HTML) is shipped** via `html_from_layout_blocks` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py), called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py). **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is also shipped. Tier B (block color sampling), Tier A semantic enrichment, and Phase 4 host insert remain open; this section describes the full plan to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
 
@@ -1000,13 +1000,13 @@ flowchart TD
   Inline --> Egress --> SW
 ```
 
-**Module:** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) (`html_from_layout_blocks`, called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py))
+**Module:** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) — current entry point is `html_from_layout_blocks(blocks: list[dict])`, called unconditionally from `structured_html_from_vision_result` in [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (pure Python in venv — no UNO).
 
+**Proposed Tier B contract (not yet implemented):**
 - Input: `DoclingDocument`, source `png_bytes`, `params` (`html_mode`, `color_samples`, `column_gap_px`, …).
 - Output: single HTML string (same contract as today’s `result["html"]`).
-- Pure Python in venv — no UNO.
 
-**Mode switch (proposed API):**
+**Proposed Tier B mode switch (`params.html_mode`, not yet implemented):**
 
 | `params.html_mode` | Behavior |
 |--------------------|----------|
@@ -1060,31 +1060,7 @@ Do these **before** building layout HTML to avoid dead ends.
 
 ### 21.6 Phase 2 — Column detection (Tier C, shipped)
 
-**Shipped:** `html_from_layout_blocks` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) groups blocks into bands and renders two-column HTML tables; called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py).
-
-**Objective:** Flyer body in **two columns** instead of one vertical stack.
-
-1. **Column clustering** on block bboxes (same reading order pass):
-   - Sort blocks by `(y, x)`.
-   - Split when median `x` of a horizontal band falls into two clusters (k=2 k-means on block centers, or gap threshold at 40% page width).
-   - Assign each block to `col0` / `col1`.
-
-2. **LO-safe layout:** prefer **one row, two `<td valign="top">`** per band, not CSS `column-count`:
-   ```html
-   <table style="width:100%;border:none;"><tr>
-     <td style="width:50%;vertical-align:top;">…left stack…</td>
-     <td style="width:50%;vertical-align:top;">…right stack…</td>
-   </tr></table>
-   ```
-   StarWriter handles tables better than div grids ([§21.1](#211-why-structured-text-is-not-enough-today)).
-
-3. **Reading order:** within each cell, preserve Docling order; full-document order may differ from single-column export — document in UI status string.
-
-4. **Params:** `column_mode: auto | single | two`, `column_gap_px` (table cellpadding).
-
-5. **Tests:** synthetic bboxes in two columns → HTML contains two `<td>` with expected text; UNO smoke insert.
-
-**Estimated effort:** 2–4 days; fragile on irregular flyers — ship behind `html_mode=layout` only.
+**Shipped:** `html_from_layout_blocks(blocks)` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) is called unconditionally from `structured_html_from_vision_result` in [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (no `html_mode` switch or column parameters). It takes a list of block dicts, splits narrow runs at a fixed 50% of the widest block edge into two-column `<table style="width:100%;border:none;"><tr><td ...>` bands (LO's StarWriter import handles `<table>` better than CSS columns or div grids, [§21.1](#211-why-structured-text-is-not-enough-today)), and skips table blocks so they are appended separately after the body. Tested in [`tests/vision/venv/test_vision_layout_html.py`](../../tests/vision/venv/test_vision_layout_html.py).
 
 ### 21.7 Phase 3 — Tier A semantic enrichment (can parallel Phase 1)
 
@@ -1169,7 +1145,7 @@ Only if inline HTML + tables still collapse in Writer:
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-partly-shipped). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
 
 ## Open
 

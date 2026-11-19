@@ -123,7 +123,7 @@ Do not start these without coordinating — others may already be working on the
 
 ### 2. `GetImage.execute` parameter validation (shipped)
 
-[`get_image.py`](../../plugin/writer/get_image.py) validates that at most one of `page`, `image`, or `selection` is passed, returning `"Pass only one of page, image, or selection."` on conflicting arguments.
+[`get_image.py`](../../plugin/writer/get_image.py) validates that at most one of `page`, `image`, or `selection` is passed (returning `"Pass only one of page, image, or selection."`), rejects `selection=false` with no `image`, and rejects `sheet_index` together with `page`. Param-error tests are in [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py).
 
 ### 3. MCP response: preserve metadata alongside image (low–medium)
 
@@ -144,7 +144,7 @@ Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Op
 | Area | Gap |
 |------|-----|
 | MCP `_mcp_image` branch | Mock `StreamResponseEffect`; assert `tools/call` content `type == "image"` |
-| `GetImage.execute` | Mock doc/graphic for three modes + param errors |
+| `GetImage.execute` | Mock doc/graphic for three modes |
 | `get_schemas("openai")` integration | Assert `image_get` excluded when `has_native_vision` false |
 | `image_get_info` crop reporting | Mock graphic with `GraphicCrop` struct |
 
@@ -153,7 +153,7 @@ Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Op
 | Doc | Update |
 |-----|--------|
 | [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) | Note **core** `image_get` alongside specialized Images tools |
-| [../mcp-protocol.md](../mcp-protocol.md) | **Done** — documents `image_get` and `_mcp_image` |
+| [../mcp-protocol.md](../mcp-protocol.md) | Document `_mcp_image` → native image content blocks (currently lists `image_get` in the tool inventory only) |
 | [AGENTS.md](../../AGENTS.md) quick-orientation | Optional: `image_get` under Writer / vision |
 
 ### 8. Minor code-quality (low)
@@ -247,7 +247,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 
 **Suggested additions:**
 - MCP protocol test for `_mcp_image` serialization.
-- `GetImage.execute` mocked unit tests.
+- `GetImage.execute` mocked unit tests for the three happy-path modes.
 
 ### Manual
 
