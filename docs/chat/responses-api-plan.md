@@ -618,6 +618,8 @@ Per project rule, run `make test` before considering implementation complete.
 
 **Status:** Partially shipped — `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`, `parse_responses_sync`) implements a stateless Responses transport called from `plugin/framework/client/openai_shim.py` (`OpenAIShim`, provider `openai` only) for `gpt-6*` models when tools are present. `OpenRouterShim` has no Responses path, so OpenRouter routing, the config-only `api_mode=responses` opt-in, and the exit criterion below are still open.
 
+**Status (partial):** Stateless Responses transport is implemented in `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`) and called from `plugin/framework/client/openai_shim.py` for `gpt-6*` models when tools are present. The general `api_mode=responses` config setting remains open.
+
 Purpose: make the beta testable with minimal blast radius.
 
 Work:

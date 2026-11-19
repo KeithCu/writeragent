@@ -946,7 +946,7 @@ Copy when handing work to an coding agent:
 
 ## 21. Visual/layout HTML fidelity (deferred dev plan)
 
-**Status:** **Not started** — documented for a future implementation day. **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is shipped; this section describes what it would take to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
+**Status:** **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) and **Phase 2 Tier C column detection / two-column layout HTML** (`plugin/vision/venv/vision_layout_html.py`, called from `plugin/vision/venv/vision_html_export.py`) are shipped. Tier B colour sampling and the remaining flyer/poster layout items below remain open. This section describes what it would take to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
 
 **Goal:** Preserve **reading order and semantics** while recovering **approximate** layout: colored header bands, side-by-side columns, tinted panels, and per-block text/background colors sampled from the source image. **Not** pixel-perfect reproduction and **not** re-inserting the source PNG (user already has the graphic selected).
 

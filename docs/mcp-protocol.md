@@ -1080,14 +1080,9 @@ In priority order (updated 2026-11-05):
 Use this list to keep MCP and related tooling moving forward. Nothing here is required for
 current functionality.
 
-### MCP / protocol (still open)
-
-- **Auto-start on LO launch**: optional `XJob` with `onFirstVisibleTask` that starts the
-  MCP server if `mcp_enabled` is true, so the server is up without opening Settings first.
-  Shipped half: server starts when Settings saves with MCP enabled or via Toggle / Status menu.
-
 ### Shipped since this doc was written (removed from backlog)
 
+- **Auto-start on LO launch:** `McpModule.start_background` (`plugin/mcp_server/__init__.py:161-164`), called by `plugin/main.py:182` during the `OnStartApp` bootstrap (`extension/Jobs.xcu`), starts the MCP server at launch when `mcp.mcp_enabled` is true (so no separate `XJob` was needed; `McpModule.initialize` only registers routes).
 - **Stdio proxy:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for stdio MCP clients.
 - **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
 - **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).
