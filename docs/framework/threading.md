@@ -297,5 +297,5 @@ The following reliability features are tracked for future implementation as conc
 
 ## Open
 
-- `[feature M unverified]` Group multi-step agent document mutations in one undo context using `XUndoManager`, building on the existing compound-undo helpers. (§ Deferred Reliability Items)
+- `[feature M]` Group multi-step agent document mutations in one undo context using `XUndoManager`, building on the existing compound-undo helpers. (§ Deferred Reliability Items)
 - `[eng M unverified]` Add venv worker crash and out-of-memory recovery plus stale lock and WAL cleanup. (§ Deferred Reliability Items)
