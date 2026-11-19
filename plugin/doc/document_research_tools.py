@@ -77,7 +77,7 @@ class ListOpenDocuments(ToolBase):
         "List all currently open documents in LibreOffice. "
         "Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). "
         "Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. "
-        "You cannot save documents yourself; when modified is true and the work is done, tell the user to save. "
+        "Entries also report read_only. Use document_save to write a document to disk and document_open to open another file. "
         "Also returns current_local_datetime with the host's wall clock."
     )
     tier: str = "mcp"

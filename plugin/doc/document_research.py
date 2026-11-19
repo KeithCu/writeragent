@@ -128,6 +128,24 @@ def system_path_from_url(url: str) -> str | None:
     return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
+def resolve_file_target(raw: str) -> tuple[str, str] | None:
+    """Resolve an absolute path (with ~ expansion) or file: URL to (system_path, file_url)."""
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.startswith("file:"):
+        path = system_path_from_url(text)
+        if not path:
+            return None
+        return path, path_to_file_url(path)
+    expanded = os.path.expanduser(text)
+    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
+    if not (os.path.isabs(expanded) or expanded.startswith("/")):
+        return None
+    path = _normalize_path(expanded)
+    return path, path_to_file_url(path)
+
+
 def should_skip_filename(name: str) -> bool:
     if name.startswith("~$"):
         return True
@@ -568,21 +586,13 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
     A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
-    path: str | None = None
-    url: str | None = None
     raw = str(path_or_url).strip()
-    if raw.startswith("file:"):
-        url = normalize_file_url(raw)
-        path = system_path_from_url(url)
-    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
-    elif (os.path.isabs(raw) or raw.startswith("/")) and os.path.isfile(raw):
-        path = _normalize_path(raw)
-        url = path_to_file_url(path)
-    else:
+    resolved = resolve_file_target(raw)
+    if resolved is None:
         return None, None, f"Invalid path or URL: {raw!r}", False
-
-    if not path or not url:
-        return None, None, "Could not resolve path", False
+    path, url = resolved
+    if not raw.startswith("file:") and not os.path.isfile(path):
+        return None, None, f"Invalid path or URL: {raw!r}", False
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:
@@ -653,6 +663,33 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     return bool(url) and url == str(getattr(active_model, "URL", "") or "")
 
 
+def document_entry(model: Any) -> dict[str, Any]:
+    """Build the metadata dict for an open LibreOffice document model."""
+    url_raw = model.getURL()
+    # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
+    # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
+    untitled = not url_raw
+    path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
+    # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
+    doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
+    if doc_type_guess == "unknown":
+        doc_type_guess = uno_read(
+            lambda: doc_type_family_label(get_document_type(model)),
+            "unknown",
+        )
+    name = os.path.basename(path) if path else "Untitled"
+    return {
+        "name": name,
+        "url": "" if untitled else str(url_raw),
+        "uid": get_runtime_uid(model),
+        "path": path,
+        "doc_type": doc_type_guess,
+        # modified and read_only are shown so callers know whether an in-place document_save can succeed.
+        "modified": uno_read(lambda: bool(model.isModified()), False),
+        "read_only": uno_read(lambda: bool(model.isReadonly()), False),
+    }
+
+
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata.
 
@@ -697,28 +734,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             True,
         ):
             continue
-        url_raw = model.getURL()
-        # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
-        # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
-        untitled = not url_raw
-        path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
-        # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
-        doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
-        if doc_type_guess == "unknown":
-            doc_type_guess = uno_read(
-                lambda: doc_type_family_label(get_document_type(model)),
-                "unknown",
-            )
-        name = os.path.basename(path) if path else "Untitled"
-        docs.append({
-            "name": name,
-            "url": "" if untitled else str(url_raw),
-            "uid": get_runtime_uid(model),
-            "path": path,
-            "doc_type": doc_type_guess,
-            "is_active": _is_same_document(model, active_model),
-            # isModified (XModifiable), best-effort: show unsaved changes; the agent never saves.
-            "modified": uno_read(lambda: bool(model.isModified()), False),
-        })
+        entry = document_entry(model)
+        entry["is_active"] = _is_same_document(model, active_model)
+        docs.append(entry)
     return docs
 
