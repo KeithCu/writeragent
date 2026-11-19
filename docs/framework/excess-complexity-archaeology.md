@@ -1040,6 +1040,8 @@ sends no ready frame (it does) and two that name functions with no
 definition. Those are ordinary drift, not the sweep's doing, but they belong
 in the same comment-only PR.
 
+**Shipped:** PR #3351 (`Comment-only pass: spliced comments, incident stories and stale doc claims in scripting and compute`) fixed the spliced comments (including `plugin/scripting/venv_worker.py` `_execute_ipc` / `_read_turn`) and the stale doc claims (including `docs/scripting/worker-spawn-handshake-timeouts.md`).
+
 ### Refinements to existing kinds
 
 - **Kind 13 is wider than names.** The seam counts in earlier rounds looked
@@ -1115,4 +1117,3 @@ in the same comment-only PR.
 - `[eng S]` Dispose the LibrePy sidebar controller when panel setup fails after `PythonSidebarController` is built, and restore the test removed with that cleanup. (§ New items for "Known risks" (verified in the diffs unless noted))
 - `[eng S]` Restore unit coverage for hands-free restart (`sticky_restart` and `stop_during_take` matrices) and a `_prepare_mcp_execution` test with non-string, `None` and missing-key arguments. (§ Known risks of this process)
 - `[eng S]` Put back the deleted bugfix rationale comments on `resolve_bibliographic_type` and `_BIB_FIELD_FOLDED` in `plugin/writer/specialized/indexes.py` (`uno_same` in `plugin/framework/uno_context.py` and `refuse_tracked_insert_or_delete` in `plugin/writer/edit_review.py` already carry their rationale docstrings). (§ New items for "Known risks" (verified in the diffs unless noted))
-- `[eng S unverified]` Comment-only PR: fix comments spliced by the #3243 sweep and about ten doc statements that contradict the code. (§ 25. Residue of the cleanup itself: comments spliced by a sweep)
