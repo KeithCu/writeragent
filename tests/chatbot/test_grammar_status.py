@@ -87,6 +87,10 @@ def test_format_grammar_status_done_matches_complete_line() -> None:
             "Grammar: Downloading harper-ls v2.7.0…",
         ),
         (
+            {"phase": "ready", "preview": "Harper", "length": 6, "result": "Harper ready"},
+            "Grammar: Harper ready",
+        ),
+        (
             {"phase": "failed", "preview": "Language detection", "length": 19, "result": "TimeoutError"},
             "Language: failed 'Language d…' len 19: TimeoutError",
         ),
