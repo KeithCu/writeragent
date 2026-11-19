@@ -106,7 +106,7 @@ Last-run detail under the list; last-used helper params; INIT only if users miss
 
 ## Open
 
-- `[feature M unverified]` Writer Python sidebar first slice: one list merging document, user and helper scripts with Run and Edit buttons and a "what will Run use" status line. (§ First slice (if built))
+- `[feature M]` Writer Python sidebar first slice: one list merging document, user and helper scripts with Run and Edit buttons and a "what will Run use" status line. (§ First slice (if built))
 - `[feature M]` Last-run detail box under the script list showing stdout, traceback and insert preview. (§ Later (not required for a useful first slice))
 - `[feature S]` Show last-used scripts first (MRU) and remember last-used helper parameters per helper in config. (§ Later (not required for a useful first slice))
 - `[feature S]` Writer sidebar venv health status line and session peek of names left in the venv after the last run. (§ Later (not required for a useful first slice))

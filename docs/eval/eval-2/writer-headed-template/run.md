@@ -25,4 +25,4 @@ See [`rubric.eval2.md`](rubric.eval2.md).
 
 ## Open
 
-- `[eng S unverified]` Register a headed helper task for the template sibling and write its real `prompt.writeragent.txt` so a trial can be run. (§ If unparked later)
+- `[eng S]` Register a headed helper task for the template sibling and write its real `prompt.writeragent.txt` so a trial can be run. (§ If unparked later)

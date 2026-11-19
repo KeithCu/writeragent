@@ -211,8 +211,7 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 ## Open
 
 - `[eng M]` [ ] Bucket A: shared Calc directives (`CALC_CORE_DIRECTIVES` in `plugin/framework/prompts.py`), `write_range` `=PY` placement, and `SortRange` (`sort_range` in `plugin/calc/cells.py`) shipped and were re-scored on `data_sorting`/`tax_column` (`benchmark_results_calc_filldown_2026-09-11_details.json`; Lightning passes `tax_column`); remaining: Lightning A/B on `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` (all three still fail in `benchmark_results_details.json`)
-- `[eng S unverified]` [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
-- `[eng S unverified]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
+- `[eng S]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
 - `[eng S]` [ ] Bucket D: Writer apply / don’t-destroy lines
 - `[eng S]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
 - `[eng M]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
