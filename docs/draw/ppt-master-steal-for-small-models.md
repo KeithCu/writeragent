@@ -1,7 +1,7 @@
 # Steal from PPT Master — LO-first Impress polish for small models
 
 **rev 4 — LO-first Route B, corrected ordering (supersedes rev 3).**
-**Status:** M0′ (probe) and M1′ (`design_list` / `design_apply` in `plugin/draw/designs.py`) shipped; M2′–M3′ planned (Route B is the plan; Route A is documented context only).
+**Status:** M0′ (probe) and M1′ apply-design (`design_list` / `design_apply` in `plugin/draw/designs.py`) shipped; M1′ background/restyle and `slide_add` master inheritance still open; M2′–M3′ planned (Route B is the plan; Route A is documented context only).
 **Audience:** Keith / Chief.
 **Date:** 2026-09-16 (rev 4 — supersedes rev 3’s Theme-API-first / template-conditional ordering).
 **Doctrine (Keith, 2026-09-16):** **Use every LibreOffice Impress feature first; invent WriterAgent-only systems only after a headed repro shows a real LO wall.**
@@ -212,7 +212,7 @@ LO-first work touches existing Draw modules and adds a small “design/backgroun
 | `plugin/draw/headers_footers.py` | Use as-is; apply once via `set_presentation_design` | M1′ |
 | `plugin/draw/pages.py` | `slide_add` already defaults to `text` and applies it; inherit assigned master; accept alias names | **M1′** |
 | `plugin/draw/designs.py` | Enumerate + apply shipped `.otp` slide designs to the current doc; expose `design_list` / `design_apply` | **M1′ (done)** |
-| Page/master background + master restyle helper (module TBD after UNO probe) | Solid / gradient / bitmap on page or master; master text styles | **M1′** |
+| Page/master background + master restyle helper (module TBD after UNO probe) | Solid / gradient / bitmap on page or master; master text styles | **M1′ (still open)** |
 | Core `set_presentation_design` (where the Impress deck setup lives) | One core call: apply design + assign master + enable HF/slide numbers | **M1′** |
 | `plugin/draw/themes.py` (new, **only if §3.8 probe finds a real API**) | `list` / `get` / `apply` color + font schemes | Conditional (M1′ probe) |
 | `plugin/framework/prompts.py` | ~8–12 line DECK MODE block (§3.5) | **M2′** |
@@ -248,7 +248,7 @@ Each milestone is independently shippable. **M0′ is a headed probe with pass c
 | # | Deliverable | Tests / evidence | Notes |
 |---|-------------|------------------|-------|
 | **M0′ (done)** | **Headed probe, 3 arms, with pass criteria.** Arms: (A) baseline title+bullets; (B) + master + layout + placeholder + HF; (C) + applied slide design + background. Question: can mercury get non-generic polish via LO designs? | Probe results recorded in [impress-lo-first-m0-probe-results.md](impress-lo-first-m0-probe-results.md). Native UNO inspection of designs/background/theme on this LO. | **Gate for invention only.** Re-running the three arms through the shipped tools stays open (§ 6). |
-| **M1′ (done)** | **Apply-design.** `design_list` / `design_apply` (shipped `.otp`, `plugin/draw/designs.py`). Page/master background + master restyle and `slide_add` master inheritance stay open as needed. | `tests/draw/test_designs.py`, `tests/draw/test_designs_uno.py` | Shipped as `design_list` / `design_apply` (clone_master on the open deck). |
+| **M1′ (apply-design shipped)** | **Apply-design.** `design_list` / `design_apply` (shipped `.otp`, `plugin/draw/designs.py`). Page/master background + master restyle and `slide_add` master inheritance stay open. | `tests/draw/test_designs.py`, `tests/draw/test_designs_uno.py` | Shipped as `design_list` / `design_apply` (clone_master on the open deck). |
 | **M2′** | **Prompt / tool routing + lint.** DECK MODE (~8–12 lines); `check_deck_layout` over LO objects; extend the oracle. | Prompt/unit tests; `test_draw_layout.py`; headed re-run | No `compose_slide`. Routing must prevent fill-before-layout (`available: []`). |
 | **M3′** | **Invent recipes / `DeckTheme` overlay only where a headed repro shows an LO wall.** | The headed repro from M0′ (or a later KPI/card-grid brief) plus tests *for that gap only* | Old M0–M6 / `plugin/draw/deck.py` / `DECK_THEMES` / host carriers may re-enter **narrowly**, for the failed page job, not as a wholesale design-system replacement. |
 
