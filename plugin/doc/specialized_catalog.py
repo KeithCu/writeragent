@@ -85,8 +85,8 @@ def catalog_entries_from_base(
 ) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
-    This is the single "bound for this document" filter, used by both the prompt and the
-    delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
+    This is the single "bound for this document" filter, used by both the delegate description
+    and the delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
     support those services are omitted.
 
     ``for_discovery`` (MCP ``tool_find``) skips the exclusions that only shape a chat prompt
@@ -195,7 +195,7 @@ def format_specialized_domains_description(
     ctx: Any = None,
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
-    """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
+    """Domain enum help for MCP/OpenAPI (more compact than the sidebar delegate description's catalog)."""
     entries = catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
     domains = format_domain_catalog(entries)
     if not domains:

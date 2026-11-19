@@ -574,7 +574,13 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(service: str) -> 
     listed = {d for d in all_domains if re.search(rf"(?<!\w){re.escape(d)}: ", desc)}
     assert listed == set(enum_domains)
     # The domain catalog lives once in the tool description, never in the system prompt.
+    from plugin.framework.prompts import SPECIALIZED_DELEGATION_TEMPLATE
+
     agent_label = gw.agent_label_for(uno_services=frozenset({service}))
+    del_label, del_app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent_label, ("WRITER", "Writer"))
+    delegation_block = SPECIALIZED_DELEGATION_TEMPLATE.format(label=del_label, app=del_app)
+    assert delegation_block in prompt
+    assert not any(re.search(rf"(?<!\w){re.escape(d)}(?!\w)", delegation_block) for d in enum_domains)
     for entry in catalog_entries_from_base(agent_label=agent_label, uno_services=frozenset({service})):
         if entry["description"]:
             assert f"{entry['domain']}: {entry['description']}" not in prompt

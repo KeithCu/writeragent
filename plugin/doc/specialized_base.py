@@ -699,8 +699,8 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         if not for_mcp:
             # Sidebar chat reads the domain catalog only here: one "domain: purpose" entry per
             # value of the narrowed enum, so the list cannot name a domain the enum rejects.
-            allowed = set(self._domains_by_agent.get(label, self._domains))
-            entries = [e for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services) if e["domain"] in allowed]
+            bound = set(self.domains_for_services(uno_services))
+            entries = [e for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services) if e["domain"] in bound]
             return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION

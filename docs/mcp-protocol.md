@@ -296,7 +296,7 @@ The Writer-only row below is illustrative; use the table above for integration p
 | **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
 | **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **15** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
 
-Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
+Chat gets a short pointer block in the **system prompt** and the domain catalog in `delegate_to_subagent`'s description; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 
 ### Where delegation guidance lives (MCP vs sidebar chat)
 
