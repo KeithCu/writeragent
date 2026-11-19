@@ -158,4 +158,4 @@ class DeleteCellComment(ToolCalcCommentBase):
                 annotations.removeByIndex(i)
                 return make_tool_ok(cell=cell_ref, message="Comment deleted.")
 
-        return self._tool_error("No comment found at %s." % cell_ref)
+        return self._tool_error("No comment found at %s." % cell_ref, code="COMMENT_NOT_FOUND")

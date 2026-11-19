@@ -163,7 +163,7 @@ This is the highest-value work because it directly reduces user-facing breakage.
 
 ### Target behaviors
 
-- When full document-context extraction fails, fall back to a smaller or safer context.
+- When full document-context extraction fails, fall back to a smaller or safer context (shipped for Writer chat context in `get_document_context_for_chat` in [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py), which falls back to selection text and then `"[Document content unavailable]"`).
 - When a disposed or stale UNO object is detected, try to reacquire what is cheap and safe to reacquire.
 - When a feature cannot continue safely, fail with a clear, localized message instead of cascading errors.
 - When history or config persistence fails, continue with a safe degraded path if one already exists.

@@ -1181,8 +1181,9 @@ def test_write_cell_range_tool_error_return():
 
     tool = _tool("write_range")
     with patch("plugin.calc.cells.CalcBridge", return_value=bridge):
-        res = tool.execute(ctx, range=["A1"], values="123")
+        res = tool.execute_safe(ctx, range=["A1"], values="123")
     assert res["status"] == "error"
+    assert res["code"] == "CALC_ERROR"
     assert "UNO write failure" in res["message"]
 
 
@@ -1847,7 +1848,7 @@ def test_delete_structure_runtime_exception_stays_tool_error():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.delete_structure.side_effect = RuntimeException("bad row")
         tool = _tool("delete_structure")
-        res = tool.execute(ctx, structure_type="rows", start=2, count=1)
+        res = tool.execute_safe(ctx, structure_type="rows", start=2, count=1)
         assert res["status"] == "error"
         assert "bad row" in res["message"]
         assert res.get("code") == "TOOL_EXECUTION_ERROR"
@@ -2144,6 +2145,48 @@ def test_delete_structure_missing_sheet_is_uno_object_error():
     assert res["details"]["available"] == ["Sheet1"]
 
 
+def test_mutate_ranges_preserves_writer_agent_exception_details_on_rollback():
+    from plugin.framework.errors import UnoObjectError
+
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.set_cell_style.side_effect = [
+            None,
+            UnoObjectError("No sheet named 'Nope'.", details={"available_sheets": ["Sheet1"]}),
+        ]
+        res = _tool("set_style").execute_safe(ctx, range=["A1", "Nope.B1"], bold=True)
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["details"]["available_sheets"] == ["Sheet1"]
+
+
+def test_mutate_ranges_promotes_suggested_call_from_exception_details():
+    from plugin.framework.errors import CalcError, suggest_call
+
+    doc = MagicMock()
+    doc.getUndoManager.return_value = FakeUndoManager()
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.plan_write.side_effect = CalcError(
+            "circular",
+            code="PY_CIRCULAR",
+            details={"data_range": "A1:A2", "suggested_call": suggest_call("write_range", range=["B1"], values="=PY()")},
+        )
+        res = _tool("write_range").execute_safe(ctx, range=["A1"], values="=PY()")
+
+    assert res["status"] == "error"
+    assert res["code"] == "PY_CIRCULAR"
+    assert res["suggested_call"]["arguments"]["range"] == ["B1"]
+    assert res["details"]["data_range"] == "A1:A2"
+    assert "suggested_call" not in res["details"]
+
+
 @pytest.mark.parametrize("tool_name,structure_type,start", [
     ("delete_structure", "rows", "Sheet2.5"),
     ("delete_structure", "columns", "Sheet2.C"),
@@ -2313,7 +2356,7 @@ def test_mutate_ranges_rolls_back_at_full_undo_stack():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = ["wrote", CalcError("occupied")]
 
-        res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
+        res = WriteCellRange().execute_safe(ctx, range=["A1", "B1"], values="1")
 
     assert res["status"] == "error"
     assert "Nothing was kept." in res["message"]
@@ -2331,7 +2374,7 @@ def test_mutate_ranges_empty_group_keeps_older_same_title():
 
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.commit_write.side_effect = CalcError("fail")
-        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+        res = WriteCellRange().execute_safe(ctx, range=["A1"], values="1")
 
     assert res["status"] == "error"
     assert "Nothing was kept." not in res["message"]

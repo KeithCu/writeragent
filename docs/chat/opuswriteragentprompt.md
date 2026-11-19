@@ -42,18 +42,19 @@
 - **Paragraph formatting (§2.2):** the read/write asymmetry is mostly closed. Alignment, margins, indent, line-height, and background now round-trip. The remaining read-only properties are deliberate.
 - **Feedback on writes (§2.1):** `full_document` now returns a summary, so the largest edit no longer gives the least feedback.
 - **Prompt (§2.5):** the header/footer contradiction is gone. The prompt also gained anchor guidance and the `data-lo-style` change.
-- **Not touched:** the §2.6 and §2.7 items. Nothing shipped on styles' side effects, `code` span literalness, or heading-link forgiveness.
+- **Shipped:** heading-link forgiveness, `$` math, Math-object reporting.
+- **Not touched:** `code` span literalness, styles' side effects (§2.6, §2.7).
 
 ## 3. Open work, by payoff
 
 1. **Literal `code`/`pre` content (§2.7).** Low effort, high payoff, and still open. It is the failure the report was written to illustrate, and it is silent corruption.
-2. **Generalize `warnings` (§2.2).** Extend the `data-lo-para`/`data-lo-style` mechanism to every ignored attribute, including table-cell styles. Add Math-object reporting.
+2. **Generalize `warnings` (§2.2).** Extend the `data-lo-para`/`data-lo-style` mechanism to every ignored attribute, including table-cell styles. (Math-object reporting shipped in `#3286`.)
 3. **Table deletion opt-in (§2.5).** The deletion is now reported, but it is still a side effect of an edit.
 4. **`clear_direct` rename (§2.6).** Cheap. The parameter still needs a paragraph of explanation.
-5. **Bare `#Heading` links and `$` math (§2.7).** Accept the natural form, or warn.
+5. **Bare `#Heading` links and `$` math (§2.7) — Shipped (`#3295`).** Bare `#Heading` resolves to `#Heading|outline` on import and complete `$...$` routes through HTML import, with warnings on missing targets.
 6. **Style-change reporting (§2.6).** Report removed indents, or fold the style change and text edits into one undo step.
 7. **Structured errors (§3, §4).** `error_code` + `suggested_call`. This is the broadest item and the one that most reduces prompt size.
-8. **Regex engine validation (§2.3).** Name the engine that rejected a pattern.
+8. **Regex engine validation (§2.3) — Shipped (`st-regex-icu`).** Validated via LibreOffice TextSearch2 (ICU); Python-only syntax is rejected and ICU classes are allowed.
 
 ## 4. Prompt shrinkage check (§6 of the original)
 

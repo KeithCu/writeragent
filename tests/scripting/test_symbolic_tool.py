@@ -281,7 +281,7 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
 @pytest.mark.parametrize(
     ("doc_type", "insert_err", "run_err", "expected_code", "expected_sub"),
     [
-        ("calc", "The result needs A1:B3, but 5 cell(s) there are not empty (first: A1). Nothing was written; clear them or start elsewhere.", None, "TOOL_EXECUTION_ERROR", "first: A1"),
+        ("calc", "The result needs A1:B3, but 5 cell(s) there are not empty (first: A1). Nothing was written; clear them or start elsewhere.", None, "CALC_ERROR", "first: A1"),
         ("writer", None, DocumentDisposedError("gone"), "DOCUMENT_DISPOSED", None),
         ("writer", None, RuntimeError("boom"), "TOOL_EXECUTION_ERROR", "Tool execution failed: boom"),
     ],
@@ -303,6 +303,23 @@ def test_symbolic_math_error_passthrough(mock_run, mock_main_thread, mock_insert
     assert result["code"] == expected_code
     if expected_sub is not None:
         assert expected_sub in result["message"]
+
+
+@patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.calc.symbolic_math.run_domain")
+def test_symbolic_math_calc_error_preserves_code_and_details(mock_run, mock_main_thread, mock_insert, writer_ctx):
+    from plugin.framework.errors import CalcError
+
+    writer_ctx.doc_type = "calc"
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    mock_run.return_value = {"status": "ok", "helper": "differentiate", "latex": "2 x", "text": "2*x"}
+    mock_insert.side_effect = CalcError("occupied", code="SPILL_BLOCKED", details={"needed_range": "A1:B3"})
+
+    result = _tool().execute_safe(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
+    assert result["status"] == "error"
+    assert result["code"] == "SPILL_BLOCKED"
+    assert result["details"] == {"needed_range": "A1:B3"}
 
 
 def test_symbolic_math_unknown_helper_has_code(writer_ctx):

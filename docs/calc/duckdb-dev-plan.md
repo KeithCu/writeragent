@@ -71,7 +71,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: honesty dict for `run_sql(sql)` and `run_sql(sql, con)`; DataFrame only when `preloaded` or `files` is passed. `scoped_dir` alone does not switch modes. The sandbox still passes the host folder on every call.
-- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (`{name: spec}`; a list is rejected by the schema), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
+- Tool: `sql_query_folder` (`python/sql` domain on `ToolCalcPythonSqlBase`, hidden from Calc chat via `CALC_HIDDEN_SPECIALIZED_DOMAINS`) accepts `sql`, `files` (`{name: spec}`; a list is rejected by the schema), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the calling document's folder on the UI thread. Off-main the doc is only passed through, so `scoped_dir` is `None` there. The helper captures that host path when it is injected; a cell assignment to `scoped_dir` or a `scoped_dir=` argument cannot point `run_sql` at another folder. That assignment is dropped at the start of the next execute, so a shared-kernel Run Python Script (which binds no folder) cannot inherit a cell-chosen path from an earlier `=PY()`. Inside a sandboxed execute, `session_duckdb(other_id)` cannot open another workbook's catalog. That guard still holds when the cell runs on the SIGALRM timeout-fallback thread (Windows, or any thread that cannot install the alarm): the sandbox copies its session context onto that thread.
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
@@ -119,7 +119,7 @@ CSV / Parquet / JSON remain **direct DuckDB file reads** in the venv (no UNO).
 | **In-memory only (session)** | Fast within one worker request / chat turn | Lost on restart; no cross-session reuse |
 | **Per-folder ODS cache on disk** | Amortizes LO conversion; opens native `.ods` on hit; matches embeddings cache mental model | Invalidation logic; disk use; must handle stale entries |
 
-**Proposed layout** (mirror [`writeragent_embeddings/`](../embeddings.md)):
+**Cache layout** (mirrors [`writeragent_embeddings/`](../embeddings.md)):
 
 ```text
 ~/project/
@@ -245,7 +245,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ## Phased implementation
 
-### Phase A — Folder SQL (MVP, lowest UNO risk)
+### Phase A — Folder SQL (MVP, lowest UNO risk) — **Landed**
 
 **User story:** “I have `actuals_2024.csv` and `actuals_2025.csv` beside my `.ods`. Run SQL to compare them.”
 
@@ -273,7 +273,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ---
 
-### Phase B — Single Calc range as one table
+### Phase B — Single Calc range as one table — **Landed**
 
 **User story:** “SQL this sheet’s table in `A1:F500` — group by region, sum revenue.”
 
@@ -476,8 +476,8 @@ No cloud telemetry required. Suggested signals:
 
 | # | Question | Owner |
 |---|----------|-------|
-| 1 | Separate `sql` specialized domain vs helpers under `analysis`? | PM + API |
-| 2 | Allow LLM-authored SQL verbatim vs template-only (file list from host)? | Security |
+| 1 | ~~Separate `sql` specialized domain vs helpers under `analysis`?~~ | **Resolved:** separate `python/sql` domain. `sql_query_folder` is on `ToolCalcPythonSqlBase` (`plugin/calc/base.py`), and Calc chat hides it via `CALC_HIDDEN_SPECIALIZED_DOMAINS`. |
+| 2 | ~~Allow LLM-authored SQL verbatim vs template-only (file list from host)?~~ | **Resolved:** `query_folder_sql` accepts LLM-authored read-only SQL with host-validated tables/files and read-only SQL guards. |
 | 3 | ~~XLSX via DuckDB vs host~~ | **Resolved:** LO import + UNO read (this doc § Decision). |
 | 4 | ~~ODS cache on disk?~~ | **Resolved / shipped:** per-folder `writeragent_ods_cache/` with mtime+size invalidation (§ ODS cache directory). |
 | 5 | Auto-export sheet snapshot to temp Parquet for huge ranges (Phase C perf) | Eng, defer |
