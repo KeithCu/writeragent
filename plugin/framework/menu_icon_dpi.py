@@ -10,12 +10,14 @@ HiDPI (~2×) wants the large assets (26/32). Little/1× screens want 16.
 Probes in order: VCL DPI, font, toolbar config, then env scale.
 Only VCL DPI is a strong reading; other probes remain weak until VCL DPI is available.
 Probe miss defaults to 32 px.
+macOS is fixed at 16: VCL pixels are points there and CoreGraphics applies the Retina backing scale itself.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import Any
 
 from plugin.framework.constants import get_plugin_dir
@@ -240,9 +242,23 @@ def _toolbar_scale(ctx: Any) -> float | None:
 
 
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
-    """One-shot: probe, interpolate, cache. Probe-miss prefers HiDPI large assets."""
+    """One-shot: return 16 on macOS, else probe, interpolate, and cache (miss prefers HiDPI)."""
     if _state.px is not None:
         return _state.px
+
+    if sys.platform == "darwin":
+        # VCL never applies a HiDPI scale on macOS (vcl/source/window/window.cxx
+        # CountDPIScaleFactor returns 100 under MACOSX); its pixels are Cocoa points
+        # and CoreGraphics doubles them on Retina. A PNG loaded by URL is drawn at
+        # its bitmap size in points (vcl/source/image/ImplImage.cxx ImplImage(Bitmap)),
+        # so the 1x assets are the right size on every Mac display, and the DPI
+        # probe (vcl/quartz/salgdicommon.cxx initResolution reports the clamped
+        # logical DPI, never the backing scale) must not run.
+        _state.px = _ONE_X_PX
+        if not _state.logged_strong:
+            log.info("menu_icon_dpi source=macos px=%s", _ONE_X_PX)
+            _state.logged_strong = True
+        return _ONE_X_PX
 
     probes = (
         ("vcl_dpi", probe_vcl_dpi_scale),
