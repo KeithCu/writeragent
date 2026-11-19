@@ -218,68 +218,31 @@ class TestResolveCellAddress:
         mock_cell.getCellAddress.return_value = mock_cell_addr
 
         mock_sheet = MagicMock()
-        mock_sheet.NamedRanges.hasByName.return_value = False
         mock_sheet.getCellByPosition.return_value = mock_cell
 
         doc = MagicMock()
-        doc.NamedRanges.hasByName.return_value = False
-        doc.getSheets.return_value.getCount.return_value = 0
-        controller = MagicMock()
-        controller.getActiveSheet.return_value = mock_sheet
-        doc.getCurrentController.return_value = controller
-
-        assert resolve_cell_address(doc, "A1") is mock_cell_addr
-        mock_sheet.getCellByPosition.assert_called_once_with(0, 0)
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.return_value = (mock_sheet, 2, 4)
+            assert resolve_cell_address(doc, "TargetCell") is mock_cell_addr
+            bridge_cls.return_value.resolve_cell.assert_called_once_with("TargetCell")
+        mock_sheet.getCellByPosition.assert_called_once_with(2, 4)
 
     def test_resolve_cell_address_invalid_raises(self):
         doc = MagicMock()
-        doc.NamedRanges.hasByName.return_value = False
-        doc.getCurrentController.return_value.getActiveSheet.return_value.NamedRanges.hasByName.return_value = False
-        doc.getSheets.return_value.getCount.return_value = 0
-        with pytest.raises(ToolExecutionError) as exc_info:
-            resolve_cell_address(doc, "BadRef")
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.side_effect = ValueError("Invalid cell address: BadRef")
+            with pytest.raises(ToolExecutionError) as exc_info:
+                resolve_cell_address(doc, "BadRef")
         assert exc_info.value.code == "INVALID_PARAM"
 
-    def test_resolve_cell_address_named_range_single_cell(self):
-        mock_cell = MagicMock()
-        mock_cell_addr = MagicMock()
-        mock_cell.getCellAddress.return_value = mock_cell_addr
-
-        mock_sheet = MagicMock()
-        mock_sheet.NamedRanges.hasByName.return_value = False
-        mock_sheet.getCellByPosition.return_value = mock_cell
-
-        cells = MagicMock()
-        cells.getRangeAddress.return_value = MagicMock(StartColumn=2, EndColumn=2, StartRow=4, EndRow=4)
-        cells.getSpreadsheet.return_value = mock_sheet
-
-        named_range = MagicMock()
-        named_range.getReferredCells.return_value = cells
-
-        doc = MagicMock()
-        doc.NamedRanges.hasByName.return_value = True
-        doc.NamedRanges.getByName.return_value = named_range
-        doc.getCurrentController.return_value.getActiveSheet.return_value = mock_sheet
-
-        assert resolve_cell_address(doc, "TargetCell") is mock_cell_addr
-        mock_sheet.getCellByPosition.assert_called_once_with(2, 4)
-
-    def test_resolve_cell_address_named_range_multi_cell_refused(self):
+    def test_resolve_cell_address_bridge_error_passes_through(self):
         from plugin.framework.errors import UnoObjectError
 
-        cells = MagicMock()
-        cells.getRangeAddress.return_value = MagicMock(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1, Sheet=0)
-
-        named_range = MagicMock()
-        named_range.getReferredCells.return_value = cells
-
         doc = MagicMock()
-        doc.NamedRanges.hasByName.return_value = True
-        doc.NamedRanges.getByName.return_value = named_range
-        doc.getCurrentController.return_value.getActiveSheet.return_value.NamedRanges.hasByName.return_value = False
-
-        with pytest.raises(UnoObjectError) as exc_info:
-            resolve_cell_address(doc, "MultiRange")
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.side_effect = UnoObjectError("Named range covers multiple cells.")
+            with pytest.raises(UnoObjectError) as exc_info:
+                resolve_cell_address(doc, "MultiRange")
         assert exc_info.value.code == "UNO_OBJECT_ERROR"
 
 

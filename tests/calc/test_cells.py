@@ -1848,7 +1848,7 @@ def test_delete_structure_runtime_exception_stays_tool_error():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.delete_structure.side_effect = RuntimeException("bad row")
         tool = _tool("delete_structure")
-        res = tool.execute(ctx, structure_type="rows", start=2, count=1)
+        res = tool.execute_safe(ctx, structure_type="rows", start=2, count=1)
         assert res["status"] == "error"
         assert "bad row" in res["message"]
         assert res.get("code") == "TOOL_EXECUTION_ERROR"

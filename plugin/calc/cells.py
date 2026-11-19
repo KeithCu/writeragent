@@ -167,10 +167,10 @@ def _mutate_ranges(
                 msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually."
             else:
                 msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them."
-        elif isinstance(exc, WriterAgentException):
-            raise
         else:
-            return tool._tool_error(str(exc))
+            msg = str(exc)
+        # Preserve WriterAgentException code and details (such as a missing sheet's
+        # available list) so execute_safe does not flatten them to a generic error.
         if isinstance(exc, WriterAgentException):
             raise ToolExecutionError(msg, code=exc.code, details=exc.details) from exc
         return tool._tool_error(msg)
@@ -911,19 +911,13 @@ class _StructureTool(ToolBase):
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         sheet = bridge.get_sheet(sheet_name) if sheet_name else None
-        try:
-            assert start is not None
-            if self.insert:
-                result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
-            else:
-                confirm = kwargs.get("confirm", False) is True
-                result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
-            return make_tool_ok(**result)
-        except Exception as e:
-            # Disposal and WriterAgentException re-raise for execute_safe; other exceptions return str(e) without execute_safe's "Tool execution failed: " prefix.
-            if is_disposal(e) or isinstance(e, WriterAgentException):
-                raise
-            return self._tool_error(str(e))
+        assert start is not None
+        if self.insert:
+            result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
+        else:
+            confirm = kwargs.get("confirm", False) is True
+            result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
+        return make_tool_ok(**result)
 
 
 class DeleteStructure(_StructureTool):
