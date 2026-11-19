@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer style tools: list and inspect, create, update, clone, and import styles.
+"""Writer style tools: list and inspect, create, update, clone, import styles, and format text directly.
 
 Property updates use UNO property names; struct-valued properties take a dict of fields.
 """
@@ -22,6 +22,7 @@ Property updates use UNO property names; struct-valued properties take a dict of
 from __future__ import annotations
 
 from collections import deque
+from contextlib import nullcontext
 import copy
 import logging
 import os
@@ -65,7 +66,13 @@ from plugin.framework.errors import (
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import get_toolkit
-from plugin.writer.edit_review import flag_style_unreviewed, next_agent_edit_undo_title
+from plugin.writer.edit_review import (
+    annotate_review_status,
+    flag_style_unreviewed,
+    next_agent_edit_undo_title,
+    review_recording_enabled,
+)
+from plugin.writer.record_changes import is_recording_changes, record_changes
 from . import search as search_mod
 from .page import copy_page_style, get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
@@ -74,8 +81,9 @@ from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer")
 
-STYLE_GOVERNED_CHAR_PROPERTIES = (
-    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+FONT_NAME_PROPERTIES = ("CharFontName", "CharFontNameAsian", "CharFontNameComplex")
+
+STYLE_GOVERNED_CHAR_PROPERTIES = FONT_NAME_PROPERTIES + (
     "CharHeight", "CharHeightAsian", "CharHeightComplex",
 )
 
@@ -124,6 +132,73 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
             reraise_if_disposed(exc)
             continue
     return cleared
+
+
+def convert_direct_properties(updates: dict[str, Any]) -> dict[str, Any]:
+    """Normalize ParaAdjust/structs and convert colors/CharPosture for direct formatting."""
+    normalized = _normalize_property_updates(updates)
+    return {name: _convert_value(name, val) for name, val in normalized.items()}
+
+
+def set_cursor_properties(cursor: Any, updates: dict[str, Any]) -> None:
+    """Apply already-converted UNO properties to *cursor* in a single setPropertyValues batch."""
+    if not updates:
+        return
+    names = tuple(updates.keys())
+    raw_values = tuple(updates.values())
+    typed_values = tuple(_typed_property_value(name, val) for name, val in updates.items())
+    use_invoke = any(typed is not raw for typed, raw in zip(typed_values, raw_values))
+    try:
+        if use_invoke:
+            import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
+
+            cast("Any", uno).invoke(cursor, "setPropertyValues", (names, typed_values))
+        else:
+            cursor.setPropertyValues(names, raw_values)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise ValueError(
+            "LibreOffice rejected the values for %s: %s" % (", ".join(names), exc)
+        ) from exc
+
+
+def _unsupported_property_error(
+    tool: FrameworkToolBase,
+    info: Any,
+    names: Iterable[str],
+) -> dict[str, Any] | None:
+    """Validate property names against *info* (XPropertySetInfo) before mutating.
+
+    SwUnoCursorHelper::SetPropertyValues queues unknown and read-only names and
+    throws only after applying earlier valid properties, so validate up front.
+    """
+    unknown: list[str] = []
+    readonly: list[str] = []
+    for name in names:
+        if not info.hasPropertyByName(name):
+            unknown.append(name)
+            continue
+        prop = info.getPropertyByName(name)
+        if prop.Attributes & _READONLY:
+            readonly.append(name)
+    if unknown:
+        all_names = [str(p.Name) for p in info.getProperties()]
+        hints = []
+        for bad in unknown:
+            close = _close_style_names(bad, all_names) if all_names else []
+            if close and close[0] != bad:
+                hints.append("'%s' -> '%s'?" % (bad, close[0]))
+        hint_text = (" Did you mean: %s" % ", ".join(hints)) if hints else ""
+        return tool._tool_error(
+            "Unknown property: %s.%s" % (", ".join(unknown), hint_text),
+            code="UNKNOWN_PROPERTY",
+        )
+    if readonly:
+        return tool._tool_error(
+            "Read-only property cannot be modified: %s." % ", ".join(readonly),
+            code="READ_ONLY_PROPERTY",
+        )
+    return None
 
 
 def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
@@ -770,6 +845,40 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
     return struct
 
 
+_COLOR_PROPERTIES = ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor")
+# Paragraph-level properties without the Para* prefix; they also touch the whole
+# paragraph and record Format redlines without old-value SwRedlineExtraData.
+_NON_PARA_PREFIX_PARAGRAPH_PROPERTIES = ("NumberingStyleName", "PageDescName", "BreakType")
+
+
+def _is_paragraph_property(name: str) -> bool:
+    return name.startswith("Para") or name in _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES
+
+
+def _convert_value(prop_name: str, value: Any) -> Any:
+    """Convert color strings and validate CharPosture before passing to UNO."""
+    if prop_name in _COLOR_PROPERTIES:
+        parsed = style_color_to_uno(value)
+        if parsed is None:
+            raise ValueError("Invalid color: %r" % (value,))
+        return parsed
+    if prop_name == "CharPosture":
+        # com.sun.star.awt.FontSlant: NONE=0, OBLIQUE=1, ITALIC=2. Must be int in {0, 1, 2} and not bool.
+        if isinstance(value, bool) or not isinstance(value, int) or value not in (0, 1, 2):
+            raise ValueError("CharPosture is com.sun.star.awt.FontSlant: 0=None, 1=Oblique, 2=Italic.")
+    return value
+
+
+def _typed_property_value(prop_name: str, value: Any) -> Any:
+    """Wrap sequence-of-struct values in uno.Any so PyUNO passes a typed sequence."""
+    if prop_name == "ParaTabStops" and isinstance(value, tuple):
+        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
+
+        # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
+        return cast("Any", uno).Any("[]com.sun.star.style.TabStop", value)
+    return value
+
+
 def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """setPropertyValue that also handles sequence-of-struct properties.
 
@@ -778,12 +887,11 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     typed sequence ``[]com.sun.star.style.TabStop``, which only uno.invoke with a
     uno.Any can express (a plain uno.Any argument is rejected outside uno.invoke).
     """
-    if prop_name == "ParaTabStops" and isinstance(value, tuple):
+    typed = _typed_property_value(prop_name, value)
+    if typed is not value:
         import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
 
-        # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
-        uno_rt = cast("Any", uno)
-        uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]com.sun.star.style.TabStop", value)))
+        cast("Any", uno).invoke(style, "setPropertyValue", (prop_name, typed))
         return
     style.setPropertyValue(prop_name, value)
 
@@ -793,19 +901,11 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
     applied: dict[str, Any] = {}
     failed: dict[str, str] = {}
     for prop_name, prop_val in updates.items():
-        # Handle color conversions (None = unparseable; do not pass raw strings to UNO).
-        if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor"):
-            parsed = style_color_to_uno(prop_val)
-            if parsed is None:
-                failed[prop_name] = "Invalid color: %r" % (prop_val,)
-                continue
-            prop_val = parsed
-
-        if prop_name == "CharPosture":
-            # com.sun.star.awt.FontSlant: NONE=0, OBLIQUE=1, ITALIC=2. Must be int in {0, 1, 2} and not bool.
-            if isinstance(prop_val, bool) or not isinstance(prop_val, int) or prop_val not in (0, 1, 2):
-                failed[prop_name] = "CharPosture is com.sun.star.awt.FontSlant: 0=None, 1=Oblique, 2=Italic."
-                continue
+        try:
+            prop_val = _convert_value(prop_name, prop_val)
+        except ValueError as exc:
+            failed[prop_name] = str(exc)
+            continue
 
         try:
             _set_style_property(style, prop_name, prop_val)
@@ -1218,6 +1318,136 @@ class StyleGetInfo(ToolWriterStyleBase):
         return {"status": "ok", **info}
 
 
+def target_cursors(
+    tool: FrameworkToolBase,
+    ctx: ToolContext,
+    kwargs: dict[str, Any],
+) -> tuple[list[Any], dict[str, Any] | None, search_mod.MatchMode | None]:
+    """Resolve target kwargs into (cursors, error_payload, search_mode)."""
+    target = kwargs.get("target", "selection")
+    if target != "search":
+        try:
+            cursor = resolve_target_cursor(
+                ctx,
+                target,
+                kwargs.get("old_content"),
+                case_sensitive=kwargs.get("case_sensitive"),
+            )
+            return [cursor], None, None
+        except ValueError as ve:
+            return [], tool._tool_error(str(ve), code="INVALID_PARAM"), None
+
+    # target='search' resolves its own ranges here so a miss returns the structured
+    # build_search_not_found_response payload; resolve_target_cursor serves other targets
+    # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
+    s = search_mod.prepare_old_content(kwargs.get("old_content"))
+    if not s:
+        return [], tool._tool_error(
+            "target='search' requires old_content.",
+            code="INVALID_PARAM",
+            top_level={"applied": False, "matched": False},
+        ), None
+    cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
+    occ = kwargs.get("occurrence")
+    many = bool(kwargs.get("all_matches")) or occ is not None
+    ranges, mode = search_mod.find_literal_ranges(
+        ctx.doc,
+        s,
+        case_sensitive=cs,
+        limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
+    )
+    if not ranges:
+        res = search_mod.build_search_not_found_response(
+            ctx.doc, s, case_sensitive=mode.case_sensitive, all_matches=many, refuse_oversized=True
+        )
+        res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
+        res.update(mode.result_fields())
+        return [], res, mode
+    if occ is not None:
+        # Schema type integer (bool fails). validate has no min/max.
+        if occ < 0 or occ >= len(ranges):
+            err = tool._tool_error(
+                "occurrence %s out of range (found %d match(es), use 0..%d)."
+                % (occ, len(ranges), len(ranges) - 1),
+                code="OCCURRENCE_OUT_OF_RANGE",
+            )
+            err.update(mode.result_fields())
+            return [], err, mode
+        ranges = [ranges[occ]]
+    return [cursor_spanning_range(r) for r in ranges], None, mode
+
+
+def apply_to_cursors(
+    tool: FrameworkToolBase,
+    ctx: ToolContext,
+    cursors: list[Any],
+    apply_one: Callable[[Any], Any],
+    label: str,
+    *,
+    single_action: bool = True,
+) -> tuple[list[Any], dict[str, Any] | None]:
+    # A single range is already an atomic undo action when apply_one issues one UNO call;
+    # multiple ranges or multi-call resets use the compound undo bracket so they undo as one step.
+    # No try/except here: execute_safe reports a failed apply, and catching it
+    # would turn a closed document into a generic 'Could not apply ...'.
+    if len(cursors) == 1 and single_action:
+        return [apply_one(cursors[0])], None
+
+    title = next_agent_edit_undo_title()
+    reports: list[Any] = []
+
+    def mutate() -> None:
+        for c in cursors:
+            reports.append(apply_one(c))
+
+    try:
+        outcome = commit_or_rollback(ctx.doc, title, mutate)
+    except UndoUnavailable:
+        return [], tool._tool_error(
+            "Cannot apply %s to every match in one undo step. Nothing was changed." % label,
+            code="UNDO_UNAVAILABLE",
+        )
+    if outcome.mutate_error is not None:
+        error = outcome.mutate_error
+        if outcome.rolled_back:
+            return [], tool._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
+        return [], tool._tool_error(
+            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+            % (len(reports), len(cursors), error),
+            code="TOOL_EXECUTION_ERROR",
+        )
+
+    err = outcome.error
+    if err is not None:
+        if err.get("code") == "UNDO_CONTEXT_LEAK":
+            return [], tool._tool_error(
+                "Applied %s to %d match(es), but the undo step could not be closed (%s). "
+                "The changes are in the document and the undo context is still open."
+                % (label, len(reports), err.get("message")),
+                code="TOOL_EXECUTION_ERROR",
+            )
+        if err.get("code") == "ROLLBACK_FAILED":
+            return [], tool._tool_error(
+                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                % (len(reports), len(cursors), err.get("message")),
+                code="ROLLBACK_FAILED",
+            )
+    return reports, None
+
+
+def _with_normalized_old_content(kwargs: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    if kwargs.get("target") == "search":
+        result.setdefault("normalized_old_content", search_mod.prepare_old_content(kwargs.get("old_content")))
+    return result
+
+
+_SEARCH_MATCH_PROPERTIES: dict[str, Any] = {
+    "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
+    "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
+    "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+}
+
+
 class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
@@ -1238,9 +1468,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family."), default="ParagraphStyles"),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
-            "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+            **_SEARCH_MATCH_PROPERTIES,
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
                 "Direct (hand-set) formatting on the target, ParagraphStyles only. "
                 "'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. "
@@ -1327,107 +1555,6 @@ class ApplyStyle(FrameworkToolBase):
         replay = None if isinstance(old_c, str) and len(old_c) > 100 else args  # no truncated needle
         return _missing_style_error(self, style_name, family, fam, replay=replay)
 
-    def _search_cursors(
-        self,
-        ctx: ToolContext,
-        kwargs: dict[str, Any],
-    ) -> tuple[list[Any], dict[str, Any] | None, search_mod.MatchMode | None]:
-        # target='search' resolves its own ranges here so a miss returns the structured
-        # build_search_not_found_response payload; resolve_target_cursor serves other targets
-        # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
-        s = search_mod.prepare_old_content(kwargs.get("old_content"))
-        if not s:
-            return [], self._tool_error(
-                "target='search' requires old_content.",
-                code="INVALID_PARAM",
-                top_level={"applied": False, "matched": False},
-            ), None
-        cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
-        occ = kwargs.get("occurrence")
-        many = bool(kwargs.get("all_matches")) or occ is not None
-        ranges, mode = search_mod.find_literal_ranges(
-            ctx.doc,
-            s,
-            case_sensitive=cs,
-            limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
-        )
-        if not ranges:
-            res = search_mod.build_search_not_found_response(
-                ctx.doc, s, case_sensitive=mode.case_sensitive, all_matches=many, refuse_oversized=True
-            )
-            res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
-            res.update(mode.result_fields())
-            return [], res, mode
-        if occ is not None:
-            # Schema type integer (bool fails). validate has no min/max.
-            if occ < 0 or occ >= len(ranges):
-                err = self._tool_error(
-                    "occurrence %s out of range (found %d match(es), use 0..%d)."
-                    % (occ, len(ranges), len(ranges) - 1),
-                    code="OCCURRENCE_OUT_OF_RANGE",
-                )
-                err.update(mode.result_fields())
-                return [], err, mode
-            ranges = [ranges[occ]]
-        return [cursor_spanning_range(r) for r in ranges], None, mode
-
-    def _apply_cursors(
-        self,
-        ctx: ToolContext,
-        cursors: list[Any],
-        family: str,
-        uno_value: str,
-        clear_direct: Literal["none", "style_props", "all"],
-        style_name: str,
-    ) -> tuple[list[ParagraphStyleApplyReport | None], dict[str, Any] | None]:
-        # A single range is already an atomic undo action; the compound undo bracket
-        # exists so multiple ranges undo together as one step.
-        # No try/except here: execute_safe reports a failed apply, and catching it
-        # would turn a closed document into a generic 'Could not apply style'.
-        if len(cursors) == 1:
-            return [self._apply_one(ctx, family, uno_value, cursors[0], clear_direct)], None
-
-        title = next_agent_edit_undo_title()
-        reports: list[ParagraphStyleApplyReport | None] = []
-
-        def mutate() -> None:
-            for c in cursors:
-                reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
-
-        try:
-            outcome = commit_or_rollback(ctx.doc, title, mutate)
-        except UndoUnavailable:
-            return [], self._tool_error(
-                "Cannot apply the style to every match in one undo step. Nothing was changed.",
-                code="UNDO_UNAVAILABLE",
-            )
-        if outcome.mutate_error is not None:
-            error = outcome.mutate_error
-            if outcome.rolled_back:
-                return [], self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
-            return [], self._tool_error(
-                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                % (len(reports), len(cursors), error),
-                code="TOOL_EXECUTION_ERROR",
-            )
-
-        err = outcome.error
-        if err is not None:
-            if err.get("code") == "UNDO_CONTEXT_LEAK":
-                return [], self._tool_error(
-                    "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                    "The changes are in the document and the undo context is still open."
-                    % (style_name, len(reports), err.get("message")),
-                    code="TOOL_EXECUTION_ERROR",
-                )
-            if err.get("code") == "ROLLBACK_FAILED":
-                return [], self._tool_error(
-                    "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                    % (len(reports), len(cursors), err.get("message")),
-                    code="ROLLBACK_FAILED",
-                )
-        return reports, None
-
     def _success(
         self,
         style_name: str,
@@ -1452,10 +1579,7 @@ class ApplyStyle(FrameworkToolBase):
         return res
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        result = self._execute(ctx, **kwargs)
-        if kwargs.get("target") == "search":
-            result.setdefault("normalized_old_content", search_mod.prepare_old_content(kwargs.get("old_content")))
-        return result
+        return _with_normalized_old_content(kwargs, self._execute(ctx, **kwargs))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"].strip()
@@ -1491,22 +1615,219 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
-        search_mode: search_mod.MatchMode | None = None
-        if target == "search":
-            cursors, err, search_mode = self._search_cursors(ctx, kwargs)
-        else:
-            try:
-                cursors, err = [resolve_target_cursor(ctx, target, kwargs.get("old_content"), case_sensitive=kwargs.get("case_sensitive"))], None
-            except ValueError as ve:
-                return self._tool_error(str(ve), code="INVALID_PARAM")
+        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
         if err is not None:
             return err
 
-        reports, err = self._apply_cursors(ctx, cursors, family, uno_value, clear_direct, style_name)
+        reports, err = apply_to_cursors(
+            self,
+            ctx,
+            cursors,
+            lambda c: self._apply_one(ctx, family, uno_value, c, clear_direct),
+            "style '%s'" % style_name,
+        )
         if err is not None:
             return err
 
         res = self._success(style_name, family, target, reports)
+        if search_mode is not None:
+            res.update(search_mode.result_fields())
+        return res
+
+
+class StyleFormatText(ToolWriterStyleBase):
+    """Set or reset direct formatting properties on text without touching other attributes."""
+
+    name: str | None = "style_format_text"
+    description: str = (
+        "Set or reset direct formatting on text, keeping everything else. "
+        "properties uses UNO names and the same value forms as style_update: "
+        "CharWeight (150 bold, 100 normal), CharHeight (points), CharPosture (2 italic), "
+        "CharFontName/CharFontNameAsian/CharFontNameComplex, CharColor/CharBackColor (hex), "
+        "ParaAdjust (left/center/right/justify), ParaLineSpacing object, Para*Margin (1/100 mm); "
+        "any property of a Writer text range is accepted. "
+        "reset lists names whose hand-set value is dropped so the style shows. "
+        "Paragraph-level properties (Para*, NumberingStyleName, PageDescName, BreakType) change every paragraph the target touches. "
+        "target='full_document' covers body text and tables (not headers, footers, frames or footnotes)."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "properties": {
+                "type": "object",
+                "description": "UNO property name to value to set as direct formatting.",
+            },
+            "reset": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "UNO property names whose direct formatting is removed so the style shows.",
+            },
+            "target": enum_param(["selection", "full_document", "search"], "Text to change.", default="selection"),
+            "old_content": {"type": "string", "description": "Text to find and change if target = 'search'."},
+            **_SEARCH_MATCH_PROPERTIES,
+        },
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return _with_normalized_old_content(kwargs, self._execute(ctx, **kwargs))
+
+    def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        raw_props = kwargs.get("properties")
+        if raw_props is None:
+            raw_props = {}
+        if not isinstance(raw_props, dict):
+            return self._tool_error("properties must be an object.", code="INVALID_PARAM")
+
+        raw_reset = kwargs.get("reset")
+        if raw_reset is None:
+            raw_reset = []
+        if not isinstance(raw_reset, list):
+            return self._tool_error("reset must be an array of property names.", code="INVALID_PARAM")
+
+        reset_names: list[str] = []
+        seen_reset: set[str] = set()
+        for item in raw_reset:
+            if not isinstance(item, str) or not item.strip():
+                return self._tool_error("reset entries must be non-empty property names.", code="INVALID_PARAM")
+            name = item.strip()
+            if name not in seen_reset:
+                seen_reset.add(name)
+                reset_names.append(name)
+
+        if not raw_props and not reset_names:
+            return self._tool_error("Specify at least one property in properties or reset.", code="INVALID_PARAM")
+
+        overlap = [name for name in raw_props if name in seen_reset]
+        if overlap:
+            return self._tool_error(
+                "Cannot both set and reset the same property: %s." % ", ".join(overlap),
+                code="INVALID_PARAM",
+            )
+
+        try:
+            updates = convert_direct_properties(raw_props)
+        except ValueError as exc:
+            return self._tool_error(str(exc), code="INVALID_PARAM")
+
+        target = kwargs.get("target", "selection")
+        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
+        if err is not None:
+            return err
+        if target == "selection" and cursors[0].isCollapsed():
+            return self._tool_error(
+                "Selection is empty (caret only): select text first, or use target='search'/set_selection.",
+                code="INVALID_PARAM",
+            )
+
+        all_names = list(updates.keys()) + reset_names
+        prop_err = _unsupported_property_error(self, cursors[0].getPropertySetInfo(), all_names)
+        if prop_err is not None:
+            return prop_err
+
+        # One body-spanning cursor covers tables (including nested tables) because
+        # lcl_InsAttr and ResetAttrs walk every node in the range.
+        def apply_one(cursor: Any) -> list[str]:
+            if updates:
+                set_cursor_properties(cursor, updates)
+            if not reset_names:
+                return []
+            cleared = reset_properties_to_default(cursor, reset_names)
+            # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
+            # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
+            # such as ParaStyleName or ListId; those remain DIRECT_VALUE on the cursor.
+            actually_cleared: list[str] = []
+            for name in cleared:
+                try:
+                    state = cursor.getPropertyState(name)
+                    if getattr(state, "value", None) == "DIRECT_VALUE":
+                        continue
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                actually_cleared.append(name)
+            return actually_cleared
+
+        # SwDoc::ResetAttrs has no redline branch, so resets cannot be tracked and flag style_unreviewed instead.
+        record = review_recording_enabled() and bool(updates)
+        label = "direct formatting"
+        # Catch ValueError here so a single-cursor type rejection from setPropertyValues
+        # reports INVALID_PARAM with "Nothing was changed" (matching the multi-cursor path)
+        # instead of escaping to execute_safe as a generic tool crash; disposal already re-raised.
+        try:
+            with (record_changes(ctx.doc, True) if record else nullcontext()):
+                tracked = bool(updates) and is_recording_changes(ctx.doc)
+                reports, err = apply_to_cursors(
+                    self, ctx, cursors, apply_one, label, single_action=not reset_names
+                )
+        except ValueError as exc:
+            return self._tool_error("Nothing was changed: %s" % exc, code="INVALID_PARAM")
+        if err is not None:
+            return err
+
+        cleared_set = {name for rep in reports for name in rep}
+        reset_done = [name for name in reset_names if name in cleared_set]
+        not_reset = [name for name in reset_names if name not in cleared_set]
+
+        applied_props = {name: _schema_prop_value(name, val) for name, val in updates.items()}
+        after: dict[str, Any] = {}
+        for name in all_names:
+            try:
+                raw_after = cursors[0].getPropertyValue(name)
+                after[name] = _schema_prop_value(name, raw_after) if raw_after is not None else None
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                after[name] = None
+
+        res: dict[str, Any] = {
+            "status": "ok",
+            "target": target,
+            "applied": bool(applied_props or reset_done),
+            "properties": applied_props,
+            "reset": reset_done,
+            "after": after,
+            "tracked": tracked,
+        }
+        if not_reset:
+            res["not_reset"] = not_reset
+        if target == "search":
+            res.update({"matched": True, "applied_count": len(reports)})
+            scope_desc = "%d match(es)" % len(reports)
+        else:
+            scope_desc = target
+
+        parts = []
+        if applied_props:
+            parts.append("set %s" % ", ".join(applied_props.keys()))
+        if reset_done:
+            parts.append("reset %s" % ", ".join(reset_done))
+        if parts:
+            res["message"] = "Applied direct formatting (%s) on %s." % ("; ".join(parts), scope_desc)
+        else:
+            res["message"] = "No direct formatting was changed on %s (could not reset: %s)." % (
+                scope_desc, ", ".join(not_reset)
+            )
+
+        warnings: list[str] = []
+        for font_prop in FONT_NAME_PROPERTIES:
+            if font_prop in updates:
+                w = _font_not_installed_warning(ctx, updates[font_prop])
+                if w:
+                    warnings.append(w)
+        if tracked and any(_is_paragraph_property(name) for name in updates):
+            warnings.append(
+                "Paragraph properties are recorded as Format changes, but rejecting them does not restore the previous value."
+            )
+        if not_reset:
+            warnings.append(
+                "Could not reset as direct formatting: %s." % ", ".join(not_reset)
+            )
+        if warnings:
+            res["warning"] = " ".join(warnings)
+
+        if tracked:
+            res = annotate_review_status(res)
+        if reset_done or not tracked:
+            flag_style_unreviewed(res)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res

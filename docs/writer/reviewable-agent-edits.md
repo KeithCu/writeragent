@@ -35,6 +35,7 @@ What is implemented today (not every Writer mutation tool):
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
 | `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
+| `style_format_text` | Yes for `properties` (Format redlines; `Char*` restore on reject, `Para*` do not; `reset` is not tracked and reports `style_unreviewed`) | No | No |
 | Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`; `page_insert_break` is not in this set) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
 

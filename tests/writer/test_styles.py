@@ -22,7 +22,8 @@ from plugin.writer.search import MatchMode
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
-    StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
+    StyleList, StyleGetInfo, ApplyStyle, StyleFormatText,
+    StyleCreate, StyleClone, StyleImport, StyleUpdate,
     _close_style_names, _STYLE_KEEPALIVE,
 )
 from plugin.framework.send_cancellation import SendCancellation
@@ -2029,4 +2030,322 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     assert failures == 1
     assert notes == []
     assert overrides[0][1] == {"CharWeight": 150}
+
+
+# ---- style_format_text -------------------------------------------------------
+
+def _font_ctx(recording=False):
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: recording if name == "RecordChanges" else None
+    return ctx
+
+
+def _noncollapsed_cursor():
+    cursor = MagicMock()
+    cursor.isCollapsed.return_value = False
+    info = cursor.getPropertySetInfo.return_value
+    info.hasPropertyByName.return_value = True
+    info.getPropertyByName.return_value.Attributes = 1
+    return cursor
+
+
+def test_style_format_text_sets_converted_values_in_one_call():
+    cursor = _noncollapsed_cursor()
+    cursor.getPropertyValue.side_effect = lambda n: {"CharWeight": 150, "CharColor": 0xFF0000, "ParaAdjust": 3}.get(n)
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
+        res = StyleFormatText().execute(
+            _font_ctx(),
+            properties={"CharWeight": 150, "CharColor": "#FF0000", "ParaAdjust": "center"},
+        )
+    assert res["status"] == "ok"
+    assert res["applied"] is True
+    assert res["tracked"] is False
+    assert res["properties"]["ParaAdjust"] == "center"
+    assert res["after"] == {"CharWeight": 150, "CharColor": 0xFF0000, "ParaAdjust": "center"}
+    cursor.setPropertyValues.assert_called_once_with(
+        ("CharWeight", "CharColor", "ParaAdjust"),
+        (150, 0xFF0000, 3),
+    )
+
+
+def test_style_format_text_unknown_name_changes_nothing():
+    cursor = _noncollapsed_cursor()
+    info = cursor.getPropertySetInfo.return_value
+    info.hasPropertyByName.side_effect = lambda n: n != "CharFontSize"
+    p1, p2 = MagicMock(), MagicMock()
+    p1.Name = "CharHeight"
+    p2.Name = "CharFontName"
+    info.getProperties.return_value = [p1, p2]
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
+        res = StyleFormatText().execute(_font_ctx(), properties={"CharWeight": 150, "CharFontSize": 12})
+    assert res["status"] == "error"
+    assert res["code"] == "UNKNOWN_PROPERTY"
+    assert "CharFontSize" in res["message"]
+    assert "Did you mean" in res["message"]
+    assert "CharFontName" in res["message"]
+    cursor.setPropertyValues.assert_not_called()
+
+
+def test_style_format_text_read_only_name_refused():
+    cursor = _noncollapsed_cursor()
+    info = cursor.getPropertySetInfo.return_value
+    info.getPropertyByName.return_value.Attributes = 17
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
+        res = StyleFormatText().execute(_font_ctx(), properties={"TextTable": None})
+    assert res["status"] == "error"
+    assert res["code"] == "READ_ONLY_PROPERTY"
+    cursor.setPropertyValues.assert_not_called()
+
+
+def test_style_format_text_requires_properties_or_reset_and_no_overlap():
+    res_empty = StyleFormatText().execute(_font_ctx())
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "INVALID_PARAM"
+
+    res_overlap = StyleFormatText().execute(
+        _font_ctx(), properties={"CharWeight": 150}, reset=["CharWeight"]
+    )
+    assert res_overlap["status"] == "error"
+    assert res_overlap["code"] == "INVALID_PARAM"
+
+
+def test_style_format_text_invalid_color_and_para_adjust_int_are_invalid_param():
+    with patch("plugin.writer.styles.resolve_target_cursor") as resolve:
+        res_color = StyleFormatText().execute(_font_ctx(), properties={"CharColor": "reddish"})
+        res_adjust = StyleFormatText().execute(_font_ctx(), properties={"ParaAdjust": 3})
+    assert res_color["status"] == "error" and res_color["code"] == "INVALID_PARAM"
+    assert res_adjust["status"] == "error" and res_adjust["code"] == "INVALID_PARAM"
+    resolve.assert_not_called()
+
+
+def test_style_format_text_reset_uses_default_and_one_undo_bracket():
+    from plugin.doc.compound_undo import UndoOutcome
+
+    cursor = _noncollapsed_cursor()
+    cursor.getPropertyValue.side_effect = lambda n: {"CharFontName": "DejaVu Sans", "ParaAdjust": 0}.get(n)
+
+    def run_bracket(doc, title, mutate):
+        mutate()
+        return UndoOutcome()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=run_bracket) as bracket:
+        res = StyleFormatText().execute(_font_ctx(), reset=["CharFontName", "ParaAdjust"])
+    assert res["status"] == "ok"
+    assert res["reset"] == ["CharFontName", "ParaAdjust"]
+    assert res["tracked"] is False
+    bracket.assert_called_once()
+    cursor.setPropertiesToDefault.assert_called_once_with(("CharFontName", "ParaAdjust"))
+    cursor.setPropertyValues.assert_not_called()
+
+
+def test_style_format_text_collapsed_selection_refused():
+    cursor = MagicMock()
+    cursor.isCollapsed.return_value = True
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
+        res = StyleFormatText().execute(_font_ctx(), properties={"CharFontName": "Arial"}, target="selection")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "select text first" in res["message"]
+    cursor.setPropertyValues.assert_not_called()
+
+
+def test_style_format_text_all_matches_applies_to_each():
+    ranges = [MagicMock(), MagicMock(), MagicMock()]
+    cursors = [_noncollapsed_cursor(), _noncollapsed_cursor(), _noncollapsed_cursor()]
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.styles.cursor_spanning_range", side_effect=cursors), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
+        res = StyleFormatText().execute(
+            _font_ctx(), properties={"CharFontName": "Arial"}, target="search", old_content="Title", all_matches=True
+        )
+    assert res["status"] == "ok"
+    assert res["matched"] is True
+    assert res["applied_count"] == 3
+    assert res["normalized_old_content"] == "Title"
+    for c in cursors:
+        c.setPropertyValues.assert_called_once_with(("CharFontName",), ("Arial",))
+
+
+def test_style_format_text_search_miss_reports_not_matched():
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.search.build_search_not_found_response", return_value={"status": "error", "message": "not found"}):
+        res = StyleFormatText().execute(
+            _font_ctx(), properties={"CharFontName": "Arial"}, target="search", old_content="Missing"
+        )
+    assert res["status"] == "error"
+    assert res["matched"] is False
+    assert res["applied"] is False
+
+
+def test_style_format_text_records_set_and_warns_for_para_props():
+    cursor = _noncollapsed_cursor()
+    ctx = _style_ctx()
+    # False initially, then True after setPropertyValue("RecordChanges", True), then False on restore.
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res = StyleFormatText().execute(ctx, properties={"CharWeight": 150, "ParaAdjust": "center"})
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert res["pending_review"] is True
+    assert res["review_mode"] == "record"
+    assert "Paragraph properties" in res["warning"]
+    rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
+
+
+def test_style_format_text_reset_under_review_mode_is_unreviewed_and_untracked():
+    cursor = _noncollapsed_cursor()
+    ctx = _font_ctx(recording=False)
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res = StyleFormatText().execute(ctx, reset=["CharFontName"])
+    assert res["status"] == "ok"
+    assert res["tracked"] is False
+    assert res["style_unreviewed"] is True
+    assert "pending_review" not in res
+    rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls == []
+
+    # Mixed set + reset under record mode carries both pending_review and style_unreviewed.
+    rec_states = [False, True, True]
+    ctx2 = _style_ctx()
+    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        mixed = StyleFormatText().execute(ctx2, properties={"CharWeight": 150}, reset=["CharFontName"])
+    assert mixed["status"] == "ok"
+    assert mixed["tracked"] is True
+    assert mixed["pending_review"] is True
+    assert mixed["style_unreviewed"] is True
+
+
+def test_style_format_text_warns_when_font_not_installed():
+    cursor = _noncollapsed_cursor()
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"liberation sans"}):
+        res = StyleFormatText().execute(_font_ctx(), properties={"CharFontName": "NoSuchFontXYZ"})
+        res_asian = StyleFormatText().execute(_font_ctx(), properties={"CharFontNameAsian": "NoSuchAsianXYZ"})
+    assert res["status"] == "ok"
+    assert "NoSuchFontXYZ" in res["warning"]
+    assert res_asian["status"] == "ok"
+    assert "NoSuchAsianXYZ" in res_asian["warning"]
+
+
+def test_style_format_text_tab_stops_use_typed_sequence():
+    cursor = _noncollapsed_cursor()
+    uno_mod = sys.modules["uno"]
+    had = "createUnoStruct" in uno_mod.__dict__
+    previous = uno_mod.__dict__.get("createUnoStruct")
+    uno_mod.createUnoStruct = lambda _name: _FakeStruct(Position=0, Alignment="LEFT", DecimalChar=".", FillChar=" ")
+    try:
+        with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+             patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+             patch("uno.invoke") as invoke, \
+             patch("uno.Any") as any_:
+            res = StyleFormatText().execute(_font_ctx(), properties={"ParaTabStops": [{"Position": 2000}]})
+        assert res["status"] == "ok"
+        any_.assert_called_once()
+        assert invoke.call_args.args[1] == "setPropertyValues"
+        cursor.setPropertyValues.assert_not_called()
+    finally:
+        if had:
+            uno_mod.createUnoStruct = previous
+        else:
+            uno_mod.__dict__.pop("createUnoStruct", None)
+
+
+def test_style_format_text_rejected_value_names_the_properties():
+    cursor = _noncollapsed_cursor()
+    cursor.setPropertyValues.side_effect = Exception("bad value")
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
+        res = StyleFormatText().execute(_font_ctx(), properties={"CharWeight": "bold"})
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Nothing was changed" in res["message"]
+    assert "CharWeight" in res["message"]
+
+
+def test_style_format_text_reset_fallback_partial_clear():
+    from plugin.doc.compound_undo import UndoOutcome
+
+    cursor = _noncollapsed_cursor()
+    cursor.setPropertiesToDefault.side_effect = Exception("no XMultiPropertyStates")
+    cursor.setPropertyToDefault.side_effect = [None, Exception("cannot reset")]
+
+    def run_bracket(doc, title, mutate):
+        mutate()
+        return UndoOutcome()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=run_bracket):
+        res = StyleFormatText().execute(_font_ctx(), reset=["CharFontName", "ParaAdjust"])
+    assert res["status"] == "ok"
+    assert res["reset"] == ["CharFontName"]
+    assert res["not_reset"] == ["ParaAdjust"]
+    assert "ParaAdjust" in res["warning"]
+
+
+def test_style_format_text_reset_skips_direct_value_leftovers():
+    from plugin.doc.compound_undo import UndoOutcome
+
+    cursor = _noncollapsed_cursor()
+    direct_state = MagicMock()
+    direct_state.value = "DIRECT_VALUE"
+    cursor.getPropertyState.return_value = direct_state
+
+    def run_bracket(doc, title, mutate):
+        mutate()
+        return UndoOutcome()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=run_bracket):
+        res = StyleFormatText().execute(_font_ctx(), reset=["ParaStyleName"])
+    assert res["status"] == "ok"
+    assert res["applied"] is False
+    assert res["reset"] == []
+    assert res["not_reset"] == ["ParaStyleName"]
+    assert "ParaStyleName" in res["warning"]
+
+
+def test_style_format_text_warns_for_non_para_prefix_paragraph_props():
+    cursor = _noncollapsed_cursor()
+    ctx = _style_ctx()
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res = StyleFormatText().execute(ctx, properties={"NumberingStyleName": "List 1"})
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert "Paragraph properties" in res["warning"]
+
+
+def test_apply_style_undo_unavailable_names_the_style():
+    from plugin.doc.compound_undo import UndoUnavailable
+
+    ranges = [MagicMock(), MagicMock()]
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=UndoUnavailable("no undo")):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    assert res["message"].startswith("Cannot apply style 'Heading 1'")
+
 

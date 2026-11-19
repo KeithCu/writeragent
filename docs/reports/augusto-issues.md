@@ -73,16 +73,11 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 ## Issue 6: No tool to change the font of direct-formatted text or the whole document
 
 - **Upstream issue:** `Augusto-Zolet/writeragent#6`
-- **Status:** **still open**
+- **Status:** **fixed**
 - **Evidence:**
-  - `apply_style` (`plugin/writer/styles.py:1224-1267`) supports `clear_direct` values `'none'`, `'style_props'`, and `'all'`:
-    - `'none'` preserves direct `CharFontName` overrides;
-    - `'style_props'` clears direct font, size, and paragraph indents/spacing/alignment together;
-    - `'all'` clears all direct overrides (and is refused for `target='full_document'`).
-  - `style_update` (`plugin/writer/styles.py:1518`) updates only the style definition, which existing direct `CharFontName` overrides continue to shadow.
-  - Searching `plugin/writer/` shows no tool that updates only `CharFontName` (or `CharFontName` / `CharFontNameAsian` / `CharFontNameComplex`) across a range or whole document (including tables) while preserving font size, bold/italic, alignment, and indents.
-- **What remains:** Add a targeted character-property / font-override tool (or a `clear_direct` / font-update mode) that walks body and table text runs to set `CharFontName` (or clear only `CharFontName*`) without touching `CharHeight`, weight/posture, or `Para*` properties.
-- **Remaining size:** M
+  - `style_format_text` (`plugin/writer/styles.py`, `styles` domain) sets `properties={"CharFontName": ...}` (or other UNO `Char*` / `Para*` properties) directly across `selection`, `full_document` (covering body text and all tables), or `search` matches without altering other formatting; `reset=["CharFontName"]` drops direct font overrides so the style font shows.
+- **What remains:** Nothing.
+- **Remaining size:** —
 
 ---
 
@@ -109,5 +104,5 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 | 3 | Pasted `GraphicObjectShape` listed by `get_page_objects` undeletable | **fixed** | — |
 | 4 | Open `.docx` or copy template file from session | **still open** | M |
 | 5 | Writer tools missing when MCP session starts on Calc | **still open** | M |
-| 6 | Change font of direct-formatted text / whole document | **still open** | M |
+| 6 | Change font of direct-formatted text / whole document | **fixed** | — |
 | 7 | Delete body text box (`frame_list` / `shape_summary` / `get_page_objects`) | **fixed** | — |

@@ -423,6 +423,7 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
   Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
+- Formatting specific text directly (font, size, bold, colour, alignment, spacing) without a named style: delegate domain='styles' (style_format_text).
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
 - Comments: comment_add adds new comments and replies; for listing, editing, resolving, or deleting, delegate domain='comments'.
 - When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered directly without document comments.
