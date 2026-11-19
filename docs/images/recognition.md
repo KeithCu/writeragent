@@ -946,7 +946,7 @@ Copy when handing work to an coding agent:
 
 ## 21. Visual/layout HTML fidelity (deferred dev plan)
 
-**Status:** **Not started** — documented for a future implementation day. **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is shipped; this section describes what it would take to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
+**Status:** **Tier C (multi-column layout HTML) is shipped** via `html_from_layout_blocks` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py), called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py). **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is also shipped. Tier B (block color sampling), Tier A semantic enrichment, and Phase 4 host insert remain open; this section describes the full plan to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
 
 **Goal:** Preserve **reading order and semantics** while recovering **approximate** layout: colored header bands, side-by-side columns, tinted panels, and per-block text/background colors sampled from the source image. **Not** pixel-perfect reproduction and **not** re-inserting the source PNG (user already has the graphic selected).
 
@@ -1000,7 +1000,7 @@ flowchart TD
   Inline --> Egress --> SW
 ```
 
-**New module (proposed):** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py)
+**Module:** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) (`html_from_layout_blocks`, called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py))
 
 - Input: `DoclingDocument`, source `png_bytes`, `params` (`html_mode`, `color_samples`, `column_gap_px`, …).
 - Output: single HTML string (same contract as today’s `result["html"]`).
@@ -1058,7 +1058,9 @@ Do these **before** building layout HTML to avoid dead ends.
 
 **Estimated effort:** 2–3 days including tests and manual QA on Akihabara + one table-heavy scan.
 
-### 21.6 Phase 2 — Column detection (Tier C)
+### 21.6 Phase 2 — Column detection (Tier C, shipped)
+
+**Shipped:** `html_from_layout_blocks` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) groups blocks into bands and renders two-column HTML tables; called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py).
 
 **Objective:** Flyer body in **two columns** instead of one vertical stack.
 

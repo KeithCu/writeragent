@@ -23,9 +23,9 @@ flowchart TB
     GI --> MCP[MCP tools/call]
     MCP --> ImageBlock["native MCP image block"]
     GI --> Chat[Chat tool loop]
-    Chat --> JSON["json.dumps result incl. _mcp_image"]
+    Chat --> JSON["tool_loop_actions (_mcp_image → image_url)"]
   end
-  JSON -.->|"not wired yet"| TextModel
+  JSON --> TextModel
   subgraph send [Send path — first user message only]
     Send[User clicks Send]
     Send --> SelImg["get_selected_image_base64"]
@@ -69,7 +69,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 - `normalize_multimodal_messages(messages, provider)` — re-attaches extracted base64 images and remote `http(s)` URLs per provider rules (OpenAI-compatible: move to nearest preceding `user` message; Anthropic: can stay in `tool`; Gemini: flexible).
 - Called from [`llm_client.py`](../../plugin/framework/client/llm_client.py) `make_chat_request` before the shim builds the wire payload.
 
-**Covers:** `get_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
+**Covers:** `get_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. `_mcp_image` tool results on the chat path are handled separately in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py).
 
 ### Core `image_get` tool (lazy on-demand vision)
 
@@ -105,6 +105,8 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 | `call_tool_result_image` | [`tests/mcp_server/test_wire_types.py`](../../tests/mcp_server/test_wire_types.py) |
 | `_render_page_png` error/control-flow | [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py) (Writer + Draw/Impress) |
 | Draw/Impress `page=N` PNG (live) | [`tests/writer/test_get_image_uno.py`](../../tests/writer/test_get_image_uno.py) |
+| Writer page render comparison (live) | [`tests/writer/test_structural_uno.py`](../../tests/writer/test_structural_uno.py) |
+| Chat `_mcp_image` → `image_url` | [`tests/chatbot/test_tool_loop_actions.py`](../../tests/chatbot/test_tool_loop_actions.py) |
 | `_resolve_crop_edges`, `_resolve_orient` | [`tests/writer/images/test_images.py`](../../tests/writer/images/test_images.py) |
 
 Host capability table row: [recognition.md §6](recognition.md).
@@ -115,30 +117,13 @@ Host capability table row: [recognition.md §6](recognition.md).
 
 Do not start these without coordinating — others may already be working on them. Ordered by impact.
 
-### 1. Chat sidebar: wire `image_get` results into multimodal messages (high impact)
+### 1. Chat sidebar: wire `image_get` results into multimodal messages (shipped)
 
-**Gap:** On the chat path, tool results are `json.dumps(res)` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py). `normalize_multimodal_messages` only extracts `data:image/...` URIs — it does **not** recognize `_mcp_image`. A vision-capable chat model that calls `image_get` receives a huge JSON string with embedded base64, not a native image part.
+[`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) converts `_mcp_image` tool results into `image_url` message parts (and `drop_mcp_image_without_vision` strips `_mcp_image` when the active model lacks vision). Tested in [`tests/chatbot/test_tool_loop_actions.py`](../../tests/chatbot/test_tool_loop_actions.py).
 
-**Suggested approach (pick one, keep minimal):**
-- Before storing the tool result (or inside `normalize_multimodal_messages`), detect `_mcp_image` in parsed tool JSON:
-  - Strip `_mcp_image` from the text payload (keep `status` / `source` as short JSON or text).
-  - Attach `image_url` with `data:{mimeType};base64,{data}` on the tool message or move to preceding `user` per existing provider rules.
-- Reuse `extract_and_strip_images_from_message` patterns; avoid a second HTTP path.
+### 2. `GetImage.execute` parameter validation (shipped)
 
-**Also verify:** [`format_tool_result_for_display`](../../plugin/framework/logging.py) truncates/redacts `_mcp_image.data` in sidebar debug output.
-
-### 2. `GetImage.execute` parameter validation (medium)
-
-**Current behavior** ([`get_image.py`](../../plugin/writer/get_image.py)):
-
-| Call | Behavior | Risk |
-|------|----------|------|
-| `{}` | Tries selection (implicit) | OK as default |
-| `{selection: false}` with no `image` | Still tries selection (`not name`) | Surprising |
-| `{page: 2, image: "foo"}` | Page wins silently | Ambiguous |
-| `{selection: true, page: 2}` | Page wins | Conflicting args ignored |
-
-**Suggested fix:** Require exactly one mode (`page`, `image`, or explicit `selection=true`). Error on conflicting params and on `selection=false` with no `image`.
+[`get_image.py`](../../plugin/writer/get_image.py) validates that at most one of `page`, `image`, or `selection` is passed, returning `"Pass only one of page, image, or selection."` on conflicting arguments.
 
 ### 3. MCP response: preserve metadata alongside image (low–medium)
 
@@ -150,11 +135,9 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp_server/mcp_pr
 
 Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names (advertised in the schema only when the document type is Calc or unknown). **`page=`** is not in the Calc schema: `calc_png_Export` cannot choose a page (`GraphicExportFilter` reads only `PixelWidth`/`PixelHeight`; `DocumentToGraphicRenderer::getCurrentPage` is 1 off Writer). Writer and Draw/Impress `image_get` text names only that app's name source (`get_content`/`image_list`; `shape_get_tree`). Calc and unprobed callers keep the all-app text. Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
 
-### 5. Page render fidelity — live UNO test (medium)
+### 5. Page render fidelity — live UNO test (shipped)
 
-Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py`](../../tests/writer/test_get_image_render.py)). Happy path (`storeToURL` + valid PNG magic) is not automated.
-
-**Suggested:** `@native_test` on a 2+ page Writer doc — render page 1 vs page 2; assert PNGs differ. If `writer_png_Export` after `jumpToPage` exports the whole document, document the limitation or pass page-specific filter properties.
+[`tests/writer/test_structural_uno.py`](../../tests/writer/test_structural_uno.py) includes a live UNO test comparing Writer page renders (`_red_pixels(0)` vs `_red_pixels(1)`).
 
 ### 6. Missing tests (medium)
 
@@ -170,7 +153,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 | Doc | Update |
 |-----|--------|
 | [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) | Note **core** `image_get` alongside specialized Images tools |
-| [../mcp-protocol.md](../mcp-protocol.md) | Document `_mcp_image` → native image content blocks |
+| [../mcp-protocol.md](../mcp-protocol.md) | **Done** — documents `image_get` and `_mcp_image` |
 | [AGENTS.md](../../AGENTS.md) quick-orientation | Optional: `image_get` under Writer / vision |
 
 ### 8. Minor code-quality (low)
@@ -242,7 +225,7 @@ Two sources of images in tool results:
 | Source | Format | Normalization today |
 |--------|--------|---------------------|
 | `get_content(include_images=true)` | `data:image/...;base64,...` in HTML/text | **Done** — `normalize_multimodal_messages` |
-| `image_get` | `_mcp_image: {data, mimeType}` in JSON tool result | **Not done** on chat path; **done** on MCP path |
+| `image_get` | `_mcp_image: {data, mimeType}` in JSON tool result | **Done** on chat path ([`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)) and MCP path |
 
 Required behavior for any new source (including `_mcp_image`):
 
@@ -265,13 +248,12 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 **Suggested additions:**
 - MCP protocol test for `_mcp_image` serialization.
 - `GetImage.execute` mocked unit tests.
-- UNO test for single-page PNG on multi-page doc (or document filter limitation).
 
 ### Manual
 
 1. Writer doc + selected image + vision model → Send "Describe this image" (send-path attachment).
 2. Vision model + `image_get` via **MCP** → client shows native image block.
-3. Vision model + `image_get` via **chat sidebar** → confirm whether model sees image (**expected gap** until follow-up §1).
+3. Vision model + `image_get` via **chat sidebar** → model receives native image part.
 4. `get_content(include_images=true)` in tool loop → model receives image, not only `[Image Ref]` text.
 5. Text-only model → `image_get` absent from tool list (openai schema path); selected image ignored on send.
 6. Ollama vision model → `/api/show` or `vision_support_map` records capability.

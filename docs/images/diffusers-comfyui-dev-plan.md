@@ -42,7 +42,7 @@ It does **not** cover:
 - **ComfyUI** users (custom workflows, ControlNet, LoRAs, node graphs) — requires a dedicated client.
 - Full use of Settings **`image_steps`**, **`seed`**, **CFG** on every backend (partial today; ComfyUI would wire them explicitly).
 
-AI Horde was removed; `provider="aihorde"` still maps to `"endpoint"`.
+AI Horde and the `"aihorde"` provider alias are removed; only the `"endpoint"` provider is active.
 
 **Goal:** Add pluggable **`ImageProvider`** for **ComfyUI** while keeping **`generate_image`**'s tool surface, document insertion, img2img flow, and async worker pattern unchanged. **Do not** add Diffusers-specific providers unless product requirements override the strategic decision above.
 
@@ -289,7 +289,7 @@ flowchart LR
 
 Add config key **`image_backend`**: `"endpoint"` | `"comfyui"` (default `"endpoint"`). Reserve `"diffusers_*"` strings only if backlog ships.
 
-Tool parameter `provider` already exists — extend allowed values (`comfyui`) and map legacy `"aihorde"` → `"endpoint"` (unchanged).
+Tool parameter `provider` already exists — extend allowed values (`comfyui`) when ComfyUI lands.
 
 When `image_backend == "comfyui"`, **`image_model`** means checkpoint filename (`ckpt_name`) or workflow alias. When `"endpoint"`, behavior unchanged (`image_model` = remote/local model id on the configured URL, including Ollama flux models).
 
@@ -482,7 +482,7 @@ Run **`make test`** before merge each phase.
 3. **Bundled workflow target:** SD1.5 only vs. SDXL template (larger default graph)?
 4. **ComfyUI Cloud:** Same API with auth — support `comfyui_api_key` from day one?
 5. **Phase 0b vs nothing:** Ship OpenAI `url` fallback for endpoint, or wait for user reports?
-6. **Remove `aihorde` alias:** Deprecation notice in tool schema?
+6. **Remove `aihorde` alias:** **Done** — the alias is removed from the codebase.
 7. **Diffusers backlog:** Close permanently vs. keep design section — **current stance: keep as reference, do not schedule.**
 
 ---
