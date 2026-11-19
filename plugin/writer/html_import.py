@@ -330,9 +330,12 @@ def _insert_mixed_or_plain_html(
         single = ensure_html_linebreaks(clean)
         insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
 
+    # Measure added_content before disposing the empty paragraph before a leading table:
+    # afterwards a UNO cursor steps or skips over the table (SwUnoCursor::IsSelOvr,
+    # SwXTextCursor::gotoStart) onto tail, making added_content read False.
     first = _insert_start_from_anchor(text_obj, start_anchor, cursor)
     tail = imported_end if imported_end is not None else cursor
-    added_content = text_obj.compareRegionStarts(first, tail.getStart()) != 0
+    added_content = True if first is cursor else text_obj.compareRegionStarts(first, tail.getStart()) != 0
 
     if has_table and not has_math and added_content:
         if imported_end is not None:

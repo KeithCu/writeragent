@@ -1504,10 +1504,14 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         assert res.get("status") == "ok", res
         assert _body_structure_via_enum(text) == ["Paragraph:Intro", "TextTable", "Paragraph:Head", "Paragraph:Outro"], _body_structure_via_enum(text)
 
-        # Import-start paragraph with a bookmark or anchored graphic is not disposed
+        # Import-start paragraph with a bookmark or anchored graphic is not disposed.
+        # Call the private helper directly: public write paths put imported tables before
+        # existing paragraphs, so they cannot land a pre-existing object in the split node.
         import uno
         from pathlib import Path
         from plugin.writer.html_import import _drop_empty_paragraph_before_table
+
+        logo_uri = (Path(__file__).resolve().parents[2] / "extension" / "assets" / "logo_32.png").as_uri()
 
         _seed(["", "Outro"])
         cur = text.createTextCursor()
@@ -1527,7 +1531,7 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         cur.gotoStart(False)
         graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
         graphic.setPropertyValue("AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER"))
-        graphic.setPropertyValue("GraphicURL", Path("extension/assets/logo_32.png").resolve().as_uri())
+        graphic.setPropertyValue("GraphicURL", logo_uri)
         text.insertTextContent(cur, graphic, False)
         res = ApplyDocumentContent().execute(tctx, content=[tbl], target="search", old_content="Outro", position="before")
         assert res.get("status") == "ok", res
