@@ -24,7 +24,6 @@ import importlib.abc
 import importlib.machinery
 import inspect
 import logging
-import math
 import operator
 import os
 import re
@@ -434,21 +433,8 @@ BASE_PYTHON_TOOLS = {
     "dict": dict,
     "tuple": tuple,
     "round": round,
-    "ceil": math.ceil,
-    "floor": math.floor,
-    "log": math.log,
-    "exp": math.exp,
-    "sin": math.sin,
-    "cos": math.cos,
-    "tan": math.tan,
-    "asin": math.asin,
-    "acos": math.acos,
-    "atan": math.atan,
-    "atan2": math.atan2,
-    "degrees": math.degrees,
-    "radians": math.radians,
+    # Bare math aliases removed so scripts can bind log, sqrt, etc. like real Python; math is auto-imported by the sandbox.
     "pow": pow,
-    "sqrt": math.sqrt,
     "len": len,
     "sum": sum,
     "max": max,
@@ -475,12 +461,6 @@ BASE_PYTHON_TOOLS = {
     "type": type,
     "complex": complex,
 }
-
-_IMPORT_OVERRIDABLE_TOOLS = frozenset(
-    k
-    for k, v in BASE_PYTHON_TOOLS.items()
-    if getattr(v, "__module__", None) == "math" or v is getattr(math, k, None)
-)
 
 # Canonical always-blocked dangerous modules (host escape, process spawn, native code, dynamic import, serialization, raw OS, internals)
 DANGEROUS_MODULES = [
@@ -2236,14 +2216,14 @@ def evaluate_import(
             raw_leaf = import_module(alias.name)
             if alias.asname:
                 target_name = alias.asname
-                if target_name in tools and target_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                if target_name in tools:
                     raise InterpreterError(
                         f"Cannot assign to name '{target_name}': doing this would erase the existing tool!"
                     )
                 state[target_name] = get_safe_module(raw_leaf, authorized_imports)
             else:
                 top_name = alias.name.split(".", 1)[0]
-                if top_name in tools and top_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                if top_name in tools:
                     raise InterpreterError(
                         f"Cannot assign to name '{top_name}': doing this would erase the existing tool!"
                     )
@@ -2283,7 +2263,7 @@ def evaluate_import(
                 sentinel = object()
                 for alias in expression.names:
                     target_name = alias.asname or alias.name
-                    if target_name in tools and target_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                    if target_name in tools:
                         raise InterpreterError(
                             f"Cannot assign to name '{target_name}': doing this would erase the existing tool!"
                         )
