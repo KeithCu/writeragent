@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import base64
 import contextlib
 import json
 import logging
@@ -533,12 +532,12 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
 # rate is not 1.0, is played with WinRT Windows.Media.Playback.MediaPlayer.
 # That player uses Media Foundation, which is part of a normal Windows 10 or 11
 # install. WMPlayer.OCX is not used: it needs the optional Windows Media Player
-# feature. The script is -EncodedCommand so PowerShell does not reparse quotes.
+# feature. The script uses single quotes only so -Command does not strip quotes.
 # The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE. PlaybackSession is
-# polled because Windows PowerShell 5.1 reports a finished clip as Paused once
-# position reaches NaturalDuration, and WinRT events do not surface reliably
-# through Register-ObjectEvent. A failure exits 1 and the caller falls back to
-# SAPI. Windows N still needs the Media Feature Pack for this player.
+# polled because MediaPlayer leaves PlaybackState at Paused (4) when a clip
+# finishes, and WinRT events do not surface reliably through Register-ObjectEvent.
+# A failure exits 1 and the caller falls back to SAPI. Windows N still needs
+# the Media Feature Pack for this player.
 _WIN_MEDIA_PLAYER = r"""
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
@@ -558,8 +557,8 @@ try {
   $rateApplied = $false
   while ($true) {
     $session = $player.PlaybackSession
-    $state = "$($session.PlaybackState)"
-    if ($state -match 'Playing|Buffering|^3$|^2$') {
+    $state = [int]$session.PlaybackState
+    if ($state -eq 3 -or $state -eq 2) {
       if (-not $rateApplied) {
         $session.PlaybackRate = [double]$env:WA_AUDIO_RATE
         $rateApplied = $true
@@ -572,9 +571,8 @@ try {
       $dur = $session.NaturalDuration.TotalMilliseconds
       $pos = $session.Position.TotalMilliseconds
     } catch { }
-    $atEnd = $started -and $dur -gt 0 -and $pos -ge $dur
-    $pausedAtEnd = $started -and $state -match 'Paused|^4$' -and $dur -gt 0 -and $pos -ge ($dur - 50)
-    if ($started -and $state -match 'None|^0$' -or $atEnd -or $pausedAtEnd) { break }
+    $finished = ($started -and ($state -eq 0 -or $state -eq 4 -or ($dur -gt 0 -and $pos -ge $dur))) -or ($state -eq 4 -and $dur -gt 0 -and $pos -gt 0)
+    if ($finished) { break }
     if (-not $started -and [datetime]::UtcNow -gt $openDeadline) { throw 'playback did not start' }
     if ([datetime]::UtcNow -gt $deadline) { throw 'playback timed out' }
     Start-Sleep -Milliseconds 100
@@ -592,27 +590,13 @@ exit 0
 _WIN_WAV_PLAYER = "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()"
 
 
-def _powershell_encoded(script: str, *, sta: bool = False) -> list[str]:
-    """Build a powershell argv whose script is not reparsed for quotes.
-
-    ``-Command`` goes through PowerShell's command-line quote stripper, which
-    breaks a script that contains double quotes. ``-EncodedCommand`` is the
-    UTF-16LE script itself. The media player is created on an STA thread.
-    """
-    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-    cmd = ["powershell", "-NoProfile"]
-    if sta:
-        cmd.append("-STA")
-    cmd.extend(["-EncodedCommand", encoded])
-    return cmd
-
-
 def _windows_player_command(file_path: str, rate: float = 1.0) -> tuple[str, list[str], dict[str, str]]:
     """PowerShell playback for one clip. MP3 or non-unit rate uses WinRT MediaPlayer; WAV at 1.0 uses SoundPlayer."""
     env = {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"}
     use_media = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
     if use_media:
-        return ("powershell", _powershell_encoded(_WIN_MEDIA_PLAYER, sta=True), env)
+        cmd = ["powershell", "-NoProfile", "-STA", "-Command", _WIN_MEDIA_PLAYER]
+        return ("powershell", cmd, env)
     cmd = ["powershell", "-NoProfile", "-Command", _WIN_WAV_PLAYER]
     return ("powershell", cmd, env)
 
@@ -669,12 +653,16 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
             return False
         proc: subprocess.Popen[Any] | None = None
         try:
-            # The encoded media script is a base64 blob. Log the switches, not the blob.
-            shown = cmd
-            if len(cmd) >= 2 and cmd[-2] == "-EncodedCommand":
-                shown = [*cmd[:-1], "<script>"]
-            log.info("Playing audio with command: %s", " ".join(shown))
-            proc = _popen_for_speech(cmd, cancel, env=env)
+            log.info("Playing audio with command: %s", " ".join(cmd))
+            proc = _popen_for_speech(
+                cmd,
+                cancel,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
             if proc is None:
                 return False
             ret = proc.wait()
@@ -683,10 +671,17 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
                 return True
             if is_cancelled(cancel):
                 return False
-            log.warning("Audio player '%s' exited with code %d; trying next candidate", player_name, ret)
+            err = proc.stderr.read().strip() if proc.stderr is not None else ""
+            if err:
+                log.warning("Audio player '%s' exited with code %d (%s); trying next candidate", player_name, ret, err)
+            else:
+                log.warning("Audio player '%s' exited with code %d; trying next candidate", player_name, ret)
         except Exception as exc:
             log.warning("_play_audio_file playback error with '%s': %s", player_name, exc)
         finally:
+            if proc is not None and proc.stderr is not None:
+                with contextlib.suppress(Exception):
+                    proc.stderr.close()
             _clear_speech_proc(proc)
 
     log.warning("All audio players failed for: %s", file_path)
