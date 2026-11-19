@@ -296,7 +296,11 @@ def format_error_payload(e: BaseException, *, suggested_call: SuggestedCall | No
     if isinstance(e, WriterAgentException):
         payload: dict[str, Any] = {"status": "error", "code": e.code, "message": e.message}
         if e.details:
-            payload["details"] = e.details
+            details = dict(e.details)
+            if suggested_call is None and "suggested_call" in details:
+                suggested_call = details.pop("suggested_call")
+            if details:
+                payload["details"] = details
     else:
         # For unexpected exceptions, capture the Python exception type in details
         # so callers can distinguish unhandled crashes from intended error codes.

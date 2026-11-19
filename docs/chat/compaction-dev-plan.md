@@ -265,8 +265,8 @@ Stored in `writeragent.json` under the user's LibreOffice profile (defined in `p
 The current implementation represents **Version 1**. The following features and enhancements are planned or under consideration for future iterations:
 
 ### 1. Manual `/compact` and `/tokens` Slash Commands
-- `/compact [focus]` is implemented in `plugin/chatbot/slash_commands.py` (`usage="/compact [focus]"`).
-- Add `/tokens` to show current estimated prompt tokens, context window limit, and usage ratio.
+- **`/compact` (Shipped):** Implemented in `plugin/chatbot/slash_commands.py` (`usage="/compact [focus]"`), allowing users to trigger compaction on demand.
+- **`/tokens` (Planned):** Add `/tokens` to show current estimated prompt tokens, context window limit, and usage ratio.
 
 ### 2. Sidebar UI Notification / Toast
 - Provide a subtle visual indicator (e.g., small badge, toast, or system message in chat) when auto-compaction occurs.
