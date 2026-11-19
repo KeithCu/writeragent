@@ -311,6 +311,7 @@ def _insert_mixed_or_plain_html(
         clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
     else:
         ruby_spans = []
+    has_table = "<table" in clean.lower()
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
     ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
@@ -320,7 +321,7 @@ def _insert_mixed_or_plain_html(
     before_para = _paragraph_before(text_obj, cursor) if styled and has_math else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
     # content, so anchor one character to the left and step back right after the import.
-    start_anchor = _insert_start_anchor(text_obj, cursor) if styled and not has_math else None
+    start_anchor = _insert_start_anchor(text_obj, cursor) if (styled or has_table) and not has_math else None
 
     if has_math:
         math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
@@ -328,6 +329,16 @@ def _insert_mixed_or_plain_html(
         math_entries = []
         single = ensure_html_linebreaks(clean)
         insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
+
+    if has_table and not has_math:
+        first = _insert_start_from_anchor(text_obj, start_anchor, cursor)
+        tail = imported_end if imported_end is not None else cursor
+        if text_obj.compareRegionStarts(first, tail.getStart()) != 0:
+            if imported_end is not None:
+                # Move cursor off the leading empty paragraph before disposing it.
+                cursor.gotoRange(imported_end.getStart(), False)
+            with record_changes.record_changes(model, False):
+                _drop_empty_paragraph_before_table(text_obj, first)
 
     if styled:
         # Per-paragraph failures are already logged inside apply_block_lo_styles.
@@ -427,7 +438,6 @@ def insert_html_after_paragraph(
     cursor: Any,
     content: str,
     *,
-    clean_around_table: bool = False,
     apply_styles: bool = False,
 ) -> html_import_styles.WriteReport:
     """Import block *content* as new paragraphs immediately after *cursor*'s paragraph.
@@ -438,21 +448,13 @@ def insert_html_after_paragraph(
     the first block onto the text before *cursor*. Importing at the start of an empty
     paragraph avoids that merge, so this moves *cursor* to the end of its paragraph,
     inserts a paragraph break to open an empty paragraph, imports at its start, and
-    deletes the empty paragraph(s) left behind.
+    drops the trailing leftover paragraph (merging forward when *content* contains a
+    table). Any empty paragraph StarWriter leaves before a leading table is removed by
+    ``_insert_mixed_or_plain_html``.
 
     When *apply_styles* is True, block ``data-lo-style`` and ``data-lo-para`` are safe
     here because the import goes into a fresh empty paragraph and never merges.
-
-    When *clean_around_table* is True (collapsed caret inserting a table), also
-    removes the trailing break after *leftover* when ``goLeft`` lands before the
-    table, and removes the empty paragraph StarWriter leaves before the table
-    (see ``_delete_empty_paragraph_before_table``).
     """
-    para_start: Any = None
-    if clean_around_table:
-        para_start = text_obj.createTextCursorByRange(cursor.getStart())
-        para_start.gotoStartOfParagraph(False)
-
     cursor.gotoEndOfParagraph(False)
     text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     # The import puts every block (each with its own break) BEFORE that paragraph,
@@ -460,45 +462,41 @@ def insert_html_after_paragraph(
     # import (checked live, also with a table next and at the end of the text).
     leftover = text_obj.createTextCursorByRange(cursor.getStart())
     report = insert_html_at_cursor(model, ctx, cursor, content, apply_styles=apply_styles)
-    _drop_leftover_paragraph(leftover, merge_forward_after_table=clean_around_table)
-
-    if clean_around_table and para_start is not None:
-        _delete_empty_paragraph_before_table(text_obj, para_start)
-
+    _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
     return report
 
 
-def _delete_empty_paragraph_before_table(text_obj: Any, host_para: Any) -> None:
-    """Delete the empty paragraph left between *host_para*'s paragraph and an imported table.
+def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None:
+    """Delete the empty paragraph the StarWriter import leaves before a leading table.
 
-    ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) opens the
-    import with two ``SplitNode`` calls, and ``SwHTMLParser::Continue`` joins the
-    first opened node onto the imported content with ``JoinNext``, which cannot
-    join into a table node. So content that starts with a table leaves that node
-    as an empty paragraph right after the host paragraph, directly before the table.
-
-    A text cursor cannot look for the table: ``SwUnoCursor::IsSelOvr``
-    (``sw/source/core/unocore/unocrsr.cxx``, ``m_bRemainInSection``) keeps a UNO
-    cursor out of table cells, so ``goRight`` from the empty paragraph lands after
-    the whole table with no ``TextTable`` to see. The text enumeration lists the
-    table as its own element, so walk that: host paragraph, empty paragraph, table.
-    The deletion removes only the break at the end of the host paragraph; any
-    other paragraph (text, or an image-only one) is left alone.
+    ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) opens with
+    two ``SplitNode`` calls and ``JoinNext``/``JoinPrev`` the opening block onto
+    the imported content; it cannot join across a ``SwTableNode``, so content
+    that starts with a table leaves the split node empty directly before the
+    table. A UNO text cursor cannot step into the table
+    (``SwUnoCursor::IsSelOvr`` in ``sw/source/core/unocore/unocrsr.cxx``), so
+    ``goRight(1, True)`` over the empty paragraph selects across the whole table
+    and its enumeration lists the table as its own element:
+    ``[empty paragraph, table]``. Dispose the empty paragraph only when it holds
+    no non-text portion (image, field, bookmark).
     """
-    found_host = False
-    empty_after: Any = None
-    for elem in iter_elements(text_obj.createEnumeration()):
-        is_para = _uno_service_true(elem, "com.sun.star.text.Paragraph")
-        if not found_host:
-            found_host = is_para and text_obj.compareRegionStarts(host_para, elem) == 0
-        elif empty_after is None:
-            if not is_para or elem.getString() != "" or _paragraph_has_non_text_portion(elem):
-                return
-            empty_after = elem
-        else:
-            if _uno_service_true(elem, "com.sun.star.text.TextTable"):
-                _delete_preceding_break(text_obj.createTextCursorByRange(empty_after.getStart()))
-            return
+    para_cursor = text_obj.createTextCursorByRange(import_start.getStart())
+    para_cursor.gotoStartOfParagraph(False)
+    para_cursor.gotoEndOfParagraph(True)
+    if para_cursor.getString() != "":
+        return
+    if not para_cursor.goRight(1, True):
+        return
+    enum = iter_elements(para_cursor.createEnumeration())
+    first_para = next(enum, None)
+    next_elem = next(enum, None)
+    if first_para is None or next_elem is None:
+        return
+    if not _uno_service_true(next_elem, "com.sun.star.text.TextTable"):
+        return
+    if _paragraph_has_non_text_portion(first_para, ignore_redlines=True):
+        return
+    first_para.dispose()
 
 
 
@@ -531,16 +529,17 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
-def _paragraph_has_non_text_portion(para: Any) -> bool:
+def _paragraph_has_non_text_portion(para: Any, *, ignore_redlines: bool = False) -> bool:
     """True when *para* holds an image, field, frame, or other non-text portion.
 
     ``getString()`` is empty for those, so a paragraph holding only a picture
     would look empty and the import would merge its first block into it.
     """
+    ignored = ("Text", "Redline") if ignore_redlines else ("Text",)
     try:
         portions = para.createEnumeration()
         for portion in iter_elements(portions):
-            if portion.getPropertyValue("TextPortionType") != "Text":
+            if portion.getPropertyValue("TextPortionType") not in ignored:
                 return True
     except Exception as exc:
         # Fail safe: an unreadable portion may be a frame, field, or image.
@@ -695,7 +694,14 @@ def _insert_into_emptied_range(
     anchor = _insert_start_anchor(text_obj, cursor)
     report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
-    if text_obj.compareRegionStarts(_insert_start_from_anchor(text_obj, anchor, cursor), leftover.getStart()) != 0:
+    start = _insert_start_from_anchor(text_obj, anchor, cursor)
+    added = text_obj.compareRegionStarts(start, leftover.getStart()) != 0
+    if not added and anchor is not None and "<table" in content.lower():
+        # SwUnoCursor::goRight steps over a leading SwTableNode, landing at leftover.
+        span = text_obj.createTextCursorByRange(anchor.getStart())
+        span.gotoRange(leftover.getStart(), True)
+        added = span.getString() not in _PARAGRAPH_BREAKS
+    if added:
         _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
     return report
 
@@ -770,7 +776,6 @@ def _insert_at_caret(
         cursor.getText(),
         cursor,
         content,
-        clean_around_table="<table" in content.lower(),
     )
     report.snapped_to_paragraph = snapped
     return report

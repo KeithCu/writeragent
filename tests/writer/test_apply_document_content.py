@@ -268,8 +268,8 @@ def test_position_after_table_preserves_table():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    # 1st call: empty leftover paragraph; 2nd call: goLeft spanned table cell text.
-    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    # 1st call: empty leftover paragraph; 2nd: goLeft spanned table cell; 3rd: goRight into next.
+    cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
     ctx = _edit_ctx()
     # Mock table count to increase from 0 to 1 so honesty check passes.
     ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
@@ -293,7 +293,7 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
     ctx = _edit_ctx()
     # Table count remains 0 before and after.
     ctx.doc.getTextTables.return_value.getCount.return_value = 0

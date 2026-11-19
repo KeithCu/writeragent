@@ -116,7 +116,10 @@ made in `record_preserve_replace` in
   stranded mid-import. In `full_document` replace, any synthetic leftover paragraph opened before
   the import is dropped untracked (`RecordChanges` temporarily off) via `_drop_leftover_paragraph`
   — merging forward after a trailing table — so the paragraph break is not a tracked delete,
-  keeping separate paragraphs intact without word concatenation. `TABLE_INSERT_FAILED` checks run
+  keeping separate paragraphs intact without word concatenation. Before a leading table,
+  `_insert_mixed_or_plain_html` is the single owner that disposes the empty split-node paragraph
+  untracked via `_drop_empty_paragraph_before_table` across all body write paths, while
+  `insert_html_after_paragraph` owns only the trailing leftover. `TABLE_INSERT_FAILED` checks run
   inside the edit's undo group, so a failed table insert rolls the edit back.
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
