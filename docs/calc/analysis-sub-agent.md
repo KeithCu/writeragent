@@ -517,13 +517,13 @@ See also the condensed discussion that used to live in [../enabling_numpy_in_lib
 
 ## Open
 
-- `[feature M]` Discovery bridge tool (`find_and_analyze_relevant_ranges`) that locates the relevant sheets or ranges, including in Calc siblings found via the embeddings index, and feeds them to the analysis helpers. (§ Implementation notes and phasing)
-- `[feature M]` Writer "cleanup" helpers that turn analysis results (markdown table, bullets, suggested content) into formatted content inserted in the active Writer document, plus the Writer-to-Calc handoff polish. (§ Results and "cleanup")
-- `[fidelity M]` Excel-style data handoff in `calc_addin_data.py`: structured tables, named ranges and a `headers=True` style option for both raw Python and the helpers. (§ Implementation notes and phasing)
-- `[eng M]` Analysis result cache (per folder or per document, mtime plus hash) and a dedicated worker pool for long analysis jobs. (§ Open questions / future)
-- `[eng M]` Support very large data in analysis through sampling, chunked processing or out-of-core work in the venv. (§ Open questions / future)
-- `[idea M]` Show the user the steps the analysis sub-agent took or export the pandas code that was executed. (§ Open questions / future)
-- `[idea M]` Richer object previews or cards for analysis results, similar to Excel Python Object mode. (§ Implementation notes and phasing)
-- `[idea L]` Vision digitization of charts found in Writer, feeding the extracted numbers into Calc analysis. (§ Implementation notes and phasing)
-- `[idea L]` First-class Writer table support as an analysis data source. (§ Open questions / future)
-- `[idea M]` Compose the analysis sub-agent with web research or the librarian, for example researching assumptions and then running sensitivity analysis. (§ Open questions / future)
+- `[feature M many]` Discovery bridge tool (`find_and_analyze_relevant_ranges`) that locates the relevant sheets or ranges, including in Calc siblings found via the embeddings index, and feeds them to the analysis helpers. (§ Implementation notes and phasing)
+- `[feature M many]` Writer "cleanup" helpers that turn analysis results (markdown table, bullets, suggested content) into formatted content inserted in the active Writer document, plus the Writer-to-Calc handoff polish. (§ Results and "cleanup")
+- `[fidelity M few]` Excel-style data handoff in `calc_addin_data.py`: structured tables, named ranges and a `headers=True` style option for both raw Python and the helpers. (§ Implementation notes and phasing)
+- `[eng M many]` Analysis result cache (per folder or per document, mtime plus hash) and a dedicated worker pool for long analysis jobs. (§ Open questions / future)
+- `[eng M few]` Support very large data in analysis through sampling, chunked processing or out-of-core work in the venv. (§ Open questions / future)
+- `[idea M few]` Show the user the steps the analysis sub-agent took or export the pandas code that was executed. (§ Open questions / future)
+- `[idea M few]` Richer object previews or cards for analysis results, similar to Excel Python Object mode. (§ Implementation notes and phasing)
+- `[idea L few]` Vision digitization of charts found in Writer, feeding the extracted numbers into Calc analysis. (§ Implementation notes and phasing)
+- `[idea L many]` First-class Writer table support as an analysis data source. (§ Open questions / future)
+- `[idea M many]` Compose the analysis sub-agent with web research or the librarian, for example researching assumptions and then running sensitivity analysis. (§ Open questions / future)
