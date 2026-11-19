@@ -653,6 +653,33 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     return bool(url) and url == str(getattr(active_model, "URL", "") or "")
 
 
+def document_entry(model: Any) -> dict[str, Any]:
+    """Build the metadata dict for an open LibreOffice document model."""
+    url_raw = model.getURL()
+    # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
+    # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
+    untitled = not url_raw
+    path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
+    # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
+    doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
+    if doc_type_guess == "unknown":
+        doc_type_guess = uno_read(
+            lambda: doc_type_family_label(get_document_type(model)),
+            "unknown",
+        )
+    name = os.path.basename(path) if path else "Untitled"
+    return {
+        "name": name,
+        "url": "" if untitled else str(url_raw),
+        "uid": get_runtime_uid(model),
+        "path": path,
+        "doc_type": doc_type_guess,
+        # modified and read_only are shown so callers know whether an in-place document_save can succeed.
+        "modified": uno_read(lambda: bool(model.isModified()), False),
+        "read_only": uno_read(lambda: bool(model.isReadonly()), False),
+    }
+
+
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
     """Retrieve all open documents from the desktop context with metadata.
 
@@ -697,28 +724,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             True,
         ):
             continue
-        url_raw = model.getURL()
-        # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
-        # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
-        untitled = not url_raw
-        path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
-        # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
-        doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
-        if doc_type_guess == "unknown":
-            doc_type_guess = uno_read(
-                lambda: doc_type_family_label(get_document_type(model)),
-                "unknown",
-            )
-        name = os.path.basename(path) if path else "Untitled"
-        docs.append({
-            "name": name,
-            "url": "" if untitled else str(url_raw),
-            "uid": get_runtime_uid(model),
-            "path": path,
-            "doc_type": doc_type_guess,
-            "is_active": _is_same_document(model, active_model),
-            # isModified (XModifiable), best-effort: show unsaved changes; the agent never saves.
-            "modified": uno_read(lambda: bool(model.isModified()), False),
-        })
+        entry = document_entry(model)
+        entry["is_active"] = _is_same_document(model, active_model)
+        docs.append(entry)
     return docs
 

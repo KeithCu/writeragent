@@ -19,6 +19,7 @@ from plugin.framework.module_base import ModuleBase
 _TOOL_MODULES = (
     "plugin.doc.specialized_base",
     "plugin.doc.document_research_tools",
+    "plugin.doc.document_file_tools",
     "plugin.doc.document_research_grep_tool",
     "plugin.embeddings.document_research_fts_tool",
     "plugin.doc.document_research_specialized",

@@ -262,7 +262,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 - Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
 - Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type, and the tool description lists only the target document type's topics when known; only Writer's `manual_read` description adds the review-modes/search/images line; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
 - A single gateway: **`delegate_to_subagent`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
-- MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
+- MCP helpers: `document_list_open`, `document_open`, `document_save`, `document_export` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
 
 It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
 
@@ -278,23 +278,25 @@ the wrong one.
 
 #### Tool counts by surface
 
-Registry totals at a typical build: **225** registered tools (core 41, specialized 174, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`.
+Registry totals at a typical build: **228** registered tools (core 41, specialized 174, specialized_control 6, mcp 5, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`, `document_open`, `document_save`, and `document_export`.
 
 | App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
 |-----|--------------|--------------------------------|-------------------------------------|
-| Writer | 16 | 15 | 130 (129) |
-| Calc | 17 | 16 | 95 (94) |
-| Draw | 24 | 23 | 83 (82) |
-| Impress | 24 | 23 | 83 (82) |
+| Writer | 16 | 18 | 133 (132) |
+| Calc | 17 | 19 | 98 (97) |
+| Draw | 24 | 26 | 86 (85) |
+| Impress | 24 | 26 | 86 (85) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`, `document_open`, `document_save`, and `document_export`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
-| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **15** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`/`document_open`/`document_save`/`document_export`; `image_get` only if the selected text model is vision-capable |
+| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **18** tools | Adds `document_list_open`, `document_open`, `document_save`, `document_export`, `image_get`; every schema also gets optional `document_url` |
+
+**Document file tools:** `document_open`, `document_save`, and `document_export` (`plugin/doc/document_file_tools.py`) are `tier="mcp"` helpers that pick LibreOffice export filters from a per-document-type extension table rather than accepting a raw filter name (passing a filter from another LibreOffice module crashes `soffice`). `document_open` checks `resolve_document_by_url` first and returns `already_open: true` without reloading, falls back to `_default` (reusing an unmodified empty untitled window), and supports `as_template=true` for an untitled copy. `document_save` saves in place when `path` is omitted or switches the open document to the new file via `storeAsURL` when `path` is given (overwriting existing files without prompting; PDF/PNG/SVG are export-only). `document_export` writes a copy via `storeToURL` while keeping the open document's current file and format.
 
 Chat gets a short pointer block in the **system prompt** and the domain catalog in `delegate_to_subagent`'s description; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 

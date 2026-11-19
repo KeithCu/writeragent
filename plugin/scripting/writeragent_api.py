@@ -209,8 +209,11 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
     'conditional_formatting': [   'conditional_formatting_add',
                                   'conditional_formatting_list',
                                   'conditional_formatting_remove'],
-    'core': [   'document_list_open',
+    'core': [   'document_export',
+                'document_list_open',
+                'document_open',
                 'document_redo',
+                'document_save',
                 'document_undo',
                 'image_get',
                 'manual_read',
@@ -391,9 +394,12 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'design_apply': ('design', 'apply'),
     'design_list': ('design', 'list'),
     'detect_errors': ('calc', 'detect_errors'),
+    'document_export': ('document', 'export'),
     'document_get_properties': ('document', 'get_properties'),
     'document_list_open': ('document', 'list_open'),
+    'document_open': ('document', 'open'),
     'document_redo': ('document', 'redo'),
+    'document_save': ('document', 'save'),
     'document_set_properties': ('document', 'set_properties'),
     'document_undo': ('document', 'undo'),
     'embedded_insert': ('embedded', 'insert'),
@@ -1090,13 +1096,30 @@ design = _DesignProxy()
 class _DocumentProxy:
     """Proxy for document tools."""
 
+    def export(self, path: str) -> _Item:
+        """Write a copy of the target document to path (absolute or file:// URL) in the format the extension picks: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html, .pdf; Calc .ods, .ots, .xlsx, .xls, .csv, .html, .pdf; Impress .odp, .otp, .pptx, .ppt, .pdf; Draw .odg, .otg, .pdf, .png, .svg. The open document keeps its current file and format. An existing file is overwritten.
+
+        Args:
+            path (required): Target absolute file path or file:// URL.
+        """
+        return _result(call_host_tool("document_export", path=path))
+
     def get_properties(self) -> _Item:
         """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
         return _result(call_host_tool("document_get_properties"))
 
     def list_open(self) -> _Item:
-        """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. You cannot save documents yourself; when modified is true and the work is done, tell the user to save. Also returns current_local_datetime with the host's wall clock."""
+        """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. Entries also report read_only. Use document_save to write a document to disk and document_open to open another file. Also returns current_local_datetime with the host's wall clock."""
         return _result(call_host_tool("document_list_open"))
+
+    def open(self, path: str, *, as_template: bool = False) -> _Item:
+        """Open a document file in LibreOffice from an absolute path or file:// URL. If that file is already open, returns that open document without reloading it. With as_template=true, creates a new untitled document from a copy of the file and leaves the file untouched (template files such as .ott/.ots/.otp always open this way). Returns the document's url and uid; pass one of them as document_url on later tool calls to keep working on it.
+
+        Args:
+            path (required): Absolute file path or file:// URL to open.
+            as_template (optional): Open as an untitled copy without modifying the source file.
+        """
+        return _result(call_host_tool("document_open", path=path, as_template=as_template))
 
     def redo(self, *, steps: int | None = None) -> _Item:
         """Redo the last undone change(s) in the document (all document types). Same caution as document_undo: the stack is shared with the user's edits — redo only what you yourself just undid, and tell the user.
@@ -1105,6 +1128,14 @@ class _DocumentProxy:
             steps (optional): Number of steps to redo (default: 1).
         """
         return _result(call_host_tool("document_redo", steps=steps))
+
+    def save(self, *, path: str | None = None) -> _Item:
+        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. An existing file is overwritten. PDF and images are export-only: use document_export.
+
+        Args:
+            path (optional): Optional target absolute file path or file:// URL. Omit to save in place.
+        """
+        return _result(call_host_tool("document_save", path=path))
 
     def set_properties(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: list[str] | None = None) -> _Item:
         """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.

@@ -20,9 +20,9 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 ## Issue 2: No tool to open or convert a new document; venv script sandbox blocks `subprocess`
 
 - **Upstream issue:** `Augusto-Zolet/writeragent#2`
-- **Status:** **still open**
+- **Status:** **fixed** (by `document_open`, `document_save`, and `document_export` in `plugin/doc/document_file_tools.py`)
 - **Evidence:**
-  - `document_list_open` (renamed from `list_open_documents` in PR #3582, `8cf1604b2`, at `plugin/doc/document_research_tools.py:75`) lists open documents, and its description explicitly notes `"You cannot save documents yourself; when modified is true and the work is done, tell the user to save."`
+  - `document_list_open` (renamed from `list_open_documents` in PR #3582, `8cf1604b2`, at `plugin/doc/document_research_tools.py:75`) lists open documents (including `read_only`), and points to `document_save` and `document_open`.
   - `open_document_for_read` (`plugin/doc/document_research.py:563`) only opens documents hidden/read-only for `document_research` tools and closes them afterward via `close_document_research_document`. No LLM tool exists to open a document in LibreOffice for editing or to convert a document between formats (e.g., `.odt` to `.docx`).
   - In the Python venv sandbox (`plugin/scripting/sandbox.py:367`, `PROCESS_MODULES`), `subprocess`, `multiprocessing`, and `pty` remain blocked by default (`plugin/scripting/module.yaml:135-140`, `python_allow_os` defaults to `false`). Users can opt in via `python_allow_os` or `python_extra_modules` in extension settings, which unblocks `subprocess`, though as noted in the issue comments, allowing arbitrary `subprocess` calls by default is a security risk compared to a dedicated open/convert tool.
 - **What remains:** Add an explicit document open / format-conversion tool (or safe scoped action) rather than relying on `subprocess` in the Python sandbox.
@@ -50,7 +50,7 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 ## Issue 4: No tool to open a `.docx` file or copy a template file from within the session
 
 - **Upstream issue:** `Augusto-Zolet/writeragent#4`
-- **Status:** **still open**
+- **Status:** **fixed** (by `document_open(path, as_template=True)` and `document_save` in `plugin/doc/document_file_tools.py`)
 - **Evidence:**
   - As with Issue #2, WriterAgent has no tool to copy a template file or open a `.docx` file into an editable LibreOffice window (`plugin/doc/document_research_tools.py`, `plugin/doc/document_research.py`).
   - In the Python sandbox, `python_allow_files` (`plugin/scripting/module.yaml:124-130`, `plugin/scripting/sandbox.py:400`) defaults to `false`, blocking `open`, `io`, `shutil`, `pathlib`, and `os` file operations unless the user explicitly enables `python_allow_files` in settings.
