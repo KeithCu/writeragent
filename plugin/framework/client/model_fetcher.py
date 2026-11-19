@@ -741,11 +741,10 @@ def memo_text_models_or_fetch(
 ) -> list[str] | None:
     """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI.
 
-    Called on the main thread; never performs HTTP there. Skips both the memo
-    read and the worker fetch while the endpoint's key is an uncached
-    ``keystore:`` reference (matching ``has_native_vision`` step 4b), because
-    computing the memo key hashes the saved key and would trigger a keyring
-    prompt on the UI thread. At most one fetch per endpoint+key runs in flight;
+    Called on the main thread; never performs HTTP or OS keystore reads there.
+    When the endpoint's key is an uncached ``keystore:`` reference, the worker
+    reads and caches the key off-thread before computing the memo key and
+    fetching ``/v1/models``. At most one fetch per endpoint+key runs in flight;
     concurrent callers share the waiter list and receive one ``main.post``.
     A failed fetch is not memoized; the next populate retries.
     """
@@ -753,21 +752,29 @@ def memo_text_models_or_fetch(
 
     if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
         return None
-    if api_key_needs_keystore_read(_key_slot_base(endpoint)):
-        return None
     if provider_requires_api_key(get_provider_from_endpoint(endpoint)) and not has_api_key_for_endpoint(endpoint):
         return None
 
-    cached = cached_text_models(endpoint)
-    if cached is not None:
-        return drop_non_text_models(endpoint, cached)
+    needs_keystore = api_key_needs_keystore_read(_key_slot_base(endpoint))
+    base = _v1_prefix(endpoint) or normalize_endpoint_url(endpoint)
+    if not base:
+        return None
+    pending_key = f"{base}\x1fkeystore"
 
-    key = _catalog_memo_key(endpoint)
+    if needs_keystore:
+        waiter_key = pending_key
+    else:
+        cached = cached_text_models(endpoint)
+        if cached is not None:
+            return drop_non_text_models(endpoint, cached)
+        waiter_key = _catalog_memo_key(endpoint)
+
     with _text_fetch_lock:
-        if key in _text_fetch_waiters:
-            _text_fetch_waiters[key].append(on_fetched)
+        active_key = pending_key if (not needs_keystore and pending_key in _text_fetch_waiters) else waiter_key
+        if active_key in _text_fetch_waiters:
+            _text_fetch_waiters[active_key].append(on_fetched)
             return None
-        _text_fetch_waiters[key] = [on_fetched]
+        _text_fetch_waiters[waiter_key] = [on_fetched]
 
     def _job() -> None:
         ids: list[str] | None = None
@@ -776,7 +783,7 @@ def memo_text_models_or_fetch(
             ids = fetch_available_models(endpoint)
         finally:
             with _text_fetch_lock:
-                done = _text_fetch_waiters.pop(key, [])
+                done = _text_fetch_waiters.pop(waiter_key, [])
 
         if ids is not None:
             fetched_ids = drop_non_text_models(endpoint, ids)
@@ -794,7 +801,7 @@ def memo_text_models_or_fetch(
         run_in_background(_job, name=task_name)
     except Exception:
         with _text_fetch_lock:
-            _text_fetch_waiters.pop(key, None)
+            _text_fetch_waiters.pop(waiter_key, None)
         raise
     return None
 
