@@ -1154,7 +1154,12 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
 
 
 def test_first_bootstrap_delegate_enum_matches_prompt_catalog(tmp_path: Any) -> None:
-    """In a fresh interpreter, bind() must populate every domain that the prompt catalog lists."""
+    """In a fresh interpreter, bind() must populate every domain that the prompt catalog lists.
+
+    Runs in a subprocess because earlier tests import plugin.draw tool modules, which would
+    populate subclasses before DelegateToSubagent.__init__ captures its enum and hide a
+    domain declared only on a late-imported tool module.
+    """
     import subprocess
     import sys
     from pathlib import Path
@@ -1180,9 +1185,10 @@ bind()
 gateway = get_tools().get(DELEGATE_SUBAGENT_TOOL)
 out = {}
 for svc in sys.argv[2:]:
-    label = gateway.agent_label_for(uno_services=[svc])
-    enum_domains = gateway.domains_for_services([svc])
-    listed = sorted({e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=[svc], for_discovery=False)})
+    svcs = frozenset([svc])
+    label = gateway.agent_label_for(uno_services=svcs)
+    enum_domains = gateway.domains_for_services(svcs)
+    listed = sorted({e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=svcs, for_discovery=False)})
     out[svc] = [enum_domains, listed]
 print(json.dumps(out))
 """

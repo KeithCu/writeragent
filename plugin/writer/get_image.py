@@ -210,10 +210,11 @@ class GetImage(ToolBase):
         source = _IMAGE_NAME_SOURCE.get(doc_type or "")
         if source is None:
             return self.description
+        draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
         return (
             f"Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from {source}> "
             "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
-            "that whole page as an image. Returns the picture itself, not a description. "
+            f"that whole page as an image.{draw_note} Returns the picture itself, not a description. "
             f"b64 is stripped from normal reads, so use this when you actually need to look. {_ONE_MODE}"
         )
 
