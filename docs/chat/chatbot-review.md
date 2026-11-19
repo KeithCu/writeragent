@@ -1,8 +1,8 @@
 # Chatbot review — simplify and harden
 
-Review of `plugin/chatbot` (about 27,000 lines, six read-only passes; 2026-10-02). The numbered findings below are implemented in `plugin/chatbot/`, `plugin/ppt_master/`, and `extension/Dialogs/`; one starter-button cleanup remains in `## Open`.
+Review of `plugin/chatbot` (about 27,000 lines, six read-only passes; original date: 2026-10-02). Sections and bullets marked **Shipped** have landed. Unmarked findings were not re-checked and may still be open. `## Open` lists the subset converted so far.
 
-The tree is in good structural shape. The pure tool-loop FSM, frame-only document lookup, `StreamQueueKind` draining, compaction v1, and the librarian/smol split stay as they are. The fixes below align the screen, the session, and the next request, and ensure paths stop cleanly when the user cancels.
+The tree is in good structural shape. The pure tool-loop FSM, frame-only document lookup, `StreamQueueKind` draining, compaction v1, and the librarian/smol split should stay as they are. The problems worth fixing are places where the screen, the session, and the next request disagree, plus a few paths that keep going after the user has already said stop.
 
 Coverage:
 
@@ -23,105 +23,141 @@ Constraints for any follow-up (from `plugin/chatbot/AGENTS.md` and the root `AGE
 - Stop uses `SendCancellation` (spawn-time `host._send_cancellation` closed over in workers). Queue items start with a `StreamQueueKind` enum member. No raw threads.
 - Do not split `panel.py` or `dialog_views.py` just because they are long. Prefer one existing function over a new module.
 
-## Implemented fixes
+## Fix these first
 
-### 1. Stop and Clear match what the user sees
+### 1. Stop and Clear do not match what the user sees
 
-- **Partial-text persistence on stop:** `note_stop_partial` / `take_stop_partial` and `close_stopped` in `plugin/chatbot/tool_loop_actions.py` preserve streamed assistant text on stop and close any open tool-call ids so `sanitize_tool_pairs` keeps finished tool bodies.
-- **Clear vs. queued chunks:** `_append_response` (`plugin/chatbot/panel.py:741-751`) gates writes on `running_turn(self)` existing and `turn.session is session`, so queued chunks do not paint back onto a cleared transcript. With no live turn, `_append_response` returns early (idle errors go through `_start_local_error_turn`, per `docs/chat/sidebar-implementation.md`).
-- **`SEND_COMPLETED` `has_text` sync:** After both drain `finally` blocks, `TEXT_UPDATED` is dispatched from the live query control so text typed during streaming is not lost.
-- **`ChatSession.clear()` reset:** `ChatSession.clear()` (`plugin/chatbot/chat_session.py:233-240`) resets `compaction`, `active_specialized_domain`, and `python_tool_domain` alongside messages.
-- **Disposed-document handling:** `tool_loop_actions.py` checks `is_disposal` and queues `StreamQueueKind.ERROR` so disposal ends the loop instead of turning into a normal tool error.
-- **Drain-side persistence and error banners:** Worker answers ride `STREAM_DONE` and persist on the drain, API-error banners persist via `persist_assistant_on_turn` (unless `on_error` handles overflow/fallback), agent user lines append after backend checks, and web-research approval setup returns an error payload instead of failing open.
-- **Why / do not:** Do not stop forcing `has_text=False` inside the FSM alone; the live query control is the source of truth (`panel.py:1060`).
+**Shipped (`plugin/chatbot/tool_loop_actions.py` stop path):** Stopping persists the accumulated partial assistant text instead of `"No response."`, and closes any open tool-call ids with a stopped result so `sanitize_tool_pairs` keeps finished tool bodies.
 
-### 2. Mode changes during a send stay on the turn session
+Clear latches `STOP_CLICKED` and wipes the widget (`plugin/chatbot/panel.py` `ClearButtonListener.on_action_performed`, around line 1976), but the drain flushes queued chunks after that pump returns, so the reply paints back onto the empty transcript while history stays cleared. `_append_response` (around line 849) should return when the send is busy and `_turn_accepts_write` is false. That helper already exists for this race. Do not gate when the send is idle: after Clear, `_turn_messages` stays stale until the next `bind_turn_session`, and a pre-bind error line must still show.
 
-- `panel_voice.py`, `tool_loop.py`, and `tool_loop_actions.py` target `session_for_turn` for TTS, document refresh, and domain updates, binding `bind_turn_session` before `pump_ui_idle`, while `_append_response` checks `running_turn(self)` and `turn.session is session`.
-- `ChatModeListener.on_item_state_changed` (`plugin/chatbot/panel_factory.py`) ignores combo changes while `send.is_busy`.
-- **Why / do not:** Leave `apply_mode` itself alone because the librarian handoff calls it while the send is still busy. `set_session` has one production caller (`_apply_sidebar_mode`).
+`SEND_COMPLETED` forces `has_text=False` (`plugin/chatbot/send_state.py` around line 224). Text typed while a reply streams, and the extracted-peer send path that never clears Ask, then look empty. With recording support the button becomes Record, so the next click captures audio. After both drain `finally`s, dispatch `TEXT_UPDATED` from the live query control. Do not stop forcing `has_text=False` inside the FSM alone. If the clear did not fire the text listener, `has_text` would stay true on an empty box. The control is the source of truth.
 
-### 3. Deep Research Reject stops the run
+**Shipped (`plugin/chatbot/chat_session.py`):** `ChatSession.clear()` resets `active_specialized_domain` and `python_tool_domain` along with messages.
 
-- `plugin/chatbot/web_research.py` returns `USER_STOPPED` on Reject and passes any Change query override into both the preview and `run_deep_research`.
-- **Why / do not:** Reject must still return `USER_STOPPED` so the multi-minute deep loop cannot run after the sidebar goes idle or cache a normal result.
+Related, same area:
 
-### 4. Failed page fetches are not marked visited
+- **Shipped (`plugin/chatbot/tool_loop_actions.py`):** `execute_fn` checks `is_disposal` and ends the loop on disposal rather than returning a normal tool error payload.
+- Web, librarian, brainstorm, writing-plan, PPT, and deep-research answers are still persisted from the `chatbot-send-handler` worker (`plugin/chatbot/send_handlers.py`, the `persist_assistant_on_turn` calls around the answer puts). The agent path was moved onto the drain because a worker write raced Clear. Put the answer on the existing `STREAM_DONE` payload and persist it in `on_stream_done`.
+- The API-error banner is widget-only (`plugin/chatbot/tool_loop.py` `_handle_stream_error`). The user row is stored and the assistant row is not, so a retry adds a second user row with a hole. `persist_assistant_on_turn` the same banner. Skip that write when `on_error` returns true (overflow respawn or audio fallback).
+- The agent user line is painted before it is in history. `spawn_effects_for_start` appends the user query, then the worker can return before `add_user_message` (disposed document, unknown backend). Append the user line in the same place as `add_user_message`, after the backend checks.
+- Web-research approval setup fails open. The `except` around approval setup logs a warning and leaves `approval_cb` as `None`. `web_research.py` prompts only when both `prompt_for_web_research` and `approval_callback` are set, so a config error skips Accept/Change/Reject and the search runs. Return an error payload instead of continuing with no callback.
 
-- `_VisitWebpageDedupTool.forward` (`plugin/chatbot/web_research.py`) records the URL in `visited_urls` only after a non-error return, under the lock.
-- **Why / do not:** Keep the lock around the check-and-add so failed CDP/HTTP fetches remain retryable by later sub-queries.
+### 2. A mode change during a send writes the other session
 
-### 5. Non-English research skips legacy English cache keys
+`bind_turn_session` exists because `set_session` can swap `host.session` inside the drain. TTS still speaks `self.session.messages[-1]` (`plugin/chatbot/panel.py` around line 1351), and document refresh plus `set_active_domain` still use `host.session` (`plugin/chatbot/tool_loop_actions.py`, `plugin/chatbot/tool_loop.py` around line 215). Librarian handoff calls `apply_mode(CHAT)` before TTS, so speech reads the document chat's last row. (**Shipped in `plugin/chatbot/panel_factory.py`:** `ChatModeListener.on_item_state_changed` ignores user mode-combo changes while `send.is_busy`.)
 
-- `lookup_research_cache` (`plugin/chatbot/web_research_cache.py`) tries the bare key only when `snowball_lang == "english"`.
-- `resolve_research_locale` re-raises `is_disposal`.
-- `store_research_cache_embeddings` inserts only while the parent `web_cache` row still exists in the same transaction.
-- **Why / do not:** Keep the English bare-then-prefixed order (`tests/chatbot/test_web_research_cache.py` and `docs/chat/search.md` lock it). `_web_cache_get` intentionally touches `created_at`, so stale non-English rows must not match bare English keys.
+Point TTS, refresh, and domain updates at `session_for_turn`. Call `bind_turn_session` once at the start of `_do_send_chat_with_tools`, before the `pump_ui_idle`, not after refresh. Leave `apply_mode` itself alone, because the librarian handoff calls it while the send is still busy. Skip refresh when `_turn_accepts_write` is false.
 
-### 6. PPT-Master follows the turn document and honours Stop
+`set_session` has one production caller, `_apply_sidebar_mode`. `session_for_turn` is already what `_spawn_llm_worker` and `persist_assistant_on_turn` use.
 
-- `execute_ppt_master_turn` passes the frame URL as IPC `session_id` into `host_rpc.py` (`document_for_script_session`), and `plugin/ppt_master/venv/runner.py`, `ipc.py`, and `host_rpc.py` return `USER_STOPPED` when the host reports Stop.
-- **Why / do not:** Leave this runtime out of the chat FSM; librarian, brainstorming, and writing already stop via `SmolAgentExecutor`.
+### 3. Deep Research Reject and query override (Shipped)
 
-### 7. Impress agent-backend turns get the Draw manual
+**Shipped (`plugin/chatbot/web_research.py`):** Deep Research returns `USER_STOPPED` on Reject and passes the edited query override into both the preview and `run_deep_research`.
 
-- `_app` in `plugin/chatbot/agent_manual.py` maps `"impress"` to `"draw"`.
-- **Why / do not:** Do not classify the document on the worker, and do not add a second topic list.
+### 4. Visited-URL dedup on fetch errors (Shipped)
+
+**Shipped (`plugin/chatbot/web_research.py`):** `_VisitWebpageDedupTool.forward` records a URL in the visited set only after a non-error text return, so failed fetches can be retried by later sub-queries.
+
+### 5. Non-English research cache and embedding backfill
+
+**Shipped (`plugin/chatbot/web_research_cache.py`):** `lookup_research_cache` skips the legacy English bare key for non-English queries and keeps the English bare-then-prefixed order (`tests/chatbot/test_web_research_cache.py` and `docs/chat/search.md`). Deep lookup uses only `deep|{lang}|{words}`.
+
+Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around line 118) treats any exception from the document, including disposal, as `("en_US", "english")`. Re-raise `is_disposal`. Leave the timeout and cancel fallbacks.
+
+**Shipped (`plugin/chatbot/web_research_cache.py`):** `store_research_cache_embeddings` checks that the parent `web_cache` row still exists before inserting embeddings.
+
+### 6. PPT-Master follows the focused window and ignores Stop
+
+The sidebar records the frame document's URL as a skill-cache id (`plugin/chatbot/ppt_master.py` around line 54) and passes it inside the child payload. `execute_ppt_master_turn` calls `_execute_ipc_unlocked` without the IPC `session_id` (`plugin/scripting/venv_worker.py` around line 716). Host tool RPC then uses `get_active_document` (`plugin/scripting/host_rpc.py` around line 351). A long turn with deck B focused exports into B. Named scripts already resolve `document_for_script_session` before `get_active_document`. Pass the frame URL as the IPC `session_id` and use that same lookup in `execute_tool`.
+
+Stop is checked once, before the venv turn (`plugin/chatbot/ppt_master.py` around line 77). The child loop (`plugin/ppt_master/venv/runner.py`) does not look again, and tool frames are dispatched with no stop check. The sidebar returns while the worker can still export. The child should return `USER_STOPPED` when the host reports stop, and `handle_tool_call_frame` should refuse the call when stop is already set. Leave this runtime out of the chat FSM.
+
+Librarian, brainstorming, and writing already stop: `SmolAgentExecutor` calls `interrupt()` and raises `USER_STOPPED` before the tool body.
+
+Smaller, same area: `_parse_finished` in `plugin/ppt_master/venv/runner.py` keeps a handoff only until the first apostrophe (`re.search(r"'result': '([^']*)'", ...)`). A finished message containing `'` is cut off. `_selected_chat_model`'s docstring still says send handlers pass the model id via `ToolContext.doc`. On the live path `ctx.doc` is the UNO document.
+
+### 7. Impress agent-backend manual (Shipped)
+
+**Shipped (`plugin/chatbot/agent_manual.py`):** `_app` maps `"impress"` to `"draw"`, sharing the Draw topic tables (matching `get_core_directives_for_type` in `plugin/framework/prompts.py`). Sidebar `manual_read` on the main thread also folds Impress to `"draw"` via `doc_type_family_label`.
 
 ## Settings and panel shell
 
-### 8. Settings open avoids UI-thread model fetches
+### 8. Settings open and endpoint presets
 
-- `dialog_views.py` passes `skip_remote_fetch=True` on the initial combo fill, uses `force_catalog_refresh` (snapshotting generation and `tts_model_id`), syncs the API key only when the resolved URL changes and the field still holds the prior key or is empty, and points the Hugging Face starter button at `https://router.huggingface.co/v1`.
-- **Why / do not:** A warm memo already applies from cache with no HTTP; starter buttons still use a hand-written `starters` tuple in `dialog_views.py:298-303` (tracked in `## Open` to build from `ENDPOINT_PRESETS`).
+**Shipped (`plugin/chatbot/dialog_views.py`):** `_populate_fields` passes `skip_remote_fetch=True` on the first model combo fill (LRU plus defaults) instead of fetching synchronously on the UI thread.
 
-### 9. Vision OK and Eval dialog lifecycle
+The endpoint dropdown's background fetch omits the Together TTS model id (`plugin/chatbot/dialog_views.py` `itemStateChanged`, the `run_in_background` lambda). `_bg_fetch` only calls `fetch_together_tts_voices(..., model_id=...)` when that string is non-empty. The comment there says list-all does not fill the `?model=` entry the Voice combo reads. The lambda also reads `self._debounce_gen` when the worker starts, so the generation check does not see the generation that was current at click time. `force_catalog_refresh` already snapshots `gen` and `tts_model_id`. Use that same call.
 
-- `ModuleConfigDialog._apply` (`plugin/chatbot/module_config_dialog.py`) shows a message box on error and keeps the dialog open, and reads controls with `get_optional`.
-- `extension/Dialogs/EvalDialog.xdl` marks `endpoint` `dlg:readonly="true"`, and `eval_dashboard_ui.py` guards callbacks after close.
-- **Why / do not:** `input_box` skips `dispose()` after Esc because dispose after Esc/close segfaults on some Linux builds (`docs/framework/uno-dialogs.md`); do not change the message-box helpers from this.
+`textChanged` calls `_sync_api_key` on every keystroke (`plugin/chatbot/dialog_views.py`). `_sync_api_key` always does `set_control_text(ak_ctrl, get_api_key_for_endpoint(resolved))`. Paste a new key, then fix one character of the URL, and the typed key is gone. OK then persists the restored value. Sync only when the resolved URL changes, and only if the field still holds the saved key for the previous URL (or is empty). Preset clicks should keep loading the saved key.
 
-### 10. Panel create, button widths, and image-model combo
+**Shipped (`plugin/chatbot/dialog_views.py`):** The Hugging Face preset points at `https://router.huggingface.co/v1`. Still open: `ENDPOINT_PRESETS` has no Hugging Face row and `get_provider_from_endpoint` has no HF host, so the button is the only UI that sets this URL. Build the four starter buttons from `ENDPOINT_PRESETS`; OpenRouter, Together, and NVIDIA already match.
 
-- `panel_factory.py` clears `self.toolpanel = None` if `wire_chatpanel_controls` raises.
-- `_pin_button_width` (`plugin/chatbot/panel_wiring.py:74`) measures `_(lab)` across translated labels.
-- `panel_factory.py` wires `image_model_selector` with `_wire_selector_sync_listeners(..., commit_on_focus_lost=True)` (`panel_factory.py:406-407`), so typing persists `image_model` on focus lost rather than per keystroke (per `sidebar-implementation.md`).
-- `dialogs.py` uses `BaseActionListener` and `try` / `finally: dlg.dispose()` consistently.
-- **Why / do not:** Leave the `self.toolpanel` assignment before `wire_chatpanel_controls` because wiring reads `self.toolpanel` for the resize parent. The width pin exists to stop the Record/Send `windowResized` growth loop.
+### 9. Vision OK closes after a failed save
+
+`_apply` logs `ConfigValidationError` and still calls `close()` (`plugin/chatbot/module_config_dialog.py` around line 236). Settings shows a message box and stays open. Do the same here, and read controls with `get_optional` so one missing name does not abort `show()` with no dialog. `getControl` raises on a missing name. `if ctrl is None` does not catch that.
+
+`EvalDialog.xdl` marks `endpoint` read-only (**shipped**). Close still disposes the dialog while the dedicated worker can post `_after_test` / `_show_summary` onto it; set a closed flag in `show()`'s `finally` and return at the start of `_paint`, `_show_summary`, and `_show_failure`.
+
+`input_box` skips `dispose()` when `execute()` is false, because dispose after Esc or the window close segfaults on some Linux builds (`docs/framework/uno-dialogs.md`). Settings `_cleanup` and the eval dialog always dispose. Same guard as `input_box` if Cancel or the title-bar close actually crashes. Do not change the message-box helpers from this.
+
+### 10. A failed panel create stays latched
+
+**Shipped (`plugin/chatbot/panel_factory.py`):** `getRealInterface` clears `self.toolpanel = None` before re-raising on a failed create, so the next `getRealInterface` retries instead of returning a half-built panel.
+
+Button widths are measured from the English strings `"Send"`, `"Record"`, `"Stop Rec"`, `"Accept"` (`plugin/chatbot/panel_wiring.py` `_measure_send_button_max_width`, around line 22). Stop and Clear use the same untranslated lists. The live label is `_(effect.send_label)`. The pin exists to stop the Record / Send `windowResized` growth loop. A longer translation still changes `getPosSize().Width` before the English pin is forced back, which is that loop, or the label is clipped. Measure `_(lab)` in `_measure_aux_button_max_width`, which already walks a label list. `_` is already imported in that file.
+
+The image-model combo is editable (`dlg:dropdown="true"`) and only has an item listener (`plugin/chatbot/panel_factory.py` around line 766). The text-model combo gets both `ModelSyncListener` and `ModelTextSyncListener` because list selection and typing do not share one event. A typed image id never reaches `set_image_model`. The next `config:changed` refresh repaints the combo from `get_image_model()` and drops it. Add the same `addTextListener` path, still bailing out while `_in_refresh_controls` is set.
+
+`_OkListener` / `_CancelListener` are raw `unohelper.Base, XActionListener` in several `dialogs.py` helpers. Copy buttons in the same functions use `BaseActionListener`. Those dialogs also `dispose()` after `execute()` with no `finally`. `msgbox` and `show_approval_dialog` already dispose in `finally`. One local `BaseActionListener` that calls `endDialog`, plus `try` / `finally: dlg.dispose()`, matches `msgbox`.
 
 ## Transcript and history
 
-### 11. Rich-text copy and slash popup
+### 11. One bad history element drops the whole batch
 
-- `get_control_text_length` (`plugin/chatbot/rich_text_control.py`), `_plain_append_messages`, and direct hidden-doc copy handle formatted rows without clipboard transfer; `build_message_html` and `SlashPopupController._attach_item_listener` are removed.
-- **Why / do not:** Do not wire an item listener on the slash popup; item listeners deadlock there.
+get_control_text_length returns `None` on exception or missing model (`plugin/chatbot/rich_text_control.py`). Unknown length skips the formatted copy and plain-appends once.
 
-### 12. JSON history does not fork away from SQLite
+`_plain_append_messages` writes bold `You:` / `Assistant:` prefixes, theme-appropriate role colors, and blank-line gaps between turns.
 
-- `get_chat_history` (`plugin/chatbot/history_db.py:345-353`) raises on `sqlite3.Error` when `writeragent_history.db` already exists (`connect()` waits on the lock; there is no retry loop). `JSONHistory.add_message` propagates save errors, and `_json_history_filename` sanitizes JSON filenames.
-- **Why / do not:** Do not add a second store, and do not persist tool results from `history_db` (tool-only assistant turns are skipped on purpose; compaction is not the place to "fix" that).
+`build_message_html` is removed. `append_formatted_row` and `append_formatted_rows` use direct hidden-doc copy without clipboard transfer.
+
+`SlashPopupController._attach_item_listener` has been removed (**shipped**; the mouse listener is used instead because item listeners deadlock).
+
+### 12. JSON history can fork away from SQLite
+
+Any `sqlite3.Error` in `get_chat_history` returns a `JSONHistory` for that object (`plugin/chatbot/history_db.py` around line 241). Later turns land under `writeragent_history.db.d/`, and the next successful SQLite open never reads them. Retry a lock. Do not switch an existing `writeragent_history.db` over to JSON.
+
+`JSONHistory.add_message` logs `OSError` / `TypeError` and returns (around line 178). The turn is already in `ChatSession.messages` and is gone on the next open. `get_messages` already re-raises. Do the same on save. `SQLite3History.add_message` already lets `sqlite3.Error` propagate.
+
+**Shipped (`plugin/chatbot/history_db.py`):** `_json_history_filename` sanitises session IDs before building JSON history filenames.
+
+Do not add a second store. Do not persist tool results from `history_db`. Tool-only assistant turns are skipped on purpose (`ChatSession.add_assistant_message`). Reloaded history is user and assistant text. Compaction is not the place to "fix" that.
 
 ## Test hooks
 
-### 13. The debug harness targets the right deck
+### 13. The debug harness can drive the wrong deck
 
-- Shipped in `plugin/chatbot/sidebar_test_hooks.py`: multi-panel disambiguation returns `None` when no frame or `_live_panel_uid` matches, `uno_same` stays on the main thread, adopt/read skip `_panel_teardown`, and `clear_sidebar_chat` / `press_record` / `press_stop_rec` drive the controls directly.
+Shipped in `plugin/chatbot/sidebar_test_hooks.py`. Several live panels and no frame or `_live_panel_uid` match return `None` (a single live panel is still returned). `uno_same` is not called off the main thread. Adopt and read skip `_panel_teardown` and drop those listeners from the strong list. `clear_sidebar_chat` calls `clear_listener.on_action_performed` when that listener exists. `press_record` is the Record mouse press/release pair. `press_stop_rec` uses that pair, then the button action only when the label is Stop Rec.
 
 ## Small collapses
 
-Implemented across `plugin/chatbot/` and `scripts/`:
+These remove a second copy of a fact. None of them need a new file.
 
-- Librarian session creation reuses `greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model)` (`panel_factory.py`).
-- Settings, Edit/Extend `input_box`, and `EvalDialog` load and translate through `load_writeragent_dialog` (`dialog_views.py`, `eval_dashboard_ui.py`).
-- `scripts/manifest_registry.py` shares `_build_inline_maps` with `settings_tab_order.py`.
-- `apply_field_specs_result` (`plugin/chatbot/settings_fields.py`) uses `spec.get("config_key") or name.replace("__", ".")`, preventing divergence if a module name contains a dot.
-- `module_config_dialog.py` walks `btn_tab_*` in control order instead of a duplicate `_TAB_PAGE_MAP`.
-- `resolve_research_stem_language` (`web_research_cache.py`), `chatbot.deep_research_depth`, and `approval_required` (`web_research_chat.py`) are removed.
-- `_cache_key_inputs` (`web_research.py`) applies the fluff filter once.
-- `get_optional` (`dialogs.py:638`) re-raises when `"DisposedException"` is in the exception type name (a bare `RuntimeException` stays `"missing"`).
-- `docs/chat/sidebar-implementation.md` / factory alignment: do not change the factory to match the doc.
-- `_compose_issue_body` (`plugin/chatbot/bug_report.py`) reserves the environment header and fits the exception tail within the encoded URL budget.
-- `dialog_views.py:312` calls `setup_module_tabs` directly (`_setup_module_tabs` is removed).
+- **Shipped:** The librarian `ChatSession` reuses `greeting_for_sidebar_mode` (`plugin/chatbot/chat_sidebar_mode.py`, `plugin/chatbot/panel_factory.py`). `LIBRARIAN_HISTORY_SESSION_ID` is the single history id.
+- Settings, the Edit/Extend `input_box`, and the eval dashboard load through `load_writeragent_dialog` (`plugin/chatbot/dialog_views.py`, `plugin/chatbot/eval_dashboard_ui.py`), which takes `ctx`, tries `DialogProvider` then `DialogProvider2`, and translates. Settings still calls `translate_dialog` after populate so labels translate after combos are filled. A `None` dialog raises in Settings and `input_box`; the eval dashboard returns without `execute()`.
+- `plugin/chatbot/settings_tab_order.py` rebuilds `inline_targets` / `inline_set` / `inline_map`. `scripts/manifest_registry.py` already builds that map, and `generate_settings_dialog_tabs` then copies it. Use `_build_inline_maps` in the generator and delete the copy. If the copies diverge, the tab exists and the fields land on the wrong page.
+- **Shipped (`plugin/chatbot/settings_fields.py`):** `apply_field_specs_result` uses `spec.get("config_key") or key.replace("__", ".")`, matching `apply_settings_result`.
+- Vision tab steps are a second page list (`plugin/chatbot/module_config_dialog.py` `_TAB_PAGE_MAP`). A new `page:` in `vision/module.yaml` gets a button and a Step, and `_setup_tabs` never listens. Walk `btn_tab_*` in control order and assign Step 1..n, which is the order the generator writes.
+- **Shipped (`plugin/chatbot/web_research_cache.py`):** `resolve_research_stem_language` has been removed; callers use `resolve_research_locale`.
+- Deep Research rounds are controlled only by `chatbot.deep_research_max_rounds`; the old `depth` parameter and `chatbot.deep_research_depth` config key are removed.
+- **Shipped (`plugin/chatbot/web_research_chat.py`):** `approval_required` has been removed.
+- `_cache_key_inputs` (`plugin/chatbot/web_research.py`) now applies the fluff filter once: one ordered-unique list, with a sorted copy for the storage key. Storage keys are sorted and embedding text keeps order, on purpose (`docs/chat/search.md`).
+- `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposal`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
+- `docs/chat/sidebar-implementation.md` still says the first mode follows an empty `USER.md`. The factory uses `librarian_default_mode` / `chatbot.librarian_invoked`, which matches `plugin/chatbot/AGENTS.md`. Update that sentence. Do not change the factory to match the doc.
+- A long traceback drops the bug-report environment. The cap is 7500 raw characters, applied before `urlencode` (`plugin/chatbot/bug_report.py` `_compose_issue_body`). When the exception fills the budget, version, OS, locale, Python, endpoint, and model are discarded. Reserve a short environment header and put the exception tail in what remains. Cap the encoded URL. A failed open logs the full URL. The template has no API-key field.
+- Extend/Edit from the hamburger uses the sidebar frame (`get_document_from_frame`). The menubar still calls the handler with no frame, so it edits the focused document. Writer still uses `get_string_without_tracked_deletions`.
+- `_setup_module_tabs` wraps `setup_module_tabs` in `except Exception: pass` (`plugin/chatbot/dialog_views.py`). `setup_module_tabs` already logs. Drop the outer try, or log.
+- The eval dashboard translates when `load_writeragent_dialog` loads `EvalDialog`.
 
 ### Slash popup
 
@@ -167,8 +203,13 @@ These live outside `plugin/chatbot` and show up in the findings above.
 - `plugin/framework/client/llm_client.py` `request_with_tools`: stop still returns accumulated content. The chatbot worker ignores it. Partial `tool_calls` must not be executed.
 - `plugin/framework/errors.py`: `is_disposal` is the strict disposal predicate (`DocumentDisposedError` and `DisposedException` only). UI lifecycle uses `suppress_disposed` / `_looks_like_teardown` for broader bridge teardown.
 - `plugin/scripting/host_rpc.py` and `plugin/scripting/venv_worker.py`: PPT document binding and cancel. See item 6.
+- `plugin/audio/tts_service.py` `sync_tts_ui`: Together voices use the live endpoint argument. OpenRouter voice rows call `_saved_endpoint_is_openrouter()`, which reads the saved URL. Before OK, an OpenRouter choice still builds voices as if the old host were current.
 - `plugin/framework/config.py` `validate()` already runs `endpoint_from_selector_text`. Do not add a second normalizer in the settings dialog.
 
 ## Open
 
-- `[eng S]` Build the Settings starter buttons from `ENDPOINT_PRESETS` (one URL list). (§ 8 Settings open avoids UI-thread model fetches)
+- `[fidelity S]` Fire the image-model combo's text listener as well as its item listener so a typed image model id is saved. (§ 10 A failed panel create stays latched)
+- `[fidelity S]` Measure button widths from the translated labels `_(lab)` instead of the English "Send", "Record", "Stop Rec" and "Accept" lists. (§ 10 A failed panel create stays latched)
+- `[eng S unverified]` Make the PPT-Master child loop and tool-frame dispatch stop when the host reports Stop, instead of checking only before the turn. (§ 6 PPT-Master follows the focused window and ignores Stop)
+- `[eng S unverified]` Reserve a short environment header in the bug-report body so a long traceback no longer drops version, OS and model. (§ Small collapses)
+- `[eng S unverified]` Make Vision OK keep the dialog open on a failed save and read controls with `get_optional`. (§ 9 Vision OK closes after a failed save)
