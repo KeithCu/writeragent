@@ -199,3 +199,33 @@ def test_stdin_preserves_accents_after_pinning(monkeypatch):
 
     got = json.loads(bridge.sys.stdin.readline())
     assert got["params"]["t"] == _ACCENTED
+
+
+def test_watch_lo_relays_catalog_generation_and_down_to_up(monkeypatch):
+    stop = threading.Event()
+    monkeypatch.setattr(bridge, "_POLL_SECONDS", 0)
+    responses = iter([
+        {"status": "healthy", "tool_catalog_generation": 1},
+        {"status": "healthy", "tool_catalog_generation": 1},
+        {"status": "healthy", "tool_catalog_generation": 2},
+        None,
+        {"status": "healthy", "tool_catalog_generation": 2},
+    ])
+
+    def _fake_health():
+        try:
+            return next(responses)
+        except StopIteration:
+            stop.set()
+            return {"status": "healthy", "tool_catalog_generation": 2}
+
+    written = []
+    monkeypatch.setattr(bridge, "_health", _fake_health)
+    monkeypatch.setattr(bridge, "_write", written.append)
+
+    bridge._watch_lo(stop)
+
+    assert written == [
+        {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"},
+        {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"},
+    ]

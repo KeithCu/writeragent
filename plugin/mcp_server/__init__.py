@@ -26,6 +26,7 @@ from typing import Any, Callable
 from plugin.framework.config import get_config, get_secret_config, save
 from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
 from plugin.framework.module_base import ModuleBase
+import plugin.mcp_server.mcp_session as mcp_session
 from plugin.mcp_server.cors import reload_cors_policy_from_config
 from plugin.mcp_server.routes import json_route
 from plugin.mcp_server.server import mcp_endpoint_url
@@ -364,6 +365,9 @@ class McpModule(ModuleBase):
         with self._registry.lock:
             for method, path, handler_name, wrap in MCP_ROUTE_TABLE:
                 self._registry.add(method, path, wrap(getattr(p, handler_name)))
+        # Installed here rather than initialize() so disabled MCP installs nothing;
+        # watch_open_doc_types is idempotent across toggles.
+        services.document.watch_open_doc_types(mcp_session.record_open_doc_types)
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self) -> None:
@@ -511,7 +515,15 @@ class McpModule(ModuleBase):
     # ---- Built-in route handlers ----
 
     def _handle_health(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
-        return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
+        return (
+            200,
+            {
+                "status": "healthy",
+                "server": "WriterAgent",
+                "version": EXTENSION_VERSION,
+                "tool_catalog_generation": mcp_session.tool_catalog_generation(),
+            },
+        )
 
     def _handle_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))

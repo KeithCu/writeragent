@@ -156,26 +156,34 @@ def _write(obj: dict) -> None:
         sys.stdout.flush()
 
 
-def _lo_reachable() -> bool:
+def _health() -> dict | None:
     try:
         with urllib.request.urlopen(_HEALTH_URL, timeout=2) as r:
-            return r.status == 200
+            if r.status != 200:
+                return None
+            data = json.loads(r.read().decode("utf-8"))
+            return data if isinstance(data, dict) else None
     except Exception:
-        return False
+        return None
 
 
 def _watch_lo(stop: threading.Event) -> None:
-    """Emit notifications/tools/list_changed when LibreOffice transitions down->up, so a client that
-    connected while LO was down refreshes its (then-empty) tool list automatically."""
-    was_up = _lo_reachable()
+    """Emit notifications/tools/list_changed on down->up or tool_catalog_generation change.
+
+    Both transitions cause the stdio client to re-run tools/list. LO's
+    initialize result (relayed verbatim) advertises tools.listChanged, so the
+    client acts on the notification. A full LO restart inside one poll
+    interval whose counter happens to match is not detected here.
+    """
+    last = _health()
     while not stop.is_set():
         stop.wait(_POLL_SECONDS)
         if stop.is_set():
             break
-        up = _lo_reachable()
-        if up and not was_up:
+        now = _health()
+        if now is not None and (last is None or now.get("tool_catalog_generation") != last.get("tool_catalog_generation")):
             _write({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
-        was_up = up
+        last = now
 
 
 def _force_utf8_stdio() -> None:

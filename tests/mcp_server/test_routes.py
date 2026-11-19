@@ -167,3 +167,32 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
             mod.shutdown()
         except Exception:
             pass
+
+
+def test_register_mcp_routes_watches_open_document_types(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import plugin.mcp_server.mcp_session as mcp_session
+    from plugin.mcp_server import McpModule
+
+    services = MagicMock()
+    monkeypatch.setattr("plugin.mcp_server.get_config", lambda key: {
+        "mcp.mcp_enabled": False,
+        "mcp.mcp_port": 18765,
+        "mcp.host": "127.0.0.1",
+        "mcp.use_ssl": False,
+        "mcp.tunnel_enabled": False,
+    }.get(key))
+    monkeypatch.setattr("plugin.mcp_server.reload_cors_policy_from_config", lambda *_a, **_k: None)
+
+    mod = McpModule()
+    mod.name = "mcp"
+    try:
+        mod.initialize(services)
+        mod._register_mcp_routes(services)
+        services.document.watch_open_doc_types.assert_called_once_with(mcp_session.record_open_doc_types)
+    finally:
+        try:
+            mod.shutdown()
+        except Exception:
+            pass
