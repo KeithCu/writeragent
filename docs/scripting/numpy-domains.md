@@ -720,7 +720,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
 ### Cross-cutting ergonomic improvements {#cross-cutting-ergonomic-improvements}
 
 1. **Vectorized / Array inputs for scalar helpers (`[Units]`, `[Math]`):**
-   - Allow helpers like `convert_quantity([10, 20, 30], "m/s", "km/h")` to accept lists / Calc column ranges directly and return converted column arrays without requiring manual Python list comprehensions in `=PY()`.
+   - **Shipped for `[Units]`:** `convert_quantity`, `parse_quantity`, and `format_quantity` in [`plugin/scripting/venv/units.py`](../../plugin/scripting/venv/units.py) accept scalars, 1D lists, and 2D Calc column ranges directly without list comprehensions in `=PY()` (see [Data Engineering / Units](#data-engineering-units)). Vectorized inputs for `[Math]` remain planned.
 2. **Theme-aware visualization styles:**
    - Detect active LibreOffice light/dark appearance via `get_monaco_theme_info()` and apply theme-aware figure backgrounds and palette hints (`plt.style.use('dark_background')` or transparent canvas in dark mode) so charts look native in dark documents.
 3. **Presentation-ready number & table styling on Calc egress:**
@@ -739,7 +739,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
   - *Dimensionality mismatch diagnostics:* Return clear, human-readable dimension descriptions (e.g. `"Incompatible: [length] vs [mass] * [length] / [time]^2"`) when checks fail.
 - **Analysis Helpers (EDA, Regression, Outliers):**
   - *Target/feature column auto-detection:* Default `target_col` to the last column and `feature_cols` to all preceding numeric columns when omitted.
-  - *Data hygiene helper:* Add a lightweight `clean_data` helper (`drop_na`, `fill_na_median`, `strip_headers`) to prep spreadsheet tables before statistical modeling.
+  - *Data hygiene helper (shipped as `clean_and_prepare`):* [`clean_and_prepare`](../../plugin/scripting/venv/analysis.py) handles type coercion, optional `drop_duplicates`, and `fill_numeric` / `fill_categorical` imputation before modeling.
 - **Time Series & Forecasting:**
   - *Summary KPI banner:* Add executive summary metrics (`MAPE`, `Expected Next Value`, `Trend %`) above the projected data table. Frequency-based seasonality (and weekday forecast dates) is shipped; see [Forecasting](#forecasting).
 - **Text / Document Analytics:**
