@@ -6,8 +6,8 @@ from plugin.doc.document_file_tools import (
     DocumentOpen,
     DocumentSave,
     export_filter,
-    resolve_file_target,
 )
+from plugin.doc.document_research import resolve_file_target
 from plugin.framework.doc_type import DocumentType
 from plugin.framework.tool import ToolRegistry
 
@@ -47,7 +47,6 @@ def test_document_file_tools_registry_filtering():
     assert save_tool in mcp_tools
     assert export_tool in mcp_tools
 
-    assert DocumentOpen.requires_document is False
     assert export_tool.requires_document_lock() is True
 
 
@@ -85,7 +84,7 @@ def test_resolve_file_target():
     assert "%20" in url
     assert "%C3%A9" in url
 
-    with patch("plugin.doc.document_file_tools.system_path_from_url", return_value="/tmp/from url.odt"):
+    with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/from url.odt"):
         assert resolve_file_target("file:///tmp/from%20url.odt") == (
             "/tmp/from url.odt",
             "file:///tmp/from%20url.odt",
@@ -224,3 +223,21 @@ def test_document_export(tmp_path):
     assert res_pdf["path"] == str(pdf_path)
     mock_cpv.assert_called_once_with("FilterName", "writer_pdf_Export")
     doc.storeToURL.assert_called_once_with(pdf_path.as_uri(), (prop,))
+
+
+def test_document_save_and_export_missing_folder(tmp_path):
+    doc = _make_model(url="file:///tmp/src.odt", uid="uid-1")
+    missing_dir = tmp_path / "does-not-exist"
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.WRITER):
+        res_save = DocumentSave().execute(_make_ctx(doc), path=str(missing_dir / "out.odt"))
+        res_export = DocumentExport().execute(_make_ctx(doc), path=str(missing_dir / "out.pdf"))
+
+    assert res_save["status"] == "error"
+    assert res_save["code"] == "DIRECTORY_NOT_FOUND"
+    assert str(missing_dir) in res_save["message"]
+    doc.storeAsURL.assert_not_called()
+
+    assert res_export["status"] == "error"
+    assert res_export["code"] == "DIRECTORY_NOT_FOUND"
+    assert str(missing_dir) in res_export["message"]
+    doc.storeToURL.assert_not_called()

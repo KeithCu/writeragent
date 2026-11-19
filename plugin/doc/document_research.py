@@ -128,6 +128,24 @@ def system_path_from_url(url: str) -> str | None:
     return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
+def resolve_file_target(raw: str) -> tuple[str, str] | None:
+    """Resolve an absolute path (with ~ expansion) or file: URL to (system_path, file_url)."""
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.startswith("file:"):
+        path = system_path_from_url(text)
+        if not path:
+            return None
+        return path, path_to_file_url(path)
+    expanded = os.path.expanduser(text)
+    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
+    if not (os.path.isabs(expanded) or expanded.startswith("/")):
+        return None
+    path = _normalize_path(expanded)
+    return path, path_to_file_url(path)
+
+
 def should_skip_filename(name: str) -> bool:
     if name.startswith("~$"):
         return True
@@ -568,21 +586,13 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
     A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
-    path: str | None = None
-    url: str | None = None
     raw = str(path_or_url).strip()
-    if raw.startswith("file:"):
-        url = normalize_file_url(raw)
-        path = system_path_from_url(url)
-    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
-    elif (os.path.isabs(raw) or raw.startswith("/")) and os.path.isfile(raw):
-        path = _normalize_path(raw)
-        url = path_to_file_url(path)
-    else:
+    resolved = resolve_file_target(raw)
+    if resolved is None:
         return None, None, f"Invalid path or URL: {raw!r}", False
-
-    if not path or not url:
-        return None, None, "Could not resolve path", False
+    path, url = resolved
+    if not raw.startswith("file:") and not os.path.isfile(path):
+        return None, None, f"Invalid path or URL: {raw!r}", False
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:

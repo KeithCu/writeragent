@@ -126,7 +126,7 @@ config:
     default: false
     widget: checkbox
     label: Allow file access
-    helper: When checked, Python may read and write files anywhere (open, io, pathlib, shutil, tempfile, sqlite3, glob, and os file calls such as listdir and stat). When unchecked, those reads and writes are blocked. In-memory buffers (io.BytesIO, io.StringIO) stay available.
+    helper: When checked, Python may read and write files anywhere (open, io, pathlib, shutil, tempfile, sqlite3, glob, and os file calls such as listdir and stat). When unchecked, those reads and writes are blocked; in-memory buffers (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, wa.document.save, wa.document.export, which are MCP and Python-script reachable, not offered to the sidebar chat model) stay available.
     public: true
     inline: true
     x: 142

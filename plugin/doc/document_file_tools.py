@@ -13,12 +13,11 @@ import logging
 import os
 from typing import Any, NamedTuple
 
-from plugin.doc.document_research import document_entry, system_path_from_url
+from plugin.doc.document_research import document_entry, resolve_file_target
 from plugin.framework.doc_type import doc_type_label_for_enum, get_document_type
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import create_property_value, get_desktop, resolve_document_by_url
-from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.document_file_tools")
 
@@ -69,24 +68,6 @@ def _format_list(doc_label: str, *, save: bool) -> str:
     return ", ".join(f".{e}" for e in _FILTERS[doc_label] if not (save and e in _EXPORT_ONLY))
 
 
-def resolve_file_target(raw: str) -> tuple[str, str] | None:
-    """Resolve an absolute path (with ~ expansion) or file: URL to (system_path, file_url)."""
-    text = str(raw).strip()
-    if not text:
-        return None
-    if text.startswith("file:"):
-        path = system_path_from_url(text)
-        if not path:
-            return None
-        return path, path_to_file_url(path)
-    expanded = os.path.expanduser(text)
-    # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
-    if not (os.path.isabs(expanded) or expanded.startswith("/")):
-        return None
-    path = os.path.normpath(os.path.abspath(expanded))
-    return path, path_to_file_url(path)
-
-
 class _FilterError(NamedTuple):
     code: str
     message: str
@@ -128,6 +109,9 @@ def _resolve_save_target(
     res = export_filter(_doc_label(doc), path, save=save)
     if isinstance(res, _FilterError):
         return res
+    parent = os.path.dirname(path)
+    if not os.path.isdir(parent):
+        return _FilterError("DIRECTORY_NOT_FOUND", f"Target folder does not exist: {parent}")
     return path, url, res
 
 
