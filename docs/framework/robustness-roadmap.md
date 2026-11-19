@@ -504,9 +504,9 @@ That should make the extension more reliable without making it more esoteric.
 
 ## Open
 
-- `[eng M unverified]` Fall back to selection or plain text when full document XHTML export fails in chat and tool paths beyond the existing document-context fallback. (§ Phase 2: User-Visible Resilience)
+- `[eng M]` Fall back to selection or plain text when full document XHTML export fails in chat and tool paths beyond the existing document-context fallback. (§ Phase 2: User-Visible Resilience)
 - `[eng M]` Reacquire the active document model after disposal in sidebar chat where reacquisition is safe. (§ Phase 2: User-Visible Resilience)
 - `[eng M]` Add lightweight health diagnostics such as session failure counters and guided recovery hints in the sidebar. (§ Phase 2: User-Visible Resilience)
-- `[eng M unverified]` Run a continuous automated fuzzing job in CI for streaming decoders and JSON parsers; only the manual-trigger CrossHair workflow `crosshair-deep.yml` was confirmed. (§ Phase 3: Adversarial Verification)
+- `[eng M]` Run a continuous automated fuzzing job in CI for streaming decoders and JSON parsers; only the manual-trigger CrossHair workflow `crosshair-deep.yml` was confirmed. (§ Phase 3: Adversarial Verification)
 - `[eng S]` Add bounded retries around transient OS file locks for config and history writes, only if real locking failures are observed. (§ 3.2 Priority 2: Bounded Retries for Real I/O)
 - `[idea L]` Revisit deferred mechanisms (UNO circuit breaker, checkpointing) only after measuring a concrete repeated failure, and write a design note first. (§ Phase 4: Revisit Only If Needed)
