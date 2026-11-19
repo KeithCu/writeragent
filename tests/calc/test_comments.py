@@ -341,3 +341,15 @@ def test_cell_comment_add_bad_address_is_invalid_param():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     mock_ann.assert_not_called()
+
+
+def test_cell_comment_delete_not_found_code():
+    from plugin.app import get_tools
+
+    sheet = MagicMock()
+    sheet.getAnnotations.return_value.getCount.return_value = 0
+    ctx = SimpleNamespace(doc=_doc_with_active_sheet(sheet))
+
+    res = get_tools().get("cell_comment_delete").execute_safe(ctx, cell="B3")
+    assert res["status"] == "error"
+    assert res["code"] == "COMMENT_NOT_FOUND"
