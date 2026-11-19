@@ -6,16 +6,29 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-_PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
+
+def _prompt_optimization_dir() -> Path:
+    # release_verify runs pytest inside a stripped temp tree without scripts/,
+    # setting WRITERAGENT_PROJECT_ROOT to the real checkout.
+    env_root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
+    if env_root:
+        candidate = Path(env_root) / "scripts" / "prompt_optimization"
+        if candidate.is_dir():
+            return candidate
+    return Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
+
+
+_PO = _prompt_optimization_dir()
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from eval_catalog import _headless_registry
-from plugin.framework.tool_schema import call_properties, required_keys, value_matches_type
+from eval_catalog import _headless_registry  # noqa: E402
+from plugin.framework.tool_schema import call_properties, required_keys, value_matches_type  # noqa: E402
 
 
 def _minimal_value(spec: dict[str, Any]) -> Any:
@@ -72,3 +85,10 @@ def test_every_registered_schema_default_validates() -> None:
                 assert ok, f"{tool.name} ({dt}): defaults failed validate(): {err}"
 
     assert checked > 0
+
+
+def test_prompt_optimization_dir_uses_project_root_env(monkeypatch: Any, tmp_path: Path) -> None:
+    expected = tmp_path / "scripts" / "prompt_optimization"
+    expected.mkdir(parents=True)
+    monkeypatch.setenv("WRITERAGENT_PROJECT_ROOT", str(tmp_path))
+    assert _prompt_optimization_dir() == expected
