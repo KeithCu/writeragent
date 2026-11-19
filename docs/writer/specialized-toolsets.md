@@ -714,5 +714,5 @@ For recent feature additions:
 - `[eng S]` Better local Ollama onboarding and connection-error hints in settings. (§ 8.1 Ideas worth adopting (future))
 - `[eng M]` Stop chat answers that put JSON or HTML in chat and leave the document unchanged, starting with a prompt fix checked by `make eval-ab`. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
 - `[fidelity S]` Add `start` and `end` to the paragraph alignment enum so right-to-left text reads back correctly. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
-- `[idea S unverified]` Decide whether `get_image` stays visible when native vision support is unknown. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
-- `[eng S unverified]` Make the `hori_orient`/`vert_orient` image schema and description agree on strings versus raw UNO integers. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[idea S]` Decide whether `get_image` stays visible when native vision support is unknown. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[eng S]` Make the `hori_orient`/`vert_orient` image schema and description agree on strings versus raw UNO integers. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
