@@ -170,10 +170,12 @@ def _health() -> dict | None:
 def _watch_lo(stop: threading.Event) -> None:
     """Emit notifications/tools/list_changed on down->up or tool_catalog_generation change.
 
-    Both transitions cause the stdio client to re-run tools/list. LO's
-    initialize result (relayed verbatim) advertises tools.listChanged, so the
-    client acts on the notification. A full LO restart inside one poll
-    interval whose counter happens to match is not detected here.
+    Down->up: a client that connected while LO was down got the placeholder's
+    empty tool list and must refresh automatically. Generation change: open
+    document types changed in LO. LO's initialize result (relayed verbatim)
+    advertises tools.listChanged, so the client acts on the notification. A full
+    LO restart inside one poll interval whose counter happens to match is not
+    detected here.
     """
     last = _health()
     while not stop.is_set():
