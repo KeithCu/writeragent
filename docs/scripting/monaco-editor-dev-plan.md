@@ -6,7 +6,7 @@
 
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
-**Status (2026-08):** **Phase 2A + Phase 3 + 2E + 2F shipped; 2D debounce + missing-jedi hint shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click + **Ctrl+Alt+Shift+P**) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv when available. **Edit Python in Cell…** falls back to native [`PythonCellEditorDialog`](../../extension/Dialogs/PythonCellEditorDialog.xdl) (same Save / Cancel / **Save without =PY()** / **Data:** / status chrome; no venv). Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, **automatic LibreOffice theme sync**, and Excel-style **Ctrl+Alt+Shift+F9** reset are implemented. **Open:** Phase 2B syntax validate, 2C range picker, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python/editor.py`, and `plugin/framework/appearance.py`.
+**Status (2026-08):** **Phase 2A + Phase 3 + 2E + 2F shipped; 2D debounce + missing-jedi hint shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click + **Ctrl+Alt+Shift+P**) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv when available. **Edit Python in Cell…** falls back to native [`PythonCellEditorDialog`](../../extension/Dialogs/PythonCellEditorDialog.xdl) (same Save / Cancel / **Save without =PY()** / **Data:** / status chrome; no venv). Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, **automatic LibreOffice theme sync**, sandboxed command wrapping (`wrap_command_for_sandbox` in `plugin/scripting/editor_host.py`), and Excel-style **Ctrl+Alt+Shift+F9** reset are implemented. **Open:** Phase 2B syntax validate, 2C range picker, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python/editor.py`, and `plugin/framework/appearance.py`.
 
 **`=PY()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
@@ -559,6 +559,8 @@ This phase is intentionally after 2A (UX solid) and can be done in parallel with
 **Goal:** `Popen` from inside Flatpak can reach the host venv.
 
 [`editor_host.py`](../../plugin/scripting/editor_host.py) wraps both the venv probe and the editor child launch (`ManagedSubprocess(..., command_wrapper=wrap_command_for_sandbox)`) with `wrap_command_for_sandbox` from [`sandbox.py`](../../plugin/scripting/sandbox.py).
+
+**Tests:** hard to automate; maintain a manual matrix in this doc (Flatpak LO + host venv path).
 
 ---
 

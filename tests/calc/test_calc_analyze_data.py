@@ -221,18 +221,29 @@ class TestResolveCellAddress:
         mock_sheet.getCellByPosition.return_value = mock_cell
 
         doc = MagicMock()
-        controller = MagicMock()
-        controller.getActiveSheet.return_value = mock_sheet
-        doc.getCurrentController.return_value = controller
-
-        assert resolve_cell_address(doc, "A1") is mock_cell_addr
-        mock_sheet.getCellByPosition.assert_called_once_with(0, 0)
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.return_value = (mock_sheet, 2, 4)
+            assert resolve_cell_address(doc, "TargetCell") is mock_cell_addr
+            bridge_cls.return_value.resolve_cell.assert_called_once_with("TargetCell")
+        mock_sheet.getCellByPosition.assert_called_once_with(2, 4)
 
     def test_resolve_cell_address_invalid_raises(self):
         doc = MagicMock()
-        with pytest.raises(ToolExecutionError, match="Cannot resolve cell address") as exc_info:
-            resolve_cell_address(doc, "BadRef")
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.side_effect = ValueError("Invalid cell address: BadRef")
+            with pytest.raises(ToolExecutionError) as exc_info:
+                resolve_cell_address(doc, "BadRef")
         assert exc_info.value.code == "INVALID_PARAM"
+
+    def test_resolve_cell_address_bridge_error_passes_through(self):
+        from plugin.framework.errors import UnoObjectError
+
+        doc = MagicMock()
+        with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
+            bridge_cls.return_value.resolve_cell.side_effect = UnoObjectError("Named range covers multiple cells.")
+            with pytest.raises(UnoObjectError) as exc_info:
+                resolve_cell_address(doc, "MultiRange")
+        assert exc_info.value.code == "UNO_OBJECT_ERROR"
 
 
 def test_analyze_data_requires_helper(calc_ctx):

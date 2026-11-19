@@ -66,7 +66,7 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     """Resolve *address* (e.g. 'A1' or 'Sheet1.B2') to ``(sheet, col, row)`` for an open Calc document.
 
     This is the "or None" variant of ``CalcBridge.resolve_cell`` for program-built
-    A1 addresses (cell links, dependency chain, goal seek) and does not take a named range.
+    A1 addresses (cell links, dependency chain) and does not take a named range.
     """
     text = (address or "").strip()
     if not text or doc is None:
