@@ -393,18 +393,16 @@ Answer every question in the sidebar — about LibreOffice, this assistant, or r
 Follow CHAT RESPONSE FORMAT for sidebar replies."""
 
 # Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
-# to upload or paste) plus the web/general-knowledge boundary vs. document_research. The
-# web_research trigger is its catalog line; python/shapes routing and the research `task` hint
-# are in DelegateToSpecializedWriter.description.
+# to upload or paste); the web/general-knowledge boundary lives on the document_research catalog
+# line, and python/shapes routing plus the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
-For public facts or general knowledge, answer yourself or {DELEGATE_SUBAGENT_TOOL}(domain="web_research") when current sources matter; document_research searches only the user's own files."""
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
 
 
 TRANSLATION_RULES = """TRANSLATION: Translate text yourself — there is no translate tool; never decline or claim you lack one.
 - When the user only wants to know what the text says, reply directly without editing the document.
-- Write into the document only when asked: to replace the original, read it with get_content(scope=full|selection) and call apply_content(target='full_document'|'selection') once; to put the translation below the original, insert it after that text (target='end', or target='search' with position='after').
+- Write into the document only when asked: to replace the original, read it with get_content(scope=full|selection) and call apply_content(target='full_document'|'selection') in one call for a short document; to put the translation below the original, insert it after that text (target='end', or target='search' with position='after').
 - For a long document, translate section by section with target='search' and start_anchor/end_anchor instead of one full_document call, and keep image wrappers (<div|span ... id="Name">) exactly as get_content returned them."""
 
 
@@ -460,7 +458,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content`: prefer a JSON array with one HTM
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good styles (target='full_document'): ["<h2>Section title</h2>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
+- Good styles (whole paragraphs): ["<h2>Section title</h2>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
 - Good field: ["<p>Page <span title=\\"page-number\\"/></p>"]
 """
 

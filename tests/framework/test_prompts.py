@@ -700,6 +700,23 @@ def test_draw_research_routing_has_one_home() -> None:
     assert combined.count(DELEGATION_PUBLIC_WEB_HINT) == 1
 
 
+def test_writer_research_routing_has_one_home() -> None:
+    """The web-research routing trigger appears once across the Writer prompt and tool schemas."""
+    from plugin.app import get_tools
+    from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, get_chat_system_prompt_for_kind
+
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+    ):
+        prompt = get_chat_system_prompt_for_kind("writer")
+        schemas = get_tools().get_schemas("openai", doc_type="writer")
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.count(DELEGATION_PUBLIC_WEB_HINT) == 1
+    assert 'domain="web_research"' not in prompt
+
+
 def test_paragraph_index_rule_has_one_home() -> None:
     """PARAGRAPH_INDEX_DIRECTIVE appears once in Writer's prompt+schemas and on no tool description."""
     from plugin.app import get_tools

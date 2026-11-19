@@ -260,7 +260,10 @@ class ToolWriterWebResearchBase(ToolWriterSpecialBase):
 
 class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "document_research"
-    specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions"
+    specialized_domain_description: ClassVar[str | None] = (
+        f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions; "
+        "searches only the user's own files; answer public facts yourself or via web_research"
+    )
 
 
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):
