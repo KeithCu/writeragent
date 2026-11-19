@@ -119,7 +119,7 @@ CSV / Parquet / JSON remain **direct DuckDB file reads** in the venv (no UNO).
 | **In-memory only (session)** | Fast within one worker request / chat turn | Lost on restart; no cross-session reuse |
 | **Per-folder ODS cache on disk** | Amortizes LO conversion; opens native `.ods` on hit; matches embeddings cache mental model | Invalidation logic; disk use; must handle stale entries |
 
-**Proposed layout** (mirror [`writeragent_embeddings/`](../embeddings.md)):
+**Cache layout** (mirrors [`writeragent_embeddings/`](../embeddings.md)):
 
 ```text
 ~/project/
@@ -245,7 +245,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ## Phased implementation
 
-### Phase A — Folder SQL (MVP, lowest UNO risk)
+### Phase A — Folder SQL (MVP, lowest UNO risk) — **Landed**
 
 **User story:** “I have `actuals_2024.csv` and `actuals_2025.csv` beside my `.ods`. Run SQL to compare them.”
 
@@ -273,7 +273,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ---
 
-### Phase B — Single Calc range as one table
+### Phase B — Single Calc range as one table — **Landed**
 
 **User story:** “SQL this sheet’s table in `A1:F500` — group by region, sum revenue.”
 
@@ -476,8 +476,8 @@ No cloud telemetry required. Suggested signals:
 
 | # | Question | Owner |
 |---|----------|-------|
-| 1 | Separate `sql` specialized domain vs helpers under `analysis`? | PM + API |
-| 2 | Allow LLM-authored SQL verbatim vs template-only (file list from host)? | Security |
+| 1 | ~~Separate `sql` specialized domain vs helpers under `analysis`?~~ | **Resolved:** `query_folder_sql` lives under the `analysis` domain (`plugin/calc/duckdb_tools.py`). |
+| 2 | ~~Allow LLM-authored SQL verbatim vs template-only (file list from host)?~~ | **Resolved:** `query_folder_sql` accepts LLM-authored read-only SQL with host-validated tables/files and read-only SQL guards. |
 | 3 | ~~XLSX via DuckDB vs host~~ | **Resolved:** LO import + UNO read (this doc § Decision). |
 | 4 | ~~ODS cache on disk?~~ | **Resolved / shipped:** per-folder `writeragent_ods_cache/` with mtime+size invalidation (§ ODS cache directory). |
 | 5 | Auto-export sheet snapshot to temp Parquet for huge ranges (Phase C perf) | Eng, defer |
