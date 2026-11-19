@@ -79,8 +79,7 @@ def test_list_open_documents_execute():
         assert not docs[0]["is_active"]
         # The stable RuntimeUID is exposed so a caller can target the doc by uid.
         assert docs[0]["uid"] == "uid-saved-1"
-        # The modified flag surfaces unsaved changes (the agent tells the user to save; it never
-        # saves itself).
+        # modified surfaces unsaved changes so a caller knows an in-place document_save is pending.
         assert docs[0]["modified"] is True
         assert docs[0]["read_only"] is False
 

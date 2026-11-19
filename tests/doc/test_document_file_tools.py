@@ -52,21 +52,25 @@ def test_document_file_tools_registry_filtering():
 
 
 def test_export_filter():
-    assert export_filter("writer", "/x/Modèle.DOCX", save=True) == ("MS Word 2007 XML", None)
-    assert export_filter("calc", "/x/a.pdf", save=False) == ("calc_pdf_Export", None)
+    assert export_filter("writer", "/x/Modèle.DOCX", save=True) == "MS Word 2007 XML"
+    assert export_filter("calc", "/x/a.pdf", save=False) == "calc_pdf_Export"
 
-    flt, err = export_filter("writer", "/x/a.pdf", save=True)
-    assert flt is None
-    assert err is not None and "document_export" in err
+    err_pdf = export_filter("writer", "/x/a.pdf", save=True)
+    assert isinstance(err_pdf, tuple)
+    assert err_pdf[0] == "EXPORT_ONLY_FORMAT" and "document_export" in err_pdf[1]
 
-    flt, err = export_filter("writer", "/x/a.xyz", save=False)
-    assert flt is None
-    assert err is not None and ".odt" in err and ".docx" in err
+    err_xyz = export_filter("writer", "/x/a.xyz", save=False)
+    assert isinstance(err_xyz, tuple)
+    assert err_xyz[0] == "UNKNOWN_FORMAT" and ".odt" in err_xyz[1] and ".docx" in err_xyz[1]
 
-    assert export_filter("impress", "/x/a.pptx", save=True) == ("Impress MS PowerPoint 2007 XML", None)
-    draw_flt, draw_err = export_filter("draw", "/x/a.pptx", save=True)
-    assert draw_flt is None
-    assert draw_err is not None
+    err_unknown = export_filter("unknown", "/x/a.odt", save=True)
+    assert isinstance(err_unknown, tuple)
+    assert err_unknown[0] == "UNSUPPORTED_DOCUMENT"
+
+    assert export_filter("impress", "/x/a.pptx", save=True) == "Impress MS PowerPoint 2007 XML"
+    draw_err = export_filter("draw", "/x/a.pptx", save=True)
+    assert isinstance(draw_err, tuple)
+    assert draw_err[0] == "UNKNOWN_FORMAT"
 
 
 def test_resolve_file_target():
@@ -181,8 +185,10 @@ def test_document_save_in_place_and_errors():
     saved_doc = _make_model(url="file:///tmp/ok.odt", uid="uid-saved")
     with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/ok.odt"):
         res_ok = DocumentSave().execute(_make_ctx(saved_doc))
+        res_empty = DocumentSave().execute(_make_ctx(saved_doc), path="")
     assert res_ok["status"] == "ok"
-    saved_doc.store.assert_called_once_with()
+    assert res_empty["status"] == "ok"
+    assert saved_doc.store.call_count == 2
 
 
 def test_document_save_as_formats(tmp_path):

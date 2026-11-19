@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, NamedTuple
 
 from plugin.doc.document_research import document_entry, system_path_from_url
 from plugin.framework.doc_type import doc_type_label_for_enum, get_document_type
@@ -87,19 +87,27 @@ def resolve_file_target(raw: str) -> tuple[str, str] | None:
     return path, path_to_file_url(path)
 
 
-def export_filter(doc_label: str, path: str, *, save: bool) -> tuple[str | None, str | None]:
-    """Return (filter_name, None) or (None, error_message) for *doc_label* and *path*."""
+class _FilterError(NamedTuple):
+    code: str
+    message: str
+
+
+def export_filter(doc_label: str, path: str, *, save: bool) -> str | _FilterError:
+    """Return a LibreOffice filter name or _FilterError(code, message) for *doc_label* and *path*."""
     table = _FILTERS.get(doc_label)
     if table is None:
-        return None, f"Unsupported document type: {doc_label}."
+        return _FilterError(
+            "UNSUPPORTED_DOCUMENT",
+            "Unsupported document type (only Writer, Calc, Impress, and Draw are supported).",
+        )
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     if save and ext in _EXPORT_ONLY and ext in table:
-        return None, f"'.{ext}' is an export-only format; use document_export instead."
+        return _FilterError("EXPORT_ONLY_FORMAT", f"'.{ext}' is an export-only format; use document_export instead.")
     filter_name = table.get(ext)
     if filter_name is None:
         allowed = _format_list(doc_label, save=save)
-        return None, f"Unsupported extension '.{ext}' for {doc_label}. Allowed: {allowed}."
-    return filter_name, None
+        return _FilterError("UNKNOWN_FORMAT", f"Unsupported extension '.{ext}' for {doc_label}. Allowed: {allowed}.")
+    return filter_name
 
 
 def _doc_label(doc: Any) -> str:
@@ -107,30 +115,20 @@ def _doc_label(doc: Any) -> str:
 
 
 def _resolve_save_target(
-    tool: ToolBase,
     doc: Any,
     raw_path: Any,
     *,
     save: bool,
-) -> tuple[str, str, str] | dict[str, Any]:
-    """Validate target path and document type; return (path, url, filter_name) or a tool error."""
+) -> tuple[str, str, str] | _FilterError:
+    """Validate target path and document type; return (path, url, filter_name) or _FilterError."""
     target = resolve_file_target(raw_path)
     if target is None:
-        return tool._tool_error("Path must be an absolute file path or file:// URL.", code="INVALID_PATH")
+        return _FilterError("INVALID_PATH", "Path must be an absolute file path or file:// URL.")
     path, url = target
-    label = _doc_label(doc)
-    if label not in _FILTERS:
-        return tool._tool_error(
-            "Unsupported document type (only Writer, Calc, Impress, and Draw are supported).",
-            code="UNSUPPORTED_DOCUMENT",
-        )
-    filter_name, err = export_filter(label, path, save=save)
-    if err is not None:
-        ext = os.path.splitext(path)[1].lower().lstrip(".")
-        code = "EXPORT_ONLY_FORMAT" if save and ext in _EXPORT_ONLY and ext in _FILTERS[label] else "UNKNOWN_FORMAT"
-        return tool._tool_error(err, code=code)
-    assert filter_name is not None
-    return path, url, filter_name
+    res = export_filter(_doc_label(doc), path, save=save)
+    if isinstance(res, _FilterError):
+        return res
+    return path, url, res
 
 
 class DocumentOpen(ToolBase):
@@ -223,7 +221,7 @@ class DocumentSave(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         raw_path = kwargs.get("path")
-        if raw_path is None:
+        if not str(raw_path or "").strip():
             if not doc.hasLocation():
                 return self._tool_error(
                     "Untitled document has no file location; pass path to save it.",
@@ -243,9 +241,9 @@ class DocumentSave(ToolBase):
                 return self._tool_error(f"Failed to save document: {exc}", code="SAVE_FAILED")
             return {"status": "ok", "document": document_entry(doc)}
 
-        resolved = _resolve_save_target(self, doc, raw_path, save=True)
-        if isinstance(resolved, dict):
-            return resolved
+        resolved = _resolve_save_target(doc, raw_path, save=True)
+        if isinstance(resolved, _FilterError):
+            return self._tool_error(resolved.message, code=resolved.code)
         path, url, filter_name = resolved
 
         try:
@@ -288,9 +286,9 @@ class DocumentExport(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        resolved = _resolve_save_target(self, doc, kwargs.get("path", ""), save=False)
-        if isinstance(resolved, dict):
-            return resolved
+        resolved = _resolve_save_target(doc, kwargs.get("path", ""), save=False)
+        if isinstance(resolved, _FilterError):
+            return self._tool_error(resolved.message, code=resolved.code)
         path, url, filter_name = resolved
 
         try:
