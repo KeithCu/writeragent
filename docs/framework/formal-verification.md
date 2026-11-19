@@ -575,7 +575,7 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 5. Tooling (low code, high leverage)
 
-- Optional CI job: `make verify` (not full CrossHair-all).
+- Optional dedicated CI job: `make verify` (not full CrossHair-all); the non-slow `*_verification.py` pytest suite already runs in PR CI (`.github/workflows/pr-ci.yml` via `make test-full`).
 - Keep `CROSSHAIR_*_SKIP` empty; hostility = shim / `# crosshair: off` / refactor.
 - Stale “Practical Implementation Guide” samples below still mention old paths—treat Phase 9 + this section as source of truth over the illustrative CI YAML.
 
