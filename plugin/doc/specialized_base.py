@@ -48,6 +48,7 @@ from plugin.doc.specialized_catalog import (
     catalog_entries_from_base,
     chat_tier_domains,
     expects_edits,
+    format_domain_catalog,
     format_specialized_domains_description,
     loop_hint,
     start_inner_payload,
@@ -586,7 +587,7 @@ _WRITER_DELEGATE_DESCRIPTION = (
     f"{PYTHON_ROUTING_HINT}"
 )
 
-# The Calc domain list lives in the sidebar prompt's CALC SUB-AGENTS block and in MCP's domain property (to_mcp_schema / narrow_delegate_domain_enums).
+# Lead only; description_for_services appends the bound domain catalog for sidebar chat.
 _CALC_DELEGATE_DESCRIPTION = (
     "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
     f"in this spreadsheet and returns a summary. {_DELEGATE_RESULT_LINE}"
@@ -595,12 +596,6 @@ _CALC_DELEGATE_DESCRIPTION = (
 _DRAW_DELEGATE_LEAD = (
     "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
     f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
-)
-
-_DRAW_DELEGATE_DESCRIPTION = (
-    f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, math, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
-    "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 
 _GENERIC_DELEGATE_DESCRIPTION = (
@@ -671,7 +666,7 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         if doc_type == "calc":
             return _CALC_DELEGATE_DESCRIPTION
         if doc_type in ("draw", "impress"):
-            return _DRAW_DELEGATE_DESCRIPTION
+            return _DRAW_DELEGATE_LEAD.rstrip()
         if doc_type == "writer":
             return _WRITER_DELEGATE_DESCRIPTION
         return self.description
@@ -694,14 +689,24 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         return [d for d in self._domains if d in allowed and d in bound]
 
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
-        """Return the app-specific description narrowed to *uno_services*."""
+        """Return the app-specific description narrowed to *uno_services*.
+
+        For sidebar chat (``for_mcp=False``), appends the bound ``domain: description``
+        catalog matching the narrowed enum; for MCP, returns the compact lead (Draw
+        also lists the bound domain names).
+        """
         label = self.agent_label_for(uno_services=uno_services)
+        if not for_mcp:
+            # Sidebar chat reads the domain catalog only here: one "domain: purpose" entry per
+            # value of the narrowed enum, so the list cannot name a domain the enum rejects.
+            bound = set(self.domains_for_services(uno_services))
+            entries = [e for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services) if e["domain"] in bound]
+            return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
             domains = self.domains_for_services(uno_services)
-            if for_mcp:
-                hidden = chat_tier_domains()
-                domains = [d for d in domains if d not in hidden]
+            hidden = chat_tier_domains()
+            domains = [d for d in domains if d not in hidden]
             return _format_draw_delegate_description(domains)
         return _WRITER_DELEGATE_DESCRIPTION

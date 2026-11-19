@@ -743,6 +743,76 @@ def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text
         assert combo_state["items"] == ["only-before"]
 
 
+def test_populate_model_combos_uncached_keystore_paints_fetched_list():
+    """Uncached keystore ref skips keyring read on UI thread and repaints full list via on_fetched."""
+    from unittest.mock import MagicMock, patch
+
+    import plugin.framework.client.model_fetcher as mf
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+    endpoint = "https://api.anthropic.com/v1"
+    fetched_ids = [f"claude-model-{i}" for i in range(14)]
+    body = {"data": [{"id": mid, "type": "model"} for mid in fetched_ids]}
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._released = False
+    el.m_panelRootWindow = MagicMock()
+    model_selector = MagicMock()
+    model_selector.getModel.return_value = MagicMock()
+    combo_state = {"text": "", "items": [], "sel": (0, 0)}
+    model_selector.getText.side_effect = lambda: combo_state["text"]
+    model_selector.setText.side_effect = lambda val: combo_state.__setitem__("text", val)
+    model_selector.getSelection.side_effect = lambda: combo_state["sel"]
+    model_selector.setSelection.side_effect = lambda sel: combo_state.__setitem__("sel", sel)
+    model_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
+    model_selector.removeItems.side_effect = lambda s, c: combo_state["items"].__delitem__(slice(s, s + c)) if c else None
+    model_selector.addItems.side_effect = lambda items, pos: combo_state["items"].__setitem__(slice(pos, pos), list(items))
+
+    cached_in_keystore = {"value": False}
+    jobs = []
+    posted = []
+
+    def fake_get_key(_slot: str) -> str:
+        cached_in_keystore["value"] = True
+        return "sk-ant-secret"
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    try:
+        with patch.object(mf, "api_key_needs_keystore_read", side_effect=lambda _s: not cached_in_keystore["value"]), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", side_effect=fake_get_key) as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=body), \
+             patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru), \
+             patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+             patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
+             patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={"text_model": "claude-sonnet-4-20250514"}), \
+             patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+             patch("plugin.chatbot.panel_factory.get_text_model", return_value="claude-sonnet-4-20250514"), \
+             patch("plugin.chatbot.panel_factory.set_text_model"), \
+             patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint), \
+             patch("plugin.chatbot.panel_factory.get_optional_control", return_value=model_selector):
+            el._populate_model_combos(model_selector, None)
+            mock_get_key.assert_not_called()
+            assert len(jobs) == 1
+            assert all(mid not in combo_state["items"] for mid in fetched_ids)
+
+            jobs[0]()
+            assert len(posted) == 1
+            posted[0]()
+
+        for mid in fetched_ids:
+            assert mid in combo_state["items"]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
 def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     from unittest.mock import MagicMock, patch
 

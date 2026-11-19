@@ -296,17 +296,17 @@ The Writer-only row below is illustrative; use the table above for integration p
 | **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
 | **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **15** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
 
-Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
+Chat gets a short pointer block in the **system prompt** and the domain catalog in `delegate_to_subagent`'s description; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 
 ### Where delegation guidance lives (MCP vs sidebar chat)
 
-Sidebar chat injects the same specialized-delegation block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`SPECIALIZED_DELEGATION_TEMPLATE`, with a dynamic `domain: description` list).
+Sidebar chat injects the short pointer block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`SPECIALIZED_DELEGATION_TEMPLATE`) and places the dynamic `domain: description` catalog in `delegate_to_subagent`'s tool description (`DelegateToSubagent.description_for_services`).
 
 MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`** enriches the gateway tool only (see [`to_mcp_schema()`](../plugin/framework/tool.py)):
 
 | Field | What the host sees |
 |--------|-------------------|
-| **`delegate_to_subagent` → `description`** | Short tool summary (`_WRITER_/_CALC_/_DRAW_DELEGATE_DESCRIPTION`) plus a pointer to the `domain` and `task` properties; the delegation template is sidebar-only |
+| **`delegate_to_subagent` → `description`** | Short tool summary (`_WRITER_/_CALC_` lead, or Draw MCP description naming the bound domains) plus a pointer to the `domain` and `task` properties; the delegation template is sidebar-only |
 | **`inputSchema.properties.domain.description`** | `domain one of:` plus the same semicolon-separated domain list (enum values stay in `enum`) |
 | **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (carries the full task-writing rules) |
 

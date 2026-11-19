@@ -444,8 +444,8 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": f"Target range(s). {CALC_RANGE_LIST_NOTE} With source, this is the paste top-left (source extent is copied).",
             },
-            # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
-            # first ref) live only here; read_range's description and hint just point here.
+            # The fill-down mechanics (shifted refs, $ absolute, an array of copied formulas keeping the
+            # first row's refs) live only here; read_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
             # keeps real unions (same pattern as apply_content content).
             "values": {
@@ -460,13 +460,12 @@ class WriteCellRange(ToolBase):
                     "(use '=' prefix for formulas). One ordinary formula into a "
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
-                    "rate or tax column. Formulas use Calc syntax only (=SUM(A1;B1), "
-                    "Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; "
+                    "rate or tax column. Example on C2:C4: values \"=B2*0.1\" writes "
+                    "=B2*0.1, =B3*0.1, =B4*0.1; an array repeating \"=B2*0.1\" on every row "
+                    "writes =B2*0.1 in all three cells. Formulas use Calc syntax only "
+                    "(=SUM(A1;B1), Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; "
                     "must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null "
-                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
-                    "=B2*…-style formula in every cell pins every row to the "
-                    "first ref — use one formula string over the whole column "
-                    "range instead. A JSON string of a flat or 2-D array is still "
+                    '(e.g. [["a", 1], ["b", null]] for A1:B2). A JSON string of a flat or 2-D array is still '
                     "accepted. Empty string or empty array clears. "
                     "A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other "
                     "array functions) is entered as an array formula over its "
@@ -643,11 +642,11 @@ class SetCellStyle(ToolBase):
             "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {"type": "string", "description": "Border line color (hex or name). Used by border_mode; black when border_mode is given without a color."},
+            "border_color": {"type": "string", "description": "Border line color (hex or name)."},
             "border_mode": {
                 "type": "string",
                 "enum": ["all", "outline", "inner", "none"],
-                "description": "all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders.",
+                "description": "all = every cell boxed; outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders. With only border_color, the mode is all; with only border_mode, lines are black.",
             },
             "number_format": {
                 "type": "string",

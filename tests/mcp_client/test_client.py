@@ -909,7 +909,6 @@ def test_mcp_domain_offered_only_with_a_server():
     from unittest.mock import MagicMock
 
     from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.doc.specialized_catalog import get_specialized_delegation_tool_hint
     from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_tool_filters
 
@@ -917,19 +916,21 @@ def test_mcp_domain_offered_only_with_a_server():
     reg.register(DelegateToSubagent())
     register_writeragent_tool_filters(reg)
 
-    def _delegate_enum(schemas: list[dict[str, Any]]) -> list[str]:
+    def _delegate_fn(schemas: list[dict[str, Any]]) -> dict[str, Any]:
         for s in schemas:
             if s.get("function", {}).get("name") == "delegate_to_subagent":
-                return list(s["function"]["parameters"]["properties"]["domain"]["enum"])
+                return s["function"]
         raise AssertionError("delegate_to_subagent schema missing")
 
     with _with_servers({}):
-        assert "mcp" not in _delegate_enum(reg.get_schemas("openai", doc_type="writer", ctx=object()))
-        assert "mcp:" not in get_specialized_delegation_tool_hint("Writer", ctx=object())
+        fn = _delegate_fn(reg.get_schemas("openai", doc_type="writer", ctx=object()))
+        assert "mcp" not in fn["parameters"]["properties"]["domain"]["enum"]
+        assert "mcp: " not in fn["description"]
 
     with _with_servers({"claw": {"url": "http://127.0.0.1:9/mcp"}}):
-        assert "mcp" in _delegate_enum(reg.get_schemas("openai", doc_type="writer", ctx=object()))
-        assert "mcp:" in get_specialized_delegation_tool_hint("Writer", ctx=object())
+        fn = _delegate_fn(reg.get_schemas("openai", doc_type="writer", ctx=object()))
+        assert "mcp" in fn["parameters"]["properties"]["domain"]["enum"]
+        assert "mcp: " in fn["description"]
 
 
 def test_delegate_to_subagent_runs_the_mcp_domain(fake):

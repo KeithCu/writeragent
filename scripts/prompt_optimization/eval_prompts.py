@@ -57,7 +57,7 @@ def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     from plugin.framework.prompts import get_chat_system_prompt_for_kind
 
     return get_chat_system_prompt_for_kind(
-        kind, note if note is not None else EVAL_HARNESS_NOTE, ctx=None
+        kind, note if note is not None else EVAL_HARNESS_NOTE
     )
 
 

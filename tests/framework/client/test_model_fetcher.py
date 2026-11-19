@@ -1735,28 +1735,149 @@ def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
         cfg._catalog_fetch_waiters.clear()
 
 
-@pytest.mark.parametrize(
-    ("endpoint", "needs_keystore", "has_key"),
-    [
-        ("https://openrouter.ai/api", True, True),
-        ("https://openrouter.ai/api", False, False),
-    ],
-)
-def test_memo_text_models_or_fetch_never_reads_locked_key_or_fetches_keyless(
-    endpoint: str,
-    needs_keystore: bool,
-    has_key: bool,
-):
+def test_memo_text_models_or_fetch_never_fetches_keyless():
     import plugin.framework.client.model_fetcher as cfg
 
-    with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=needs_keystore), \
-         patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=has_key), \
+    endpoint = "https://openrouter.ai/api"
+    with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+         patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=False), \
          patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint") as mock_get_key, \
          patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
         got = cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
     assert got is None
     mock_get_key.assert_not_called()
     mock_bg.assert_not_called()
+
+
+def test_memo_text_models_or_fetch_uncached_keystore_fetches_off_thread():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://api.anthropic.com/v1"
+    anthropic_ids = [f"claude-model-{i}" for i in range(14)]
+    body = {"data": [{"id": mid, "type": "model"} for mid in anthropic_ids]}
+    cached_in_keystore = {"value": False}
+    jobs = []
+    posted = []
+    cb1: list[list[str]] = []
+    cb2: list[list[str]] = []
+
+    def fake_needs_read(_slot: str) -> bool:
+        return not cached_in_keystore["value"]
+
+    def fake_get_key(_slot: str) -> str:
+        cached_in_keystore["value"] = True
+        return "sk-ant-secret"
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    try:
+        with patch.object(mf, "api_key_needs_keystore_read", side_effect=fake_needs_read), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", side_effect=fake_get_key) as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=body) as mock_http:
+            assert mf.memo_text_models_or_fetch(endpoint, cb1.append, task_name="t1") is None
+            assert mf.memo_text_models_or_fetch(endpoint, cb2.append, task_name="t2") is None
+            mock_get_key.assert_not_called()
+            mock_http.assert_not_called()
+            assert len(jobs) == 1
+
+            jobs[0]()
+            assert mock_get_key.call_count >= 1
+            assert mock_http.call_count == 1
+            assert len(posted) == 1
+            posted[0]()
+
+            assert cb1 == [anthropic_ids]
+            assert cb2 == [anthropic_ids]
+
+            # Key is now cached and memo is warm; next call returns synchronously.
+            warm = mf.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t3")
+            assert warm == anthropic_ids
+            assert len(jobs) == 1
+            assert mock_http.call_count == 1
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_memo_text_models_or_fetch_picks_up_settings_memo_with_uncached_keystore():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://api.anthropic.com/v1"
+    anthropic_ids = [f"claude-model-{i}" for i in range(14)]
+    body = {"data": [{"id": mid, "type": "model"} for mid in anthropic_ids]}
+    jobs = []
+    posted = []
+    received: list[list[str]] = []
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    try:
+        # Simulate Settings Test (settings-recheck) filling the memo with api_key_override.
+        with patch("plugin.framework.client.requests.sync_request", return_value=body), \
+             patch.object(mf, "get_config", return_value=""):
+            assert mf.fetch_available_models(endpoint, api_key_override="sk-ant-secret") == anthropic_ids
+
+        # Even if keystore is still reported uncached, the worker reads the key,
+        # hits the Settings-filled memo without HTTP, and delivers via on_fetched.
+        with patch.object(mf, "api_key_needs_keystore_read", return_value=True), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="sk-ant-secret") as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request") as mock_http:
+            assert mf.memo_text_models_or_fetch(endpoint, received.append, task_name="sidebar-models") is None
+            mock_get_key.assert_not_called()
+            assert len(jobs) == 1
+            jobs[0]()
+            mock_http.assert_not_called()
+            assert len(posted) == 1
+            posted[0]()
+
+        assert received == [anthropic_ids]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_memo_text_models_or_fetch_locked_keystore_skips_later_populates():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://api.anthropic.com/v1"
+    locked = {"value": False}
+    jobs = []
+
+    def fake_get_key(_slot: str) -> str:
+        locked["value"] = True
+        return ""
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    try:
+        with patch.object(mf, "api_key_locked_for_endpoint", side_effect=lambda _ep: locked["value"]), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=True), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", side_effect=fake_get_key) as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=None):
+            assert mf.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t1") is None
+            assert len(jobs) == 1
+            jobs[0]()
+            assert locked["value"] is True
+            calls_after_worker = mock_get_key.call_count
+
+            # Next populate after locked/cancelled read starts no new job or keystore read.
+            assert mf.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
+            assert len(jobs) == 1
+            assert mock_get_key.call_count == calls_after_worker
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
 
 
 TOGETHER_MODELS_BODY = [
@@ -1931,27 +2052,36 @@ def test_memo_text_and_image_models_share_one_cold_job_and_deliver_separate_slic
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "needs_keystore", "has_key"),
+    ("endpoint", "needs_keystore", "has_key", "expect_bg"),
     [
-        ("https://openrouter.ai/api", True, True),
-        ("https://openrouter.ai/api", False, False),
+        ("https://openrouter.ai/api", True, True, True),
+        ("https://openrouter.ai/api", False, False, False),
     ],
 )
 def test_memo_image_models_or_fetch_never_reads_locked_key_or_fetches_keyless(
     endpoint: str,
     needs_keystore: bool,
     has_key: bool,
+    expect_bg: bool,
 ):
     import plugin.framework.client.model_fetcher as cfg
 
-    with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=needs_keystore), \
-         patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=has_key), \
-         patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint") as mock_get_key, \
-         patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
-        got = cfg.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
-    assert got is None
-    mock_get_key.assert_not_called()
-    mock_bg.assert_not_called()
+    cfg._catalog_fetch_waiters.clear()
+    try:
+        with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=needs_keystore), \
+             patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=has_key), \
+             patch("plugin.framework.client.model_fetcher.api_key_locked_for_endpoint", return_value=False), \
+             patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint") as mock_get_key, \
+             patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+            got = cfg.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
+        assert got is None
+        mock_get_key.assert_not_called()
+        if expect_bg:
+            mock_bg.assert_called_once()
+        else:
+            mock_bg.assert_not_called()
+    finally:
+        cfg._catalog_fetch_waiters.clear()
 
 
 def test_memo_image_models_or_fetch_openrouter_uses_images_models_endpoint():

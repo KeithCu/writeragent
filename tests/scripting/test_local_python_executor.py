@@ -661,7 +661,7 @@ def test_import_tool_guards():
     executor = LocalPythonExecutor(additional_authorized_imports=["math"])
     executor.send_tools({})
 
-    # from math import sqrt works (overridable)
+    # from math import sqrt works
     executor("from math import sqrt\nresult = sqrt(4)")
     assert executor.state["result"] == 2.0
 

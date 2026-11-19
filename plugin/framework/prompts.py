@@ -169,10 +169,10 @@ DELEGATE_ANCHOR_RULE = (
     "for a read request, return what the user asked for."
 )
 
-# Sidebar system prompt only (MCP uses the delegate tool's domain and task properties).
+# Sidebar system prompt only. The domain list lives once, in the delegate_to_subagent description (DelegateToSubagent.description_for_services); MCP uses the domain property.
 SPECIALIZED_DELEGATION_TEMPLATE = (
     "{label} SUB-AGENTS (nested tools): The default tool list hides advanced {app} features. "
-    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}}."
+    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with the domain whose line in that tool's description fits."
 )
 
 # Every shape length and position (x, y, width, height, line width) is one LibreOffice unit.
@@ -228,11 +228,13 @@ GENERIC_EDIT_CONFIRMATION_RULES = """EDITING THE DOCUMENT:
 - VERIFY every edit by the tool result's structured fields: status='error' (or a zero count, where the tool reports counts) means nothing changed — do not assume success from friendly message wording.
 - Any document content shown to you earlier may be a partial/truncated snapshot — before a targeted edit that depends on the exact current content, re-read through the tools."""
 
-ACT_DIRECTLY_USING_TOOLS_LINE = (
-    "Act directly using tools (perform as many steps as needed in one turn). "
+# One short-reply rule: the Calc and Draw templates state it here; the spoken-reply suffix adds to it (and carries it for Writer, whose template has none).
+SHORT_REPLY_RULE: str = (
     "Keep chat replies short (one short paragraph, no filler); "
     "go longer when the user asks for detail, opinions, or ideas, or to explain a failure."
 )
+
+ACT_DIRECTLY_USING_TOOLS_LINE = f"Act directly using tools (perform as many steps as needed in one turn). {SHORT_REPLY_RULE}"
 
 
 MEMORY_GUIDANCE = """MEMORY:
@@ -603,7 +605,7 @@ Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Order
 # Draw
 # ---------------------------------------------------------------------------
 
-# Draw main chat: the file-research rule the domain catalog cannot carry, python routing, and one example delegation (where, what, exact text, style). That example is also the only line routing flowcharts to domain=shapes. The document_research and web_research triggers are their catalog lines.
+# Draw main chat: the file-research rule the domain catalog cannot carry, python routing, and one example delegation (where, what, exact text, style). That example is also the only line routing flowcharts to domain=shapes. The document_research and web_research triggers are their catalog lines in the delegate_to_subagent description.
 DRAW_CORE_DIRECTIVES = f"""When the user refers to another file, document, spreadsheet, or sheet by name or path (e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt") or asks to pull, read, search, or reference data from one:
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task (paths not required).
@@ -704,19 +706,20 @@ def get_greeting_for_document(model: Any) -> str:
     return _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
 
 
-# Spoken chat only. Verbatim so every endpoint sees the same brevity rules.
+# Spoken chat only: tightens SHORT_REPLY_RULE for listening instead of restating it.
 TTS_SHORT_ANSWERS_INSTRUCTION = (
-    "Keep replies short by default (one short paragraph, about 2–4 sentences, plain language, "
-    "no preambles, filler, or closing questions; use lists only when they clearly help). "
-    "Go longer when the user asks for detail, opinions, ideas, steps, code, or a full document."
+    "Replies are read aloud, so by default aim for about 2–4 sentences of plain language, "
+    "with no preambles or closing questions; use lists only when they clearly help."
 )
 
 
-def tts_short_answers_prompt_suffix() -> str:
+def tts_short_answers_prompt_suffix(base: str) -> str:
     """Brevity block for the chat system prompt, or empty.
 
     Settings → Speech ``audio.tts_short_answers`` is ignored unless speech
     output is also on (``audio.tts_enabled``). Either flag off is a no-op.
+    When ``base`` does not already carry ``SHORT_REPLY_RULE`` (Writer), the
+    suffix prepends it before ``TTS_SHORT_ANSWERS_INSTRUCTION``.
     This is not user ``additional_instructions`` and does not use provider
     verbosity or ``max_tokens``, so OpenRouter, Together, and local endpoints
     all see the same text.
@@ -727,7 +730,10 @@ def tts_short_answers_prompt_suffix() -> str:
         return ""
     if not get_config("audio.tts_enabled"):
         return ""
-    return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION
+    # The Writer template has no short-reply rule, so the suffix carries it there.
+    if SHORT_REPLY_RULE in base:
+        return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION
+    return f"\n\n{SHORT_REPLY_RULE} {TTS_SHORT_ANSWERS_INSTRUCTION}"
 
 
 def fenced_data_block(heading: str, body: str, *, tag: str) -> str:
@@ -746,10 +752,10 @@ def _finish_chat_system_prompt(base: str, additional_instructions: str) -> str:
     text = str(additional_instructions or "").strip()
     if text:
         base += fenced_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text, tag="profile")
-    return base + tts_short_answers_prompt_suffix()
+    return base + tts_short_answers_prompt_suffix(base)
 
 
-def _assemble_chat_prompt(agent: str, ctx: Any = None, uno_services: frozenset[str] = frozenset()) -> str:
+def _assemble_chat_prompt(agent: str, uno_services: frozenset[str] = frozenset()) -> str:
     """Writer / Calc / Draw role template, delegation, and response format.
 
     Vision, peer, memory, and humanizer stay with the document caller.
@@ -760,7 +766,8 @@ def _assemble_chat_prompt(agent: str, ctx: Any = None, uno_services: frozenset[s
         "draw": DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE,
     }.get(label, DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE)
     core = get_core_directives_for_type(label)
-    delegation = get_specialized_delegation_tool_hint(agent, ctx=ctx, uno_services=uno_services)
+    del_label, del_app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent, ("WRITER", "Writer"))
+    delegation = SPECIALIZED_DELEGATION_TEMPLATE.format(label=del_label, app=del_app)
     venv_policy = ""
     if label == "calc":
         if _python_prompt_extras is None:
@@ -784,19 +791,19 @@ def _assemble_chat_prompt(agent: str, ctx: Any = None, uno_services: frozenset[s
     return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions())
 
 
-def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
+def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "") -> str:
     """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
 
     Eval harnesses call this from LoLane worker threads. ``get_document_type`` is
     ``@main_thread_only``; MagicMock stubs still entered that guard and either
     raised (GUARD on) or warned while racing the designated UNO thread (GUARD off).
-    Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` with
-    ``ctx=None`` (no vision / peer / memory injection).
+    Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` without
+    vision / peer / memory injection.
     """
     from plugin.framework import doc_type as _doc_type
 
     agent = _doc_type.agent_label_for_doc_type(kind) or "Writer"
-    base = _assemble_chat_prompt(agent, ctx=ctx, uno_services=_doc_type.uno_service_for_distinct_label(kind))
+    base = _assemble_chat_prompt(agent, uno_services=_doc_type.uno_service_for_distinct_label(kind))
     return _finish_chat_system_prompt(base, additional_instructions)
 
 
@@ -807,7 +814,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     from plugin.framework.doc_type import get_document_uno_services
 
     agent = _agent_for_model(model)
-    base = _assemble_chat_prompt(agent, ctx=ctx, uno_services=get_document_uno_services(model))
+    base = _assemble_chat_prompt(agent, uno_services=get_document_uno_services(model))
 
     if ctx is not None:
         peer_block = _call_system_prompt_block("peer_outer", model, ctx)
@@ -824,7 +831,6 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 # --- Application hooks (registered from plugin.main bootstrap) ---
 
 _prompt_catalog_entries: Callable[..., list[dict[str, str]]] | None = None
-_prompt_catalog_delegation_hint: Callable[..., str] | None = None
 _prompt_catalog_domain_description: Callable[..., str] | None = None
 _system_prompt_blocks: dict[str, Callable[..., str]] = {}
 _python_prompt_extras: Callable[[str], str] | None = None
@@ -835,12 +841,10 @@ _python_sub_agent_units_hint: Callable[[], str] | None = None
 
 def set_prompt_catalog(
     entries: Callable[..., list[dict[str, str]]],
-    delegation_hint: Callable[..., str],
     domain_description: Callable[..., str],
 ) -> None:
-    global _prompt_catalog_entries, _prompt_catalog_delegation_hint, _prompt_catalog_domain_description
+    global _prompt_catalog_entries, _prompt_catalog_domain_description
     _prompt_catalog_entries = entries
-    _prompt_catalog_delegation_hint = delegation_hint
     _prompt_catalog_domain_description = domain_description
 
 
@@ -867,11 +871,10 @@ def set_python_sub_agent_prompt_helpers(
 def _require_prompt_catalog() -> tuple[
     Callable[..., list[dict[str, str]]],
     Callable[..., str],
-    Callable[..., str],
 ]:
-    if _prompt_catalog_entries is None or _prompt_catalog_delegation_hint is None or _prompt_catalog_domain_description is None:
+    if _prompt_catalog_entries is None or _prompt_catalog_domain_description is None:
         raise RuntimeError("prompt catalog is not registered")
-    return _prompt_catalog_entries, _prompt_catalog_delegation_hint, _prompt_catalog_domain_description
+    return _prompt_catalog_entries, _prompt_catalog_domain_description
 
 
 def _call_system_prompt_block(name: str, *args: Any, **kwargs: Any) -> str:
@@ -882,16 +885,11 @@ def _call_system_prompt_block(name: str, *args: Any, **kwargs: Any) -> str:
 
 
 def get_specialized_domain_catalog(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
-    entries, _unused_hint, _unused_desc = _require_prompt_catalog()
+    entries, _unused_desc = _require_prompt_catalog()
     return entries(*args, **kwargs)
 
 
-def get_specialized_delegation_tool_hint(*args: Any, **kwargs: Any) -> str:
-    _unused_entries, delegation_hint, _unused_desc = _require_prompt_catalog()
-    return delegation_hint(*args, **kwargs)
-
-
 def format_specialized_domains_description(*args: Any, **kwargs: Any) -> str:
-    _unused_entries, _unused_hint, domain_description = _require_prompt_catalog()
+    _unused_entries, domain_description = _require_prompt_catalog()
     return domain_description(*args, **kwargs)
 

@@ -56,7 +56,6 @@ def register_writeragent_prompt_hooks() -> None:
 
     set_prompt_catalog(
         specialized_catalog.get_specialized_domain_catalog,
-        specialized_catalog.get_specialized_delegation_tool_hint,
         specialized_catalog.format_specialized_domains_description,
     )
     set_system_prompt_block("peer_outer", get_peer_messaging_prompt_block)
