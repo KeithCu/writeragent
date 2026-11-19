@@ -66,11 +66,11 @@ from plugin.framework.errors import (
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import get_toolkit
-from plugin.writer import edit_review
 from plugin.writer.edit_review import (
     annotate_review_status,
     flag_style_unreviewed,
     next_agent_edit_undo_title,
+    review_recording_enabled,
 )
 from plugin.writer.record_changes import is_recording_changes, record_changes
 from . import search as search_mod
@@ -846,6 +846,13 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
 
 
 _COLOR_PROPERTIES = ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor")
+# Paragraph-level properties without the Para* prefix; they also touch the whole
+# paragraph and record Format redlines without old-value SwRedlineExtraData.
+_NON_PARA_PREFIX_PARAGRAPH_PROPERTIES = ("NumberingStyleName", "PageDescName", "BreakType")
+
+
+def _is_paragraph_property(name: str) -> bool:
+    return name.startswith("Para") or name in _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES
 
 
 def _convert_value(prop_name: str, value: Any) -> Any:
@@ -1640,7 +1647,7 @@ class StyleFormatText(ToolWriterStyleBase):
         "ParaAdjust (left/center/right/justify), ParaLineSpacing object, Para*Margin (1/100 mm); "
         "any property of a Writer text range is accepted. "
         "reset lists names whose hand-set value is dropped so the style shows. "
-        "Para* names change every paragraph the target touches. "
+        "Paragraph-level properties (Para*, NumberingStyleName, PageDescName, BreakType) change every paragraph the target touches. "
         "target='full_document' covers body text and tables (not headers, footers, frames or footnotes)."
     )
     parameters: dict[str, Any] | None = {
@@ -1720,22 +1727,46 @@ class StyleFormatText(ToolWriterStyleBase):
 
         # One body-spanning cursor covers tables (including nested tables) because
         # lcl_InsAttr and ResetAttrs walk every node in the range.
-        def apply_one(cursor: Any) -> None:
+        def apply_one(cursor: Any) -> list[str]:
             if updates:
                 set_cursor_properties(cursor, updates)
-            if reset_names:
-                reset_properties_to_default(cursor, reset_names)
+            if not reset_names:
+                return []
+            cleared = reset_properties_to_default(cursor, reset_names)
+            # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
+            # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
+            # such as ParaStyleName or ListId; those remain DIRECT_VALUE on the cursor.
+            actually_cleared: list[str] = []
+            for name in cleared:
+                try:
+                    state = cursor.getPropertyState(name)
+                    if getattr(state, "value", None) == "DIRECT_VALUE":
+                        continue
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                actually_cleared.append(name)
+            return actually_cleared
 
         # SwDoc::ResetAttrs has no redline branch, so resets cannot be tracked and flag style_unreviewed instead.
-        record = edit_review.review_recording_enabled() and bool(updates)
+        record = review_recording_enabled() and bool(updates)
         label = "direct formatting"
-        with (record_changes(ctx.doc, True) if record else nullcontext()):
-            tracked = bool(updates) and is_recording_changes(ctx.doc)
-            reports, err = apply_to_cursors(
-                self, ctx, cursors, apply_one, label, single_action=not reset_names
-            )
+        # Catch ValueError here so a single-cursor type rejection from setPropertyValues
+        # reports INVALID_PARAM with "Nothing was changed" (matching the multi-cursor path)
+        # instead of escaping to execute_safe as a generic tool crash; disposal already re-raised.
+        try:
+            with (record_changes(ctx.doc, True) if record else nullcontext()):
+                tracked = bool(updates) and is_recording_changes(ctx.doc)
+                reports, err = apply_to_cursors(
+                    self, ctx, cursors, apply_one, label, single_action=not reset_names
+                )
+        except ValueError as exc:
+            return self._tool_error("Nothing was changed: %s" % exc, code="INVALID_PARAM")
         if err is not None:
             return err
+
+        cleared_set = {name for rep in reports for name in rep}
+        reset_done = [name for name in reset_names if name in cleared_set]
+        not_reset = [name for name in reset_names if name not in cleared_set]
 
         applied_props = {name: _schema_prop_value(name, val) for name, val in updates.items()}
         after: dict[str, Any] = {}
@@ -1750,12 +1781,14 @@ class StyleFormatText(ToolWriterStyleBase):
         res: dict[str, Any] = {
             "status": "ok",
             "target": target,
-            "applied": True,
+            "applied": bool(applied_props or reset_done),
             "properties": applied_props,
-            "reset": reset_names,
+            "reset": reset_done,
             "after": after,
             "tracked": tracked,
         }
+        if not_reset:
+            res["not_reset"] = not_reset
         if target == "search":
             res.update({"matched": True, "applied_count": len(reports)})
             scope_desc = "%d match(es)" % len(reports)
@@ -1765,9 +1798,14 @@ class StyleFormatText(ToolWriterStyleBase):
         parts = []
         if applied_props:
             parts.append("set %s" % ", ".join(applied_props.keys()))
-        if reset_names:
-            parts.append("reset %s" % ", ".join(reset_names))
-        res["message"] = "Applied direct formatting (%s) on %s." % ("; ".join(parts), scope_desc)
+        if reset_done:
+            parts.append("reset %s" % ", ".join(reset_done))
+        if parts:
+            res["message"] = "Applied direct formatting (%s) on %s." % ("; ".join(parts), scope_desc)
+        else:
+            res["message"] = "No direct formatting was changed on %s (could not reset: %s)." % (
+                scope_desc, ", ".join(not_reset)
+            )
 
         warnings: list[str] = []
         for font_prop in FONT_NAME_PROPERTIES:
@@ -1775,16 +1813,20 @@ class StyleFormatText(ToolWriterStyleBase):
                 w = _font_not_installed_warning(ctx, updates[font_prop])
                 if w:
                     warnings.append(w)
-        if tracked and any(name.startswith("Para") for name in updates):
+        if tracked and any(_is_paragraph_property(name) for name in updates):
             warnings.append(
                 "Paragraph properties are recorded as Format changes, but rejecting them does not restore the previous value."
+            )
+        if not_reset:
+            warnings.append(
+                "Could not reset as direct formatting: %s." % ", ".join(not_reset)
             )
         if warnings:
             res["warning"] = " ".join(warnings)
 
         if tracked:
             res = annotate_review_status(res)
-        if reset_names or not tracked:
+        if reset_done or not tracked:
             flag_style_unreviewed(res)
         if search_mode is not None:
             res.update(search_mode.result_fields())

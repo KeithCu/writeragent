@@ -2082,6 +2082,8 @@ def test_style_format_text_unknown_name_changes_nothing():
     assert res["status"] == "error"
     assert res["code"] == "UNKNOWN_PROPERTY"
     assert "CharFontSize" in res["message"]
+    assert "Did you mean" in res["message"]
+    assert "CharFontName" in res["message"]
     cursor.setPropertyValues.assert_not_called()
 
 
@@ -2268,9 +2270,68 @@ def test_style_format_text_rejected_value_names_the_properties():
     cursor.setPropertyValues.side_effect = Exception("bad value")
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
-        res = StyleFormatText().execute_safe(_font_ctx(), properties={"CharWeight": "bold"})
+        res = StyleFormatText().execute(_font_ctx(), properties={"CharWeight": "bold"})
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Nothing was changed" in res["message"]
     assert "CharWeight" in res["message"]
+
+
+def test_style_format_text_reset_fallback_partial_clear():
+    from plugin.doc.compound_undo import UndoOutcome
+
+    cursor = _noncollapsed_cursor()
+    cursor.setPropertiesToDefault.side_effect = Exception("no XMultiPropertyStates")
+    cursor.setPropertyToDefault.side_effect = [None, Exception("cannot reset")]
+
+    def run_bracket(doc, title, mutate):
+        mutate()
+        return UndoOutcome()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=run_bracket):
+        res = StyleFormatText().execute(_font_ctx(), reset=["CharFontName", "ParaAdjust"])
+    assert res["status"] == "ok"
+    assert res["reset"] == ["CharFontName"]
+    assert res["not_reset"] == ["ParaAdjust"]
+    assert "ParaAdjust" in res["warning"]
+
+
+def test_style_format_text_reset_skips_direct_value_leftovers():
+    from plugin.doc.compound_undo import UndoOutcome
+
+    cursor = _noncollapsed_cursor()
+    direct_state = MagicMock()
+    direct_state.value = "DIRECT_VALUE"
+    cursor.getPropertyState.return_value = direct_state
+
+    def run_bracket(doc, title, mutate):
+        mutate()
+        return UndoOutcome()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=run_bracket):
+        res = StyleFormatText().execute(_font_ctx(), reset=["ParaStyleName"])
+    assert res["status"] == "ok"
+    assert res["applied"] is False
+    assert res["reset"] == []
+    assert res["not_reset"] == ["ParaStyleName"]
+    assert "ParaStyleName" in res["warning"]
+
+
+def test_style_format_text_warns_for_non_para_prefix_paragraph_props():
+    cursor = _noncollapsed_cursor()
+    ctx = _style_ctx()
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res = StyleFormatText().execute(ctx, properties={"NumberingStyleName": "List 1"})
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert "Paragraph properties" in res["warning"]
 
 
 def test_apply_style_undo_unavailable_names_the_style():

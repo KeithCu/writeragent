@@ -263,7 +263,7 @@ Block `SPECIALIZED_DELEGATION_TEMPLATE` is injected into `DEFAULT_CHAT_SYSTEM_PR
 Some Writer tools intentionally use the default main-chat tier (**`tier = "core"`**, `ToolBase` default) so users do not need delegation for common actions, for example:
 
 - **Track changes:** `[plugin/writer/tracking.py](../../plugin/writer/tracking.py)` — `tracking_start` / `stop` / `list` / `show`, plus `tracking_manage` (accept/reject one or all).
-- **Style apply:** `[plugin/writer/styles.py](../../plugin/writer/styles.py)` — `apply_style` subclasses [`plugin.framework.tool.ToolBase`](../../plugin/framework/tool.py) with the default **`core`** tier. Specialized style tools (`style_list`, `style_get_info`, `style_update`, `style_format_text`, …) stay under `ToolWriterStyleBase`. Direct formatting (`style_format_text`) lives in the `styles` domain.
+- **Style apply:** `[plugin/writer/styles.py](../../plugin/writer/styles.py)` — `apply_style` subclasses [`plugin.framework.tool.ToolBase`](../../plugin/framework/tool.py) with the default **`core`** tier. Specialized style tools (`style_list`, `style_get_info`, `style_update`, `style_format_text`, …) stay under `ToolWriterStyleBase`.
 
 **Style discovery** (`style_list`, `style_get_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed. `style_get_info(family=PageStyles)` dispatches in-process to the same `get_page_style_properties` reader as `page_get_style_properties` (both entry points stay).
 
