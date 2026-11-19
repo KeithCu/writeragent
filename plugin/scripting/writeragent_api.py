@@ -1370,7 +1370,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient))
 
     def __iter__(self) -> Iterator[_Item]:
-        """List all text frames in the document.
+        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box).
 
         Collection form: ``for item in wa.frame`` (also ``len(wa.frame)``, ``name in wa.frame``, and ``wa.frame[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
@@ -1396,7 +1396,7 @@ class _FrameProxy:
         return _get_item(call_host_tool("frame_get_info", name=name), name, lambda: call_host_tool("frame_list"))
 
     def __delitem__(self, name: str) -> None:
-        """Delete a text frame by name (see frame_list).
+        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -1426,7 +1426,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm, sheet_index=sheet_index))
 
     def delete(self, name: str, *, sheet_index: int | None = None) -> _Item:
-        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object.
+        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object. When several objects share the name, the error lists their draw-page indexes; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N).
 
         Args:
             name (required): Name of the image to delete (from image_list).
@@ -1506,7 +1506,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_insert", path=path, locator=locator, paragraph=paragraph, page=page, x_mm=x_mm, y_mm=y_mm, width_mm=width_mm, height_mm=height_mm, target=target, style=style, auto_height=auto_height))
 
     def list(self) -> _Item:
-        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known."""
+        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
         return _result(call_host_tool("image_list"))
 
     def list_nearby_files(self, *, filter: str | None = None) -> _Item:

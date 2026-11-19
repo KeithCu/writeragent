@@ -1034,6 +1034,37 @@ def test_image_list_reports_unreadable_image():
     assert res["skipped"] == [{"name": "Bad", "error": "boom"}]
 
 
+def test_image_list_writer_entry_copies_shape_index():
+    from plugin.doc.visual_helpers import GraphicEntry
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+
+    def _make_graphic():
+        g = MagicMock()
+        size = MagicMock()
+        size.Width = 1000
+        size.Height = 500
+        g.getSize.return_value = size
+        g.getPropertyValue.side_effect = Exception("no prop")
+        g.getAnchor.side_effect = Exception("no anchor")
+        return g
+
+    indexed = GraphicEntry(("Indexed", _make_graphic()))
+    indexed.shape_index = 3
+    plain = ("Plain", _make_graphic())
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[indexed, plain]),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert res["images"][0]["shape_index"] == 3
+    assert "shape_index" not in res["images"][1]
+
+
 def test_image_list_disposal_is_not_a_short_list():
     import pytest
 
