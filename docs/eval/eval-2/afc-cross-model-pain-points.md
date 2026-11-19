@@ -278,10 +278,10 @@ Retest bar: re-run a **slice** of C1–C3 models (e.g. Grok empty-Sample, Luna R
 
 ## Open
 
-- `[eng S unverified]` Colocate a one-line "an empty tab is not the deliverable; copy or write the data block onto the new sheet" tip on the range copy/write tools, and keep the create-then-populate line in `CALC_WORKFLOW` (the `sheet_create` description already says it). (§ L1 — Make "create → populate" unavoidable at action time)
+- `[eng S]` Colocate a one-line "an empty tab is not the deliverable; copy or write the data block onto the new sheet" tip on the range copy/write tools, and keep the create-then-populate line in `CALC_WORKFLOW` (the `sheet_create` description already says it). (§ L1 — Make "create → populate" unavoidable at action time)
 - `[eng S]` Teach labeled final answers for "required sample size": a label like `Sample size` or `Required sample size` in one cell and the integer in the next, not paraphrases such as "rounded up" or `Sample Size: 68`. (§ L3 — Teach labeled final answers for "required sample size / R")
 - `[eng S]` Teach that the Sample flag column K holds the literal `1`, and that a copy must cover columns J and K. (§ L4 — Flag column = literal `1` (selection marks))
 - `[eng S]` Prefer ordinary formulas or plain value writes over `=PY` for small sample-size arithmetic, keeping `=PY` for reductions into one cell outside the data. (§ L5 — Prefer ordinary formulas / value writes over `=PY` for small SSC arithmetic)
 - `[eng S]` Soft pre-finish habit: name the deliverable sheets and whether they hold data before saying done, without gating Ready. (§ L6 — Soft pre-finish checklist (prompt, not Ready FSM))
-- `[eng M unverified]` Stall and large-read recovery: timeout visibility, preserved debug logs on API timeout, and steering `read_cell_range` toward small peeks. (§ L7 — Stall / large-read recovery (plumbing))
+- `[eng M]` Stall and large-read recovery: small-peek steering on `read_range` is shipped (`ReadCellRange.description` and `ReadCellRange._read_one` in [`plugin/calc/cells.py`](../../../plugin/calc/cells.py)), and headed eval snapshots `writeragent_debug.log` via `snapshot_debug_log` in [`scripts/eval_2_headed.py`](../../../scripts/eval_2_headed.py); product-side API timeout visibility and automatic debug-log preservation on API timeout remain open. (§ L7 — Stall / large-read recovery (plumbing))
 - `[eng S]` Light tip that once a required sample size R is known, flagged Sample rows must reach R before finishing. (§ L8 — S≥R once R is known (selection size))
