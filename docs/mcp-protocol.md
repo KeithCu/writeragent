@@ -1120,9 +1120,9 @@ current functionality.
 
 ## Open
 
-- `[feature S]` Expose a direct paragraph-style setter tool (a `set_paragraph_style` equivalent now that `style_list` exists). (§ What they have that WriterAgent lacks and should eventually add)
-- `[feature S]` Add a `set_document_protection` tool so users can lock the document while reviewing AI edits. (§ What they have that WriterAgent lacks and should eventually add)
-- `[eng S]` Add behavioral hints to tool descriptions, such as noting that plain-text `target='search'` replacements preserve character formatting and when to use `set_track_changes`. (§ Tool and prompt improvements (optional))
-- `[idea L]` Per-client or per-session LLM endpoint settings for MCP so two hosts can use different sub-agent backends. (§ Per-connection vs global configuration (multiple servers))
-- `[eng S]` Optionally re-enable HTTP/1.1 on the MCP listener with an explicit `handle_expect_100` override, retested against LibreOffice's bundled Python. (§ Future options (if you re-enable HTTP/1.1))
-- `[eng S]` Skip `get_active_document` in `tools/list` when AsyncCallback dispatch is unavailable so the HTTP worker cannot hang with no timeout. (§ Future options (if you re-enable HTTP/1.1))
+- `[feature S many]` Expose a direct paragraph-style setter tool (a `set_paragraph_style` equivalent now that `style_list` exists). (§ What they have that WriterAgent lacks and should eventually add)
+- `[feature S few]` Add a `set_document_protection` tool so users can lock the document while reviewing AI edits. (§ What they have that WriterAgent lacks and should eventually add)
+- `[eng S many]` Add behavioral hints to tool descriptions, such as noting that plain-text `target='search'` replacements preserve character formatting and when to use `set_track_changes`. (§ Tool and prompt improvements (optional))
+- `[idea L few]` Per-client or per-session LLM endpoint settings for MCP so two hosts can use different sub-agent backends. (§ Per-connection vs global configuration (multiple servers))
+- `[eng S few]` Optionally re-enable HTTP/1.1 on the MCP listener with an explicit `handle_expect_100` override, retested against LibreOffice's bundled Python. (§ Future options (if you re-enable HTTP/1.1))
+- `[eng S few]` Skip `get_active_document` in `tools/list` when AsyncCallback dispatch is unavailable so the HTTP worker cannot hang with no timeout. (§ Future options (if you re-enable HTTP/1.1))

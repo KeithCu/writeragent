@@ -525,7 +525,7 @@ No cloud telemetry required. Suggested signals:
 
 ## Open
 
-- `[feature S]` Expose DuckDB SQL (`query_folder_sql`, `session_duckdb`) in the default chat and `=PY()` import-policy prompts once the path is product-ready. (§ Current Implementation (as of latest increment))
-- `[eng M]` Auto-export a sheet snapshot to temporary Parquet for huge ranges so they do not go through the wire grid. (§ Open questions)
-- `[idea M]` Zero-copy Arrow registration of split_grid arrays via pyarrow, and Parquet export from Calc. (§ Open questions)
-- `[eng S]` Close the raw `import duckdb` bypass of the COPY/escape firewall in `=PY()`, and jail persistent sessions on DuckDB older than 1.3. (§ Security and sandbox)
+- `[feature S few]` Expose DuckDB SQL (`query_folder_sql`, `session_duckdb`) in the default chat and `=PY()` import-policy prompts once the path is product-ready. (§ Current Implementation (as of latest increment))
+- `[eng M few]` Auto-export a sheet snapshot to temporary Parquet for huge ranges so they do not go through the wire grid. (§ Open questions)
+- `[idea M few]` Zero-copy Arrow registration of split_grid arrays via pyarrow, and Parquet export from Calc. (§ Open questions)
+- `[eng S few]` Close the raw `import duckdb` bypass of the COPY/escape firewall in `=PY()`, and jail persistent sessions on DuckDB older than 1.3. (§ Security and sandbox)
