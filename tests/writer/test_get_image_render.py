@@ -20,7 +20,7 @@ class _DisposedException(Exception):
     pass
 
 
-from plugin.framework.tool import ToolContext, prepare_tool_call
+from plugin.framework.tool import ToolContext, prepare_tool_call, to_openai_schema
 from plugin.writer.get_image import GetImage, _is_draw_family, _render_page_png
 
 
@@ -432,12 +432,32 @@ def test_execute_named_image_with_selection_false_uses_named_path():
     assert res["source"] == "Logo"
 
 
-def test_execute_calc_page_errors_before_render():
-    with patch("plugin.writer.get_image._render_page_png") as render_mock:
-        res = GetImage().execute(_tctx(MagicMock(), doc_type="calc"), page=0)
-    assert res["status"] == "error"
-    assert "Writer, Draw, or Impress" in res["message"]
-    render_mock.assert_not_called()
+def test_page_only_reaches_off_calc():
+    tool = GetImage()
+    calc_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"page": 0},
+    )
+    assert calc_prep.error is None
+    assert calc_prep.ignored == ["page"]
+    assert calc_prep.kwargs == {}
+
+    draw_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="draw"),
+        "image_get",
+        {"page": 0},
+    )
+    assert draw_prep.error is None
+    assert draw_prep.ignored == []
+    assert draw_prep.kwargs == {"page": 0}
+
+    calc_props = (tool.get_parameters("calc") or {})["properties"]
+    assert "page" not in calc_props
+    assert "sheet_index" in calc_props
+    assert "page" in to_openai_schema(tool, doc_type="writer")["function"]["parameters"]["properties"]
 
 
 def test_execute_ambiguous_graphic_name_returns_code():

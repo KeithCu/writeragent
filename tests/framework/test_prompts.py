@@ -107,13 +107,18 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
-def test_writer_chat_prompt_research_delegate_to_document():
-    from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS, get_specialized_delegation_tool_hint
+def test_writer_delegate_description_lists_research_not_sidebar_only():
+    from plugin.app import get_tools
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE
+    from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
 
-    block = get_specialized_delegation_tool_hint("Writer")
-    assert "web_research:" in block
+    get_tools()
+    desc = DelegateToSubagent().description_for_services(frozenset({TEXT_DOCUMENT_SERVICE}))
+    assert desc is not None
+    assert "web_research: " in desc
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-        assert f"{domain}:" not in block
+        assert f"{domain}: " not in desc
 
 
 def test_draw_prompt_omits_get_image_when_model_has_no_vision():
@@ -240,7 +245,7 @@ def _tts_flags(*, short_answers: bool, tts_enabled: bool):
 
 
 def test_tts_short_answers_injected_when_option_and_tts_on():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
+    from plugin.framework.prompts import SHORT_REPLY_RULE, TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -252,6 +257,21 @@ def test_tts_short_answers_injected_when_option_and_tts_on():
     assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION)
     assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_INSTRUCTION)
     assert prompt.count(TTS_SHORT_ANSWERS_INSTRUCTION) == 1
+    assert prompt.count(SHORT_REPLY_RULE) == 1
+
+
+@pytest.mark.parametrize("kind", ["calc", "draw"])
+def test_tts_short_answers_builds_on_main_rule(kind: str):
+    from plugin.framework.prompts import SHORT_REPLY_RULE, TTS_SHORT_ANSWERS_INSTRUCTION, get_chat_system_prompt_for_kind
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_tts_flags(short_answers=True, tts_enabled=True)),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_kind(kind)
+
+    assert prompt.count(SHORT_REPLY_RULE) == 1
+    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_INSTRUCTION)
 
 
 def test_tts_short_answers_absent_when_tts_off():
@@ -508,13 +528,18 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
     ):
         prompt = get_chat_system_prompt_for_document(target_doc)
+        schemas = registry.get_schemas("openai", doc=target_doc)
 
+    delegate_desc = next(s["function"]["description"] for s in schemas if s["function"]["name"] == "delegate_to_subagent")
     if is_impress:
-        for name in impress_only_domains | {"placeholder_list", "placeholder_set_text", "design_list", "design_apply"}:
+        for name in {"placeholder_list", "placeholder_set_text", "design_list", "design_apply"}:
             assert name in prompt
+        for domain in impress_only_domains:
+            assert f"{domain}: " in delegate_desc
     else:
         for name in impress_only_tools | impress_only_domains:
             assert name not in prompt
+            assert name not in delegate_desc
 
 
 @pytest.mark.parametrize(
@@ -529,9 +554,10 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
 def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(service: str) -> None:
     from plugin.app import get_tools
     from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_delegation_tool_hint
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+    from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 
-    get_tools()
+    registry = get_tools()
     gw = DelegateToSubagent()
     doc = _doc_stub_for_services(service)
     with (
@@ -539,20 +565,23 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(service: str) -> 
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
     ):
         prompt = get_chat_system_prompt_for_document(doc)
+        schemas = registry.get_schemas("openai", doc=doc)
 
+    delegate_schema = next(s["function"] for s in schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)
+    enum_domains = delegate_schema["parameters"]["properties"]["domain"]["enum"]
+    desc = delegate_schema["description"]
+    all_domains = (gw.parameters or {})["properties"]["domain"]["enum"]
+    listed = {d for d in all_domains if re.search(rf"(?<!\w){re.escape(d)}: ", desc)}
+    assert listed == set(enum_domains)
+    # The domain catalog lives once in the tool description, never in the system prompt.
     agent_label = gw.agent_label_for(uno_services=frozenset({service}))
-    domains = gw.domains_for_services(frozenset({service}))
-    rendered = get_specialized_delegation_tool_hint(agent_label, uno_services=frozenset({service}))
-    assert rendered in prompt
-    rendered_names = {
-        entry["domain"]
-        for entry in catalog_entries_from_base(agent_label=agent_label, uno_services=frozenset({service}))
-    }
-    assert set(domains) == rendered_names
+    for entry in catalog_entries_from_base(agent_label=agent_label, uno_services=frozenset({service})):
+        if entry["description"]:
+            assert f"{entry['domain']}: {entry['description']}" not in prompt
     if service == "com.sun.star.sheet.SpreadsheetDocument":
-        # Calc documents must keep forms in both the prompt and the narrowed gateway enum.
-        assert "forms" in domains
-        assert "forms:" in rendered
+        # Calc documents must keep forms in both the description and the narrowed gateway enum.
+        assert "forms" in enum_domains
+        assert "forms: " in desc
 
 
 def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
@@ -571,14 +600,16 @@ def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
 
 def test_mcp_blurb_claims_requests_naming_an_mcp_server() -> None:
     """Guard against the Scrolly misroute where a public MCP server lost to web_research."""
-    from plugin.framework.prompts import get_specialized_delegation_tool_hint
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE
 
     with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "deepwiki", "url": "http://localhost"}]):
-        hint = get_specialized_delegation_tool_hint("Writer", ctx=object())
+        desc = DelegateToSubagent().description_for_services(frozenset({TEXT_DOCUMENT_SERVICE}))
 
-    mcp_line = next(line for line in hint.splitlines() if "mcp:" in line)
-    assert "MCP server" in mcp_line
-    assert "MCP tool" in mcp_line
+    assert desc is not None
+    mcp_entry = desc.split("mcp: ", 1)[1]
+    assert "MCP server" in mcp_entry
+    assert "MCP tool" in mcp_entry
 
 
 def test_apply_content_examples_are_valid_json_arrays() -> None:

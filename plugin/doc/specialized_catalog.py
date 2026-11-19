@@ -9,7 +9,6 @@ from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     SHAPE_UNITS_RULE,
-    SPECIALIZED_DELEGATION_TEMPLATE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
 )
 from plugin.framework.tool import ToolBase, tool_supports_document
@@ -179,19 +178,10 @@ def chat_tier_domains() -> frozenset[str]:
     return frozenset(found)
 
 
-def _get_specialized_domains_str(
-    *,
-    agent_label: str | None = None,
-    ctx: Any = None,
-    for_mcp: bool = False,
-    uno_services: frozenset[str] = frozenset(),
-) -> str:
-    """Build a compact domain list for delegation hints and MCP schemas."""
+def format_domain_catalog(entries: Sequence[dict[str, str]]) -> str:
+    """Format catalog entries as a sorted ``domain: description`` semicolon list."""
     parts = []
-    for entry in sorted(
-        catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=for_mcp, uno_services=uno_services),
-        key=lambda e: e["domain"],
-    ):
+    for entry in sorted(entries, key=lambda e: e["domain"]):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:
@@ -206,24 +196,13 @@ def format_specialized_domains_description(
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
+    entries = catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
+    domains = format_domain_catalog(entries)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema
     compact = domains.replace("; ", ", ")
     return f"domain one of: {compact}"
-
-
-def get_specialized_delegation_tool_hint(
-    agent_label: str,
-    *,
-    ctx: Any = None,
-    uno_services: frozenset[str] = frozenset(),
-) -> str:
-    """Full specialized-delegation guidance for the sidebar system prompt."""
-    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
-    label, app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent_label, ("WRITER", "Writer"))
-    return SPECIALIZED_DELEGATION_TEMPLATE.format(label=label, app=app, domains=domains_str)
 
 
 class InnerToolCall(NamedTuple):

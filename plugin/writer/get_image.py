@@ -15,6 +15,7 @@ On Draw/Impress, page=N is the vision screenshot (0-based, same as slide_list / 
 from __future__ import annotations
 
 import base64
+import copy
 import logging
 import os
 import tempfile
@@ -199,7 +200,15 @@ class GetImage(ToolBase):
     }
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+        params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+        if doc_type != "calc":
+            return params
+        # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
+        # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
+        # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
+        out = copy.deepcopy(params)
+        del out["properties"]["page"]
+        return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services: list[str] | None = [
@@ -228,10 +237,6 @@ class GetImage(ToolBase):
                 return self._tool_error("page must be a non-negative integer (0-based).")
             if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
-            if ctx.doc_type == "calc":
-                return self._tool_error(
-                    "page render is for Writer, Draw, or Impress; on Calc pass image=<name> or selection=true."
-                )
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
