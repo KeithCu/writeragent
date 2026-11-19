@@ -22,7 +22,8 @@ from plugin.writer.search import MatchMode
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
-    StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
+    StyleList, StyleGetInfo, ApplyStyle, SetFont, FONT_NAME_PROPERTIES,
+    StyleCreate, StyleClone, StyleImport, StyleUpdate,
     _close_style_names, _STYLE_KEEPALIVE,
 )
 from plugin.framework.send_cancellation import SendCancellation
@@ -2029,4 +2030,141 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     assert failures == 1
     assert notes == []
     assert overrides[0][1] == {"CharWeight": 150}
+
+
+# ---- set_font ----------------------------------------------------------------
+
+def _font_ctx(recording=False):
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: recording if name == "RecordChanges" else None
+    return ctx
+
+
+def test_set_font_default_sets_western_slot_only():
+    cursor = MagicMock()
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
+        res = SetFont().execute(_font_ctx(), font="Arial")
+    assert res["status"] == "ok"
+    assert res["font"] == "Arial"
+    assert res["scripts"] == "western"
+    assert res["properties"] == ["CharFontName"]
+    assert res["tracked"] is False
+    assert res["applied"] is True
+    cursor.setPropertyValues.assert_called_once_with(("CharFontName",), ("Arial",))
+
+
+def test_set_font_scripts_all_sets_three_slots_in_one_call():
+    cursor = MagicMock()
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
+        res = SetFont().execute(_font_ctx(), font="Arial", scripts="all")
+    assert res["status"] == "ok"
+    assert res["properties"] == list(FONT_NAME_PROPERTIES)
+    cursor.setPropertyValues.assert_called_once_with(FONT_NAME_PROPERTIES, ("Arial", "Arial", "Arial"))
+
+
+def test_set_font_omitted_or_blank_font_resets_to_style():
+    for call_kwargs in ({}, {"font": "  "}):
+        cursor = MagicMock()
+        with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+             patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+             patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
+            res = SetFont().execute(_font_ctx(), **call_kwargs)
+        assert res["status"] == "ok"
+        assert res["font"] is None
+        assert res["tracked"] is False
+        cursor.setPropertyValues.assert_not_called()
+        cursor.setPropertiesToDefault.assert_called_once_with(("CharFontName",))
+
+
+def test_set_font_all_matches_applies_to_each():
+    ranges = [MagicMock(), MagicMock(), MagicMock()]
+    cursors = [MagicMock(), MagicMock(), MagicMock()]
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.styles.cursor_spanning_range", side_effect=cursors), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
+        res = SetFont().execute(_font_ctx(), font="Arial", target="search", old_content="Title", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["matched"] is True
+    assert res["applied_count"] == 3
+    assert res["normalized_old_content"] == "Title"
+    for c in cursors:
+        c.setPropertyValues.assert_called_once_with(("CharFontName",), ("Arial",))
+
+
+def test_set_font_search_miss_reports_not_matched():
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.search.build_search_not_found_response", return_value={"status": "error", "message": "not found"}):
+        res = SetFont().execute(_font_ctx(), font="Arial", target="search", old_content="Missing")
+    assert res["status"] == "error"
+    assert res["matched"] is False
+    assert res["applied"] is False
+
+
+def test_set_font_records_under_agent_review_mode():
+    cursor = MagicMock()
+    ctx = _style_ctx()
+    # False initially, then True after setPropertyValue("RecordChanges", True), then False on restore.
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=True), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
+        res = SetFont().execute(ctx, font="Arial")
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert res["pending_review"] is True
+    assert res["review_mode"] == "record"
+    rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
+
+
+def test_set_font_reset_under_agent_review_mode_is_unreviewed():
+    cursor = MagicMock()
+    ctx = _font_ctx(recording=False)
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=True), \
+         patch("plugin.writer.edit_review.review_recording_enabled", return_value=True):
+        res = SetFont().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["tracked"] is False
+    assert res["style_unreviewed"] is True
+    assert "pending_review" not in res
+    rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls == []
+
+
+def test_set_font_warns_when_font_not_installed():
+    cursor = MagicMock()
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.styles._installed_font_names", return_value={"liberation sans"}):
+        res = SetFont().execute(_font_ctx(), font="NoSuchFontXYZ")
+    assert res["status"] == "ok"
+    assert "NoSuchFontXYZ" in res["warning"]
+
+
+def test_apply_style_undo_unavailable_names_the_style():
+    from plugin.doc.compound_undo import UndoUnavailable
+
+    ranges = [MagicMock(), MagicMock()]
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.styles.commit_or_rollback", side_effect=UndoUnavailable("no undo")):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    assert res["message"].startswith("Cannot apply style 'Heading 1'")
+
 
