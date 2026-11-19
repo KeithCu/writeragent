@@ -350,7 +350,11 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 
 
 
-def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
+@pytest.mark.parametrize(
+    ("content", "expected_merge"),
+    [("<p>x</p>", False), ("<table><tr><td>A</td></tr></table>", True)],
+)
+def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, expected_merge):
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""
 
@@ -360,17 +364,16 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     model.getPropertyValue.return_value = True  # RecordChanges
     text = model.getText.return_value
     leftover = text.createTextCursorByRange.return_value
-    leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import, "_deletion_author"):
+         patch.object(html_import, "_deletion_author"), \
+         patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
         imp.return_value = ["margin-left"]
-        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        dropped = html_import.replace_full_document(model, MagicMock(), content)
     assert dropped == ["margin-left"]
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
-    leftover.goLeft.assert_called_once_with(1, True)
-    leftover.setString.assert_called_once_with("")
+    drop_leftover.assert_called_once_with(leftover, merge_forward_after_table=expected_merge)
 
 
 def test_full_document_without_review_imports_in_place():

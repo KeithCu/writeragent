@@ -1261,3 +1261,59 @@ def test_without_trailing_break_leaves_range_ending_after_table_uno(ctx: Any, do
     trimmed = _without_trailing_break(plain_rng)
     assert trimmed is not plain_rng
     assert trimmed.getString() == "Replace me"
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import replace_full_document
+
+    table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
+    content = f"<h1>H</h1><p>p</p>{table_html}"
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    text = doc.getText()
+
+    def _seed(body: str) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        if body:
+            text.insertString(cur, body, False)
+
+    # Untracked baseline
+    _seed("Old para")
+    replace_full_document(doc, ctx, content)
+    untracked = _body_structure_via_enum(text)
+    assert untracked == ["Paragraph:H", "Paragraph:p", "TextTable", "Paragraph:"]
+
+    # Review mode: trailing table survives and Accept All matches untracked
+    _seed("Old para")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        replace_full_document(doc, ctx, content)
+        assert doc.getTextTables().getCount() == 1
+        assert _body_structure_via_enum(text) == [
+            "Paragraph:H",
+            "Paragraph:p",
+            "TextTable",
+            "Paragraph:Old para",
+        ]
+        helper.executeDispatch(
+            doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ()
+        )
+        assert _body_structure_via_enum(text) == untracked
+
+        # Empty document + table-only under recording, then Reject All
+        _seed("")
+        doc.setPropertyValue("RecordChanges", True)
+        replace_full_document(doc, ctx, table_html)
+        assert doc.getTextTables().getCount() == 1
+        helper.executeDispatch(
+            doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
+        )
+        assert doc.getTextTables().getCount() == 0
+        assert text.getString() == ""
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

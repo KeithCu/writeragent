@@ -286,3 +286,74 @@ def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_failed_table_insert_rolls_back_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    targets = [
+        {"target": "full_document"},
+        {"target": "end"},
+        {"target": "beginning"},
+        {"target": "search", "old_content": "Alpha one. Beta two."},
+        {"target": "search", "old_content": "Alpha one. Beta two.", "position": "after"},
+        {"target": "selection"},
+    ]
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            for kwargs in targets:
+                _reset_three_paras(doc)
+                if kwargs["target"] == "selection":
+                    _select_match(doc, "Alpha one. Beta two.")
+                before_text = doc.getText().getString()
+                res = ApplyDocumentContent().execute(
+                    tctx, content=["<p>x</p><table></table>"], **kwargs
+                )
+                assert res.get("status") == "error", (mode, kwargs, res)
+                assert res.get("code") == "TABLE_INSERT_FAILED", (mode, kwargs, res)
+                assert doc.getText().getString() == before_text, (mode, kwargs)
+                assert doc.getRedlines().getCount() == 0, (mode, kwargs)
+                assert doc.getTextTables().getCount() == 0, (mode, kwargs)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_table_tail_under_review_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import enum_has_more
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    content = ["<h1>H</h1><p>folder</p><table><tr><td>A</td><td>B</td></tr></table>"]
+    save({flag: "record"})
+    try:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=content)
+        assert res.get("status") == "ok", res
+        assert doc.getTextTables().getCount() == 1
+        rl_types = []
+        enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(enum):
+            rl_types.append(str(enum.nextElement().getPropertyValue("RedlineType")))
+        assert "Insert" in rl_types, rl_types
+
+        res2 = ApplyDocumentContent().execute(tctx, target="full_document", content=content)
+        assert res2.get("status") == "ok", res2
+        assert doc.getTextTables().getCount() == 2
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+

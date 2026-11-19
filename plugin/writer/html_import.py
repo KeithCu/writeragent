@@ -400,7 +400,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
     after it, which keeps its own style (``sw_GetJoinFlags`` in
     ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). At the end of the text the paragraph stays because a Writer text
+    end node). In a review-mode full-document replace the paragraph after it is the
+    first tracked-deleted paragraph; Accept empties it, so the result matches the
+    untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
     """
     leftover.gotoEndOfParagraph(True)
@@ -978,9 +980,8 @@ def replace_full_document(
         # bold heading comes back 18pt bold throughout (reproduced live;
         # the data-lo-style pass then keeps it as a "hand-set" override).
         # Import into a fresh empty paragraph opened before the deleted
-        # text, then drop that paragraph if it is left over empty (the
-        # import puts its blocks before it) -- a tracked insertion swallows
-        # the break.
+        # text, then drop that paragraph if it is left over empty
+        # (`_drop_leftover_paragraph`).
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
         # Untracked: the fresh absorb paragraph is new, so a recorded reset
@@ -990,13 +991,12 @@ def replace_full_document(
             _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
         report = _insert_mixed_or_plain_html(model, ctx, cursor, content)
-        leftover.gotoEndOfParagraph(True)
-        if leftover.getString() == "":
-            leftover.collapseToStart()
-            leftover.goLeft(1, True)
-            # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
-            with record_changes.record_changes(model, False):
-                leftover.setString("")
+        # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
+        # delete of it joins paragraphs on Accept ('initiativeproject'). After a trailing
+        # table the helper merges the leftover forward into the first deleted paragraph,
+        # which Accept then empties: the same end state as without recording.
+        with record_changes.record_changes(model, False):
+            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
         return report
 
 

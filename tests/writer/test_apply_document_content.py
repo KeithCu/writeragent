@@ -1659,6 +1659,15 @@ def test_all_matches_disposed_undo_manager_reraises():
     ("target", "extra_kwargs", "patches"),
     [
         pytest.param(
+            "end",
+            {},
+            [
+                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
+                ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
+            ],
+            id="end",
+        ),
+        pytest.param(
             "selection",
             {},
             [
@@ -1674,6 +1683,7 @@ def test_all_matches_disposed_undo_manager_reraises():
                 ("plugin.writer.search.find_literal_ranges", {"return_value": ([MagicMock()], MatchMode(True, False))}),
                 ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
                 ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
+                ("plugin.writer.html_import.replace_single_range_with_content", {"return_value": html_import_styles.WriteReport()}),
             ],
             id="search",
         ),
@@ -1688,7 +1698,9 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
         for p_target, p_kwargs in patches:
             stack.enter_context(patch(p_target, **p_kwargs))
         if target == "search":
-            stack.enter_context(patch.object(ApplyDocumentContent, "_replace_found", return_value=[]))
+            cap_links = stack.enter_context(patch("plugin.writer.apply_document_content.capture_outline_hyperlinks"))
+            cap_links.return_value.links = []
+            cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"
