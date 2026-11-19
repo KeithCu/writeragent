@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import logging
@@ -528,45 +529,92 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
     return [stripped] if stripped else []
 
 
-# SoundPlayer opens WAV only and has no playback rate. Endpoint speech prefers
-# MP3, and WAV with rate != 1.0 also uses WMPlayer.OCX (no C# compilation).
-# The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE; any error or failed
-# start exits 1 and the caller falls back to SAPI.
-_WIN_WMP_PLAYER = (
-    "$ErrorActionPreference = 'Stop'; "
-    "try { "
-    "$wmp = New-Object -ComObject WMPlayer.OCX; "
-    "try { "
-    "$wmp.URL = $env:WA_AUDIO_PATH; "
-    "$wmp.controls.play(); "
-    "$started = $false; "
-    "$waited = 0; "
-    "while (-not $started -and $wmp.playState -ne 8) { "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "if ($wmp.playState -eq 3) { $wmp.settings.rate = [double]$env:WA_AUDIO_RATE; $started = $true; break } "
-    "if ($waited -ge 5000) { exit 1 } "
-    "Start-Sleep -Milliseconds 50; "
-    "$waited += 50 "
-    "} "
-    "while ($wmp.playState -in 3, 6, 7, 9) { "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "Start-Sleep -Milliseconds 50 "
-    "} "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "if (-not $started -and $wmp.playState -ne 8) { exit 1 } "
-    "} finally { $wmp.close() } "
-    "exit 0 "
-    "} catch { exit 1 }"
-)
+# SoundPlayer opens WAV only and has no playback rate. An mp3, or a wav whose
+# rate is not 1.0, is played with WinRT Windows.Media.Playback.MediaPlayer.
+# That player uses Media Foundation, which is part of a normal Windows 10 or 11
+# install. WMPlayer.OCX is not used: it needs the optional Windows Media Player
+# feature. The script is -EncodedCommand so PowerShell does not reparse quotes.
+# The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE. PlaybackSession is
+# polled because Windows PowerShell 5.1 reports a finished clip as Paused once
+# position reaches NaturalDuration, and WinRT events do not surface reliably
+# through Register-ObjectEvent. A failure exits 1 and the caller falls back to
+# SAPI. Windows N still needs the Media Feature Pack for this player.
+_WIN_MEDIA_PLAYER = r"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+$player = $null
+try {
+  $path = $env:WA_AUDIO_PATH
+  if ([string]::IsNullOrWhiteSpace($path)) { throw 'WA_AUDIO_PATH is empty' }
+  $full = (Resolve-Path -LiteralPath $path).Path
+  $uri = [Uri]::new($full)
+  $player = [Windows.Media.Playback.MediaPlayer, Windows.Media, ContentType=WindowsRuntime]::new()
+  $player.Volume = 1
+  $player.Source = [Windows.Media.Core.MediaSource, Windows.Media, ContentType=WindowsRuntime]::CreateFromUri($uri)
+  $player.Play()
+  $deadline = [datetime]::UtcNow.AddMinutes(10)
+  $openDeadline = [datetime]::UtcNow.AddSeconds(8)
+  $started = $false
+  $rateApplied = $false
+  while ($true) {
+    $session = $player.PlaybackSession
+    $state = "$($session.PlaybackState)"
+    if ($state -match 'Playing|Buffering|^3$|^2$') {
+      if (-not $rateApplied) {
+        $session.PlaybackRate = [double]$env:WA_AUDIO_RATE
+        $rateApplied = $true
+      }
+      $started = $true
+    }
+    $dur = 0.0
+    $pos = 0.0
+    try {
+      $dur = $session.NaturalDuration.TotalMilliseconds
+      $pos = $session.Position.TotalMilliseconds
+    } catch { }
+    $atEnd = $started -and $dur -gt 0 -and $pos -ge $dur
+    $pausedAtEnd = $started -and $state -match 'Paused|^4$' -and $dur -gt 0 -and $pos -ge ($dur - 50)
+    if ($started -and $state -match 'None|^0$' -or $atEnd -or $pausedAtEnd) { break }
+    if (-not $started -and [datetime]::UtcNow -gt $openDeadline) { throw 'playback did not start' }
+    if ([datetime]::UtcNow -gt $deadline) { throw 'playback timed out' }
+    Start-Sleep -Milliseconds 100
+  }
+} catch {
+  [Console]::Error.WriteLine($_.Exception.Message)
+  exit 1
+} finally {
+  if ($null -ne $player) {
+    try { $player.Close() } catch { }
+  }
+}
+exit 0
+""".strip()
 _WIN_WAV_PLAYER = "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()"
 
 
+def _powershell_encoded(script: str, *, sta: bool = False) -> list[str]:
+    """Build a powershell argv whose script is not reparsed for quotes.
+
+    ``-Command`` goes through PowerShell's command-line quote stripper, which
+    breaks a script that contains double quotes. ``-EncodedCommand`` is the
+    UTF-16LE script itself. The media player is created on an STA thread.
+    """
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    cmd = ["powershell", "-NoProfile"]
+    if sta:
+        cmd.append("-STA")
+    cmd.extend(["-EncodedCommand", encoded])
+    return cmd
+
+
 def _windows_player_command(file_path: str, rate: float = 1.0) -> tuple[str, list[str], dict[str, str]]:
-    """PowerShell playback for one clip. MP3 or non-unit rate uses WMPlayer.OCX; WAV at 1.0 uses SoundPlayer."""
-    use_wmp = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
-    script = _WIN_WMP_PLAYER if use_wmp else _WIN_WAV_PLAYER
-    cmd = ["powershell", "-NoProfile", "-Command", script]
-    return ("powershell", cmd, {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"})
+    """PowerShell playback for one clip. MP3 or non-unit rate uses WinRT MediaPlayer; WAV at 1.0 uses SoundPlayer."""
+    env = {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"}
+    use_media = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
+    if use_media:
+        return ("powershell", _powershell_encoded(_WIN_MEDIA_PLAYER, sta=True), env)
+    cmd = ["powershell", "-NoProfile", "-Command", _WIN_WAV_PLAYER]
+    return ("powershell", cmd, env)
 
 
 def _get_player_candidates(file_path: str, rate: float = 1.0) -> list[tuple[str, list[str], dict[str, str] | None]]:
@@ -621,7 +669,11 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
             return False
         proc: subprocess.Popen[Any] | None = None
         try:
-            log.info("Playing audio with command: %s", " ".join(cmd))
+            # The encoded media script is a base64 blob. Log the switches, not the blob.
+            shown = cmd
+            if len(cmd) >= 2 and cmd[-2] == "-EncodedCommand":
+                shown = [*cmd[:-1], "<script>"]
+            log.info("Playing audio with command: %s", " ".join(shown))
             proc = _popen_for_speech(cmd, cancel, env=env)
             if proc is None:
                 return False

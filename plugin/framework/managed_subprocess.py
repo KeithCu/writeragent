@@ -514,7 +514,7 @@ class ManagedSubprocess:
             errors=self._raw_errors,
             env=self._env,
             cwd=self._cwd,
-            # TTS PowerShell (WMPlayer.OCX, SoundPlayer, SAPI) would otherwise flash a console.
+            # TTS PowerShell (MediaPlayer, SoundPlayer, SAPI) would otherwise flash a console.
             **get_subprocess_creationflags(),
         )
         self._proc = proc
