@@ -12,7 +12,8 @@ same or higher level, so bullets under a deeper sub-heading are still
 collected. Headings inside fenced code blocks are ignored. Each top-level
 bullet is one item; wrapped lines are joined, nested bullets dropped and
 ticked ``[x]`` bullets skipped. A
-leading backtick block such as ``[feature M post-v1]`` carries tags.
+leading backtick block such as ``[feature M many post-v1]`` carries tags
+(``few`` or ``many`` is a rough guess of how many users want the item).
 ``--check`` writes nothing and exits 1 when an output file is missing or stale.
 """
 
@@ -31,6 +32,8 @@ SIZES = ("S", "M", "L")
 WHENS = ("v1", "post-v1")
 # Marks an item nobody has confirmed against the tree as still missing.
 UNVERIFIED = "unverified"
+# Rough guess of how many users want the item: a niche few or many.
+USERS = ("few", "many")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 BULLET = re.compile(r"^([-*])\s+(.*)$")
@@ -44,14 +47,15 @@ class Item(NamedTuple):
     text: str
     source: str  # path relative to the docs directory, POSIX style
     unverified: str = ""
+    users: str = ""
 
 
-def _split_tags(first_line: str, source: str, problems: list[str]) -> tuple[str, str, str, str, str]:
-    """Return (kind, size, when, unverified, text) for a bullet's joined text."""
+def _split_tags(first_line: str, source: str, problems: list[str]) -> tuple[str, str, str, str, str, str]:
+    """Return (kind, size, when, unverified, users, text) for a bullet's joined text."""
     match = TAGS.match(first_line)
     if not match:
-        return "", "", "", "", first_line
-    kind = size = when = unverified = ""
+        return "", "", "", "", "", first_line
+    kind = size = when = unverified = users = ""
     for word in match.group(1).split():
         if word in KINDS:
             kind = word
@@ -61,9 +65,11 @@ def _split_tags(first_line: str, source: str, problems: list[str]) -> tuple[str,
             when = word
         elif word == UNVERIFIED:
             unverified = word
+        elif word in USERS:
+            users = word
         else:
             problems.append(f"{source}: unrecognised tag '{word}'")
-    return kind, size, when, unverified, match.group(2)
+    return kind, size, when, unverified, users, match.group(2)
 
 
 def parse_file(path: Path, source: str, problems: list[str]) -> list[Item] | None:
@@ -77,10 +83,10 @@ def parse_file(path: Path, source: str, problems: list[str]) -> list[Item] | Non
 
     def flush() -> None:
         if current:
-            kind, size, when, unverified, text = _split_tags(" ".join(current), source, problems)
+            kind, size, when, unverified, users, text = _split_tags(" ".join(current), source, problems)
             # A ticked checkbox is finished work kept for the record, so it is not listed.
             if not text.startswith("[x]"):
-                items.append(Item(kind, size, when, text, source, unverified))
+                items.append(Item(kind, size, when, text, source, unverified, users))
             current.clear()
 
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -152,20 +158,20 @@ def render_md(items: list[Item]) -> str:
         rows = sorted((i for i in items if i.kind == kind), key=_sort_key)
         if not rows:
             continue
-        lines += ["", f"## {kind or 'untagged'}", "", "| Size | When | Checked | Item | Source |", "| --- | --- | --- | --- | --- |"]
+        lines += ["", f"## {kind or 'untagged'}", "", "| Size | Users | When | Checked | Item | Source |", "| --- | --- | --- | --- | --- | --- |"]
         for i in rows:
             text = i.text.replace("|", "\\|")
-            lines.append(f"| {i.size} | {i.when} | {i.unverified} | {text} | [{i.source}]({i.source}#open) |")
+            lines.append(f"| {i.size} | {i.users} | {i.when} | {i.unverified} | {text} | [{i.source}]({i.source}#open) |")
     return "\n".join(lines) + "\n"
 
 
 def render_csv(items: list[Item]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow(["kind", "size", "when", "unverified", "item", "source"])
+    writer.writerow(["kind", "size", "users", "when", "unverified", "item", "source"])
     for kind in (*KINDS, ""):
         for i in sorted((i for i in items if i.kind == kind), key=_sort_key):
-            writer.writerow([i.kind, i.size, i.when, i.unverified, i.text, i.source])
+            writer.writerow([i.kind, i.size, i.users, i.when, i.unverified, i.text, i.source])
     return buf.getvalue()
 
 
