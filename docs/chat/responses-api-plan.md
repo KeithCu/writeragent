@@ -784,12 +784,12 @@ Exit criteria:
 
 ## Open
 
-- `[feature M]` Opt-in `api_mode` setting so any OpenAI or OpenRouter model can use stateless Responses; the shim today is chosen only for `gpt-6*` models with tools. (§ Phase 1: Config and Mode Selection)
-- `[feature M]` OpenAI stateful continuation: per-session `ResponsesSessionState` on `ChatSession`, send `previous_response_id` on follow-up turns, and retry stateless when the id is expired. (§ Phase 4: Responses Session State)
-- `[eng S]` Reset or rebuild Responses state on Clear Chat, model, endpoint or tool-schema change, and on edited history, ignoring late responses through a `history_revision` stamp. (§ Phase 4: Responses Session State)
-- `[feature M]` Settings UI for API mode, state strategy and compaction, with helper text and a debug log line per request showing the state path used. (§ Milestone 3: Settings UI and Telemetry)
-- `[feature M]` OpenAI compaction through `context_management` or standalone `/responses/compact`, with the compacted window kept as the canonical replay input. (§ Phase 9: Responses Compaction)
-- `[eng M]` Persist optional Responses metadata (response ids, output items) inside the existing history JSON message blobs so a restart can resume provider state. (§ Phase 10: Persistence)
-- `[idea M]` Tool-schema hash caching and `allowed_tools` for stable tool lists on OpenAI, and a Conversations API mode if `previous_response_id` proves useful. (§ Milestone 4: Persistence and Optimization)
-- `[eng S]` Settle the OpenRouter beta unknowns by testing: `strict: false` versus `strict: null`, and whether assistant history items need `id` and `status`. (§ Open Questions)
-- `[idea S]` Decide whether smolagents runs use stateful Responses within a single run or stay stateless. (§ Phase 4: Responses Session State)
+- `[feature M few]` Opt-in `api_mode` setting so any OpenAI or OpenRouter model can use stateless Responses; the shim today is chosen only for `gpt-6*` models with tools. (§ Phase 1: Config and Mode Selection)
+- `[feature M few]` OpenAI stateful continuation: per-session `ResponsesSessionState` on `ChatSession`, send `previous_response_id` on follow-up turns, and retry stateless when the id is expired. (§ Phase 4: Responses Session State)
+- `[eng S few]` Reset or rebuild Responses state on Clear Chat, model, endpoint or tool-schema change, and on edited history, ignoring late responses through a `history_revision` stamp. (§ Phase 4: Responses Session State)
+- `[feature M few]` Settings UI for API mode, state strategy and compaction, with helper text and a debug log line per request showing the state path used. (§ Milestone 3: Settings UI and Telemetry)
+- `[feature M few]` OpenAI compaction through `context_management` or standalone `/responses/compact`, with the compacted window kept as the canonical replay input. (§ Phase 9: Responses Compaction)
+- `[eng M few]` Persist optional Responses metadata (response ids, output items) inside the existing history JSON message blobs so a restart can resume provider state. (§ Phase 10: Persistence)
+- `[idea M few]` Tool-schema hash caching and `allowed_tools` for stable tool lists on OpenAI, and a Conversations API mode if `previous_response_id` proves useful. (§ Milestone 4: Persistence and Optimization)
+- `[eng S few]` Settle the OpenRouter beta unknowns by testing: `strict: false` versus `strict: null`, and whether assistant history items need `id` and `status`. (§ Open Questions)
+- `[idea S few]` Decide whether smolagents runs use stateful Responses within a single run or stay stateless. (§ Phase 4: Responses Session State)

@@ -210,9 +210,9 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 
 ## Open
 
-- `[eng M]` [ ] Bucket A: shared Calc directives (`CALC_CORE_DIRECTIVES` in `plugin/framework/prompts.py`), `write_range` `=PY` placement, and `SortRange` (`sort_range` in `plugin/calc/cells.py`) shipped and were re-scored on `data_sorting`/`tax_column` (`benchmark_results_calc_filldown_2026-09-11_details.json`; Lightning passes `tax_column`); remaining: Lightning A/B on `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` (all three still fail in `benchmark_results_details.json`)
-- `[eng S]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
-- `[eng S]` [ ] Bucket D: Writer apply / don’t-destroy lines
-- `[eng S]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
-- `[eng M]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
-- `[idea S]` Try OpenRouter Exacto routing for tool-calling accuracy on Lightning, with the same A/B caveats. (§ E — thinking off (harness experiment, not a shipped prompt))
+- `[eng M few]` [ ] Bucket A: shared Calc directives (`CALC_CORE_DIRECTIVES` in `plugin/framework/prompts.py`), `write_range` `=PY` placement, and `SortRange` (`sort_range` in `plugin/calc/cells.py`) shipped and were re-scored on `data_sorting`/`tax_column` (`benchmark_results_calc_filldown_2026-09-11_details.json`; Lightning passes `tax_column`); remaining: Lightning A/B on `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` (all three still fail in `benchmark_results_details.json`)
+- `[eng S few]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
+- `[eng S few]` [ ] Bucket D: Writer apply / don’t-destroy lines
+- `[eng S few]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
+- `[eng M few]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
+- `[idea S few]` Try OpenRouter Exacto routing for tool-calling accuracy on Lightning, with the same A/B caveats. (§ E — thinking off (harness experiment, not a shipped prompt))
