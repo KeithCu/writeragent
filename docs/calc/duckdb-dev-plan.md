@@ -412,7 +412,7 @@ Authoring: pass upstream ranges as data so Calc dirties the cell that re-registe
 | **Analysis sub-agent** | A, B, C | `query_folder_sql` with `tables` / `files` / `data_range` |
 | **Chat / delegate** | B, C | “Join Sales range to costs.csv and ledger.parquet” |
 | **`=PY()` / `=PYTHON()`** | B+, D | `session_duckdb()` in shared kernel (guarded + 200-row honesty). Raw `import duckdb` is authorized but unguarded. Isolated stays per-eval. |
-| **MCP** | B+ | Optional later via existing tool registry |
+| **MCP** | B+ | **Shipped:** `sql_query_folder` (`QueryFolderSqlTool` in [`plugin/calc/duckdb_tools.py`](../../plugin/calc/duckdb_tools.py) on `ToolCalcPythonSqlBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py), domain `python/sql`) is exposed in MCP `direct_flat` (`MCP_DIRECT_FLAT_EXCLUDE_TIERS` in [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py)) and `direct_discovery` (`catalog_entries_from_base(..., for_discovery=True)` in [`plugin/doc/specialized_catalog.py`](../../plugin/doc/specialized_catalog.py)) |
 
 **PM note:** Phase A is releasable on its own — valuable for users who export CSV from Calc or receive data drops beside ODS files.
 
@@ -526,7 +526,6 @@ No cloud telemetry required. Suggested signals:
 ## Open
 
 - `[feature S]` Expose DuckDB SQL (`query_folder_sql`, `session_duckdb`) in the default chat and `=PY()` import-policy prompts once the path is product-ready. (§ Current Implementation (as of latest increment))
-- `[feature S unverified]` Offer the SQL tools over MCP through the existing tool registry. (§ User exposure matrix)
 - `[eng M]` Auto-export a sheet snapshot to temporary Parquet for huge ranges so they do not go through the wire grid. (§ Open questions)
 - `[idea M]` Zero-copy Arrow registration of split_grid arrays via pyarrow, and Parquet export from Calc. (§ Open questions)
 - `[eng S]` Close the raw `import duckdb` bypass of the COPY/escape firewall in `=PY()`, and jail persistent sessions on DuckDB older than 1.3. (§ Security and sandbox)

@@ -365,14 +365,14 @@ Scrolly gpt-oss-120b headed stamps for Ready slots **6 / 8 / 9 / 10** all landed
 
 ## Open
 
-- `[eng S unverified]` Hint in the peer-send tool description that writable peers should get imperative fill tasks with the values to write, while research of siblings stays `document_research`. (§ 2.3 Solutions (DO + why) — peer polarity)
+- `[eng S]` Hint in the peer-send tool description that writable peers should get imperative fill tasks with the values to write, while research of siblings stays `document_research`. (§ 2.3 Solutions (DO + why) — peer polarity)
 - `[eng S]` Outer Writer prompt: after a peer returns, write the email in this document, and if the peer workbook is still titles-only, retry once with explicit numbers. (§ Light product next steps (few / small; minimal eval cheats))
 - `[eng M unverified]` Stall plumbing: fail loud or time out when a peer drain or LLM stream hangs for minutes, and keep the debug log across LibreOffice restarts. (§ Light product next steps (few / small; minimal eval cheats))
 - `[eng M]` Reproduce and fix the LibreOffice crash after a long Writer-to-Calc peer round, starting from a tiny peer ask that writes three cells. (§ 2.3 Solutions (DO + why) — peer polarity)
 - `[idea S]` Tag headed peer asks as fill vs dump/extract from keywords so a polarity miss shows mid-run. (§ 2.3 Solutions (DO + why) — peer polarity)
 - `[eng S]` Calc write teaching: one cell or rectangular range per write, never a comma-joined CSV row in one cell. (§ 5. Predicted miss modes — Calc-primary)
-- `[eng S unverified]` Calc teaching: use exact fixture account labels as formula factors and never reference an invented helper sheet. (§ 5. Predicted miss modes — Calc-primary)
-- `[eng S unverified]` Draw layout teaching: wrap text inside boxes instead of one character per line, use one title, gap the lanes, and call `get_draw_tree` before finishing. (§ 5. Predicted miss modes — Draw-primary)
+- `[eng S]` Calc teaching: use exact fixture account labels as formula factors and never reference an invented helper sheet. (§ 5. Predicted miss modes — Calc-primary)
+- `[eng S]` Draw layout teaching: wrap text inside boxes instead of one character per line, use one title, gap the lanes, and call `get_draw_tree` before finishing. (§ 5. Predicted miss modes — Draw-primary)
 - `[eng M]` Refuse to finish on an untouched blank Sheet1, write rates and roster cells before Ready, and find which tool call hit the PreContractError. (§ 5. Predicted miss modes — Reverse Tenant)
 - `[eng S]` Writer research-before-write from fixture files before stating figures and dates, plus real review comments anchored on spans rather than a Decision Log section. (§ 5. Predicted miss modes — Long Writer pack)
 - `[eng M]` Re-run the headed trials (Floorstand, Calc-primary, Draw-primary, Reverse Tenant, Long Writer) after the teaching fixes land. (§ 6. Ordered next experiments)

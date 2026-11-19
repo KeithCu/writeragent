@@ -242,22 +242,20 @@ Existing Calc analysis (Goal Seek/Solver in `analysis-tools.md`) can be exposed 
 
 ## Implementation notes and phasing (Code-Grounded)
 
-**Trusted module + standard helpers (Phase 0 — implemented, interim)** — [`plugin/scripting/analysis.py`](../../plugin/scripting/analysis.py) + [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py). Host RPC: [`plugin/scripting/client.py`](../../plugin/scripting/client.py) (`run_analysis`). Follows the [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py) pattern: fixed venv stub, unsandboxed numpy/pandas/sklearn/statsmodels stack. Helper *names* and the result contract stay stable; **implementations will be replaced** with battle-tested FOSS (see External code sources below).
+**Trusted module + standard helpers (Phase 0 — shipped)** — [`plugin/scripting/venv/analysis.py`](../../plugin/scripting/venv/analysis.py) (with lazy-export facade [`plugin/scripting/analysis.py`](../../plugin/scripting/analysis.py)) + [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py). Host RPC: [`plugin/scripting/client.py`](../../plugin/scripting/client.py) (`run_analysis`). Follows the [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py) pattern: fixed venv stub, unsandboxed numpy/pandas/scipy/sklearn/statsmodels stack. Helper *names* and the result contract stay stable.
 
-### External code sources — planned FOSS replacements
+### External code sources — FOSS implementations
 
-Phase 0 helpers in [`plugin/scripting/analysis.py`](../../plugin/scripting/analysis.py) are **interim glue**: they prove the `spec` → trusted venv → compact result contract, but much of the logic is reimplemented in-house. **The plan is to replace those helpers with battle-tested FOSS implementations**—calling them from the user venv (pandas, SciPy, scikit-learn, statsmodels, and targeted packages below; see [`sandbox.py`](../../plugin/scripting/sandbox.py)) or adapting their code where a dependency is too heavy. WriterAgent keeps the **wrapper layer** (coercion, size limits, LLM-friendly JSON); the numeric/EDA work moves to libraries that are already used in production everywhere.
+Trusted helpers in [`plugin/scripting/venv/analysis.py`](../../plugin/scripting/venv/analysis.py) delegate numeric and EDA work to standard libraries in the user venv (pandas, SciPy, scikit-learn, statsmodels, and targeted packages below; see [`sandbox.py`](../../plugin/scripting/sandbox.py)) while keeping a thin WriterAgent wrapper layer (coercion, size limits, LLM-friendly JSON).
 
-#### 1. Core foundation (pandas / SciPy / scikit-learn / statsmodels)
+#### 1. Core foundation (pandas / SciPy / scikit-learn / statsmodels — shipped)
 
-These are the primary replacements: stop reimplementing what these stacks already do well.
-
-| Our helpers | Delegate to |
-|-------------|-------------|
-| `describe_data`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `correlation_matrix`, `compare_periods` | **pandas**: `describe()`, `pivot_table()`, `groupby().agg()`, `corr()`, cleaning |
+| Our helpers | Delegates to (`plugin/scripting/venv/analysis.py`) |
+|-------------|---------------------------------------------------|
+| `describe_data`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `correlation_matrix`, `compare_periods` | **pandas**: `df.drop_duplicates()` / `fillna()` (`clean_and_prepare`), `df.pivot_table()` (`pivot_aggregate`), `df.groupby().agg()` (`group_summary`), `df.corr()` (`correlation_matrix`), `resample()` / `pct_change()` / `diff()` (`compare_periods`) |
 | `run_regression` | **statsmodels** OLS (coefficients, std error, p-value, interval) |
-| `cluster_numeric` | **sklearn** KMeans on standardized columns |
-| `detect_outliers` | IQR is pandas quantiles; z-score is `scipy.stats.zscore`; `isolation_forest` is sklearn |
+| `cluster_numeric` | **sklearn** `KMeans` on standardized columns |
+| `detect_outliers` | **pandas** quantiles (IQR), **`scipy.stats.zscore`**, and **`sklearn.ensemble.IsolationForest`** |
 
 Prefer calling library APIs directly; copy snippets only when there is no stable package API.
 
@@ -387,7 +385,7 @@ Settings → Python **Test** reports **Data Analysis / EDA Libraries** and sugge
 | `cluster_numeric` | sklearn KMeans on standardized columns, plus a row-label table |
 | `monte_carlo` | **pandas-montecarlo** order-shuffle simulation (`final_value`, `bust_prob`, `goal_prob`, `worst_trough`; `params.sims`, `params.bust`, `params.goal`) |
 
-*WriterAgent keeps coercion + result shaping; numeric work delegates to the libraries above. See [External code sources](#external-code-sources--planned-foss-replacements).*
+*WriterAgent keeps coercion + result shaping; numeric work delegates to the libraries above. See [External code sources](#external-code-sources--foss-implementations).*
 
 **Result contract** (compact, LLM-friendly):
 
@@ -521,10 +519,9 @@ See also the condensed discussion that used to live in [../enabling_numpy_in_lib
 
 - `[feature M]` Discovery bridge tool (`find_and_analyze_relevant_ranges`) that locates the relevant sheets or ranges, including in Calc siblings found via the embeddings index, and feeds them to the analysis helpers. (§ Implementation notes and phasing)
 - `[feature M]` Writer "cleanup" helpers that turn analysis results (markdown table, bullets, suggested content) into formatted content inserted in the active Writer document, plus the Writer-to-Calc handoff polish. (§ Results and "cleanup")
-- `[eng M unverified]` Replace the remaining in-house analysis helpers (clean_and_prepare, pivot_aggregate, group_summary, compare_periods, detect_outliers) with library calls (pandas, SciPy, scikit-learn, statsmodels) as planned. (§ External code sources — planned FOSS replacements)
 - `[fidelity M]` Excel-style data handoff in `calc_addin_data.py`: structured tables, named ranges and a `headers=True` style option for both raw Python and the helpers. (§ Implementation notes and phasing)
 - `[eng M]` Analysis result cache (per folder or per document, mtime plus hash) and a dedicated worker pool for long analysis jobs. (§ Open questions / future)
-- `[eng M unverified]` Support very large data in analysis through sampling, chunked processing or out-of-core work in the venv. (§ Open questions / future)
+- `[eng M]` Support very large data in analysis through sampling, chunked processing or out-of-core work in the venv. (§ Open questions / future)
 - `[idea M]` Show the user the steps the analysis sub-agent took or export the pandas code that was executed. (§ Open questions / future)
 - `[idea M]` Richer object previews or cards for analysis results, similar to Excel Python Object mode. (§ Implementation notes and phasing)
 - `[idea L]` Vision digitization of charts found in Writer, feeding the extracted numbers into Calc analysis. (§ Implementation notes and phasing)
