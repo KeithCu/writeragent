@@ -628,7 +628,7 @@ Phases 2–5 each get a one-page plan when they come up.
 - `[eng M]` Prepare the series split (generic Calc fixes, Core AddIn, Online kit/wsd, feature branches) for upload when requested. (§ G9 — Series, naming, and hygiene)
 - `[fidelity S]` Core alias so Collabora Online can open LibrePy-written `=PY()` files, which currently show `#NAME?` in that direction. (§ File interop with LibrePy / WriterAgent (desktop))
 - `[eng S]` Classic `RemoteComputeBackend` that posts to the compute service so the service can be debugged without an Online rebuild. (§ Classic remote testing (optional))
-- `[eng S unverified]` Publish the compute image with a pinned NumPy, a short admin enablement doc, and a CI smoke test running `=PY("1+1")`. (§ Baby steps, 0a)
+- `[eng S]` Add a CI smoke test running `=PY("1+1")` against the compute image (`.github/workflows/compute-image.yml` already publishes `ghcr.io/keithcu/writeragent-compute` with `numpy==2.4.6` pinned in `compute_service/Dockerfile`, and `compute_service/README.md` documents admin enablement). (§ Baby steps, 0a)
 - `[eng S]` Gather real latency and payload-size numbers from early users before touching any limit. (§ Baby steps, 0c)
 - `[idea S]` AddIn-emitted `timeout_ms`, deferred because wsd defaults and service clamping suffice. (§ Explicitly deferred)
 - `[feature L]` Browser Monaco / Run Script / diagnostics authoring UX for Online, not pywebview in the jail. (§ Next steps (roadmap), Phase 2)
