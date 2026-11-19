@@ -109,6 +109,8 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 
 ### 2.4 math_insert (math domain)
 
+The `math` domain is declared on `ToolDrawMathBase` in `plugin/draw/base.py`, because `DelegateToSubagent` captures its enum before `plugin.draw` tool modules are discovered.
+
 > **Shape size:** `math_insert` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size. An embed map unit that is not a plain length (PIXEL) also falls back to the heuristic, because it needs a DPI the visual object does not report.
 
 ----

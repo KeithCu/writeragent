@@ -605,12 +605,12 @@ Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Order
 # Draw
 # ---------------------------------------------------------------------------
 
-# Draw main chat: the file-research rule the domain catalog cannot carry, python routing, and flowchart routing. The document_research and web_research triggers are their catalog lines in the delegate_to_subagent description.
+# Draw main chat: the file-research rule the domain catalog cannot carry, python routing, and one example delegation (where, what, exact text, style). That example is also the only line routing flowcharts to domain=shapes. The document_research and web_research triggers are their catalog lines in the delegate_to_subagent description.
 DRAW_CORE_DIRECTIVES = f"""When the user refers to another file, document, spreadsheet, or sheet by name or path (e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt") or asks to pull, read, search, or reference data from one:
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task (paths not required).
 {PYTHON_ROUTING_HINT}
-For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect; ask for arrowheads in task when the user wants arrows), then check the delegation status and counts it returns."""
+Write task as where, what, exact text, and style, for example: {DELEGATE_SUBAGENT_TOOL}(domain="shapes", task="On page 0, draw a top-to-bottom flowchart of boxes 'Start', 'Check order', 'Ship', joined by connectors with arrowheads; light blue fill, black text")."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.

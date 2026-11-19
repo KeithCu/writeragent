@@ -175,6 +175,12 @@ def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str |
     return _render_writer_page_png(doc, page)
 
 
+# Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:
+# its schema keeps page (execute rejects it there with a clear error), so it keeps the all-app text.
+_IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree"}
+_ONE_MODE = "Pass at most one of image, selection, or page."
+
+
 class GetImage(ToolBase):
     name: str | None = "image_get"
     tier: str = "core"
@@ -199,15 +205,33 @@ class GetImage(ToolBase):
         "required": [],
     }
 
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Name only the reads and modes of *doc_type*; Calc (no page render) and unprobed callers get the all-app text."""
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if source is None:
+            return self.description
+        draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
+        return (
+            f"Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from {source}> "
+            "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
+            f"that whole page as an image.{draw_note} Returns the picture itself, not a description. "
+            f"b64 is stripped from normal reads, so use this when you actually need to look. {_ONE_MODE}"
+        )
+
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
-        if doc_type != "calc":
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if doc_type != "calc" and source is None:
             return params
-        # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
-        # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
-        # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
         out = copy.deepcopy(params)
-        del out["properties"]["page"]
+        if doc_type == "calc":
+            # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
+            # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
+            # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
+            del out["properties"]["page"]
+        if source is not None:
+            out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
+            out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
         return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
