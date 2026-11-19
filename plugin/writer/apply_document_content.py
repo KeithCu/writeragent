@@ -276,9 +276,9 @@ def _verify_table_insert(doc: Any, before: int | None) -> None:
     """Raise TABLE_INSERT_FAILED when an import that carries a <table> produced none.
 
     *before* is the table count captured before the import, 0 when the whole document
-    was cleared first; None means the content has no table and nothing is checked.
-    Call it inside the edit's undo group: commit_or_rollback then undoes the partial
-    import and its review redlines before the error reaches the caller.
+    was cleared first; None means the content has no table, or the count was unreadable;
+    nothing is checked. Call it inside the edit's undo group: commit_or_rollback then
+    undoes the partial import and its review redlines before the error reaches the caller.
     """
     if before is None:
         return
@@ -680,6 +680,8 @@ class ApplyDocumentContent(ToolBase):
         if outcome.mutate_error is not None:
             mutate_err = outcome.mutate_error
             reraise_if_disposed(mutate_err)
+            if isinstance(mutate_err, ToolExecutionError) and mutate_err.code == "TABLE_INSERT_FAILED":
+                raise mutate_err
             log.exception("apply_content: outline hyperlink update failed")
             if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
@@ -1381,7 +1383,8 @@ class ApplyDocumentContent(ToolBase):
         plain = params.plain
         has_table = params.has_table
         with session:
-            # Delete-then-import inside one undo group: a failed import or a missing table rolls the cleared document back.
+            # Delete-then-import inside one undo group: a failed import or a missing
+            # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.replace_full_document(ctx.doc, ctx.ctx, content)
                 _verify_table_insert(ctx.doc, 0 if has_table else None)

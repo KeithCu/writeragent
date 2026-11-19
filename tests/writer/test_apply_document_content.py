@@ -1708,6 +1708,25 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
     assert res["message"] == "Table insert produced no table in document."
 
 
+def test_table_insert_failed_inside_outline_undo_keeps_code():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.apply_document_content._verify_table_insert",
+               side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")):
+        cap_links.return_value.links = [MagicMock()]
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+
+
 def test_table_count_read_reraises_disposed():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
