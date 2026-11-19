@@ -401,8 +401,8 @@ Run locally: `pytest tests/writer/test_xhtml_style_postprocess.py` and UNO tests
 
 ## Open
 
-- `[eng M]` Cached UNO paragraph-style index (one enumeration per document revision) to fill `data-lo-style` on range reads and replace the second full Flat ODF export on large documents. (§ Phase 4: Long-term — UNO style index (post-v1))
-- `[eng S]` Drop or gate the Flat ODF parent-map export to fallback-only once the UNO style index passes round-trip tests. (§ Long-term (post-v1 — large documents))
-- `[feature S]` Dedicated `get_paragraph_styles` tool or `ParaStyleName` on heading nodes in the tree enumeration. (§ Long-term (post-v1 — large documents))
-- `[fidelity M]` Table cell paragraph styles through a table-aware style index or cell-level tokens, since `data-lo-style` is stripped inside tables today. (§ v1 limitations (shipped))
-- `[fidelity S]` Per-document disambiguation when two UNO paragraph style names compact to the same token. (§ v1 limitations (shipped))
+- `[eng M many]` Cached UNO paragraph-style index (one enumeration per document revision) to fill `data-lo-style` on range reads and replace the second full Flat ODF export on large documents. (§ Phase 4: Long-term — UNO style index (post-v1))
+- `[eng S few]` Drop or gate the Flat ODF parent-map export to fallback-only once the UNO style index passes round-trip tests. (§ Long-term (post-v1 — large documents))
+- `[feature S few]` Dedicated `get_paragraph_styles` tool or `ParaStyleName` on heading nodes in the tree enumeration. (§ Long-term (post-v1 — large documents))
+- `[fidelity M many]` Table cell paragraph styles through a table-aware style index or cell-level tokens, since `data-lo-style` is stripped inside tables today. (§ v1 limitations (shipped))
+- `[fidelity S few]` Per-document disambiguation when two UNO paragraph style names compact to the same token. (§ v1 limitations (shipped))

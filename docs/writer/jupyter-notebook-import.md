@@ -306,13 +306,13 @@ Entry Points:
 
 ## Open
 
-- `[feature L]` Cell CRUD (add, delete, reorder code and markdown cells) and a re-import dialog offering overwrite versus merge, using notebook-owned styles instead of mutating Standard or Heading styles. (§ Phase 3: Cell CRUD & Re-import Merge)
-- `[feature M]` Append-into-open-document menu for importing a notebook into an existing Writer document. (§ Shipped vs Deferred)
-- `[feature M]` Notebook sidebar panel listing outline, cell status, clear outputs and kernel status. (§ Phase 4: Notebook Sidebar & Controls)
-- `[feature M]` Export back to `.ipynb` by walking the cell registry and text fields into valid nbformat v4. (§ Phase 5: Export to `.ipynb`)
-- `[fidelity S]` GFM table import in markdown cells. (§ Shipped vs Deferred)
-- `[fidelity S]` Hover-only play control and collapsible cells. (§ Shipped vs Deferred)
-- `[eng S]` Batched background image decode during notebook import. (§ Shipped vs Deferred)
-- `[eng S]` `notebook.enable_interactive` setting and Settings UI keys. (§ Shipped vs Deferred)
-- `[fidelity S]` nbformat v3 upgrade path on read. (§ Shipped vs Deferred)
-- `[idea S]` JSON schema validation (`fastjsonschema`) with `traitlets` and `jupyter_core` for notebook reads. (§ Shipped vs Deferred)
+- `[feature L few]` Cell CRUD (add, delete, reorder code and markdown cells) and a re-import dialog offering overwrite versus merge, using notebook-owned styles instead of mutating Standard or Heading styles. (§ Phase 3: Cell CRUD & Re-import Merge)
+- `[feature M few]` Append-into-open-document menu for importing a notebook into an existing Writer document. (§ Shipped vs Deferred)
+- `[feature M few]` Notebook sidebar panel listing outline, cell status, clear outputs and kernel status. (§ Phase 4: Notebook Sidebar & Controls)
+- `[feature M few]` Export back to `.ipynb` by walking the cell registry and text fields into valid nbformat v4. (§ Phase 5: Export to `.ipynb`)
+- `[fidelity S few]` GFM table import in markdown cells. (§ Shipped vs Deferred)
+- `[fidelity S few]` Hover-only play control and collapsible cells. (§ Shipped vs Deferred)
+- `[eng S few]` Batched background image decode during notebook import. (§ Shipped vs Deferred)
+- `[eng S few]` `notebook.enable_interactive` setting and Settings UI keys. (§ Shipped vs Deferred)
+- `[fidelity S few]` nbformat v3 upgrade path on read. (§ Shipped vs Deferred)
+- `[idea S few]` JSON schema validation (`fastjsonschema`) with `traitlets` and `jupyter_core` for notebook reads. (§ Shipped vs Deferred)

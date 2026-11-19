@@ -281,8 +281,8 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 
 ## Open
 
-- `[fidelity S]` Return `status` and `source` as a text block next to the image block in MCP `image_get` results, instead of discarding them. (§ 3. MCP response: preserve metadata alongside image)
-- `[eng S]` Add a test that the MCP `tools/call` path turns an `_mcp_image` result into an image content block. (§ 6. Missing tests)
-- `[eng S]` Add a unit test for `image_get_info` `crop_mm` reporting from `GraphicCrop` (`get_schemas("openai")` hiding `image_get` for text-only models is already tested in `tests/vision/test_image_filter.py`). (§ 6. Missing tests)
-- `[feature S]` Optionally downscale exported graphics before attaching them, to avoid token and request-size limits. (§ Limitations and notes)
-- `[idea S]` Detect vision support on local OpenAI-compatible servers (llama.cpp, vLLM) that publish no `input_modalities`, beyond the first-interaction cache. (§ Provider-specific notes)
+- `[fidelity S few]` Return `status` and `source` as a text block next to the image block in MCP `image_get` results, instead of discarding them. (§ 3. MCP response: preserve metadata alongside image)
+- `[eng S few]` Add a test that the MCP `tools/call` path turns an `_mcp_image` result into an image content block. (§ 6. Missing tests)
+- `[eng S few]` Add a unit test for `image_get_info` `crop_mm` reporting from `GraphicCrop` (`get_schemas("openai")` hiding `image_get` for text-only models is already tested in `tests/vision/test_image_filter.py`). (§ 6. Missing tests)
+- `[feature S many]` Optionally downscale exported graphics before attaching them, to avoid token and request-size limits. (§ Limitations and notes)
+- `[idea S few]` Detect vision support on local OpenAI-compatible servers (llama.cpp, vLLM) that publish no `input_modalities`, beyond the first-interaction cache. (§ Provider-specific notes)

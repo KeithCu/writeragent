@@ -178,6 +178,6 @@ LibreOffice also supports **Advanced Filter** / database-oriented APIs (`com.sun
 
 ## Open
 
-- `[fidelity S]` Expose the filter descriptor's regex, case-sensitivity and copy-output properties as optional `sheet_apply_filter` parameters. (§ 5.3 UNO descriptor features not exposed)
-- `[idea M]` Helper-column "effective filter" workflow for boolean logic a linear AND/OR chain cannot express. (§ 5.4 Higher-level features)
-- `[feature M]` New tools for Calc Advanced Filter and database-range queries, kept separate from `sheet_apply_filter`. (§ 5.4 Higher-level features)
+- `[fidelity S few]` Expose the filter descriptor's regex, case-sensitivity and copy-output properties as optional `sheet_apply_filter` parameters. (§ 5.3 UNO descriptor features not exposed)
+- `[idea M few]` Helper-column "effective filter" workflow for boolean logic a linear AND/OR chain cannot express. (§ 5.4 Higher-level features)
+- `[feature M few]` New tools for Calc Advanced Filter and database-range queries, kept separate from `sheet_apply_filter`. (§ 5.4 Higher-level features)
