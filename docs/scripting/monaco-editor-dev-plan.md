@@ -783,11 +783,11 @@ User workflow and feature context: [../enabling_numpy_in_libreoffice.md §3 Mona
 
 ## Open
 
-- `[feature M]` Real-time syntax validation: debounced `compile()` check on the LibreOffice side with red squiggles in Monaco and stale-response dropping. (§ Phase 2B — Real-time syntax validation (medium risk))
-- `[feature M]` Calc range picker button in the editor that inserts a range such as `Sheet1.A1:B10` at the cursor using `GlobalCalcRangeSelector`. (§ Phase 2C — Calc range picker (medium risk, high value))
-- `[feature L]` Show more than one editor buffer at once by routing extra sessions to extra pywebview windows in the same child process, capped at 2 or 3. (§ Multiple editor views (windows vs tabs))
-- `[feature L]` Formula bar button or double-click-cell entry to open Edit Python in Cell, which needs research into Calc input line customization. (§ Phase 3 — Broader surfaces)
-- `[idea S]` Optional setting to auto-close the editor on Save instead of staying open. (§ Open questions (decide before large work))
-- `[idea S]` Send sheet and tab names from LibreOffice to the editor on load for sheet-name completion if Jedi alone is not enough. (§ Phase 2D — Jedi autocompletion (child-only, performance-sensitive))
-- `[fidelity S]` Viz plot z-order polish (cell anchoring and replace-existing-chart slot reuse are shipped in `plugin/calc/python/image_egress.py`, and UNO end-to-end tests are shipped in `tests/calc/python/test_function_uno.py` and `tests/calc/python/test_image_egress_uno.py`; `ZOrder` handling is still missing). (§ Phase 3 — Broader surfaces)
-- `[idea L]` Embedded-Writer Python editor as a lightweight quick-edit surface for Run Python Script if pywebview proves too fragile. (§ 9. Alternative: Embedded Writer as Python Editor (Research Notes))
+- `[feature M few]` Real-time syntax validation: debounced `compile()` check on the LibreOffice side with red squiggles in Monaco and stale-response dropping. (§ Phase 2B — Real-time syntax validation (medium risk))
+- `[feature M few]` Calc range picker button in the editor that inserts a range such as `Sheet1.A1:B10` at the cursor using `GlobalCalcRangeSelector`. (§ Phase 2C — Calc range picker (medium risk, high value))
+- `[feature L few]` Show more than one editor buffer at once by routing extra sessions to extra pywebview windows in the same child process, capped at 2 or 3. (§ Multiple editor views (windows vs tabs))
+- `[feature L few]` Formula bar button or double-click-cell entry to open Edit Python in Cell, which needs research into Calc input line customization. (§ Phase 3 — Broader surfaces)
+- `[idea S few]` Optional setting to auto-close the editor on Save instead of staying open. (§ Open questions (decide before large work))
+- `[idea S few]` Send sheet and tab names from LibreOffice to the editor on load for sheet-name completion if Jedi alone is not enough. (§ Phase 2D — Jedi autocompletion (child-only, performance-sensitive))
+- `[fidelity S few]` Viz plot z-order polish (cell anchoring and replace-existing-chart slot reuse are shipped in `plugin/calc/python/image_egress.py`, and UNO end-to-end tests are shipped in `tests/calc/python/test_function_uno.py` and `tests/calc/python/test_image_egress_uno.py`; `ZOrder` handling is still missing). (§ Phase 3 — Broader surfaces)
+- `[idea L few]` Embedded-Writer Python editor as a lightweight quick-edit surface for Run Python Script if pywebview proves too fragile. (§ 9. Alternative: Embedded Writer as Python Editor (Research Notes))

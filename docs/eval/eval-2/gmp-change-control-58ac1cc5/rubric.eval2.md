@@ -54,4 +54,4 @@ CLI: `scripts/eval_2_gmp_oracle.py` or
 
 ## Open
 
-- `[eng S]` Extend the GMP oracle with the deferred checks: exact Form-920 layout, gold PDF strings, Change Control IDs, email subject microcopy and owner names. (§ Soft / later (not v1))
+- `[eng S few]` Extend the GMP oracle with the deferred checks: exact Form-920 layout, gold PDF strings, Change Control IDs, email subject microcopy and owner names. (§ Soft / later (not v1))

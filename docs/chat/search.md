@@ -188,4 +188,4 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 
 ## Open
 
-- `[feature L]` Connect to the user's running Chrome (CDP) or Firefox (Marionette) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)
+- `[feature L few]` Connect to the user's running Chrome (CDP) or Firefox (Marionette) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)

@@ -53,4 +53,4 @@ CLI: `scripts/eval_2_floorstand_oracle.py` or
 
 ## Open
 
-- `[eng S]` Extend the peer-write oracle with the deferred checks: exact gold dollars and unit counts, Store 4099 and 3737 status strings, sheet-tab cosmetics and highlight colors. (§ Soft / later (not v1))
+- `[eng S few]` Extend the peer-write oracle with the deferred checks: exact gold dollars and unit counts, Store 4099 and 3737 status strings, sheet-tab cosmetics and highlight colors. (§ Soft / later (not v1))
