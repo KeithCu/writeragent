@@ -2046,3 +2046,7 @@ def test_sandbox_allows_binding_bare_math_names_and_keeps_auto_math(fresh_sandbo
     assert res["status"] == "ok", res
     assert res["result"] == [{}, 2, 1.0, 3, 3]
 
+    bare_err = sandbox_run("result = sqrt(4)", timeout_sec=5)
+    assert bare_err["status"] != "ok"
+    assert "Forbidden function evaluation: 'sqrt'" in bare_err.get("message", "")
+
