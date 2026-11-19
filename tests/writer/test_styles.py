@@ -2040,10 +2040,16 @@ def _font_ctx(recording=False):
     return ctx
 
 
-def test_set_font_default_sets_western_slot_only():
+def _noncollapsed_cursor():
     cursor = MagicMock()
+    cursor.isCollapsed.return_value = False
+    return cursor
+
+
+def test_set_font_default_sets_western_slot_only():
+    cursor = _noncollapsed_cursor()
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
         res = SetFont().execute(_font_ctx(), font="Arial")
     assert res["status"] == "ok"
@@ -2055,10 +2061,21 @@ def test_set_font_default_sets_western_slot_only():
     cursor.setPropertyValues.assert_called_once_with(("CharFontName",), ("Arial",))
 
 
-def test_set_font_scripts_all_sets_three_slots_in_one_call():
+def test_set_font_collapsed_selection_refused():
     cursor = MagicMock()
+    cursor.isCollapsed.return_value = True
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
+        res = SetFont().execute(_font_ctx(), font="Arial", target="selection")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "select text first" in res["message"]
+    cursor.setPropertyValues.assert_not_called()
+
+
+def test_set_font_scripts_all_sets_three_slots_in_one_call():
+    cursor = _noncollapsed_cursor()
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
         res = SetFont().execute(_font_ctx(), font="Arial", scripts="all")
     assert res["status"] == "ok"
@@ -2068,10 +2085,9 @@ def test_set_font_scripts_all_sets_three_slots_in_one_call():
 
 def test_set_font_omitted_or_blank_font_resets_to_style():
     for call_kwargs in ({}, {"font": "  "}):
-        cursor = MagicMock()
+        cursor = _noncollapsed_cursor()
         with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-             patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
-             patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
+             patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
             res = SetFont().execute(_font_ctx(), **call_kwargs)
         assert res["status"] == "ok"
         assert res["font"] is None
@@ -2082,12 +2098,12 @@ def test_set_font_omitted_or_blank_font_resets_to_style():
 
 def test_set_font_all_matches_applies_to_each():
     ranges = [MagicMock(), MagicMock(), MagicMock()]
-    cursors = [MagicMock(), MagicMock(), MagicMock()]
+    cursors = [_noncollapsed_cursor(), _noncollapsed_cursor(), _noncollapsed_cursor()]
     with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.cursor_spanning_range", side_effect=cursors), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
         res = SetFont().execute(_font_ctx(), font="Arial", target="search", old_content="Title", all_matches=True)
     assert res["status"] == "ok"
@@ -2110,13 +2126,12 @@ def test_set_font_search_miss_reports_not_matched():
 
 
 def test_set_font_records_under_agent_review_mode():
-    cursor = MagicMock()
+    cursor = _noncollapsed_cursor()
     ctx = _style_ctx()
     # False initially, then True after setPropertyValue("RecordChanges", True), then False on restore.
     rec_states = [False, True, True]
     ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=True), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"), \
          patch("plugin.writer.styles._installed_font_names", return_value={"arial"}):
         res = SetFont().execute(ctx, font="Arial")
@@ -2129,11 +2144,10 @@ def test_set_font_records_under_agent_review_mode():
 
 
 def test_set_font_reset_under_agent_review_mode_is_unreviewed():
-    cursor = MagicMock()
+    cursor = _noncollapsed_cursor()
     ctx = _font_ctx(recording=False)
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=True), \
-         patch("plugin.writer.edit_review.review_recording_enabled", return_value=True):
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = SetFont().execute(ctx)
     assert res["status"] == "ok"
     assert res["tracked"] is False
@@ -2144,9 +2158,9 @@ def test_set_font_reset_under_agent_review_mode_is_unreviewed():
 
 
 def test_set_font_warns_when_font_not_installed():
-    cursor = MagicMock()
+    cursor = _noncollapsed_cursor()
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.styles._installed_font_names", return_value={"liberation sans"}):
         res = SetFont().execute(_font_ctx(), font="NoSuchFontXYZ")
     assert res["status"] == "ok"

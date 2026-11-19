@@ -66,11 +66,11 @@ from plugin.framework.errors import (
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import get_toolkit
+from plugin.writer import edit_review
 from plugin.writer.edit_review import (
     annotate_review_status,
     flag_style_unreviewed,
     next_agent_edit_undo_title,
-    review_recording_enabled,
 )
 from plugin.writer.record_changes import is_recording_changes, record_changes
 from . import search as search_mod
@@ -1233,11 +1233,25 @@ class StyleGetInfo(ToolWriterStyleBase):
         return {"status": "ok", **info}
 
 
-def search_target_cursors(
+def target_cursors(
     tool: FrameworkToolBase,
     ctx: ToolContext,
     kwargs: dict[str, Any],
 ) -> tuple[list[Any], dict[str, Any] | None, search_mod.MatchMode | None]:
+    """Resolve target kwargs into (cursors, error_payload, search_mode)."""
+    target = kwargs.get("target", "selection")
+    if target != "search":
+        try:
+            cursor = resolve_target_cursor(
+                ctx,
+                target,
+                kwargs.get("old_content"),
+                case_sensitive=kwargs.get("case_sensitive"),
+            )
+            return [cursor], None, None
+        except ValueError as ve:
+            return [], tool._tool_error(str(ve), code="INVALID_PARAM"), None
+
     # target='search' resolves its own ranges here so a miss returns the structured
     # build_search_not_found_response payload; resolve_target_cursor serves other targets
     # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
@@ -1340,6 +1354,13 @@ def _with_normalized_old_content(kwargs: dict[str, Any], result: dict[str, Any])
     return result
 
 
+_SEARCH_MATCH_PROPERTIES: dict[str, Any] = {
+    "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
+    "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
+    "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+}
+
+
 class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
@@ -1360,9 +1381,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family."), default="ParagraphStyles"),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
-            "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+            **_SEARCH_MATCH_PROPERTIES,
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
                 "Direct (hand-set) formatting on the target, ParagraphStyles only. "
                 "'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. "
@@ -1509,14 +1528,7 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
-        search_mode: search_mod.MatchMode | None = None
-        if target == "search":
-            cursors, err, search_mode = search_target_cursors(self, ctx, kwargs)
-        else:
-            try:
-                cursors, err = [resolve_target_cursor(ctx, target, kwargs.get("old_content"), case_sensitive=kwargs.get("case_sensitive"))], None
-            except ValueError as ve:
-                return self._tool_error(str(ve), code="INVALID_PARAM")
+        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
         if err is not None:
             return err
 
@@ -1551,11 +1563,9 @@ class SetFont(FrameworkToolBase):
         "type": "object",
         "properties": {
             "font": {"type": "string", "description": "Font family name (e.g. Arial). Omit to reset to the style font."},
-            "target": enum_param(INSERT_TARGETS, "Text to change.", default="selection"),
+            "target": enum_param(["selection", "full_document", "search"], "Text to change.", default="selection"),
             "old_content": {"type": "string", "description": "Text to find and change if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "all_matches": {"type": "boolean", "default": False, "description": "For target='search': apply to EVERY occurrence of old_content (false = first only)."},
-            "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+            **_SEARCH_MATCH_PROPERTIES,
             "scripts": enum_param(["western", "asian", "complex", "all"], "Which font slot to set or reset.", default="western"),
         },
     }
@@ -1566,36 +1576,31 @@ class SetFont(FrameworkToolBase):
         return _with_normalized_old_content(kwargs, self._execute(ctx, **kwargs))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        # Blank/whitespace resets to the style font; otherwise LibreOffice stores "" as a literal font name.
         font = (kwargs.get("font") or "").strip() or None
         target = kwargs.get("target", "selection")
         scripts = kwargs.get("scripts", "western")
         props = FONT_SCRIPT_PROPERTIES[scripts]
 
-        search_mode: search_mod.MatchMode | None = None
-        if target == "search":
-            cursors, err, search_mode = search_target_cursors(self, ctx, kwargs)
-        else:
-            try:
-                cursors, err = [
-                    resolve_target_cursor(
-                        ctx,
-                        target,
-                        kwargs.get("old_content"),
-                        case_sensitive=kwargs.get("case_sensitive"),
-                    )
-                ], None
-            except ValueError as ve:
-                return self._tool_error(str(ve), code="INVALID_PARAM")
+        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
         if err is not None:
             return err
+        if target == "selection" and cursors[0].isCollapsed():
+            return self._tool_error(
+                "Selection is empty (caret only): select text first, or use target='search'/set_selection.",
+                code="INVALID_PARAM",
+            )
 
+        # One body-spanning cursor covers tables (including nested tables) because
+        # lcl_InsAttr and ResetAttrs walk every node in the range.
         def apply_one(cursor: Any) -> None:
             if font:
                 cursor.setPropertyValues(props, (font,) * len(props))
             else:
                 reset_properties_to_default(cursor, props)
 
-        record = review_recording_enabled() and font is not None
+        # SwDoc::ResetAttrs has no redline branch, so resets cannot be tracked and flag style_unreviewed instead.
+        record = edit_review.review_recording_enabled() and font is not None
         label = "font '%s'" % font if font else "the style font"
         with (record_changes(ctx.doc, True) if record else nullcontext()):
             tracked = font is not None and is_recording_changes(ctx.doc)

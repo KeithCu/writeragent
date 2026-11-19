@@ -3063,7 +3063,7 @@ class _WriterProxy:
 
         Args:
             font (optional): Font family name (e.g. Arial). Omit to reset to the style font.
-            target (optional): Text to change. One of: beginning, end, selection, full_document, search.
+            target (optional): Text to change. One of: selection, full_document, search.
             old_content (optional): Text to find and change if target = 'search'.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
