@@ -91,9 +91,9 @@ class SymbolicMathTool(ToolCalcPythonBase):
             is_calc = ctx.doc_type == "calc"
             result["math_inserted"] = not is_calc
             result["message"] = "Symbolic result written to active sheet" if is_calc else "Math formula inserted in document"
-        except CalcError as exc:
-            # Occupied target cells: nothing was written; tell the model to pick an empty target.
-            return self._tool_error(str(exc))
+        except CalcError:
+            # Occupied target cells: propagate so execute_safe preserves code and details.
+            raise
         except Exception as exc:
             result["insert_error"] = str(exc)
 
