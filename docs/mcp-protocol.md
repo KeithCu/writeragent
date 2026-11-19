@@ -461,7 +461,7 @@ The MCP server is **implemented and opt-in** (default off). Live summary (paths 
   - **Per-result echo / mutation gates:** resolved target echoed as `document: {name, uid}` when the tool does not supply its own; concurrent mutating calls serialize per `uid:` / `url:` key. See `_resolve_mcp_doc_key` / `_mcp_tools_call` in `mcp_protocol.py`. Writer heading-tree / proximity / FTS caches share that `uid:` / `url:` identity (`DocumentService.doc_key`); document edits and unload emit `document:cache_invalidated`.
   - Companion guidance: https://github.com/KeithCu/cursor-libreoffice , https://github.com/KeithCu/libreoffice-skill
 - **Config:** `mcp.mcp_enabled` (default false), `mcp.mcp_port` (default **18765**) in [`plugin/framework/config.py`](../plugin/framework/config.py) / `writeragent.json`.
-- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
+- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start at LO launch (`McpModule.start_background`) and when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
 - **Stdio bridge (optional):** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for clients that speak stdio MCP.
 - **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `manual_read` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py).
 
@@ -824,6 +824,8 @@ needed) is fine here because it is small and entirely informational.
 
 #### 4. `MCPAutoStartJob` (~25 lines) — copy verbatim
 
+**Not needed:** auto-start ships via the `OnStartApp` startup job (`extension/Jobs.xcu`) → `McpModule.start_background`; do not add a second job.
+
 ```python
 class MCPAutoStartJob(unohelper.Base, XJob, XServiceInfo):
     """Triggered by onFirstVisibleTask — starts MCP server at LO launch."""
@@ -1082,7 +1084,7 @@ current functionality.
 
 ### Shipped since this doc was written (removed from backlog)
 
-- **Auto-start on LO launch:** `McpModule.start_background` (`plugin/mcp_server/__init__.py:161-164`), called by `plugin/main.py:182` during the `OnStartApp` bootstrap (`extension/Jobs.xcu`), starts the MCP server at launch when `mcp.mcp_enabled` is true (so no separate `XJob` was needed; `McpModule.initialize` only registers routes).
+- **Auto-start on LO launch:** `McpModule.start_background` ([`plugin/mcp_server/__init__.py`](../plugin/mcp_server/__init__.py)), called by [`plugin/main.py`](../plugin/main.py) during the `OnStartApp` bootstrap ([`extension/Jobs.xcu`](../extension/Jobs.xcu)), starts the MCP server at launch when `mcp.mcp_enabled` is true (so no separate `XJob` was needed; `McpModule.initialize` only registers routes).
 - **Stdio proxy:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for stdio MCP clients.
 - **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
 - **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).

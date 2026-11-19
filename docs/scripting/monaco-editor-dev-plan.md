@@ -130,7 +130,7 @@ The Monaco **shell** (toolbar, status line, script picker, `prompt()`/`confirm()
 | Syntax validation | Debounced `compile()` on LO main thread; squiggles in Monaco |
 | Range picker | `GlobalCalcRangeSelector` via pipe + main thread (**deferred**; editable textbox for data ranges shipped first) |
 | Theme sync | LO VCL → `vs` / `vs-dark` + toolbar chrome (shipped in 2E via appearance.py + editor.js) |
-| Flatpak/Snap spawn | `flatpak-spawn --host` |
+| Flatpak/Snap spawn | `flatpak-spawn --host` (shipped in 2F via `wrap_command_for_sandbox` in `sandbox.py`) |
 | Formula bar button | Optional |
 | Jedi completions | Persistent `jedi.Environment` in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py); JS debounce (~150ms); missing-`jedi` status hint |
 
@@ -554,11 +554,11 @@ This phase is intentionally after 2A (UX solid) and can be done in parallel with
 
 ---
 
-### Phase 2F — Sandboxed LO installs (Flatpak/Snap) *(shipped)*
+### Phase 2F — Sandboxed LO installs (Flatpak/Snap) — **Shipped**
 
 **Goal:** `Popen` from inside Flatpak can reach the host venv.
 
-Implemented in `plugin/scripting/editor_host.py`: `resolve_venv_python` and child launch pass `command_wrapper=wrap_command_for_sandbox` (`plugin/scripting/sandbox.py`).
+[`editor_host.py`](../../plugin/scripting/editor_host.py) wraps both the venv probe and the editor child launch (`ManagedSubprocess(..., command_wrapper=wrap_command_for_sandbox)`) with `wrap_command_for_sandbox` from [`sandbox.py`](../../plugin/scripting/sandbox.py).
 
 **Tests:** hard to automate; maintain a manual matrix in this doc (Flatpak LO + host venv path).
 
@@ -607,7 +607,7 @@ Consider a top-level `seq: int` on all messages once 2B is in place so async val
 | **Unit** | `validate` compile helper; Jedi completion formatting (no LO); named-script picker in [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (`scripts_list.sample_code` removed in 0.8.64) |
 | **Integration** | subprocess test: spawn `editor_main.py`, write `ready`/`load`, read responses (headless skip if no display); optional probe test against a fixture venv with pywebview |
 | **UNO** | range picker happy path; optional “edit cell → save → recalc” one-shot |
-| **Manual** | checklist in §7 extended per phase; Flatpak row when 2F ships |
+| **Manual** | checklist in §7 extended per phase; manual Flatpak row (real-sandbox spawn cannot be automated; unit coverage is in [`test_sandbox.py`](../../tests/scripting/test_sandbox.py) / [`test_editor_host.py`](../../tests/scripting/test_editor_host.py)) |
 
 ---
 
@@ -660,7 +660,8 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 - **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PY()` and recalc; failures show full tracebacks.
 - **Phase 2A (done):** context menu, stderr drain, multi-cell reload, persistent child reuse.
 - **Phase 2E (done):** automatic theme (LO light/dark drives Monaco `vs`/`vs-dark` + full toolbar chrome via shared appearance detector).
-- **Later:** syntax squiggles (2B), range picker button (2C). **2D Jedi debounce + missing-jedi hint, and 2F Flatpak/Snap spawn (`wrap_command_for_sandbox` in `plugin/scripting/editor_host.py`): done.** Extra windows when we want two buffers on screen ([§2](#2-ipc-protocol-pipe), [multiple views](#multiple-editor-views-windows-vs-tabs)).
+- **Phase 2F (done):** Flatpak/Snap sandbox spawn via `wrap_command_for_sandbox` in [`editor_host.py`](../../plugin/scripting/editor_host.py).
+- **Later:** syntax squiggles (2B), range picker button (2C). **2D Jedi debounce + missing-jedi hint: done.** Extra windows when we want two buffers on screen ([§2](#2-ipc-protocol-pipe), [multiple views](#multiple-editor-views-windows-vs-tabs)).
 - `make test` green; typecheck clean; no UNO calls off main thread in bridge code paths.
 
 ### Session 1 behavior reference
