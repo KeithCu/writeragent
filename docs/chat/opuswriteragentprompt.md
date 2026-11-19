@@ -31,7 +31,7 @@
 | 19 | Report removed indents on restyle / track style changes | 2.6 | ⬜ `style_unreviewed` rule still in the prompt | n/a |
 | 20 | Explicit delete (`position='delete'`) | 2.1 | ⬜ Not found | n/a |
 | 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ✅ Validated via LibreOffice TextSearch2 (ICU); Python-only syntax rejected, ICU classes allowed | st-regex-icu |
-| 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ⬜ Not in the writer edit path | n/a |
+| 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ✅ Writer edit path (Calc/Draw optional); see [structured-edit-diagnostics-plan.md](../writer/structured-edit-diagnostics-plan.md) | Phases 0–3 |
 
 **Tally:** 13 shipped, 3 partial, 6 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
 
@@ -52,7 +52,7 @@
 4. **`clear_direct` rename (§2.6).** Cheap. The parameter still needs a paragraph of explanation.
 5. **Bare `#Heading` links and `$` math (§2.7).** Accept the natural form, or warn.
 6. **Style-change reporting (§2.6).** Report removed indents, or fold the style change and text edits into one undo step.
-7. **Structured errors (§3, §4).** `error_code` + `suggested_call`. This is the broadest item and the one that most reduces prompt size.
+7. **Structured errors (§3, §4) — Shipped for Writer edit path.** `code` + `suggested_call` in [structured-edit-diagnostics-plan.md](../writer/structured-edit-diagnostics-plan.md) (Calc/Draw optional).
 8. **Regex engine validation (§2.3).** Name the engine that rejected a pattern.
 
 ## 4. Prompt shrinkage check (§6 of the original)
@@ -87,5 +87,4 @@ The original list of "natural mistake" tests is mostly covered for shipped items
 - `[eng S]` Rename the `clear_direct` options (`none` / `style_props` / `all`) so the parameter needs no paragraph of explanation. (§ 3. Open work, by payoff, item 4)
 - `[fidelity M]` Report removed indents on restyle, or fold the style change and text edits into one undo step, so the `style_unreviewed` prompt rule can go. (§ 3. Open work, by payoff, item 6)
 - `[feature S unverified]` Explicit delete through `position='delete'` on the write tool. (§ 1. Scoreboard, row 20)
-- `[eng L]` Stable `error_code` plus `suggested_call` on every error in the Writer edit path, the change that most shrinks the prompt. (§ 3. Open work, by payoff, item 7)
 - `[eng S]` Add the missing regression tests: code-span escaping, clearing table cells one at a time, and centered alignment on write. (§ 5. Regression tests)

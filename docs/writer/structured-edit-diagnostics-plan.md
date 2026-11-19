@@ -40,7 +40,6 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
 - **Warning fields:**
   - Writer unifies `data-lo-style` skips and `data-lo-para` drops into `warnings: list[Diagnostic]` via `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`, using `WriteReport`), called by `apply_document_content.py` and `page.py` (header/footer writes).
   - Other Writer tools write singular `warning` strings for unrelated conditions (`styles.py`, `page.py`, `selection.py`, `search.py`, `get_document_content.py`).
-  - Silent style drop on before/after: block content next to a match (`apply_document_content.py`) passes `apply_styles=False` to `insert_html_at_cursor`, stripping `data-lo-style` without emitting a warning (`html_import.py`).
   - Draw, Calc, and vision: `result["warnings"]` is `list[str]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, `vision/venv/vision.py`).
 
 ## 3. Design
@@ -55,11 +54,20 @@ class SuggestedCall(TypedDict):
     tool: str
     arguments: dict[str, Any]
 
-class Diagnostic(TypedDict, total=False):
-    code: str                  # required in practice
-    message: str               # required in practice
-    suggested_call: SuggestedCall  # optional
-    # Optional flat context fields (matches_skipped, matches_total, etc.)
+class Diagnostic(TypedDict):
+    """Structured diagnostic reported on edit failures or partial applications.
+
+    Carries a machine-readable code, a human-readable message, an optional
+    suggested_call so the model can send it as its next tool call unchanged,
+    and optional flat context fields (declare any new context keys here).
+    """
+
+    code: str
+    message: str
+    suggested_call: NotRequired[SuggestedCall]
+    matches_skipped: NotRequired[int]
+    matches_total: NotRequired[int]
+    link_target: NotRequired[str]
 ```
 
 Note on naming: `tool` matches tool registration and `ToolRegistry.execute(name, **arguments)`. (While the MCP wire protocol names this key `name`, internal execution and prompt conventions use `tool`).
@@ -96,38 +104,16 @@ def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
 - Draw, Calc, and vision remain `list[str]` and can adopt `Diagnostic` opportunistically.
 
 *Test assertions updated in Phase 1:*
-- `warnings` assertions: `tests/writer/test_apply_document_content_structured_return.py:273, 294, 1032`, `tests/writer/test_page.py:423`, `tests/writer/test_page_header_html_uno.py:534, 548`, `tests/writer/test_html_import_uno.py:540`.
-- `warning` assertions: `tests/writer/test_apply_document_content.py`, `tests/writer/test_content_style_model_uno.py:401, 432, 470, 501, 537, 581`.
+- `warnings` assertions: `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_page_header_html_uno.py`, `tests/writer/test_html_import_uno.py`.
+- `warning` assertions: `tests/writer/test_apply_document_content.py`, `tests/writer/test_content_style_model_uno.py`.
 
 ### 3.3 Code catalog
 
-Code constants remain string literals across call sites, consistent with the codebase invariant of avoiding unnecessary enum classes. The authoritative catalog is documented in `docs/framework/exception-policy.md`. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
+The authoritative code catalog (codes, kinds, trigger sites, `suggested_call` rules, and naming invariant) lives in [`docs/framework/exception-policy.md`](../framework/exception-policy.md#structured-edit-diagnostic-codes).
 
-| Code | Kind | Trigger site(s) | `suggested_call` |
-|------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py:1262`, `styles.py:1379`, `styles.py:1451`) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
-| `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py:1303`) | None (suggesting blank content violates tool schema). |
-| `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py:1550`) | None |
-| `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py:1550`) | None |
-| `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py:1550`) | None |
-| `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_message` in `search.py:1315`, `apply_document_content.py:684, 1545`, `selection.py:147` | None (delegation tool requires free-text task and active inner-agent endpoint). |
-| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py:518-525` | Optional: `apply_style` with corrected `style` only if exactly one match in `similar`. |
-| `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py:895`, `styles.py:1385`, `selection.py:142` | None |
-| `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py:1579` | None |
-| `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py:739`) | None |
-| `UNDO_UNAVAILABLE` | error | `apply_document_content.py:644, 722, 1468`, `styles.py:1403` | None |
-| `ROLLBACK_FAILED` | error | `apply_document_content.py:1481, 1499`, `styles.py:1423` | None |
-| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `apply_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
-| `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None (item 21 shipped; validated via ICU engine; `details.engine` dropped). |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
-| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
-| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
-| `LINK_TARGET_NOT_FOUND` | warning | `resolve_heading_links` (`html_import_styles.py`) | None |
+*Heading link resolution:* `resolve_heading_links` (`plugin/writer/html_import_styles.py`) rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body, table-cell, and text-frame headings; skipped for `full_document`). Matching checks exact text first, then a unique case-insensitive match, then a unique XHTML export anchor id (`a__Heading_Text`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Bare fragments that match no heading or match several headings emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment, naming closest or colliding headings when available.
 
-*Heading link resolution:* `resolve_heading_links` rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body, table-cell, and text-frame headings; skipped for `full_document`). Matching checks exact text first, then a unique case-insensitive match, then a unique XHTML export anchor id (`a__Heading_Text`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Bare fragments that match no heading or match several headings emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment, naming closest or colliding headings when available.
-
-*Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
-*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `document_undo` during change recording is unsafe.
+*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`plugin/writer/apply_document_content.py`), and invoking `document_undo` during change recording is unsafe.
 
 ### 3.4 Building `suggested_call` safely
 
@@ -137,7 +123,7 @@ Rules for constructing suggestions:
 3. **Centralized construction per tool:** Construct suggestions in one place per tool from code and parsed arguments (e.g. in `_do_edit` after `_dispatch_edit` in `apply_document_content.py`), rather than plumbing `kwargs` through lower-level helpers.
 4. **Filter to schema properties:** Validate arguments against `parameters["properties"]` of the target tool schema. This automatically filters out internal execution flags and MCP's `document_url`.
 5. **Bound payload size:** Never echo raw HTML `content` back in a suggestion. Bound string arguments to short targets.
-6. **Gate against change recording:** Do not suggest `apply_style` while tracked changes are recording (`record_changes.is_recording_changes(model)`), because `apply_style` is not recorded as a tracked change (`plugin/framework/prompts.py:391`).
+6. **Gate against change recording:** Do not suggest `apply_style` while tracked changes are recording (`record_changes.is_recording_changes(model)`), because `apply_style` is not recorded as a tracked change (`plugin/framework/prompts.py`).
 7. **MCP transport independence:** MCP clients manage their own `document_url`; suggestions emit only standard tool arguments without transport-specific fields.
 8. **No gettext formatting:** Argument values and code names must never pass through `_()`.
 
@@ -168,14 +154,14 @@ Rules for constructing suggestions:
 1. **Target new visible text (`params.plain`):** Always target the newly inserted visible text, NOT the original search string. The edit has already executed and replaced the original text; `apply_style` must search for text that currently exists in the document.
 2. **Single paragraph check:** `params.plain` must be a single paragraph (no `\n`).
 3. **Single distinct style token:** Content must contain exactly one distinct non-empty `data-lo-style` token (`extract_block_lo_styles`).
-4. **Resolved style token:** Resolve the style using `resolve_paragraph_style_token` (`plugin/writer/html_import_styles.py:547`). If it falls back to `"Standard"` for a token that was not `"Standard"`, treat the style as unresolved and omit `suggested_call`.
+4. **Resolved style token:** Resolve the style using `resolve_paragraph_style_token` (`plugin/writer/html_import_styles.py`). If it falls back to `"Standard"` for a token that was not `"Standard"`, treat the style as unresolved and omit `suggested_call`.
 5. **Exact post-write match count:** After the write, verify the new text matches the expected count in the document: exactly 1 match (or exactly `replaced_count` matches when `all_matches=True`).
 6. **Case sensitivity:** Always supply `case_sensitive: true`.
 7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `apply_style` will restyle the entire host paragraph.
 8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `apply_style` already supports).
 9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Because `_lo_style_for_replaced_range` checks partial match before recording, a partial match during recording triggers `STYLE_IGNORED_PARTIAL_MATCH`. Gating on recording status prevents emitting an untracked `apply_style` suggestion during redline recording.
 10. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
-11. **Before/after insertions:** Before/after inserts currently drop `data-lo-style` silently via `apply_styles=False`. In v1, leave before/after style behavior scoped out; any future warning for before/after must account for boundary snapping (`_paragraph_boundary_cursor`).
+11. **Before/after insertions:** Before/after block inserts apply `data-lo-style` via `insert_html_after_paragraph` (`plugin/writer/html_import.py`, called with `apply_styles=True` from `apply_document_content.py`), importing into a fresh paragraph, so no warning is needed.
 
 **Tests for item 4:**
 - `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.
@@ -189,7 +175,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ### Phase 0: Framework plumbing — Done
 - `SuggestedCall`, `Diagnostic`, and `suggest_call` in `plugin/framework/errors.py`.
 - Keyword-only `suggested_call: SuggestedCall | None = None` on `make_tool_error` and `format_error_payload` in `errors.py`.
-- Schema-validation test helper in `tests/framework/test_errors.py` validating `suggested_call` structures against tool schemas.
+- Schema-validation test helper in `tests/framework/suggested_call_access.py` (`validate_suggested_call`, `assert_valid_suggested_call`), imported by `tests/framework/test_errors.py`.
 - Tests: `tests/framework/test_errors.py` (payload shape with and without `suggested_call`, schema validation helper).
 
 ### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer) — Done
@@ -208,7 +194,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ### Phase 3: Prompt updates and documentation — Done
 - Prompt instructions in `plugin/framework/prompts.py` reference `warnings[].suggested_call` for partial-match restyling and include `"When a result includes suggested_call, prefer executing it over re-deriving the call."` in `CONFIRM_EDITS_FROM_STRUCTURED_FIELDS`.
 - Existing prompt invariants retained (`|outline`, no `$`, `style_unreviewed`, `clear_direct`, schema empty replacement sentence, table deletion rule).
-- Documentation updated: code catalog in `docs/framework/exception-policy.md`, `docs/writer/llm-styles.md`, and Writer `AGENTS.md`.
+- Documentation updated: code catalog in `docs/framework/exception-policy.md` and `docs/writer/llm-styles.md`.
 - Tests: `tests/framework/test_prompts.py`.
 
 ### Phase 4 (Optional): Calc and Draw adoption
@@ -216,7 +202,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 
 ## 5. Items 16 and 21 interaction
 
-- **Item 21 (Search regex errors):** Shipped as `INVALID_REGEX` validated via LibreOffice's `TextSearch2` (ICU) service before searching. `details.engine` omitted (no consumer). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py:151`).
+- **Item 21 (Search regex errors):** Shipped as `INVALID_REGEX` validated via LibreOffice's `TextSearch2` (ICU) service before searching. `details.engine` omitted (no consumer). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py`).
 - **Item 16 (Math object import):** Successfully created Math objects return metadata in their own response field `math_objects`. A failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py`) represents dropped content and reports a `Diagnostic` warning with code `MATH_IMPORT_FAILED` and `math_objects`.
 
 ## 6. Risks and mitigations
@@ -247,4 +233,3 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ## Open
 
 - `[eng M]` Migrate Calc and Draw `warnings` from `list[str]` to `list[Diagnostic]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, vision). (§ Phase 4 (Optional): Calc and Draw adoption)
-- `[fidelity S unverified]` Warn when before/after inserts silently drop `data-lo-style` via `apply_styles=False`, accounting for boundary snapping. (§ Partial-match style skips (item 4) in detail)
