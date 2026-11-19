@@ -1178,5 +1178,5 @@ All core components (Ingest, Preservation, Parser, Translators, Vectorization, D
 ## Open
 
 - `[idea L]` LLM fallback that proposes Python for `TODO` cells and shows a diff before applying, for roughly 3-5% more coverage. (§ 10 Phased dev plan, Phase 6)
-- `[feature S unverified]` "All sheets" conversion scope in the dialog and chat tool, which today handle sheet and selection only. (§ 2 Proposed UX)
-- `[fidelity M unverified]` Translate the 15 financial functions still marked not started in the inventory, such as `PPMT`, `RATE`, `SYD` and `VDB`. (§ 8.12 Master function inventory, Financial)
+- `[feature S]` "All sheets" conversion scope in the dialog and chat tool, which today handle sheet and selection only. (§ 2 Proposed UX)
+- `[fidelity M]` Translate the 15 financial functions still marked not started in the inventory, such as `PPMT`, `RATE`, `SYD` and `VDB`. (§ 8.12 Master function inventory, Financial)
