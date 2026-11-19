@@ -751,7 +751,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
 ## Open
 
 - `[feature M]` Optional Facebook Prophet model (`model="prophet"`) for `forecast_time_series` with a Forecasting Libraries Settings group and `MISSING_PACKAGE` when absent. (§ Forecasting Phase 1, Work item 4)
-- `[feature S]` Auto-plot for `decompose_time_series`, which the forecasting phase left as a nice-to-have. (§ Forecasting Phase 1, Explicitly out of Phase 1)
+- `[feature S few]` Auto-plot for `decompose_time_series`, which the forecasting phase left as a nice-to-have. (§ Forecasting Phase 1, Explicitly out of Phase 1)
 - `[idea L]` `create_interactive_chart` for static multi-view export or embedded HTML/JS if LibreOffice egress can carry it. (§ Visualization & Plotting, Phase C)
 - `[eng S]` UNO end-to-end test of full `=PYTHON()` plot insertion, which today is covered only by mocked geometry tests. (§ Visualization & Plotting, Phase A known limitations)
 - `[feature S]` LLM tool surface for text analytics, which is reachable only through the dialog, Run Python Script or `python_run_script`. (§ Text / Document Analytics)
@@ -769,7 +769,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
 - `[feature S]` Optional `evaluate` / `float_precision` parameter on `solve_equation` and `symbolic_simplify` for decimal approximations. (§ Domain-specific polish opportunities)
 - `[fidelity S]` Template examples and warnings for offset temperature conversions (`degC` versus `delta_degC`) in Units helpers. (§ Domain-specific polish opportunities)
 - `[fidelity S]` Human-readable dimension descriptions when `check_dimensionality` finds incompatible units. (§ Domain-specific polish opportunities)
-- `[feature S]` Default `target_col` to the last column and `feature_cols` to the preceding numeric columns in regression when omitted. (§ Domain-specific polish opportunities)
+- `[feature S few]` Default `target_col` to the last column and `feature_cols` to the preceding numeric columns in regression when omitted. (§ Domain-specific polish opportunities)
 - `[feature S]` Summary KPI banner (MAPE, expected next value, trend percent) above the forecast table. (§ Domain-specific polish opportunities)
 - `[feature M]` Writer in-document highlighting of detected entities or low-readability sentences. (§ Domain-specific polish opportunities)
 - `[fidelity S]` Show relative percentage topic weights per section in `topics` output. (§ Domain-specific polish opportunities)
