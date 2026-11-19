@@ -554,7 +554,7 @@ Any P1 unify should extend the **matching** `test_*.py` for the module that beco
 
 ## Open
 
-- `[eng S]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
-- `[eng S]` Make `plugin/framework/config.py` (`_resolve_config_path_from_ctx`) and `plugin/writer/images/image_tools.py` (`add_image_to_gallery`) use the shared `path_settings_from_ctx` locator (`plugin/doc/document_research.py` and `plugin/draw/designs.py` already use it). (§ 4. Ranked future-work recommendations)
-- `[eng S]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)
+- `[eng S few]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
+- `[eng S few]` Make `plugin/framework/config.py` (`_resolve_config_path_from_ctx`) and `plugin/writer/images/image_tools.py` (`add_image_to_gallery`) use the shared `path_settings_from_ctx` locator (`plugin/doc/document_research.py` and `plugin/draw/designs.py` already use it). (§ 4. Ranked future-work recommendations)
+- `[eng S few]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)
 - `[eng S few]` Unify the GraphicProvider icon load between `main.py` and `librepy/sidebar_menus.py`, keeping LibrePy's filesystem fallback. (§ 4. Ranked future-work recommendations)
