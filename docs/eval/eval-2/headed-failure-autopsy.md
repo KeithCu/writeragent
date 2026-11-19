@@ -365,15 +365,15 @@ Scrolly gpt-oss-120b headed stamps for Ready slots **6 / 8 / 9 / 10** all landed
 
 ## Open
 
-- `[eng S unverified]` Hint in the peer-send tool description that writable peers should get imperative fill tasks with the values to write, while research of siblings stays `document_research`. (§ 2.3 Solutions (DO + why) — peer polarity)
-- `[eng S unverified]` Outer Writer prompt: after a peer returns, write the email in this document, and if the peer workbook is still titles-only, retry once with explicit numbers. (§ Light product next steps (few / small; minimal eval cheats))
+- `[eng S]` Hint in the peer-send tool description that writable peers should get imperative fill tasks with the values to write, while research of siblings stays `document_research`. (§ 2.3 Solutions (DO + why) — peer polarity)
+- `[eng S]` Outer Writer prompt: after a peer returns, write the email in this document, and if the peer workbook is still titles-only, retry once with explicit numbers. (§ Light product next steps (few / small; minimal eval cheats))
 - `[eng M]` Stall plumbing: LLM stream read timeout (`request_timeout` in `plugin/framework/client/llm_client.py:_timeout` and `plugin/framework/client/http_transport.py`), hang watchdog (`_watchdog_check` in `plugin/framework/logging.py`), and eval-2 debug-log snapshotting (`scripts/eval_2_debug_log.py:snapshot_debug_log`, `scripts/save_eval2_debug_log.py`) exist; still left: fail loud or time out when a peer drain hangs (`plugin/doc/peer_message.py`, `plugin/chatbot/panel.py:start_extracted_peer_send`), and archive `writeragent_debug.log` across LibreOffice restarts in `plugin/framework/logging.py` beyond the single `.1` rotation backup. (§ Light product next steps (few / small; minimal eval cheats))
-- `[eng M unverified]` Reproduce and fix the LibreOffice crash after a long Writer-to-Calc peer round, starting from a tiny peer ask that writes three cells. (§ 2.3 Solutions (DO + why) — peer polarity)
+- `[eng M]` Reproduce and fix the LibreOffice crash after a long Writer-to-Calc peer round, starting from a tiny peer ask that writes three cells. (§ 2.3 Solutions (DO + why) — peer polarity)
 - `[idea S]` Tag headed peer asks as fill vs dump/extract from keywords so a polarity miss shows mid-run. (§ 2.3 Solutions (DO + why) — peer polarity)
 - `[eng S]` Calc write teaching: one cell or rectangular range per write, never a comma-joined CSV row in one cell. (§ 5. Predicted miss modes — Calc-primary)
-- `[eng S unverified]` Calc teaching: use exact fixture account labels as formula factors and never reference an invented helper sheet. (§ 5. Predicted miss modes — Calc-primary)
-- `[eng S unverified]` Draw layout teaching: wrap text inside boxes instead of one character per line, use one title, gap the lanes, and call `get_draw_tree` before finishing. (§ 5. Predicted miss modes — Draw-primary)
-- `[eng M unverified]` Refuse to finish on an untouched blank Sheet1, write rates and roster cells before Ready, and find which tool call hit the PreContractError. (§ 5. Predicted miss modes — Reverse Tenant)
-- `[eng S unverified]` Writer research-before-write from fixture files before stating figures and dates, plus real review comments anchored on spans rather than a Decision Log section. (§ 5. Predicted miss modes — Long Writer pack)
-- `[eng M unverified]` Re-run the headed trials (Floorstand, Calc-primary, Draw-primary, Reverse Tenant, Long Writer) after the teaching fixes land. (§ 6. Ordered next experiments)
+- `[eng S]` Calc teaching: use exact fixture account labels as formula factors and never reference an invented helper sheet. (§ 5. Predicted miss modes — Calc-primary)
+- `[eng S]` Draw layout teaching: wrap text inside boxes instead of one character per line, use one title, gap the lanes, and call `get_draw_tree` before finishing. (§ 5. Predicted miss modes — Draw-primary)
+- `[eng M]` Refuse to finish on an untouched blank Sheet1, write rates and roster cells before Ready, and find which tool call hit the PreContractError. (§ 5. Predicted miss modes — Reverse Tenant)
+- `[eng S]` Writer research-before-write from fixture files before stating figures and dates, plus real review comments anchored on spans rather than a Decision Log section. (§ 5. Predicted miss modes — Long Writer pack)
+- `[eng M]` Re-run the headed trials (Floorstand, Calc-primary, Draw-primary, Reverse Tenant, Long Writer) after the teaching fixes land. (§ 6. Ordered next experiments)
 - `[eng S]` Optionally soften the GMP oracle's form-cite check, which is secondary to the product pass. (§ 6. Ordered next experiments)
