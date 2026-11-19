@@ -545,6 +545,6 @@ Ordered preference (2026-09-20): Keith preferred **(1) single-tool auto-detect**
 - `[eng M]` Collapse `peer_send_work` / `peer_send_result` into one `send_peer_message` tool that infers work vs result from whether the target is the sender of the current Peer-work envelope, so a model cannot call the wrong one. (§ 5.1 Headed status and open issue (2026-09-20))
 - `[eng S]` Teach the fan-out second hop in prompts: after a child peer replies, the middle peer must still send its own result back to the original asker. (§ 5.1 Headed status and open issue (2026-09-20))
 - `[eng S]` Re-run headed Scenario 8 (Calc plus Impress KPI) as split asks with a File Save before disk checks, or score Impress as its own prove. (§ 5.1 Headed status and open issue (2026-09-20))
-- `[idea M unverified]` Waiting chrome that shows "Waiting for peer..." after the caller drain exits and auto-starts the follow-up turn when the reply arrives. (§ 3.1 Alternatives considered (kept))
+- `[idea M]` Waiting chrome that shows "Waiting for peer..." after the caller drain exits and auto-starts the follow-up turn when the reply arrives. (§ 3.1 Alternatives considered (kept))
 - `[idea L]` Blocking `ask_peer` wrapper (A2) that waits for a compact peer result, offered only as an explicit escape hatch rather than a silent fallback. (§ A2. Demoted - optional later / documented escape hatch)
 - `[idea L]` Multiplexed drain with mid-loop `PEER_REPLY` injection so a reply can land inside the caller's current turn. (§ 3.1 Alternatives considered (kept))
