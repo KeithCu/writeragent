@@ -42,7 +42,8 @@
 - **Paragraph formatting (§2.2):** the read/write asymmetry is mostly closed. Alignment, margins, indent, line-height, and background now round-trip. The remaining read-only properties are deliberate.
 - **Feedback on writes (§2.1):** `full_document` now returns a summary, so the largest edit no longer gives the least feedback.
 - **Prompt (§2.5):** the header/footer contradiction is gone. The prompt also gained anchor guidance and the `data-lo-style` change.
-- **Not touched:** `code` span literalness and styles' side effects (§2.6, §2.7). Heading-link forgiveness, `$` math, and Math-object reporting have shipped.
+- **Shipped:** heading-link forgiveness, `$` math, Math-object reporting.
+- **Not touched:** `code` span literalness, styles' side effects (§2.6, §2.7).
 
 ## 3. Open work, by payoff
 

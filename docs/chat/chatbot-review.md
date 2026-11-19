@@ -1,6 +1,6 @@
 # Chatbot review — simplify and harden
 
-Review of `plugin/chatbot` (about 27,000 lines, six read-only passes; original date: 2026-10-02). Most findings have shipped; remaining open items are tracked in `## Open`.
+Review of `plugin/chatbot` (about 27,000 lines, six read-only passes; original date: 2026-10-02). Sections and bullets marked **Shipped** have landed. Unmarked findings were not re-checked and may still be open. `## Open` lists the subset converted so far.
 
 The tree is in good structural shape. The pure tool-loop FSM, frame-only document lookup, `StreamQueueKind` draining, compaction v1, and the librarian/smol split should stay as they are. The problems worth fixing are places where the screen, the session, and the next request disagree, plus a few paths that keep going after the user has already said stop.
 
@@ -91,7 +91,7 @@ The endpoint dropdown's background fetch omits the Together TTS model id (`plugi
 
 `textChanged` calls `_sync_api_key` on every keystroke (`plugin/chatbot/dialog_views.py`). `_sync_api_key` always does `set_control_text(ak_ctrl, get_api_key_for_endpoint(resolved))`. Paste a new key, then fix one character of the URL, and the typed key is gone. OK then persists the restored value. Sync only when the resolved URL changes, and only if the field still holds the saved key for the previous URL (or is empty). Preset clicks should keep loading the saved key.
 
-**Shipped (`plugin/chatbot/dialog_views.py`):** The Hugging Face preset points at `https://router.huggingface.co/v1`.
+**Shipped (`plugin/chatbot/dialog_views.py`):** The Hugging Face preset points at `https://router.huggingface.co/v1`. Still open: `ENDPOINT_PRESETS` has no Hugging Face row and `get_provider_from_endpoint` has no HF host, so the button is the only UI that sets this URL. Build the four starter buttons from `ENDPOINT_PRESETS`; OpenRouter, Together, and NVIDIA already match.
 
 ### 9. Vision OK closes after a failed save
 

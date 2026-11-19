@@ -1067,7 +1067,7 @@ Use `list_functions` (chat tool) against a live Calc session for the authoritati
 conversion_rate = converted_formula_cells / total_formula_cells_in_scope
 ```
 
-Measured on **`tests/fixtures/spreadsheet_import_corpus/`**:
+Measured on **`tests/fixtures/spreadsheet_import_corpus/`** (five workbooks today; the table below is the target mix):
 
 | Fixture class | Example content | Expected P1+P2 rate |
 |---------------|-----------------|---------------------|
