@@ -141,7 +141,9 @@ class GetGuidance(ToolBase):
         """Name only a known document type's topics; an unprobed type (None) lists every type's topics."""
         if doc_type is None:
             return self.description
-        return f"{_MANUAL_READ_LEAD}Topics for this document type: {topic_list_text(doc_type)}. {_MANUAL_READ_TAIL}"
+        # The tail names Writer-only topics (review modes, search, images); Calc and Draw list only their own.
+        tail = f" {_MANUAL_READ_TAIL}" if doc_type == "writer" else ""
+        return f"{_MANUAL_READ_LEAD}Topics for this document type: {topic_list_text(doc_type)}.{tail}"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Guidance must match the document being worked on (a Calc session must never read Writer
