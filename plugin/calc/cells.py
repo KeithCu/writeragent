@@ -115,20 +115,6 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
     return CellManipulator(CalcBridge(ctx.doc)), range_args(range_arg)
 
 
-def _mutation_error(tool: ToolBase, exc: Exception, message: str) -> dict[str, Any]:
-    """Build a tool error dict that preserves WriterAgentException code and details.
-
-    A WriterAgentException's code and details (for example the sheet list of a
-    missing sheet) must reach the agent instead of being flattened to a generic
-    tool error. Plain exceptions keep the tool's default error code. Note that
-    ``exc.details`` is unpacked into ``_tool_error`` kwargs, so keys named
-    ``suggested_call`` or ``top_level`` would be routed to those parameters.
-    """
-    if isinstance(exc, WriterAgentException):
-        return tool._tool_error(message, code=exc.code, **exc.details)
-    return tool._tool_error(message)
-
-
 def _mutate_ranges(
     tool: ToolBase,
     doc: Any,
@@ -173,14 +159,21 @@ def _mutate_ranges(
     except Exception as exc:
         if is_disposal(exc):
             raise
-        if group is not None and group.rolled_back:
-            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. Nothing was kept.")
         entered = group is not None and group.entered
-        if len(results) > 0:
+        if group is not None and group.rolled_back:
+            msg = f"Failed on range {target!r}: {exc}. Nothing was kept."
+        elif len(results) > 0:
             if not entered:
-                return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")
-            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them.")
-        return _mutation_error(tool, exc, str(exc))
+                msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually."
+            else:
+                msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them."
+        elif isinstance(exc, WriterAgentException):
+            raise
+        else:
+            return tool._tool_error(str(exc))
+        if isinstance(exc, WriterAgentException):
+            raise ToolExecutionError(msg, code=exc.code, details=exc.details) from exc
+        return tool._tool_error(msg)
 
 
 def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
@@ -927,7 +920,7 @@ class _StructureTool(ToolBase):
                 result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
             return make_tool_ok(**result)
         except Exception as e:
-            # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
+            # Disposal and WriterAgentException re-raise for execute_safe; other exceptions return str(e) without execute_safe's "Tool execution failed: " prefix.
             if is_disposal(e) or isinstance(e, WriterAgentException):
                 raise
             return self._tool_error(str(e))

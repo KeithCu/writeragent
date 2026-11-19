@@ -38,7 +38,7 @@ from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import enum_has_more
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-from plugin.calc.calc_utils import resolve_sheet_and_cell
+from plugin.calc.bridge import CalcBridge
 from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
 from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
@@ -115,14 +115,11 @@ def pick_solver(smgr: Any, uno_ctx: Any, engine_name: str | None) -> tuple[Any, 
 
 
 def resolve_cell_address(doc: Any, address: str) -> Any:
-    """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a UNO CellAddress struct.
-
-    Refuses a caller-passed address that cannot be resolved with ``INVALID_PARAM``.
-    """
-    resolved = resolve_sheet_and_cell(doc, address)
-    if resolved is None:
-        raise ToolExecutionError(f"Cannot resolve cell address '{address}'.", code="INVALID_PARAM")
-    sheet, col, row = resolved
+    """Convert a cell address string (e.g. 'A1', 'Sheet1.A1', or a one-cell named range) to a UNO CellAddress struct."""
+    try:
+        sheet, col, row = CalcBridge(doc).resolve_cell(address)
+    except ValueError as e:
+        raise ToolExecutionError(str(e), code="INVALID_PARAM") from e
     cell = sheet.getCellByPosition(col, row)
     return cell.getCellAddress()
 
