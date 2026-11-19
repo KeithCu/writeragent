@@ -674,6 +674,28 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
             log.debug("failed to close pyplot figures", exc_info=True)
 
 
+# Vendored BASE_PYTHON_TOOLS binds bare math.* aliases as static tools, which prevents user
+# scripts from assigning variables like `log = {}`. `math` is already auto-imported.
+_BARE_MATH_ALIAS_TOOLS: frozenset[str] = frozenset(
+    {
+        "ceil",
+        "floor",
+        "log",
+        "exp",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "atan2",
+        "degrees",
+        "radians",
+        "sqrt",
+    }
+)
+
+
 def _new_executor(
     policy: SandboxPolicy,
 ) -> LocalPythonExecutor:
@@ -687,6 +709,8 @@ def _new_executor(
     # Upstream only merges BASE_PYTHON_TOOLS (sum, len, …) after send_tools(); without this,
     # static_tools stays None and builtins like sum() are rejected.
     executor.send_tools({})
+    for name in _BARE_MATH_ALIAS_TOOLS:
+        executor.static_tools.pop(name, None)
     return executor
 
 

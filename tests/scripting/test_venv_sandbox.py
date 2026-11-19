@@ -2031,3 +2031,18 @@ def test_dataframe_from_data_spills_the_source_rows(fresh_sandbox_sessions) -> N
     assert res["status"] == "ok", res
     assert result_to_calc_grid(res["result"]) == rows
 
+
+def test_sandbox_allows_binding_bare_math_names_and_keeps_auto_math(fresh_sandbox_sessions) -> None:
+    res = sandbox_run(
+        (
+            "ceil = floor = exp = sin = cos = tan = asin = acos = atan = atan2 = degrees = radians = 0\n"
+            "log = {}\n"
+            "sqrt = 2\n"
+            "result = [log, sqrt, round(math.log(math.e), 6), abs(-3), sum([1, 2])]"
+        ),
+        session_id="calc:bare-math-names",
+        timeout_sec=5,
+    )
+    assert res["status"] == "ok", res
+    assert res["result"] == [{}, 2, 1.0, 3, 3]
+
