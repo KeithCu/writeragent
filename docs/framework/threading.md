@@ -285,7 +285,7 @@ The following reliability features are tracked for future implementation as conc
 
 1. **Transactional UNDO context:** Group multi-step agent document mutations with LibreOffice's `XUndoManager`, building on existing `WriterCompoundUndo` patterns before adding a global transactional guard.
 2. **Venv worker supervisor:** Enhanced crash/OOM recovery and stale lock/WAL cleanup in response to worker lifecycle failures.
-3. **LLM schema coercion:** Centralized validation and coercion of tool arguments across tool boundaries.
+3. **LLM schema coercion (done):** Centralized validation and coercion of tool arguments across tool boundaries is handled by `coerce_call_args` in [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py).
 
 ---
 

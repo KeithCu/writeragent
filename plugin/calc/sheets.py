@@ -395,5 +395,5 @@ class GetSheetSummary(ToolBase):
 
         result = analyzer.get_sheet_summary(sheet_name=sheet_name)
         if not is_agent_visible_sheet(result.get("sheet_name", "")):
-            return self._tool_error("Active sheet is a LibreOffice internal tab; specify a user-visible sheet.")
+            return self._tool_error("Active sheet is a LibreOffice internal tab; specify a user-visible sheet.", code="INVALID_PARAM")
         return make_tool_ok(result=result)

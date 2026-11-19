@@ -177,8 +177,8 @@ Items below are **not bugs** in the current split; they are design tradeoffs to 
 1. **Reasoning round-trip on multi-turn tool loops** — **implemented (session only).**  
    [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) globals `PRESERVE_REASONING_IN_SESSION` (default true) and `PRESERVE_REASONING_MAX_CHARS` consolidate streaming thinking into **one block** per assistant turn on `session.messages` for the next API request — not per-SSE-chunk arrays. The `PRESERVE_REASONING_MAX_CHARS` cap applies only to `reasoning` and `reasoning_content` string replay; `reasoning_details` (including signed `reasoning.text`) is passed through whole so cryptographic signatures remain valid on replay. OpenRouter-style replay uses a merged `reasoning.text` entry plus any `reasoning.encrypted` blobs (merged by `index`; opaque `data` echoed as-is). Provider-specific filtering (e.g. drop stale Gemini encrypted on upstream switch) is **not** implemented yet — see `new_streaming_thinking_meta()` docstring in `stream_normalizer.py`. SQLite history remains text-only. Toggle or cap via those module globals (not Settings yet).
 
-2. **Think tags inside `content`**  
-   Some local providers stream `` only in `delta.content`, not in `reasoning_*`. Those tokens appear as normal reply text, not `[Thinking]`. A stateful splitter in `stream_normalizer` is listed as an optional follow-up in [../chat/llm-hacks.md](../chat/llm-hacks.md) §7.
+2. **Think tags inside `content`** — **implemented.**  
+   Some local providers stream `<think>...</think>` only in `delta.content`, not in `reasoning_*`. `ThinkTagStreamSplitter` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) splits inline `<think>...</think>` tags out of the content stream into thinking segments (see also [../chat/llm-hacks.md](../chat/llm-hacks.md) §7).
 
 3. **Interleaved thinking between tool calls**  
    Newer APIs describe “think → tool → think → tool” inside one assistant turn. Our FSM already supports multiple tool rounds; gap (1) matters if the model expects prior reasoning blocks when continuing after `tool` results.
