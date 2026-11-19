@@ -1010,7 +1010,7 @@ flowchart TD
 
 | `params.html_mode` | Behavior |
 |--------------------|----------|
-| `structured` (default) | Current path: `export_to_html` → `prepare_html_for_lo_import` |
+| `structured` (default) | Docling `export_to_html` path (not what runs today; see [§21.6](#216-phase-2--column-detection-tier-c-shipped)) |
 | `layout` | Walk Docling blocks + sample colors → layout HTML → `prepare_html_for_lo_import` |
 | `structured+layout` (optional) | Docling HTML body embedded inside layout shell for hybrid |
 
@@ -1140,12 +1140,12 @@ Only if inline HTML + tables still collapse in Writer:
 | **1** | Phase 0 spikes (0a–0d); fixtures; go/no-go on table-grid |
 | **2** | `vision_layout_html.py` color sampling + unit tests |
 | **3** | Docling block walk → layout HTML; wire `html_mode=layout` |
-| **4** | Column clustering + table grid; UNO tests |
+| **4** | **Shipped** (Tier C two-column table grid in `vision_layout_html.py`); UNO tests remain |
 | **5** | Template UX, docs, Akihabara manual QA, edge cases, `make test` |
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-partly-shipped). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **Tier B block color sampling** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-partly-shipped). Add bbox color sampling to the existing `vision_layout_html.py` and gate the new color styling behind `params.html_mode=layout`; Tier C two-column layout is already on by default, so do not duplicate `vision_layout_html.py` or gate the shipped column layout. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
 
 ## Open
 
