@@ -517,7 +517,7 @@ def _init_chat_session(self):
 **Approach**: Agent-Driven Conversation ✨
 ## Open
 
-- `[idea S]` Append an explicit "Respond in <UI language>" line to the Librarian instructions from the UNO locale if context-driven language matching ever proves unreliable. (§ Optional future work (not urgent))
-- `[idea M]` Structured knowledge-goal tracking (name, favorite color, work style, teaching steps) with status per goal and a nested YAML profile; no `knowledge_goals.py` exists. (§ Knowledge Goals System)
-- `[idea M]` Separate profiles or onboarding for multiple users on a shared machine. (§ Open Questions)
-- `[idea S]` Selectable Librarian personalities. (§ Open Questions)
+- `[idea S few]` Append an explicit "Respond in <UI language>" line to the Librarian instructions from the UNO locale if context-driven language matching ever proves unreliable. (§ Optional future work (not urgent))
+- `[idea M few]` Structured knowledge-goal tracking (name, favorite color, work style, teaching steps) with status per goal and a nested YAML profile; no `knowledge_goals.py` exists. (§ Knowledge Goals System)
+- `[idea M few]` Separate profiles or onboarding for multiple users on a shared machine. (§ Open Questions)
+- `[idea S few]` Selectable Librarian personalities. (§ Open Questions)
