@@ -215,9 +215,9 @@ production-compatible version of a demo is 2–3 lines in
 - [x] Draft the Calc directive patches + `range_sort` description (DO-first sort + `has_header`; relative formulas; slimmed after 120b miss)
 - [x] First 5-task A/B on 20b and 120b — 20b gained `data_sorting`; 120b `has_header` miss (`header row is not first`)
 - [x] Re-A/B after wording — header misses persist; likely explicit `has_header=false`
-- `[eng S]` [ ] Full 17 if the A/B is a win and 120b does not regress
+- `[eng S few]` [ ] Full 17 if the A/B is a win and 120b does not regress
 - [x] Wrap `llm_chat_eval` as a DSPy module (`program_llm.py`; MIPROv2 `--student llm`)
-- `[idea M]` [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
+- `[idea M few]` [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
 - [x] Draw flowchart Do-because line in `DRAW_CORE_DIRECTIVES` (no empty-doc apply-target tip)
 - [x] `haystack_has` accepts scale expansions; `NEMA 4` optional; no Writer preserve-tokens tip

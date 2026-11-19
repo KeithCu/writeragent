@@ -84,7 +84,7 @@ filmed opened last: KDE Wayland will not let the driver raise a window while ano
 
 ## Open
 
-- `[idea S]` Check whether the target local model flags the logic-error sentence in the grammar scene before filming scene 2. (§ Open research)
-- `[eng M]` Stop soffice crashing or freezing when a wrapped Arabic prompt is typed one character at a time into the Ask box, and check it with real keyboard input. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))
-- `[eng M]` Make the Draw flag scene finish: star shapes that "do not render" and the delegate "Pass index or name" error. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))
-- `[eng S]` Fix the near-black character background on restored history and the post-Clear greeting in the light sidebar. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))
+- `[idea S few]` Check whether the target local model flags the logic-error sentence in the grammar scene before filming scene 2. (§ Open research)
+- `[eng M few]` Stop soffice crashing or freezing when a wrapped Arabic prompt is typed one character at a time into the Ask box, and check it with real keyboard input. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))
+- `[eng M many]` Make the Draw flag scene finish: star shapes that "do not render" and the delegate "Pass index or name" error. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))
+- `[eng S many]` Fix the near-black character background on restored history and the post-Clear greeting in the light sidebar. (§ Known problems found while scripting (2026-11-11, LibreOffice 26.8.2, KDE Wayland))

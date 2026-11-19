@@ -47,4 +47,4 @@ CLI: `scripts/eval_2_calc_primary_oracle.py` or
 
 ## Open
 
-- `[eng M]` Extend the Calc-primary oracle with the deferred checks: dropdown data-validation chrome, exact gold NPV and ranking order, and chart styling. (§ Soft / later (not v1))
+- `[eng M few]` Extend the Calc-primary oracle with the deferred checks: dropdown data-validation chrome, exact gold NPV and ranking order, and chart styling. (§ Soft / later (not v1))
