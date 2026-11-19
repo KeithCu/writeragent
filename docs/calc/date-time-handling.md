@@ -1005,8 +1005,8 @@ Through the production `CellInspector.read_range(include_format_info=True)`:
 ## Open
 
 - `[feature M]` Accept locale-display date and time forms (such as `08/05/2026`) on write, which is ambiguous across locales today and is written as text. (§ 5.7 What to do next)
-- `[fidelity S]` Widen the write grammar to unpadded dates (`2026-8-8`), fractional seconds, `24:00` and calendar durations (`P1D`, Y/M/W). (§ 5.7 What to do next)
-- `[idea M]` Accept offset or `Z` datetimes on write and convert them using a stored document timezone, instead of leaving them as text. (§ 4.1 Connection-Time Clock Context)
-- `[idea S]` Use the destination cell's number-format `Locale` (or the Options locale) instead of the document `CharLocale` when mixed-locale columns justify it. (§ M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`)
-- `[fidelity M]` Spreadsheet-import epoch cleanup for dates, separate from `=PY()`. (§ 5.7 What to do next)
-- `[eng M]` Strict transactional rollback of a `write_range` beyond the existing `WriterCompoundUndo`. (§ 5.7 What to do next)
+- `[fidelity S many]` Widen the write grammar to unpadded dates (`2026-8-8`), fractional seconds, `24:00` and calendar durations (`P1D`, Y/M/W). (§ 5.7 What to do next)
+- `[idea M many]` Accept offset or `Z` datetimes on write and convert them using a stored document timezone, instead of leaving them as text. (§ 4.1 Connection-Time Clock Context)
+- `[idea S few]` Use the destination cell's number-format `Locale` (or the Options locale) instead of the document `CharLocale` when mixed-locale columns justify it. (§ M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`)
+- `[fidelity M few]` Spreadsheet-import epoch cleanup for dates, separate from `=PY()`. (§ 5.7 What to do next)
+- `[eng M few]` Strict transactional rollback of a `write_range` beyond the existing `WriterCompoundUndo`. (§ 5.7 What to do next)

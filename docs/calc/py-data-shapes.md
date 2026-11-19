@@ -331,7 +331,7 @@ Not planned unless a real product need appears. **Do not treat the list below as
 ## Open
 
 - `[idea M]` Blank side-channel on `split_grid` with masked-array ingress so pass-through blanks stay empty and `np.mean` ignores Calc blanks. (§ Deferred upgrades)
-- `[feature M]` Extra `=PY()` formula parameters: a third `extras` argument for recalc dependencies, a `collapse` option on conversion, and a per-formula `timeout_sec`. (§ Deferred upgrades)
-- `[feature S]` Range alignment helper for mismatched multi-range shapes before `np.corrcoef` or element-wise math. (§ Deferred upgrades)
+- `[feature M few]` Extra `=PY()` formula parameters: a third `extras` argument for recalc dependencies, a `collapse` option on conversion, and a per-formula `timeout_sec`. (§ Deferred upgrades)
+- `[feature S few]` Range alignment helper for mismatched multi-range shapes before `np.corrcoef` or element-wise math. (§ Deferred upgrades)
 - `[feature M]` Import LibrePythonista `lp("A1:B10")` calls by rewriting them to `data.to_pandas(header_row=None)`. (§ Why CalcRange, not DataFrame by default)
 - `[eng S]` Key the per-workbook `WorkbookState.matrix` by a packed-payload digest and cell count instead of `repr(worker_data)`. (§ Deferred upgrades)
