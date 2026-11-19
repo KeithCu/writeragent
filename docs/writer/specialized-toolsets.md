@@ -548,7 +548,7 @@ The XHTML read path embeds graphics as `data:image/...;base64,...` in the HTML. 
 
 ### 6.7 Cross-cutting Enhancements
 
-- **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list` for power users or external agents that do not use `delegate_to_subagent`.
+- **MCP / API opt-in (shipped):** Config option `mcp.tool_exposure_mode` (`plugin/mcp_server/module.yaml`, read by `_tool_exposure_mode` in `plugin/mcp_server/mcp_protocol.py`) controls specialized tool exposure in `_mcp_tools_list` and `_exclude_tiers`: `direct_flat` lists `specialized` tools directly on `tools/list`, `direct_discovery` advertises `tool_find` (`plugin/doc/find_tools_tool.py`) and allows direct calls by name, and `delegate` keeps the core-only list with `delegate_to_subagent`.
 - **Review domain:** Optional `delegate` domain for **track changes** + comment workflows if the main list should shrink further; see [§6.8 Track changes](#68-track-changes-specialized-toolset) for UNO entry points.
 - **Limits:** Tune `max_steps` / timeouts for the sub-agent; add telemetry on which domains are used.
 - **Documentation:** Keep `[AGENTS.md](../../AGENTS.md)` in sync when behavior or entry points change.
@@ -706,13 +706,12 @@ For recent feature additions:
 - `[fidelity M]` Per-cell table formatting, surgical rewrite of a host cell that keeps its nested table, and copying cell images in HTML export. (§ Still open / out of scope)
 - `[fidelity S]` Table-set-cell inside a frame or section within a host cell. (§ Still open / out of scope)
 - `[feature L]` Tokenized placeholder protocol so whole-document rewrites keep images, shapes and OLE objects. (§ Strategy 1: Tokenized Placeholder Protocol (Recommended))
-- `[feature L unverified]` Batch Section Rewriting mode that applies one instruction per heading section with review or apply flow. (§ 8.1 Possible Feature: Batch Section Rewriting)
-- `[feature S unverified]` Config or query option to list specialized tools on MCP `tools/list` for external agents. (§ 6.7 Cross-cutting Enhancements)
+- `[feature L]` Batch Section Rewriting mode that applies one instruction per heading section with review or apply flow. (§ 8.1 Possible Feature: Batch Section Rewriting)
 - `[feature M]` One-click task presets (improve, business letter, minutes and similar) in the sidebar. (§ 8.1 Ideas worth adopting (future))
 - `[feature L]` Document Cleaner workflow: analyze, choose profile, preview, then apply via style, index and page tools. (§ 8.2 Document Cleaner -> existing tools)
 - `[idea M]` Confirmation panel before the first mutation of a bulk structural cleanup batch. (§ 8.1 Ideas worth adopting (future))
 - `[eng S]` Better local Ollama onboarding and connection-error hints in settings. (§ 8.1 Ideas worth adopting (future))
 - `[eng M]` Stop chat answers that put JSON or HTML in chat and leave the document unchanged, starting with a prompt fix checked by `make eval-ab`. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
 - `[fidelity S]` Add `start` and `end` to the paragraph alignment enum so right-to-left text reads back correctly. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
-- `[idea S unverified]` Decide whether `get_image` stays visible when native vision support is unknown. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
-- `[eng S unverified]` Make the `hori_orient`/`vert_orient` image schema and description agree on strings versus raw UNO integers. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[idea S]` Decide whether `get_image` stays visible when native vision support is unknown. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[eng S]` Make the `hori_orient`/`vert_orient` image schema and description agree on strings versus raw UNO integers. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))

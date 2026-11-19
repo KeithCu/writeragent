@@ -970,7 +970,7 @@ See also: [Math extraction and edit loops](#math-extraction-and-edit-loops-roadm
 - `[fidelity S]` Retry with the KaTeX/MathJax `<annotation encoding="application/x-tex">` text when MathML import fails, and detect KaTeX/MathJax DOM math that has no `<math>`. (§ Phase 2: TeX-aware fallback)
 - `[fidelity M]` Policy for true multi-line and `mtable` math instead of globally collapsing StarMath `newline` tokens for Writer embeds. (§ Implementation notes (LibreOffice / Writer))
 - `[idea L]` Upstream fix so LibreOffice Writer renders `newline` in embedded Math objects, removing the need for the collapse workaround. (§ Current status (read this first))
-- `[eng S unverified]` Optional `"".join` instead of `"\n".join` for list `content` in `apply_content`, and trim the DEBUG logging in the math import path. (§ Implementation notes (LibreOffice / Writer))
+- `[eng S]` Optional `"".join` instead of `"\n".join` for list `content` in `apply_content`, and trim the DEBUG logging in the math import path. (§ Implementation notes (LibreOffice / Writer))
 - `[feature M]` Dedicated `get_math_in_range` tool plus replace-in-place edit of an existing formula, targeted by index, bookmark or signature. (§ Math extraction and edit loops (roadmap))
 - `[feature M]` Persist the original TeX on the inserted formula object so edit rounds do not have to guess TeX from StarMath. (§ TexMaths feature review (porting candidates))
 - `[feature S]` Convert the current Writer text selection containing LaTeX into a native formula, as a menu action or MCP tool. (§ TexMaths feature review (porting candidates))
