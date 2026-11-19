@@ -208,5 +208,5 @@ These live outside `plugin/chatbot` and show up in the findings above.
 
 ## Open
 
-- `[fidelity S]` Fire the image-model combo's text listener as well as its item listener so a typed image model id is saved. (§ 10 A failed panel create stays latched)
-- `[fidelity S]` Measure button widths from the translated labels `_(lab)` instead of the English "Send", "Record", "Stop Rec" and "Accept" lists. (§ 10 A failed panel create stays latched)
+- `[fidelity S few]` Fire the image-model combo's text listener as well as its item listener so a typed image model id is saved. (§ 10 A failed panel create stays latched)
+- `[fidelity S many]` Measure button widths from the translated labels `_(lab)` instead of the English "Send", "Record", "Stop Rec" and "Accept" lists. (§ 10 A failed panel create stays latched)

@@ -55,4 +55,4 @@ CLI: `scripts/eval_2_cadaver_oracle.py` or
 
 ## Open
 
-- `[eng S]` Extend the Cadaver oracle with the deferred soft checks: exact dollar figures, lab-fee sharing, per-department procedure ranges and chart aesthetics. (§ Soft / later (not v1))
+- `[eng S few]` Extend the Cadaver oracle with the deferred soft checks: exact dollar figures, lab-fee sharing, per-department procedure ranges and chart aesthetics. (§ Soft / later (not v1))
