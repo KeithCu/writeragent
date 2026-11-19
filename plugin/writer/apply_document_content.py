@@ -272,16 +272,19 @@ def _doc_table_count(doc: Any) -> int | None:
     return count if isinstance(count, int) else None
 
 
-def _table_insert_failed(doc: Any, before: int | None) -> bool:
-    """True when an HTML import that carries a <table> produced none.
+def _verify_table_insert(doc: Any, before: int | None) -> None:
+    """Raise TABLE_INSERT_FAILED when an import that carries a <table> produced none.
 
-    *before* is the table count captured before the mutation. None means the
-    whole document was replaced first, so any surviving table came from the import.
+    *before* is the table count captured before the import, 0 when the whole document
+    was cleared first; None means the content has no table, or the count was unreadable;
+    nothing is checked. Call it inside the edit's undo group: commit_or_rollback then
+    undoes the partial import and its review redlines before the error reaches the caller.
     """
+    if before is None:
+        return
     after = _doc_table_count(doc)
-    if after is None:
-        return False
-    return after == 0 if before is None else after <= before
+    if after is not None and after <= before:
+        raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
 
 def build_search_replace_response(
@@ -567,11 +570,6 @@ class ApplyDocumentContent(ToolBase):
     def _invalid_regex(self, rex_err: str) -> dict[str, Any]:
         return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
-    def _table_insert_error(self, doc: Any, has_table: bool, before: int | None) -> dict[str, Any] | None:
-        if has_table and _table_insert_failed(doc, before):
-            return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
-        return None
-
     @staticmethod
     def _parse_occurrence(kwargs: Any, target: str) -> tuple[int | None, str | None]:
         """Validate optional 0-based search occurrence selector."""
@@ -682,6 +680,8 @@ class ApplyDocumentContent(ToolBase):
         if outcome.mutate_error is not None:
             mutate_err = outcome.mutate_error
             reraise_if_disposed(mutate_err)
+            if isinstance(mutate_err, ToolExecutionError) and mutate_err.code == "TABLE_INSERT_FAILED":
+                raise mutate_err
             log.exception("apply_content: outline hyperlink update failed")
             if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
@@ -767,12 +767,14 @@ class ApplyDocumentContent(ToolBase):
                        override: str | None, batch: bool,
                        plain: str,
                        report: html_import_styles.WriteReport,
-                       fix_outline: bool = True) -> list[dict[str, Any]]:
+                       fix_outline: bool = True,
+                       tables_before: int | None = None) -> list[dict[str, Any]]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
-        match opens one when a URL write is needed. Returns the hyperlink reports; failures
-        raise ToolExecutionError with the code the caller publishes.
+        match opens one when a URL write is needed. *tables_before* makes a single HTML
+        replace verify its table inside the undo group. Returns the hyperlink reports;
+        failures raise ToolExecutionError with the code the caller publishes.
         """
         # An anchor span's text never equals one link title, so outline fixup has nothing to match.
         anchor = None
@@ -809,6 +811,7 @@ class ApplyDocumentContent(ToolBase):
                 def replace_single() -> None:
                     report.extend(html_import.replace_single_range_with_content(
                         doc, found, content, ctx.ctx))
+                    _verify_table_insert(doc, tables_before)
 
                 record_html_atomically(
                     session, doc,
@@ -1380,16 +1383,15 @@ class ApplyDocumentContent(ToolBase):
         plain = params.plain
         has_table = params.has_table
         with session:
-            # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
+            # Delete-then-import inside one undo group: a failed import or a missing
+            # table rolls the cleared document back.
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.replace_full_document(ctx.doc, ctx.ctx, content)
+                _verify_table_insert(ctx.doc, 0 if has_table else None)
+                return rep
+
             report = record_html_atomically(
-                session, ctx.doc,
-                lambda: html_import.replace_full_document(
-                    ctx.doc, ctx.ctx, content
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, None)
-        if err:
-            return err
+                session, ctx.doc, mutate, proposed_preview=plain)
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {
             "status": "ok",
@@ -1410,14 +1412,15 @@ class ApplyDocumentContent(ToolBase):
         # The insert can land at the end of a selection at the document edge; Writer
         # stretches the view selection over text inserted at its end, so put it back.
         with KeepViewSelection(uno_read(lambda: ctx.doc.getCurrentController(), None)), session:
-            report = session.record_mutation(
-                lambda: html_import.insert_content_at_position(
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, tables_before)
-        if err:
-            return err
+                )
+                _verify_table_insert(ctx.doc, tables_before)
+                return rep
+
+            report = record_html_atomically(
+                session, ctx.doc, mutate, proposed_preview=plain)
         if target == "end":
             msg = "Inserted content at end."
             anchor = collapsed_anchor(ctx.doc.getText().getEnd())
@@ -1441,15 +1444,15 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            report = record_html_atomically(
-                session, ctx.doc,
-                lambda: html_import.insert_content_at_position(
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, "selection", selection=rng
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, tables_before)
-        if err:
-            return err
+                )
+                _verify_table_insert(ctx.doc, tables_before)
+                return rep
+
+            report = record_html_atomically(
+                session, ctx.doc, mutate, proposed_preview=plain)
         res: dict[str, Any] = {"status": "ok", "message": "Inserted content at selection."}
         if report.snapped_to_paragraph:
             res["message"] = (
@@ -1729,8 +1732,7 @@ class ApplyDocumentContent(ToolBase):
                         doc, ctx.ctx, text_obj, insert_cursor, content, apply_styles=True
                     )
                 )
-            if self._table_insert_error(doc, has_table, tables_before):
-                raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
+            _verify_table_insert(doc, tables_before)
 
         anchor = collapsed_anchor(found)
         # The insert lands at the end of a match the user often has selected; Writer
@@ -1786,7 +1788,8 @@ class ApplyDocumentContent(ToolBase):
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
             plain=params.plain, report=report,
-            fix_outline=params.anchor is None)
+            fix_outline=params.anchor is None,
+            tables_before=tables_before)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,
@@ -1797,9 +1800,6 @@ class ApplyDocumentContent(ToolBase):
             resp = build_search_replace_response(1, use_preserve=params.use_preserve)
         if params.occurrence is not None:
             resp["occurrence"] = params.occurrence
-        err = self._table_insert_error(doc, params.has_table, tables_before)
-        if err:
-            return err
         html_import_styles.attach_write_report(
             resp, report, total_matches=1,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))

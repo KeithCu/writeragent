@@ -113,9 +113,11 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. In `full_document` replace, any synthetic leftover paragraph break opened
-  before the import is deleted untracked (`RecordChanges` temporarily off) so the paragraph break
-  is not a tracked delete, keeping separate paragraphs intact without word concatenation.
+  stranded mid-import. In `full_document` replace, any synthetic leftover paragraph opened before
+  the import is dropped untracked (`RecordChanges` temporarily off) via `_drop_leftover_paragraph`
+  — merging forward after a trailing table — so the paragraph break is not a tracked delete,
+  keeping separate paragraphs intact without word concatenation. `TABLE_INSERT_FAILED` checks run
+  inside the edit's undo group, so a failed table insert rolls the edit back.
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 
