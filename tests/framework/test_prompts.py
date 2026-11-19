@@ -167,11 +167,6 @@ def test_get_core_directives_for_type_is_string_only():
     assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
 
 
-def test_draw_core_directives_flowchart_routes_to_shapes():
-    """flowchart_gen left an empty tree when shapes stayed off the core list."""
-    assert 'delegate_to_subagent(domain="shapes")' in DRAW_CORE_DIRECTIVES
-
-
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     """Python-as-orchestrator routing line lives once in the Writer gateway and in DRAW_CORE_DIRECTIVES."""
     from plugin.doc.specialized_base import DelegateToSubagent
@@ -735,3 +730,48 @@ def test_paragraph_index_rule_has_one_home() -> None:
         PARAGRAPH_INDEX_DIRECTIVE in t.description
         for t in get_tools().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
     )
+
+
+def test_draw_flowchart_routing_has_one_home() -> None:
+    """flowchart_gen left an empty tree when shapes stayed off the core list; routing lives once in DRAW_CORE_DIRECTIVES."""
+    from plugin.app import get_tools
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+
+    draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=""),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(draw_doc, ctx=MagicMock())
+        schemas = get_tools().get_schemas("openai", doc=draw_doc)
+
+    combined = prompt + json.dumps(schemas, ensure_ascii=False)
+    assert combined.lower().count("flowchart") == 1
+    flowchart_lines = [line for line in DRAW_CORE_DIRECTIVES.splitlines() if "flowchart" in line.lower()]
+    assert len(flowchart_lines) == 1
+    assert 'delegate_to_subagent(domain="shapes"' in flowchart_lines[0]
+
+
+@pytest.mark.parametrize(
+    "services",
+    [
+        ("com.sun.star.text.TextDocument",),
+        ("com.sun.star.sheet.SpreadsheetDocument",),
+        ("com.sun.star.drawing.DrawingDocument",),
+        ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"),
+    ],
+    ids=["writer", "calc", "draw", "impress"],
+)
+@pytest.mark.parametrize("stored_memory", ["", "  \n", "{}"])
+def test_blank_memory_adds_no_profile_block(services: tuple[str, ...], stored_memory: str) -> None:
+    """Empty or blank-JSON user memory omits the profile block across all document types."""
+    doc = _doc_stub_for_services(*services)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.chatbot.memory.MemoryStore.read", return_value=stored_memory),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(doc, ctx=MagicMock())
+
+    assert "<<<profile>>>" not in prompt

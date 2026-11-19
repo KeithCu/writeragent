@@ -599,7 +599,7 @@ _DRAW_DELEGATE_LEAD = (
 
 _DRAW_DELEGATE_DESCRIPTION = (
     f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+    "Available domains: charts, document_research, forms, images, math, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
     "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 

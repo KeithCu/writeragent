@@ -15,6 +15,7 @@ On Draw/Impress, page=N is the vision screenshot (0-based, same as slide_list / 
 from __future__ import annotations
 
 import base64
+import copy
 import logging
 import os
 import tempfile
@@ -174,6 +175,12 @@ def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str |
     return _render_writer_page_png(doc, page)
 
 
+# Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:
+# its schema keeps page (execute rejects it there with a clear error), so it keeps the all-app text.
+_IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree"}
+_ONE_MODE = "Pass at most one of image, selection, or page."
+
+
 class GetImage(ToolBase):
     name: str | None = "image_get"
     tier: str = "core"
@@ -198,8 +205,27 @@ class GetImage(ToolBase):
         "required": [],
     }
 
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Name only the reads and modes of *doc_type*; Calc (no page render) and unprobed callers get the all-app text."""
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if source is None:
+            return self.description
+        return (
+            f"Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from {source}> "
+            "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
+            "that whole page as an image. Returns the picture itself, not a description. "
+            f"b64 is stripped from normal reads, so use this when you actually need to look. {_ONE_MODE}"
+        )
+
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        return visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+        params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if source is None:
+            return params
+        out = copy.deepcopy(params)
+        out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
+        out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
+        return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services: list[str] | None = [
