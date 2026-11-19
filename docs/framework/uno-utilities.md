@@ -109,7 +109,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|----------------|
 | `get_active_document` | `uno_context.get_active_document` |
 | `resolve_document_by_url` | `uno_context.resolve_document_by_url(get_ctx(), url)` |
-| `detect_doc_type` | local map (Impress → `"draw"`, unknown → `"writer"`) |
+| `detect_doc_type` | `doc_type_family_label(get_document_type(doc))` (unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
 
@@ -329,7 +329,7 @@ Three **different** PathSettings properties; do not collapse the meanings.
 
 `resolve_listing_directory`: active doc parent (`get_document_directory` → `get_document_path`) else `get_work_directory`.
 
-**Share lookup, not meaning.** A shared `path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
+**Share lookup, not meaning.** `path_settings_from_ctx` exists in `document_research.py` (also used by `draw/designs.py`); `Work` vs `UserConfig` vs `Storage_writable` stay separate.
 
 ### 2.5 HTTP / API URL helpers vs document URLs
 
@@ -509,8 +509,8 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### P2 — candidate unify after documenting behavior
 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
-5. **Shared PathSettings locator** (`path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
-6. **`DocumentService.detect_doc_type`** → `doc_type_family_label` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
+5. **Shared PathSettings locator** (`path_settings_from_ctx`) — **Partly landed** (research and `draw/designs.py` use it; `framework/config.py` and `writer/images/image_tools.py` still create PathSettings locally). Share lookup, not meaning (keep property names at call sites).
+6. **`DocumentService.detect_doc_type`** → **Landed.** Delegates to `_doc_type.doc_type_family_label(_doc_type.get_document_type(doc))` in `plugin/doc/document_helpers.py` and maps `"unknown"` to `"writer"`.
 7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 
