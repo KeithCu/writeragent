@@ -344,7 +344,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C2 | Optional `unohelper` consolidation | **Shipped:** Consolidated `unohelper` imports and registration in [`ai_grammar_proofreader.py`](../../plugin/writer/locale/ai_grammar_proofreader.py). |
 | C5 | Queue priority / visibility heuristic | (Low priority) Prefer currently edited or visible ranges over scroll-induced backlog when draining the grammar queue. Product-facing UX in **P15**; no implementation yet, likely deferred indefinitely due to local engine speed (e.g. Harper). |
 | C6 | Regex audit | **Shipped:** Audited hot path in [`grammar_proofread_locale.py`](../../plugin/writer/locale/grammar_proofread_locale.py) and [`grammar_proofread_text.py`](../../plugin/writer/locale/grammar_proofread_text.py); hoisted `_ABBREV_VOWELS` to module-level `frozenset` and eliminated regex intermediate list allocations in `filter_sentence_spans_for_thresholds`. |
-| C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries. |
+| C7 | Logging discipline | **Shipped:** Structured `[grammar] obs` DEBUG events via `grammar_obs` and `slice_preview_debug` in [`grammar_obs.py`](../../plugin/writer/locale/grammar_obs.py) across `ai_grammar_proofreader.py`, `grammar_work_queue.py`, `grammar_worker.py`, and `harper.py`; `INFO` is reserved for lifecycle/enablement boundaries (`ensure_proofreader_selection`, `harper_binary.py`). |
 | C8 | ProofreadingResult helpers / hints | **Shipped:** Improved type annotations and structure creation in `ai_grammar_proofreader.py`. |
 | C9 | Avoid double sentence-split in `doProofreading` | **Shipped:** one BreakIterator pass; `resolve_work_spans` (`n_start == 0` keeps all spans; else overlap-filter). |
 | C10 | Shared ignore-rule canonical keys | **Shipped:** `canonical_rule_key` drives `is_rule_ignored` and `collect_ignored_reasons` (APIs stay separate). Bare ids match `normalize_reason` in the doc set. |
@@ -467,16 +467,15 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 
 - `[feature M]` Structural context hints (heading level, table cell, footnote, list item, tracked change) attached to grammar work items and prompts. (§ G2. Structural / document-context hints to the LLM)
 - `[feature M]` Feed agent memory and house-style notes into the grammar prompt, with cache keys that account for the active style snapshot. (§ G3. Consume agent memory + house style for grammar suggestions)
-- `[feature M unverified]` Endpoint-aware shared policy between grammar and chat beyond pause-during-agent and the shared LLM lane, with status UX and an adaptive queue. (§ P7)
+- `[feature M]` Endpoint-aware shared policy between grammar and chat beyond pause-during-agent and the shared LLM lane, with status UX and an adaptive queue. (§ P7)
 - `[fidelity S]` Close remaining quote-merge gaps for inch marks (`6" tall`) and mixed quote styles in one paragraph. (§ Appendix E: Dialogue splits and false closing-quote warnings)
 - `[idea M unverified]` Fold document revision or modification generation into grammar cache keys so edits above a span do not leave stale offsets. (§ P6)
-- `[eng S unverified]` Few-shot prompt hardening for quotes, lists and track changes in the grammar prompt. (§ P8)
+- `[eng S]` Few-shot prompt hardening for quotes, lists and track changes in the grammar prompt. (§ P8)
 - `[eng S unverified]` Verbose-flag observability for grammar cache hit rate, supersede counts and p50/p95 schedule-to-cache latency. (§ P11)
-- `[eng S unverified]` Shrink extra grammar drain workers when the user lowers `doc.grammar_proofreader_max_in_flight` without a restart. (§ P14)
+- `[eng S]` Shrink extra grammar drain workers when the user lowers `doc.grammar_proofreader_max_in_flight` without a restart. (§ P14)
 - `[idea S unverified]` Prefer currently edited or visible ranges when draining the grammar queue, likely unnecessary with fast local engines. (§ P15 / C5)
 - `[eng S unverified]` Verify LibreOffice proofreading refresh listener wiring across builds and note that squiggles may lag briefly. (§ P4)
 - `[idea S unverified]` Optional regional locale tags in the grammar XCU if a LibreOffice build needs explicit locale pairing. (§ P3)
 - `[idea L]` LanguageTool-class local non-LLM grammar checking per the archived phased plan. (§ P13)
-- `[eng S unverified]` Logging discipline in the grammar path: structured events and clear DEBUG versus INFO boundaries. (§ C7)
 - `[eng S]` Raise or remove the 1 MB cap on the Harper GitHub release JSON read if it ever truncates. (§ C11)
 - `[idea S]` Language detection follow-ups: script heuristics before LLM or langdetect, a persistent language cache, and routing LLM detection to a cheaper model. (§ Appendix F: Language detection — optional enhancements)
