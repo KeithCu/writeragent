@@ -277,11 +277,13 @@ class GetImage(ToolBase):
             try:
                 obj = visual_helpers.get_graphic_object_by_name(doc, name, **lookup_kwargs)
             except visual_helpers.AmbiguousGraphicNameError as exc:
+                extra: dict[str, Any] = {"image_name": name, "sheet_indices": exc.sheet_indices}
+                if exc.shape_indices:
+                    extra["shape_indices"] = exc.shape_indices
                 return self._tool_error(
                     str(exc),
                     code="AMBIGUOUS_NAME",
-                    image_name=name,
-                    sheet_indices=exc.sheet_indices,
+                    **extra,
                 )
             if obj is None:
                 return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
