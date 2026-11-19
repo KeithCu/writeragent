@@ -156,18 +156,18 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 **Hits:** C1 + C2 (≥8 models).
 
 **DO:**
-- Keep / sharpen `sheet_create` description + ok payload (“sheet created; **no cells copied**”) — already present in `plugin/calc/sheets.py`; verify the ok string stays visible in tool results models actually see.
+- **Shipped:** `sheet_create` description + ok payload (“sheet created; **no cells copied**”) in `plugin/calc/sheets.py` and `SHEETS_CREATED_NOT_POPULATED_INSTRUCTION` in `plugin/framework/prompts.py`.
 - Colocate on `copy_range` / `write_formula_range` (source+dest): one line — “empty tab is not the deliverable; copy or write the data block onto the new sheet.”
 - Keep `CALC_WORKFLOW` create≠populate one-liner; don’t restack a grab-bag essay.
 
 **Why:** Empty Sample with tabs present is still one of the most common Ready-looking fails. Teaching at call time beats restating step 4 in the task prompt alone.
 
-### L2 — Exact sheet-title contract on `sheet_create`
+### L2 — Exact sheet-title contract on `sheet_create` (shipped)
 
 **Hits:** C5 now; reduces C1 false “I created SSC” when titles drift.
 
 **DO:**
-- On `sheet_create` `sheet` parameter description: “Use the **exact** title the user asked for (preserve spaces; do not snake_case or invent aliases).”
+- **Shipped** in `plugin/calc/sheets.py` on the `sheet_create` `sheet` parameter description (“Exact new sheet title from the request; preserve spaces…”).
 - Optional: ok payload echoes the created name so a rename mistake is visible in the next turn.
 
 **Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. MiniMax `Analysis` and oss-120b `SampleTest`/`Sample_old` are the same family. Exact-title hygiene is general Calc hygiene, not an AFC cheat.
@@ -250,7 +250,7 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 
 ## 4. Suggested cut order (for a later product PR — not this doc)
 
-1. **L1 + L2** — create/populate + exact titles (C1/C2/C5).  
+1. **L1 + L2** — create/populate + exact titles (C1/C2/C5; L2 and `sheet_create` "no cells copied" shipped).  
 2. **L3 + L4** — labeled R + literal K flags (C3 bulk).  
 3. **L5** — anti-husk / ordinary formulas on SSC (C4).  
 4. **L6** — soft confirmation habit.  
