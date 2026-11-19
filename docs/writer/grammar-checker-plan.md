@@ -322,7 +322,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P2 | HTTP 429 / backoff | Theoretical: Exponential backoff and cooldown in the grammar worker if providers ever rate-limit; currently unnecessary due to `LlmClient` request pacing. |
 | P3 | Locales | Optional regional tags in XCU if an LO build needs explicit `hasLocale`/`getLocales` pairing beyond normalization. |
 | P4 | Refresh UX | Verify LO listener wiring across builds; optional user-facing doc note that squiggles may lag briefly while typing stops. |
-| P6 | Document-generation invalidation | Fold revision/mod-generation into cache keys if LO exposes it; reduces stale offsets after edits above span. |
+| P6 | Document-generation invalidation | **Obsolete:** Replaced by sentence-level caching (`grammar_proofread_cache.py`) with sentence-relative offsets shifted by `sent_start` in `_lookup_cached_spans` (`ai_grammar_proofreader.py`); edits above a span do not leave stale offsets. |
 | P7 | Shared policy with chat | Expand beyond pause-during-agent + shared LLM lane (endpoint-aware policy, status UX, adaptive queue). |
 | P8 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); JSON wire fields are validated and parse failures are not cached as clean. |
 | P11 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
@@ -469,13 +469,12 @@ When the LLM is called for grammar, inject a compact "House style notes for this
 - `[feature M]` Feed agent memory and house-style notes into the grammar prompt, with cache keys that account for the active style snapshot. (§ G3. Consume agent memory + house style for grammar suggestions)
 - `[feature M]` Endpoint-aware shared policy between grammar and chat beyond pause-during-agent and the shared LLM lane, with status UX and an adaptive queue. (§ P7)
 - `[fidelity S]` Close remaining quote-merge gaps for inch marks (`6" tall`) and mixed quote styles in one paragraph. (§ Appendix E: Dialogue splits and false closing-quote warnings)
-- `[idea M unverified]` Fold document revision or modification generation into grammar cache keys so edits above a span do not leave stale offsets. (§ P6)
 - `[eng S]` Few-shot prompt hardening for quotes, lists and track changes in the grammar prompt. (§ P8)
-- `[eng S unverified]` Verbose-flag observability for grammar cache hit rate, supersede counts and p50/p95 schedule-to-cache latency. (§ P11)
+- `[eng S]` Verbose-flag observability for grammar cache hit rate, supersede counts and p50/p95 schedule-to-cache latency. (§ P11)
 - `[eng S]` Shrink extra grammar drain workers when the user lowers `doc.grammar_proofreader_max_in_flight` without a restart. (§ P14)
-- `[idea S unverified]` Prefer currently edited or visible ranges when draining the grammar queue, likely unnecessary with fast local engines. (§ P15 / C5)
-- `[eng S unverified]` Verify LibreOffice proofreading refresh listener wiring across builds and note that squiggles may lag briefly. (§ P4)
-- `[idea S unverified]` Optional regional locale tags in the grammar XCU if a LibreOffice build needs explicit locale pairing. (§ P3)
+- `[idea S]` Prefer currently edited or visible ranges when draining the grammar queue, likely unnecessary with fast local engines. (§ P15 / C5)
+- `[eng S]` Verify LibreOffice proofreading refresh listener wiring across builds and add a user-facing doc note that squiggles may lag briefly (`XLinguServiceEventBroadcaster` / `addLinguServiceEventListener` / `broadcast_proofread_again` are implemented in [`ai_grammar_proofreader.py`](../../plugin/writer/locale/ai_grammar_proofreader.py) and mock-tested in [`test_ai_grammar_proofreader.py`](../../tests/writer/locale/test_ai_grammar_proofreader.py)). (§ P4)
+- `[idea S]` Optional regional locale tags in the grammar XCU if a LibreOffice build needs explicit locale pairing. (§ P3)
 - `[idea L]` LanguageTool-class local non-LLM grammar checking per the archived phased plan. (§ P13)
 - `[eng S]` Raise or remove the 1 MB cap on the Harper GitHub release JSON read if it ever truncates. (§ C11)
 - `[idea S]` Language detection follow-ups: script heuristics before LLM or langdetect, a persistent language cache, and routing LLM detection to a cheaper model. (§ Appendix F: Language detection — optional enhancements)

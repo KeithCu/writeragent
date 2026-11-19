@@ -71,7 +71,7 @@ Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around l
 
 The sidebar records the frame document's URL as a skill-cache id (`plugin/chatbot/ppt_master.py` around line 54) and passes it inside the child payload. `execute_ppt_master_turn` calls `_execute_ipc_unlocked` without the IPC `session_id` (`plugin/scripting/venv_worker.py` around line 716). Host tool RPC then uses `get_active_document` (`plugin/scripting/host_rpc.py` around line 351). A long turn with deck B focused exports into B. Named scripts already resolve `document_for_script_session` before `get_active_document`. Pass the frame URL as the IPC `session_id` and use that same lookup in `execute_tool`.
 
-Stop is checked once, before the venv turn (`plugin/chatbot/ppt_master.py` around line 77). The child loop (`plugin/ppt_master/venv/runner.py`) does not look again, and tool frames are dispatched with no stop check. The sidebar returns while the worker can still export. The child should return `USER_STOPPED` when the host reports stop, and `handle_tool_call_frame` should refuse the call when stop is already set. Leave this runtime out of the chat FSM.
+**Shipped (`plugin/ppt_master/venv/runner.py`, `plugin/scripting/host_rpc.py`, `plugin/scripting/venv_worker.py`):** Stop is checked before the venv turn (`plugin/chatbot/ppt_master.py`), inside the child loop (`run_turn` checks `_is_user_stopped(step.error)` and `_is_user_stopped(exc)` and returns `_user_stopped_payload()` with `code="USER_STOPPED"`), and on tool-frame dispatch (`handle_tool_call_frame` checks `is_cancelled(cancel)` and replies with `code="USER_STOPPED"`, with `cancel` passed from `_dispatch_worker_response`). This runtime remains outside the chat FSM.
 
 Librarian, brainstorming, and writing already stop: `SmolAgentExecutor` calls `interrupt()` and raises `USER_STOPPED` before the tool body.
 
@@ -95,7 +95,7 @@ The endpoint dropdown's background fetch omits the Together TTS model id (`plugi
 
 ### 9. Vision OK closes after a failed save
 
-`_apply` logs `ConfigValidationError` and still calls `close()` (`plugin/chatbot/module_config_dialog.py` around line 236). Settings shows a message box and stays open. Do the same here, and read controls with `get_optional` so one missing name does not abort `show()` with no dialog. `getControl` raises on a missing name. `if ctrl is None` does not catch that.
+**Shipped (`plugin/chatbot/module_config_dialog.py`):** `_apply` logs `log.exception(...)`, shows `msgbox`, and returns early without calling `self.close()` when saving fails; `_tab_buttons_in_order`, `_wire_buttons`, `_populate_fields`, and `_extract_result` read controls with `get_optional` so a missing control name does not raise.
 
 `EvalDialog.xdl` marks `endpoint` read-only (**shipped**). Close still disposes the dialog while the dedicated worker can post `_after_test` / `_show_summary` onto it; set a closed flag in `show()`'s `finally` and return at the start of `_paint`, `_show_summary`, and `_show_failure`.
 
@@ -154,7 +154,7 @@ These remove a second copy of a fact. None of them need a new file.
 - `_cache_key_inputs` (`plugin/chatbot/web_research.py`) now applies the fluff filter once: one ordered-unique list, with a sorted copy for the storage key. Storage keys are sorted and embedding text keeps order, on purpose (`docs/chat/search.md`).
 - `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposal`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
 - `docs/chat/sidebar-implementation.md` still says the first mode follows an empty `USER.md`. The factory uses `librarian_default_mode` / `chatbot.librarian_invoked`, which matches `plugin/chatbot/AGENTS.md`. Update that sentence. Do not change the factory to match the doc.
-- A long traceback drops the bug-report environment. The cap is 7500 raw characters, applied before `urlencode` (`plugin/chatbot/bug_report.py` `_compose_issue_body`). When the exception fills the budget, version, OS, locale, Python, endpoint, and model are discarded. Reserve a short environment header and put the exception tail in what remains. Cap the encoded URL. A failed open logs the full URL. The template has no API-key field.
+- **Shipped (`plugin/chatbot/bug_report.py`):** `_issue_sections` separates the environment `header` (version, LibreOffice, OS, locale, Python, endpoint, chat model) from `rest`, and `_compose_issue_body` / `_fit_section` reserve `header` first (`keep_head=True`), put the exception tail in what remains (`keep_head=False`), and append `rest` when space permits, capped against `_MAX_URL_CHARS` (8000) on the encoded URL. The template has no API-key field.
 - Extend/Edit from the hamburger uses the sidebar frame (`get_document_from_frame`). The menubar still calls the handler with no frame, so it edits the focused document. Writer still uses `get_string_without_tracked_deletions`.
 - `_setup_module_tabs` wraps `setup_module_tabs` in `except Exception: pass` (`plugin/chatbot/dialog_views.py`). `setup_module_tabs` already logs. Drop the outer try, or log.
 - The eval dashboard translates when `load_writeragent_dialog` loads `EvalDialog`.
@@ -210,6 +210,3 @@ These live outside `plugin/chatbot` and show up in the findings above.
 
 - `[fidelity S]` Fire the image-model combo's text listener as well as its item listener so a typed image model id is saved. (§ 10 A failed panel create stays latched)
 - `[fidelity S]` Measure button widths from the translated labels `_(lab)` instead of the English "Send", "Record", "Stop Rec" and "Accept" lists. (§ 10 A failed panel create stays latched)
-- `[eng S unverified]` Make the PPT-Master child loop and tool-frame dispatch stop when the host reports Stop, instead of checking only before the turn. (§ 6 PPT-Master follows the focused window and ignores Stop)
-- `[eng S unverified]` Reserve a short environment header in the bug-report body so a long traceback no longer drops version, OS and model. (§ Small collapses)
-- `[eng S unverified]` Make Vision OK keep the dialog open on a failed save and read controls with `get_optional`. (§ 9 Vision OK closes after a failed save)

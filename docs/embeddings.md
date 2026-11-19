@@ -1154,4 +1154,4 @@ python.org macOS CPython (including GitHub `macos-latest` 3.13) is built without
 - `[idea M]` Inject extra retrieved chunks beside `[DOCUMENT CONTENT]` on send when the excerpt misses a distant section of a huge active document. (§ Within-document retrieval (secondary))
 - `[feature M]` HTTP embedding providers (OpenRouter, Together, Ollama) for the folder index; only local sentence-transformers is implemented. (§ Cloud embedding APIs (tier two))
 - `[idea M]` Main chat passes locators into the delegate task, plus thematic clustering and gap analysis between drafts. (§ Future work)
-- `[eng S unverified]` Optional host Cython `top_k_dot` and a slimmer snippet-only cache, only if profiling on large corpora shows a need. (§ Host Cython `top_k_dot`)
+- `[eng S]` Optional host Cython `top_k_dot` and a slimmer snippet-only cache, only if profiling on large corpora shows a need. (§ Host Cython `top_k_dot`)

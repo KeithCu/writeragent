@@ -208,7 +208,7 @@ Tool default is `0.75`; **we send it nowhere today** (`generate_image` kwargs, t
 ## Open
 
 - `[feature S]` Send the remaining OpenRouter image parameters `background`, `output_format` choice and `output_compression`, with Settings controls where useful. (§ Future Work)
-- `[feature M unverified]` Fetch OpenRouter's image-model metadata (`/api/v1/images/models`) to discover and validate supported resolutions and aspect ratios per model. (§ Future Work)
+- `[feature M]` Parse and validate per-model supported resolutions and aspect ratios from OpenRouter's `/api/v1/images/models` metadata (`plugin/framework/client/model_fetcher.py` `fetch_available_image_models` already fetches `/v1/images/models` for model IDs). (§ Future Work)
 - `[fidelity S]` Stop sending top-level `image_url` on generic OpenAI-compatible `/images/generations` (Z.ai, custom servers) and raise or create-only instead, so a create-only server cannot silently replace the selected graphic. (§ Remaining (coding brief))
 - `[fidelity M]` Support self-hosted NVIDIA Visual GenAI NIM image create and edit through the existing image request builder, if that server is detected. (§ Remaining (coding brief))
 - `[fidelity S]` Send OpenAI `mask` and `input_fidelity` on edits, and a strength field only where a route documents one. (§ Remaining (coding brief))

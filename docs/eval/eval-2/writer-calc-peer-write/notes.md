@@ -84,4 +84,4 @@ not a letter-shift of `rubric_pretty.txt`.
 
 ## Open
 
-- `[eng S unverified]` Harness: open the Calc WriterAgent sidebar deck and register the workbook as a live peer without a human click before a headed trial. (§ Pre-open recipe (v1 cheat))
+- `[eng S]` Harness: open the Calc WriterAgent sidebar deck and register the workbook as a live peer without a human click before a headed trial. (§ Pre-open recipe (v1 cheat))

@@ -112,9 +112,23 @@ make run_eval EVAL_ARGS="--models nvidia/nemotron-3.5-lightning -j 1"
 ```
 
 Record hard pass / tokens / `error` / oracle+process fails per task. Baseline
-is the selective-run row in `benchmark_results_details.json`.
+is the selective-run row in `benchmark_results_details.json`. Shipped prompt
+wording and production-builder parity are pinned in
+[`tests/scripts/test_eval_prompts.py`](../../tests/scripts/test_eval_prompts.py)
+(`test_calc_eval_sort_line_omits_formula_tools`,
+`test_writer_eval_prompt_equals_production_plus_note`,
+`test_calc_draw_eval_prompts_use_production_builder`).
 
 ### A — shared Calc (test Lightning + 20b + 120b)
+
+Shared Calc wording in `CALC_CORE_DIRECTIVES`
+([`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)) and
+`write_range` / `SortRange` (`sort_range`, formerly `range_sort`, in
+[`plugin/calc/cells.py`](../../plugin/calc/cells.py)) is shipped and was
+re-scored on `data_sorting` and `tax_column` in
+`benchmark_results_calc_filldown_2026-09-11_details.json` (20b/120b pass;
+Lightning gained `tax_column` to 7/19 in `benchmark_results_details.json`,
+while `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` still fail).
 
 Wording in `CALC_CORE_DIRECTIVES` / `CALC_WORKFLOW` and
 `write_formula_range` / `range_sort` descriptions
@@ -196,11 +210,9 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 
 ## Open
 
-- `[eng M unverified]` [ ] Bucket A: dest + `range_sort` A/B on Lightning, 20b, 120b
-- `[eng S unverified]` [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
-- `[eng S unverified]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
-- `[eng S unverified]` [ ] Bucket D: Writer apply / don’t-destroy lines
-- `[eng S unverified]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
-- `[eng M unverified]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
-- `[eng S unverified]` [ ] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped wording
+- `[eng M]` [ ] Bucket A: shared Calc directives (`CALC_CORE_DIRECTIVES` in `plugin/framework/prompts.py`), `write_range` `=PY` placement, and `SortRange` (`sort_range` in `plugin/calc/cells.py`) shipped and were re-scored on `data_sorting`/`tax_column` (`benchmark_results_calc_filldown_2026-09-11_details.json`; Lightning passes `tax_column`); remaining: Lightning A/B on `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` (all three still fail in `benchmark_results_details.json`)
+- `[eng S]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
+- `[eng S]` [ ] Bucket D: Writer apply / don’t-destroy lines
+- `[eng S]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
+- `[eng M]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
 - `[idea S]` Try OpenRouter Exacto routing for tool-calling accuracy on Lightning, with the same A/B caveats. (§ E — thinking off (harness experiment, not a shipped prompt))
