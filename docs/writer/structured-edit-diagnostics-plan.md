@@ -232,4 +232,4 @@ Each phase is independently shippable, maintains green tests, and requires no te
 
 ## Open
 
-- `[eng M]` Migrate Calc and Draw `warnings` from `list[str]` to `list[Diagnostic]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, vision). (§ Phase 4 (Optional): Calc and Draw adoption)
+- `[eng M few]` Migrate Calc and Draw `warnings` from `list[str]` to `list[Diagnostic]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, vision). (§ Phase 4 (Optional): Calc and Draw adoption)
