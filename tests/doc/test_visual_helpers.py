@@ -382,7 +382,7 @@ def test_list_graphic_objects_writer_adds_draw_page_pictures():
 
     items = visual_helpers.list_graphic_objects(doc)
     assert len(items) == 3
-    assert [(n, getattr(item, "shape_index", None)) for item, (n, _g) in zip(items, items)] == [
+    assert [(item[0], item.shape_index) for item in items] == [
         ("Image 1", 0),
         ("Image 1", 1),
         ("Image 11", 2),
@@ -390,9 +390,10 @@ def test_list_graphic_objects_writer_adds_draw_page_pictures():
     assert visual_helpers.get_graphic_object_by_name(doc, "Image 11") is shape_other
     with pytest.raises(visual_helpers.AmbiguousGraphicNameError) as exc_info:
         visual_helpers.get_graphic_object_by_name(doc, "Image 1")
+    assert exc_info.value.shape_indices == [0, 1]
     msg = str(exc_info.value)
+    assert "shape_upsert" in msg
     assert "shape_delete" in msg
-    assert "0, 1" in msg
 
 
 def test_list_graphic_objects_reads_all_draw_pages():

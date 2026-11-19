@@ -685,7 +685,11 @@ def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | No
         graphic = visual_helpers.get_graphic_object_by_name(ctx.doc, image_name, sheet_index=sheet_index)
     except ValueError as exc:
         sheets = getattr(exc, "sheet_indices", None)
-        return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
+        shapes = getattr(exc, "shape_indices", None)
+        extra: dict[str, Any] = {"image_name": image_name, "sheet_indices": sheets, "sheets": sheets}
+        if shapes:
+            extra["shape_indices"] = shapes
+        return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", **extra)
     if not graphic:
         return None, _image_not_found(tool, image_name)
     return graphic, None
@@ -1408,7 +1412,7 @@ class ImageDelete(ToolWriterImageBase):
     description: str = (
         "Delete an image from the document. Removes the graphic object; "
         "any frame created by image_insert_frame is a separate object."
-        " When several objects share the name, the error lists their draw-page indexes; delete one with shape_delete(index=N)."
+        " When several objects share the name, the error lists their draw-page indexes; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

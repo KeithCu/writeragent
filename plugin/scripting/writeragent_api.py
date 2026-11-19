@@ -1426,7 +1426,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm, sheet_index=sheet_index))
 
     def delete(self, name: str, *, sheet_index: int | None = None) -> _Item:
-        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object. When several objects share the name, the error lists their draw-page indexes; delete one with shape_delete(index=N).
+        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object. When several objects share the name, the error lists their draw-page indexes; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N).
 
         Args:
             name (required): Name of the image to delete (from image_list).

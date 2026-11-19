@@ -579,11 +579,17 @@ class GraphicEntry(tuple[str, Any]):
 
 
 class AmbiguousGraphicNameError(ValueError):
-    """Raised when looking up a graphic by name matches multiple objects across sheets."""
+    """Raised when looking up a graphic by name matches multiple objects across sheets or on a Writer draw page."""
 
-    def __init__(self, message: str, sheet_indices: list[int] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        sheet_indices: list[int] | None = None,
+        shape_indices: list[int] | None = None,
+    ) -> None:
         super().__init__(message)
         self.sheet_indices: list[int] = sheet_indices or []
+        self.shape_indices: list[int] = shape_indices or []
 
 
 def _graphics_on_page(page: Any) -> Iterator[tuple[str, Any]]:
@@ -778,8 +784,8 @@ def get_graphic_object_by_name(
     shape_indices = [s for _g, _idx, s in matches if s is not None]
     idx_info = f" at draw-page indexes {', '.join(str(i) for i in shape_indices)}" if shape_indices else ""
     raise AmbiguousGraphicNameError(
-        f"Several objects named '{image_name}'{idx_info}; delete one with shape_delete(index=N).",
-        sheet_indices=[],
+        f"Several objects named '{image_name}'{idx_info}; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N).",
+        shape_indices=shape_indices,
     )
 
 

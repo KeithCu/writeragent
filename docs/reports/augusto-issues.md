@@ -95,7 +95,7 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
   - `shape_delete` (`plugin/draw/shapes.py:1358-1401`) deletes Draw-page text boxes/shapes on Writer (`page=0` or omitted) via `parent.remove(shape)`.
   - `shape_summary` (which raised `position cannot be determined with this method`) was removed; `_writer_objects_section` (`plugin/doc/document_helpers.py:149-165`, PR #3639 `4e73464f0`) lists Writer draw-page objects safely, and `page_get_objects` (`plugin/writer/structural.py:88-273`, now 0-based per PR #3683 `c104c30b5`) uses `HoriOrientPosition`/`VertOrientPosition` and `_page_at_range(..., retry_if_zero=True)`.
   - Word-style text boxes (`TextBox=True` draw shapes with hidden `TextFrame` `TextBoxContent` omitted by `getTextFrames().getElementNames()`) are now surfaced by `frame_list` and `frame_get_info` with `shape_index` and `shape_name`, and `frame_delete` removes the owning draw shape (`doc.getDrawPage().remove(shape)`) so both the hidden frame and the shape are deleted together.
-- **What remains:** Nothing.
+- **What remains:** `page_get_objects` on a document without layout (hidden load or `page_count 0`) returns empty lists and logs `no text selection`; the header-logo report needs a reproducer. Its `frames` section also still omits Word text boxes.
 - **Remaining size:** —
 
 ---
