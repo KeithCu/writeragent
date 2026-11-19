@@ -514,11 +514,11 @@ Run **`make test`** before merge each phase.
 
 ## Open
 
-- `[eng S]` Plumbing for local backends: an `image_backend` config key, provider dispatch in `ImageService`, a shared temp-image writer and a multipart upload helper. (§ Phase 0 — Plumbing)
-- `[feature L]` ComfyUI image backend: sync client, bundled SD1.5 txt2img and img2img workflows, Settings for URL and checkpoint, and a connection test. (§ Phase 1 — ComfyUI backend)
-- `[feature M]` ComfyUI polish: WebSocket progress, user-supplied workflow paths with a node map, checkpoint validation via `/object_info`, and Stop calling `/interrupt`. (§ Phase 1b — ComfyUI polish)
-- `[feature S]` Download `data[].url` images in the OpenAI image response parser when `b64_json` is absent, so stock Diffusers example servers work through `endpoint`. (§ Phase 0b — Endpoint image URL fallback)
-- `[feature M]` Sidebar image-model combobox filled from ComfyUI checkpoints, plus a docs page for local images through Ollama. (§ Phase 4 — UX & catalog (later))
-- `[idea L]` Diffusers HTTP backend with its own image endpoint config, only if several users need a Diffusers-only server on a separate URL. (§ Phase 2 — Diffusers HTTP backend)
-- `[idea L]` In-extension Diffusers AutoPipeline venv worker, only on explicit demand. (§ Phase 3 — Diffusers venv worker)
-- `[idea S]` Decide the plan's open questions: default backend detection, negative prompt, SD1.5 vs SDXL template, and a ComfyUI Cloud API key. (§ Open Questions (decide before Phase 1 coding))
+- `[eng S few]` Plumbing for local backends: an `image_backend` config key, provider dispatch in `ImageService`, a shared temp-image writer and a multipart upload helper. (§ Phase 0 — Plumbing)
+- `[feature L few]` ComfyUI image backend: sync client, bundled SD1.5 txt2img and img2img workflows, Settings for URL and checkpoint, and a connection test. (§ Phase 1 — ComfyUI backend)
+- `[feature M few]` ComfyUI polish: WebSocket progress, user-supplied workflow paths with a node map, checkpoint validation via `/object_info`, and Stop calling `/interrupt`. (§ Phase 1b — ComfyUI polish)
+- `[feature S few]` Download `data[].url` images in the OpenAI image response parser when `b64_json` is absent, so stock Diffusers example servers work through `endpoint`. (§ Phase 0b — Endpoint image URL fallback)
+- `[feature M few]` Sidebar image-model combobox filled from ComfyUI checkpoints, plus a docs page for local images through Ollama. (§ Phase 4 — UX & catalog (later))
+- `[idea L few]` Diffusers HTTP backend with its own image endpoint config, only if several users need a Diffusers-only server on a separate URL. (§ Phase 2 — Diffusers HTTP backend)
+- `[idea L few]` In-extension Diffusers AutoPipeline venv worker, only on explicit demand. (§ Phase 3 — Diffusers venv worker)
+- `[idea S few]` Decide the plan's open questions: default backend detection, negative prompt, SD1.5 vs SDXL template, and a ComfyUI Cloud API key. (§ Open Questions (decide before Phase 1 coding))

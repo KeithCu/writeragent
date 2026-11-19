@@ -362,8 +362,8 @@ Debt that **remains available** after an LO wall (do not pre-build):
 
 ## Open
 
-- `[feature M]` Add a core `check_deck_layout` lint over LibreOffice objects (off-canvas, overlap, one-character lines, empty placeholders, blank master, missing headers and footers) so a weak model can self-check a built deck. (§ 5. Milestones, M2′)
-- `[feature S]` Add a short DECK MODE prompt block (about 8-12 lines) that routes the model to layouts, placeholders and designs before filling slides. (§ 5. Milestones, M2′)
-- `[eng S]` Extend `scripts/eval_2_draw_oracle.py` with geometry and LibreOffice-object fields (`blank_master`, `empty_placeholder_count`, slide numbers on) and report a separate `polish` sub-score. (§ 6. Measurement)
-- `[eng M]` Re-run the three-arm headed polish comparison (baseline, master plus layout plus header/footer, applied design) through the shipped tools and add the criteria to the draw-primary rubric. (§ 6. Measurement)
-- `[idea L]` Build a `DeckTheme` or host recipe overlay only for a gap that a headed repro shows LibreOffice cannot cover. (§ 5. Milestones, M3′)
+- `[feature M many]` Add a core `check_deck_layout` lint over LibreOffice objects (off-canvas, overlap, one-character lines, empty placeholders, blank master, missing headers and footers) so a weak model can self-check a built deck. (§ 5. Milestones, M2′)
+- `[feature S many]` Add a short DECK MODE prompt block (about 8-12 lines) that routes the model to layouts, placeholders and designs before filling slides. (§ 5. Milestones, M2′)
+- `[eng S few]` Extend `scripts/eval_2_draw_oracle.py` with geometry and LibreOffice-object fields (`blank_master`, `empty_placeholder_count`, slide numbers on) and report a separate `polish` sub-score. (§ 6. Measurement)
+- `[eng M few]` Re-run the three-arm headed polish comparison (baseline, master plus layout plus header/footer, applied design) through the shipped tools and add the criteria to the draw-primary rubric. (§ 6. Measurement)
+- `[idea L few]` Build a `DeckTheme` or host recipe overlay only for a gap that a headed repro shows LibreOffice cannot cover. (§ 5. Milestones, M3′)

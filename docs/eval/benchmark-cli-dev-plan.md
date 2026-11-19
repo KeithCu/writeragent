@@ -59,4 +59,4 @@ pytest tests/scripts/test_eval_auth.py tests/scripts/test_eval_judge_llm.py test
 
 ## Open
 
-- `[feature S]` Custom ad-hoc `--task` and `--document` examples in `benchmark.py` and `run_eval_multi.py`; today they exit with "not implemented yet". (§ Phase 2 (not yet))
+- `[feature S few]` Custom ad-hoc `--task` and `--document` examples in `benchmark.py` and `run_eval_multi.py`; today they exit with "not implemented yet". (§ Phase 2 (not yet))
