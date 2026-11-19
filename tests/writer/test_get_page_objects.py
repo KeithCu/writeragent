@@ -125,6 +125,7 @@ def test_execute_clones_view_cursor_via_own_text():
 
     ctx = MagicMock()
     ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 1
     order = []
 
     def track_goto(rng, expand):
@@ -136,7 +137,7 @@ def test_execute_clones_view_cursor_via_own_text():
     vc.gotoRange.side_effect = track_goto
     doc.lockControllers.side_effect = lambda: order.append("lock")
     doc.unlockControllers.side_effect = lambda: order.append("unlock")
-    result = tool.execute(ctx, page=1)
+    result = tool.execute(ctx, page=0)
     assert result.get("status") == "ok"
     body.createTextCursorByRange.assert_not_called()
     own.createTextCursorByRange.assert_called_once_with(vc)
@@ -430,7 +431,7 @@ def test_get_page_objects_heading_text_uses_that_paragraph():
     ctx.services.document = svc
     result = tool.execute(ctx, locator="heading_text:Introduction")
     assert result["status"] == "ok"
-    assert result["page"] == 5
+    assert result["page"] == 4
     assert svc.seen == [1]
 
 
@@ -490,6 +491,7 @@ def test_execute_skips_lock_when_page_hop_fails():
     doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
     ctx = MagicMock()
     ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 4
     result = tool.execute(ctx, page=3)
     assert result.get("status") == "ok"
     doc.lockControllers.assert_not_called()
@@ -585,3 +587,87 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
 
     result = GetPageObjects()._scan_page(doc, MagicMock(), 1)
     assert result["shapes"][0]["geometry"] == {"x": 7, "y": 8, "width": 5, "height": 6, "position_relative_to": "page"}
+
+
+def test_execute_page_zero_scans_first_page(monkeypatch):
+    from types import SimpleNamespace
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+
+    graphic = MagicMock()
+    graphic.getPropertyValue.side_effect = lambda name: (
+        at_page if name == "AnchorType"
+        else 1 if name == "AnchorPageNo"
+        else SimpleNamespace(Width=100, Height=200) if name == "Size"
+        else ""
+    )
+    graphics = MagicMock()
+    graphics.getElementNames.return_value = ("FirstPagePic",)
+    graphics.getByName.return_value = graphic
+
+    draw = MagicMock()
+    draw.getCount.return_value = 0
+    doc = _make_doc(draw=draw)
+    doc.getGraphicObjects.return_value = graphics
+    vc = MagicMock()
+    doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_page_count.return_value = 2
+
+    res0 = GetPageObjects().execute(ctx, page=0)
+    assert res0["status"] == "ok"
+    assert res0["page"] == 0
+    assert [i["name"] for i in res0["images"]] == ["FirstPagePic"]
+
+    res1 = GetPageObjects().execute(ctx, page=1)
+    assert res1["status"] == "ok"
+    assert res1["page"] == 1
+    assert res1["images"] == []
+
+
+def test_execute_negative_page_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    res = GetPageObjects().execute(ctx, page=-1)
+    assert res["status"] == "error"
+    assert "non-negative" in res["message"]
+
+
+def test_execute_page_past_end_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    ctx.services.document.get_page_count.return_value = 2
+    res = GetPageObjects().execute(ctx, page=2)
+    assert res["status"] == "error"
+    assert res["message"] == "Page 2 does not exist (document has 2 page(s); first page = 0)."
+
+
+def test_execute_page_count_unresolved_is_error():
+    ctx = MagicMock()
+    ctx.doc = _make_doc()
+    ctx.services.document.get_page_count.return_value = 0
+    res = GetPageObjects().execute(ctx, page=0)
+    assert res["status"] == "error"
+    assert "Cannot resolve page count" in res["message"]
+
+
+def test_execute_paragraph_reports_zero_based_page():
+    draw = MagicMock()
+    draw.getCount.return_value = 0
+    doc = _make_doc(draw=draw)
+    vc = MagicMock()
+    doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
+
+    svc = MagicMock()
+    svc.get_page_for_paragraph.return_value = 3
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = svc
+
+    res = GetPageObjects().execute(ctx, paragraph=5)
+    assert res["status"] == "ok"
+    assert res["page"] == 2

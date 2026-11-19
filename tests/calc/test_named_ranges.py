@@ -232,7 +232,7 @@ def test_named_range_tools_error_handling():
     # 2. Add duplicate
     named_ranges.hasByName.return_value = True
     tool_add = _tool("named_range_add")
-    res_add = tool_add.execute_safe(ctx, name="ExistingRange", content="A1")
+    res_add = tool_add.execute_safe(ctx, name="ExistingRange", content="A1", scope="global", base_cell="A1")
     assert res_add["status"] == "error"
     assert res_add["code"] == "NAMED_RANGE_EXISTS"
 
@@ -284,7 +284,7 @@ def test_named_range_tools_error_handling():
     # 8. Add invalid base_cell
     named_ranges.hasByName.side_effect = None
     named_ranges.hasByName.return_value = False
-    res_add_invalid_base = tool_add.execute_safe(ctx, name="NewRange", content="A1", base_cell="invalid!")
+    res_add_invalid_base = tool_add.execute_safe(ctx, name="NewRange", content="A1", scope="global", base_cell="invalid!")
     assert res_add_invalid_base["status"] == "error"
     assert res_add_invalid_base["code"] == "INVALID_BASE_CELL"
 
@@ -310,11 +310,13 @@ def test_named_range_create_from_titles_maps_border():
     ctx.doc = doc
 
     tool = _tool("named_range_create_from_titles")
-    res_left = tool.execute_safe(ctx, range=["A1:B5"], border="left")
+    res_left = tool.execute_safe(ctx, range=["A1:B5"], border="left", scope="global")
     assert res_left["status"] == "ok"
     named_ranges.addNewFromTitles.assert_called_with(range_addr, LEFT)
 
-    res_default = tool.execute_safe(ctx, range=["A1:B5"])
+    prep_default = prepare_tool_call(tool, SimpleNamespace(doc_type="calc"), "named_range_create_from_titles", {"range": ["A1:B5"]})
+    assert prep_default.error is None
+    res_default = tool.execute_safe(ctx, **prep_default.kwargs)
     assert res_default["status"] == "ok"
     named_ranges.addNewFromTitles.assert_called_with(range_addr, TOP)
 
@@ -539,12 +541,12 @@ def test_add_validates_name_and_flags():
     ctx.doc = doc
 
     tool = _tool("named_range_add")
-    res_bad_name = tool.execute_safe(ctx, name="A1", content="$Sheet1.$A$1")
+    res_bad_name = tool.execute_safe(ctx, name="A1", content="$Sheet1.$A$1", scope="global", base_cell="A1")
     assert res_bad_name["status"] == "error"
     assert res_bad_name["code"] == "INVALID_NAME"
     named_ranges.addNewByName.assert_not_called()
 
-    res_bad_flag = tool.execute_safe(ctx, name="TaxRate", content="$Sheet1.$A$1", flags=["printarea"])
+    res_bad_flag = tool.execute_safe(ctx, name="TaxRate", content="$Sheet1.$A$1", scope="global", base_cell="A1", flags=["printarea"])
     assert res_bad_flag["status"] == "error"
     assert res_bad_flag["code"] == "INVALID_FLAGS"
     named_ranges.addNewByName.assert_not_called()
@@ -572,7 +574,7 @@ def test_named_range_tools_missing_sheet_is_uno_object_error():
     assert "Available: Sheet1" in res_info["message"]
     assert "sheet_list" in res_info["details"]["hint"]
 
-    res_add = _tool("named_range_add").execute_safe(ctx, name="X", content="A1", base_cell="Nope.B2")
+    res_add = _tool("named_range_add").execute_safe(ctx, name="X", content="A1", scope="global", base_cell="Nope.B2")
     assert res_add["status"] == "error"
     assert res_add["code"] == "UNO_OBJECT_ERROR"
     assert "Available: Sheet1" in res_add["message"]

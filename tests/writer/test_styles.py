@@ -434,7 +434,7 @@ def test_update_style_with_parent():
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
     tool = StyleUpdate()
-    res = tool.execute(mock_ctx, style="MyStyle", parent_style="Standard", property_updates={"CharWeight": 150})
+    res = tool.execute(mock_ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={"CharWeight": 150})
 
     assert res["status"] == "ok"
     style.setParentStyle.assert_called_once_with("Standard")
@@ -457,7 +457,7 @@ def test_update_style_para_adjust_words():
     family = _style_family({"MyStyle": style})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    res = StyleUpdate().execute(mock_ctx, style="MyStyle", property_updates={"ParaAdjust": "center"})
+    res = StyleUpdate().execute(mock_ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaAdjust": "center"})
 
     assert res["status"] == "ok"
     style.setPropertyValue.assert_called_once_with("ParaAdjust", 3)
@@ -471,7 +471,7 @@ def test_update_style_rejects_para_adjust_integer():
     family = _style_family({"MyStyle": style})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    res = StyleUpdate().execute(mock_ctx, style="MyStyle", property_updates={"ParaAdjust": 2})
+    res = StyleUpdate().execute(mock_ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaAdjust": 2})
 
     assert res["status"] == "error"
     assert "left" in res["message"]
@@ -492,7 +492,7 @@ def test_update_style_unknown_suggests_close_name():
     family = _style_family({"Heading 1": style, "Text body": style})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    res = StyleUpdate().execute(mock_ctx, style="heading 1", property_updates={"CharWeight": 150})
+    res = StyleUpdate().execute(mock_ctx, style="heading 1", family="ParagraphStyles", property_updates={"CharWeight": 150})
 
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
@@ -521,7 +521,7 @@ def test_update_style_warns_when_font_not_installed():
 
     with patch("plugin.writer.styles._installed_font_names", return_value={"liberation serif"}):
         res = StyleUpdate().execute(
-            mock_ctx, style="MyStyle", property_updates={"CharFontName": "DefinitelyMissingFont"})
+            mock_ctx, style="MyStyle", family="ParagraphStyles", property_updates={"CharFontName": "DefinitelyMissingFont"})
 
     assert res["status"] == "ok"
     assert "DefinitelyMissingFont" in res["warning"]
@@ -535,7 +535,7 @@ def test_create_style_standard():
     mock_ctx.doc._created["com.sun.star.style.ParagraphStyle"] = new_style
 
     tool = StyleCreate()
-    res = tool.execute(mock_ctx, style="NewStyle", parent_style="Standard", property_updates={"CharColor": "#FF0000"})
+    res = tool.execute(mock_ctx, style="NewStyle", family="ParagraphStyles", parent_style="Standard", property_updates={"CharColor": "#FF0000"})
 
     assert res["status"] == "ok"
     assert res["service"] == "com.sun.star.style.ParagraphStyle"
@@ -549,7 +549,7 @@ def test_create_style_parent_not_found_suggests():
     family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    res = StyleCreate().execute(mock_ctx, style="NewStyle", parent_style="heading 1")
+    res = StyleCreate().execute(mock_ctx, style="NewStyle", family="ParagraphStyles", parent_style="heading 1")
 
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
@@ -561,7 +561,7 @@ def test_create_style_rejects_para_adjust_integer():
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
     res = StyleCreate().execute(
-        mock_ctx, style="NewStyle", parent_style="Standard", property_updates={"ParaAdjust": 3})
+        mock_ctx, style="NewStyle", family="ParagraphStyles", parent_style="Standard", property_updates={"ParaAdjust": 3})
 
     assert res["status"] == "error"
     assert "justify" in res["message"] or "center" in res["message"]
@@ -602,7 +602,7 @@ def test_create_style_conditional_failure_rolls_back():
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
     with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance):
-        res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
+        res = tool.execute(mock_ctx, style="CondStyle", family="ParagraphStyles", conditional_rules=rules)
 
     assert res["status"] == "error"
     assert "Boom" in res["message"]
@@ -623,7 +623,7 @@ def test_create_style_conditional():
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
     with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance):
-        res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
+        res = tool.execute(mock_ctx, style="CondStyle", family="ParagraphStyles", conditional_rules=rules)
 
     assert res["status"] == "ok"
     assert res["service"] == "com.sun.star.style.ConditionalParagraphStyle"
@@ -682,7 +682,7 @@ def test_clone_style_rejects_unknown_family_and_existing_name():
     assert ok is False
     assert err is not None and "Invalid value for family" in err
 
-    collision = StyleClone().execute(mock_ctx, style="Src", new_style="Dst")
+    collision = StyleClone().execute(mock_ctx, style="Src", new_style="Dst", family="ParagraphStyles")
     assert collision["status"] == "error"
     assert "already exists" in collision["message"]
     family.insertByName.assert_not_called()
@@ -692,7 +692,7 @@ def test_clone_style_missing_source_suggests_close_name():
     family = _style_family({"Heading 1": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    res = StyleClone().execute(mock_ctx, style="heading 1", new_style="Dst")
+    res = StyleClone().execute(mock_ctx, style="heading 1", new_style="Dst", family="ParagraphStyles")
 
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
@@ -720,7 +720,7 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     new_style = MagicMock()
     mock_ctx.doc._created["com.sun.star.style.ParagraphStyle"] = new_style
 
-    res = StyleClone().execute(mock_ctx, style="Src", new_style="Dst")
+    res = StyleClone().execute(mock_ctx, style="Src", new_style="Dst", family="ParagraphStyles")
 
     assert res["status"] == "ok", res
     assert res["family"] == "ParagraphStyles"
@@ -1029,22 +1029,22 @@ def test_style_color_par_back_and_automatic():
     fam = _style_family({"MyStyle": style})
     ctx = _ctx_with_families(ParagraphStyles=fam)
 
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "#00FF00"})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaBackColor": "#00FF00"})
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("ParaBackColor", 0x00FF00)
 
     style.reset_mock()
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": -1})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaBackColor": -1})
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("ParaBackColor", -1)
 
     style.reset_mock()
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "transparent"})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaBackColor": "transparent"})
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("ParaBackColor", -1)
 
     style.reset_mock()
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "not-a-color"})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"ParaBackColor": "not-a-color"})
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert res["message"] == "Failed to apply any updates."
@@ -1057,19 +1057,19 @@ def test_style_update_char_posture_range():
     fam = _style_family({"MyStyle": style})
     ctx = _ctx_with_families(ParagraphStyles=fam)
 
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"CharPosture": 2})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"CharPosture": 2})
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("CharPosture", 2)
 
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"CharPosture": 1})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"CharPosture": 1})
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("CharPosture", 1)
 
     style.reset_mock()
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"CharPosture": "italic"})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"CharPosture": "italic"})
     assert "CharPosture" in res.get("failed_properties", {})
 
-    res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"CharPosture": True})
+    res = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates={"CharPosture": True})
     assert "CharPosture" in res.get("failed_properties", {})
     style.setPropertyValue.assert_not_called()
 
@@ -1152,11 +1152,11 @@ def test_create_style_character_conditional_rules_error():
 def test_style_update_rejects_nondict_and_empty():
     ctx = _ctx_with_families(ParagraphStyles=_style_family({"MyStyle": MagicMock()}))
 
-    res1 = StyleUpdate().execute(ctx, style="MyStyle", property_updates=["CharWeight"])
+    res1 = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", property_updates=["CharWeight"])
     assert res1["status"] == "error"
     assert "property_updates must be an object." in res1["message"]
 
-    res2 = StyleUpdate().execute(ctx, style="MyStyle")
+    res2 = StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles")
     assert res2["status"] == "error"
     assert "Nothing to update" in res2["message"]
 
@@ -1464,14 +1464,14 @@ def test_style_update_snapshot_reraises_disposed():
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
     with pytest.raises(DocumentDisposedError):
-        StyleUpdate().execute(ctx, style="MyStyle", parent_style="Standard", property_updates={})
+        StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={})
 
     style = MagicMock()
     style.getParentStyle.side_effect = ["Standard", DisposedEx("gone")]
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
     with pytest.raises(DocumentDisposedError):
-        StyleUpdate().execute(ctx, style="MyStyle", parent_style="Standard", property_updates={})
+        StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={})
 
 
 def test_style_list_reraises_disposed_on_category_and_parent():

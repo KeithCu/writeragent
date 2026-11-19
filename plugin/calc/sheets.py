@@ -230,12 +230,12 @@ class ProtectSheet(ToolCalcSheetBase):
 
     name: str | None = "sheet_protect"
     description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "default": True, "description": "True to protect, False to unprotect"}}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         sheet_name = kwargs.get("sheet")
-        should_protect = kwargs.get("protect", True)
+        should_protect = kwargs["protect"]
 
         doc = ctx.doc
         bridge = CalcBridge(doc)
@@ -345,7 +345,7 @@ class SheetHide(ToolCalcSheetBase):
         "type": "object",
         "properties": {
             "sheet": {"type": "string", "description": "Name of the sheet."},
-            "visible": {"type": "boolean", "description": "True to show the tab; false to hide (default: false)."},
+            "visible": {"type": "boolean", "default": False, "description": "True to show the tab; false to hide."},
         },
         "required": ["sheet"],
     }
@@ -353,7 +353,7 @@ class SheetHide(ToolCalcSheetBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         sheet_name = kwargs["sheet"]
-        visible = kwargs.get("visible", False)
+        visible = kwargs["visible"]
 
         doc = ctx.doc
         sheet = _user_sheet(doc, sheet_name, "hide")

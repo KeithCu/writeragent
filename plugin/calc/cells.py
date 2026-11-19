@@ -327,7 +327,7 @@ class ReadCellRange(ToolBase):
                 "enum": ["rows", "cells"],
                 "default": "rows",
                 "description": (
-                    "rows (default): 2D values, formulas and date/time types only where present. "
+                    "rows: 2D values, formulas and date/time types only where present. "
                     "cells: one object per cell with address, value, formula, type, "
                     "format_category, and format_code."
                 ),
@@ -745,8 +745,8 @@ class MergeCells(ToolBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to merge. {CALC_RANGE_LIST_NOTE}"},
-            "center": {"type": "boolean", "description": "Center content (default: true)"},
-            "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
+            "center": {"type": "boolean", "default": True, "description": "Center content"},
+            "unmerge": {"type": "boolean", "default": False, "description": "Split merged cells instead of merging"},
         },
         "required": ["range"],
     }
@@ -835,8 +835,8 @@ class SortRange(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to sort. {CALC_RANGE_LIST_NOTE}"},
-            "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
-            "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
+            "sort_column": {"type": "integer", "default": 0, "description": ("0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.")},
+            "ascending": {"type": "boolean", "default": True, "description": ("true = smallest first; false = largest/highest first.")},
             "then_by": {
                 "type": "array",
                 "items": {
@@ -861,12 +861,12 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        sort_column: int = kwargs.get("sort_column", 0)
+        sort_column: int = kwargs["sort_column"]
         # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound for every key lives in range_sort.
         if sort_column < 0:
             return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
-        ascending: bool = kwargs.get("ascending", True)
+        ascending: bool = kwargs["ascending"]
 
         then_by = parse_then_by(kwargs.get("then_by", []))
         if then_by is None:
@@ -887,6 +887,7 @@ class SortRange(ToolCalcRangeBase):
 
 
 _STRUCTURE_START_DESCRIPTION = 'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").'
+_STRUCTURE_COUNT_DEFAULT = 1
 
 
 class _StructureTool(ToolBase):
@@ -903,7 +904,7 @@ class _StructureTool(ToolBase):
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
         # The schema makes count an integer; it does not read a minimum, so 0 and negatives stop here.
-        count: int = kwargs.get("count", 1)
+        count: int = kwargs.get("count", _STRUCTURE_COUNT_DEFAULT)
         if count < 1:
             return self._tool_error(f"count must be an integer >= 1, got {count}", code="INVALID_PARAM")
 
@@ -947,12 +948,13 @@ class DeleteStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to delete (default 1)."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to delete."},
             "confirm": {
                 "type": "boolean",
+                "default": False,
                 "description": (
                     "Set true to delete even when formulas or named ranges would turn into #REF!. "
-                    "Default false: such a delete is refused and nothing changes."
+                    "When false, such a delete is refused and nothing changes."
                 ),
             },
             "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
@@ -972,7 +974,7 @@ class InsertStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to insert (default 1)."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to insert."},
             "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],

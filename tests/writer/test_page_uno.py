@@ -114,7 +114,7 @@ def test_header_logo_visible_to_scan_and_get(ctx, doc):
         assert expected_name in scan["images"], scan["images"]
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = PageGetHeaderFooterText().execute(tool_ctx, region="header")
+    res = PageGetHeaderFooterText().execute(tool_ctx, style="Standard", region="header", include_images=True)
     assert res["status"] == "ok", res
     assert res.get("images"), "page_get missed the header logo: %r" % (res,)
     if expected_name:
@@ -332,6 +332,7 @@ def test_page_insert_break_applies_cloned_style_and_restarts_numbering(ctx, doc)
         before_text="Annex start",
         page_style="AnnexRestart1424",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "ok"
     assert res["page_style"] == "AnnexRestart1424"
@@ -380,6 +381,7 @@ def test_page_insert_break_after_text_styles_the_following_paragraph(ctx, doc):
         after_text="Lead clause",
         page_style="AnnexAfter1424",
         restart_page_number=3,
+        occurrence=0,
     )
     assert res["status"] == "ok"
     assert "after" in res["message"]
@@ -415,6 +417,7 @@ def test_page_insert_break_unknown_style_changes_nothing(ctx, doc):
         _tool_ctx(doc, ctx),
         before_text="Annex start",
         page_style="MissingAnnex1424",
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert "No page style named 'MissingAnnex1424'" in res["message"]
@@ -452,6 +455,7 @@ def test_page_insert_break_after_last_paragraph_does_not_apply_style(ctx, doc):
         after_text="Only paragraph",
         page_style="AnnexLast1424",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert "last paragraph" in res["message"]
@@ -627,7 +631,7 @@ def test_replace_footer_keeps_field_and_graphic(ctx, doc):
     tool_ctx = _tool_ctx(doc, ctx)
     title = tool.execute(
         tool_ctx, style=name, region="footer",
-        old_content="Annex 1: Intro", content="Annex A: Methods",
+        old_content="Annex 1: Intro", content="Annex A: Methods", all_matches=False,
     )
     assert title["status"] == "ok", title
     assert title["replaced_count"] == 1
@@ -635,7 +639,7 @@ def test_replace_footer_keeps_field_and_graphic(ctx, doc):
     assert title["shapes_preserved"] >= 1
 
     literal = tool.execute(
-        tool_ctx, style=name, region="footer", old_content="274", content="300",
+        tool_ctx, style=name, region="footer", old_content="274", content="300", all_matches=False,
     )
     assert literal["status"] == "ok", literal
     plain = footer.getString()
@@ -677,7 +681,7 @@ def test_replace_footer_refuses_character_anchor_inside_match(ctx, doc):
 
     res = PageReplaceHeaderFooterText().execute(
         _tool_ctx(doc, ctx), style=name, region="footer",
-        old_content="Annex 1: Intro", content="Annex A: Methods",
+        old_content="Annex 1: Intro", content="Annex A: Methods", all_matches=False,
     )
     assert res["status"] == "error", res
     assert footer.getString() == before
@@ -868,7 +872,7 @@ def test_page_break_inside_table_cell_uno(ctx, doc):
     cell_cursor.setString("UniqueCellWord")
 
     tool = PageInsertBreak()
-    res = tool.execute(_tool_ctx(doc, ctx), before_text="UniqueCellWord")
+    res = tool.execute(_tool_ctx(doc, ctx), before_text="UniqueCellWord", occurrence=0)
     assert res["status"] == "error", res
     assert "table cell" in res["message"]
 
@@ -905,6 +909,7 @@ def test_page_break_inside_table_cell_with_page_style_uno(ctx, doc):
         before_text="UniqueCellWord",
         page_style="AnnexCell1424",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error", res
     assert "table cell" in res["message"]
@@ -949,7 +954,7 @@ def test_page_insert_break_anchor_matches_nbsp_and_curly_quotes(ctx, doc):
     text.insertString(cursor, "Annex\u00a0\u201cstart\u201d", False)
 
     tool = PageInsertBreak()
-    res = tool.execute(_tool_ctx(doc, ctx), before_text='Annex "start"')
+    res = tool.execute(_tool_ctx(doc, ctx), before_text='Annex "start"', occurrence=0)
     assert res["status"] == "ok", res
 
     para = _para_with_text(doc, "start")
@@ -970,7 +975,7 @@ def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
     res1 = set_tool.execute(tool_ctx, style=s_name, column_count=2, spacing_mm=5)
     assert res1["status"] == "ok", res1
 
-    res_err = set_tool.execute_safe(tool_ctx, style=s_name, column_count=100)
+    res_err = set_tool.execute_safe(tool_ctx, style=s_name, column_count=100, spacing_mm=0)
     assert res_err["status"] == "error", res_err
     assert res_err["code"] == "INVALID_PARAM", res_err
 

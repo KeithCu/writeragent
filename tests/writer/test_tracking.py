@@ -108,7 +108,7 @@ def test_track_changes_list():
     ctx.doc.getRedlines.return_value.getCount.return_value = 1
 
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, start_index=0, max_changes=100)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert len(res["changes"]) == 1
@@ -579,7 +579,7 @@ def test_track_changes_list_no_get_redlines():
 
     ctx = MagicMock()
     ctx.doc = NoRedlinesDoc()
-    res = TrackChangesList().execute(ctx)
+    res = TrackChangesList().execute(ctx, start_index=0, max_changes=100)
     assert res["status"] == "ok"
     assert res["recording"] is True
     assert res["track_changes_list_unsupported"] is True
@@ -595,7 +595,7 @@ def test_track_changes_list_record_changes_read_fails():
     enum_mock.hasMoreElements.return_value = False
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
 
-    res = TrackChangesList().execute(ctx)
+    res = TrackChangesList().execute(ctx, start_index=0, max_changes=100)
     assert res["status"] == "ok"
     assert res["recording"] is None
     assert res["count"] == 0
@@ -826,11 +826,13 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     cursor_mock.getString.return_value = "hello"
     text_mock.createTextCursorByRange.return_value = cursor_mock
 
+    prep = prepare_tool_call(tool, SimpleNamespace(doc_type="writer", caller="test"), "tracking_list", {})
+    assert prep.error is None
     # Use _LightRedline instead of _fake_redline (303 MagicMocks for 101 items takes ~42 ms vs <1 ms).
     items = [_LightRedline("user %d" % i, text_mock=text_mock) for i in range(101)]
     _install_redlines(ctx, items)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
-        res = tool.execute(ctx)
+        res = tool.execute(ctx, **prep.kwargs)
     assert res["status"] == "ok"
     assert res["count"] == 100
     assert res["has_more"] is True
@@ -840,7 +842,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     items_one = [_LightRedline("user 0", text_mock=text_mock)]
     _install_redlines(ctx, items_one)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
-        res_one = tool.execute(ctx)
+        res_one = tool.execute(ctx, **prep.kwargs)
     assert res_one["status"] == "ok"
     assert res_one["count"] == 1
     assert res_one["has_more"] is False
@@ -858,7 +860,7 @@ def test_track_changes_list_start_index_keeps_global_indexes():
     items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(3)]
     _install_redlines(ctx, items)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
-        res = tool.execute(ctx, start_index=2)
+        res = tool.execute(ctx, start_index=2, max_changes=100)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["changes"][0]["index"] == 2

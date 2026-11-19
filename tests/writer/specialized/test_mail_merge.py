@@ -286,7 +286,7 @@ def test_insert_field_search_rolls_back_failed_insert(monkeypatch):
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
 
     tool = InsertField()
-    res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET")
+    res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET", data_source_name="")
 
     assert res["status"] == "error"
     assert "rolled back" in res["message"]
@@ -312,7 +312,7 @@ def test_insert_field_search_locked_undo_does_not_delete(monkeypatch):
     monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
 
     tool = InsertField()
-    res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET")
+    res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET", data_source_name="")
 
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -425,7 +425,7 @@ def test_run_merge_modified_active_doc_rejected():
     smgr.createInstanceWithContext.return_value = mail_merge_mock
 
     tool = RunMerge()
-    res = tool.execute(ctx, data_source_name="Clients", table_name="Sheet1")
+    res = tool.execute(ctx, data_source_name="Clients", table_name="Sheet1", output_type="file", file_format="odt")
 
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_MODIFIED"
@@ -441,6 +441,8 @@ def test_run_merge_missing_document_url_rejected():
         data_source_name="Clients",
         table_name="Sheet1",
         document_url="/nonexistent/t.odt",
+        output_type="file",
+        file_format="odt",
     )
 
     assert res["status"] == "error"
@@ -462,6 +464,7 @@ def test_run_merge_without_output_path_leaves_output_url_unset():
         data_source_name="Clients",
         table_name="Sheet1",
         output_type="file",
+        file_format="odt",
     )
 
     assert res["status"] == "ok"
@@ -489,6 +492,7 @@ def test_run_merge_output_path_file_rejected(tmp_path):
         table_name="Sheet1",
         output_type="file",
         output_path=str(file_path),
+        file_format="odt",
     )
 
     assert res["status"] == "error"
@@ -513,6 +517,7 @@ def test_run_merge_creates_output_directory(tmp_path):
         table_name="Sheet1",
         output_type="file",
         output_path=str(nested_dir),
+        file_format="odt",
     )
 
     assert res["status"] == "ok"
@@ -535,6 +540,7 @@ def test_run_merge_printer_message_has_no_file_format():
         data_source_name="Clients",
         table_name="Sheet1",
         output_type="printer",
+        file_format="odt",
     )
 
     assert res["status"] == "ok"
@@ -568,6 +574,7 @@ def test_database_context_and_mail_merge_are_not_document_factory_services(tmp_p
         table_name="Sheet1",
         output_type="file",
         output_path=str(out_dir),
+        file_format="odt",
     )
     assert merged["status"] == "ok", merged
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.text.MailMerge", comp_ctx)

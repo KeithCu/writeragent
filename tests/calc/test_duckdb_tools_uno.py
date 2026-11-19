@@ -288,6 +288,7 @@ def test_query_folder_sql_sheet_identity_host_path(ctx, doc):
             tctx,
             sql="SELECT * FROM sales",
             tables={"sales": {"sheet": sheet.getName()}},
+            headers=True,
         )
     assert res.get("status") == "ok", res
     grid = (captured.get("preloaded") or {}).get("sales", {}).get("grid")

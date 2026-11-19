@@ -52,12 +52,12 @@ class GetDocumentTree(ToolBase):
         "Use that field — never invent numbers from outline depth, sibling order, "
         "or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, "
         "not the chapter label; use chapter_number:3.1 when the field is present. "
-        "Strategies: heading_only, first_lines (default), full. "
-        "depth=0 for unlimited, depth=1 (default) for top-level only."
+        "Strategies: heading_only, first_lines, full. "
+        "depth=0 for unlimited, depth=1 for top-level only."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"strategy": enum_param(["heading_only", "first_lines", "full"], "Content to include with headings (default: first_lines)"), "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
+        "properties": {"strategy": enum_param(["heading_only", "first_lines", "full"], "Content to include with headings", default="first_lines"), "depth": {"type": "integer", "default": 1, "description": "Max tree depth (0=unlimited)"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]

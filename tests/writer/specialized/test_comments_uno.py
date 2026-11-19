@@ -53,7 +53,7 @@ def test_comment_location_and_paragraph_index_uno(ctx, doc):
     footer_annotation.setPropertyValue("Content", "Footer comment note")
     footer_text.insertTextContent(footer_cur, footer_annotation, False)
 
-    listed = CommentList().execute(tool_ctx)
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     assert listed.get("status") == "ok", listed
     comments = listed.get("comments", [])
 
@@ -86,7 +86,7 @@ def test_comment_resolve_reply_appears_with_name_uno(ctx, doc):
     )
     assert resolve_res.get("status") == "ok", resolve_res
 
-    listed = CommentList().execute(tool_ctx)
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     assert listed.get("status") == "ok", listed
     comments = listed.get("comments", [])
 
@@ -120,7 +120,7 @@ def test_comment_edit_preserves_metadata_uno(ctx, doc):
     name = add_res["name"]
     assert name
 
-    before = CommentList().execute(tool_ctx)
+    before = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     entry = next(c for c in before["comments"] if c.get("name") == name)
     author = entry.get("author")
     date_before = entry.get("date")
@@ -129,7 +129,7 @@ def test_comment_edit_preserves_metadata_uno(ctx, doc):
     edit_res = CommentEdit().execute(tool_ctx, name=name, content="Edited note")
     assert edit_res.get("status") == "ok", edit_res
 
-    after = CommentList().execute(tool_ctx)
+    after = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     updated = next(c for c in after["comments"] if c.get("name") == name)
     assert updated.get("content") == "Edited note"
     assert updated.get("author") == author

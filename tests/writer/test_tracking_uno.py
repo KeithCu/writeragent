@@ -86,7 +86,7 @@ def test_accept_body_redline_with_table_cell_redline_uno(ctx, doc):
     cell_text.insertString(cc, " Cell user edit.", False)
     doc.setPropertyValue("RecordChanges", False)
 
-    list_res = TrackChangesList().execute(tctx)
+    list_res = TrackChangesList().execute(tctx, start_index=0, max_changes=100)
     assert list_res.get("status") == "ok", list_res
     changes = list_res.get("changes", [])
 
@@ -96,7 +96,7 @@ def test_accept_body_redline_with_table_cell_redline_uno(ctx, doc):
     accept_res = ManageTrackedChanges().execute(tctx, action="accept", index=body_idx)
     assert accept_res.get("status") == "ok", accept_res
 
-    list_after = TrackChangesList().execute(tctx)
+    list_after = TrackChangesList().execute(tctx, start_index=0, max_changes=100)
     assert list_after.get("status") == "ok", list_after
     changes_after = list_after.get("changes", [])
 

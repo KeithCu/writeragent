@@ -426,6 +426,7 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
 - Comments: comment_add adds new comments and replies; for listing, editing, resolving, or deleting, delegate domain='comments'.
 - When the user asks for a review, feedback, or suggestions on the document, use comment_add on specific passages (positive and negative); a review of these instructions or of text in the chat is answered directly without document comments.
+- Tool page indices are 0-based; the user and the status bar count pages from 1, so the user's page 3 is page=2, and say page N+1 when replying to the user.
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error.
 - {PARAGRAPH_INDEX_DIRECTIVE}"""
 

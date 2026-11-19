@@ -24,12 +24,15 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
+    clone_text_range,
     get_string_without_tracked_deletions,
     iter_elements,
+    jump_view_cursor_to_page,
+    page_not_found_message,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
 from plugin.doc.visual_helpers import safe_get_property
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
 
@@ -64,32 +67,35 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
 class NavGotoPage(ToolWriterStructuralBase):
     name: str | None = "nav_goto_page"
     is_mutation: bool | None = False
-    description: str = "Navigate the view cursor to a specific page."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
+    description: str = "Navigate the view cursor to the start of a page. page is 0-based (first page = 0)."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}}, "required": ["page"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page = kwargs["page"]
-        controller = ctx.doc.getCurrentController()
-        vc = controller.getViewCursor()
-        ok = vc.jumpToPage(page)
-        if not ok:
-            return self._tool_error(f"Page {page} does not exist.")
+        vc = ctx.doc.getCurrentController().getViewCursor()
+        # jump_view_cursor_to_page moves to the last page on a miss; restore so a failed call leaves the caret untouched.
+        saved = best_effort(lambda: clone_text_range(vc), "save view cursor before nav_goto_page")
+        total = jump_view_cursor_to_page(vc, page)
+        if total is not None:
+            if saved is not None:
+                best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after failed nav_goto_page")
+            return self._tool_error(page_not_found_message(page, total))
         update_selection_pin(ctx, vc)
-        return {"status": "ok", "page": vc.getPage()}
+        return {"status": "ok", "page": page}
 
 
 class GetPageObjects(ToolBase):
     name: str | None = "page_get_objects"
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
-        "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
+        "page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
         "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is "
         "the object top's offset from the text baseline (negative = above)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"page": {"type": "integer", "description": "1-based page number to analyze"}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
+        "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -100,7 +106,17 @@ class GetPageObjects(ToolBase):
         doc_svc = ctx.services.document
         page = kwargs.get("page")
 
-        if page is None:
+        if page is not None:
+            if page < 0:
+                return self._tool_error("page must be a non-negative integer (0-based, first page = 0).")
+            total = doc_svc.get_page_count(doc)
+            if total <= 0:
+                return self._tool_error("Cannot resolve page count.")
+            if page >= total:
+                return self._tool_error(page_not_found_message(page, total))
+            lo_page = page + 1
+        else:
+            lo_page = 0
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:
@@ -110,25 +126,24 @@ class GetPageObjects(ToolBase):
                     return self._tool_error(str(e))
             if para_idx is not None:
                 # Page lookup failures surface as tool errors instead of defaulting to
-                # page 1, so callers and automation do not act on a false ok response.
+                # the first page, so callers and automation do not act on a false ok response.
                 try:
-                    page = doc_svc.get_page_for_paragraph(doc, para_idx)
+                    lo_page = doc_svc.get_page_for_paragraph(doc, para_idx)
                 except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
             else:
                 try:
-                    page = doc.getCurrentController().getViewCursor().getPage()
+                    lo_page = doc.getCurrentController().getViewCursor().getPage()
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     return self._tool_error("Cannot resolve view cursor page: %s" % exc)
-
-        if page is None or page <= 0:
-            return self._tool_error("Cannot resolve page: invalid page %s" % page)
+            if lo_page <= 0:
+                return self._tool_error("Cannot resolve page: invalid page %s" % lo_page)
 
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
-        objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(doc, vc, page))
-        return {"status": "ok", "page": page, **objects}
+        objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(doc, vc, lo_page))
+        return {"status": "ok", "page": lo_page - 1, **objects}
 
     def _page_at_range(self, doc: Any, vc: Any, rng: Any, retry_if_zero: bool = False) -> int:
         """View-cursor page of *rng*. Pages are 1-based.
@@ -163,13 +178,14 @@ class GetPageObjects(ToolBase):
             return page_no
         return self._page_at_range(doc, vc, obj.getAnchor(), retry_if_zero=True)
 
-    def _scan_page(self, doc: Any, vc: Any, page: Any) -> dict[str, Any]:
+    def _scan_page(self, doc: Any, vc: Any, lo_page: Any) -> dict[str, Any]:
+        """Scan objects on LibreOffice's 1-based physical *lo_page* (same space as getPage() and AnchorPageNo)."""
         def _scan(container: Any, label: str, build: Any) -> list[dict[str, Any]]:
             items = []
             for name in container.getElementNames():
                 try:
                     obj = container.getByName(name)
-                    if self._content_page(doc, vc, obj) == page:
+                    if self._content_page(doc, vc, obj) == lo_page:
                         items.append(build(name, obj))
                 except Exception as exc:
                     reraise_if_disposed(exc)
@@ -220,12 +236,12 @@ class GetPageObjects(ToolBase):
             try:
                 page_no = _at_page_anchor_page(shape)
                 if page_no is not None:
-                    include_shape = page_no == page
+                    include_shape = page_no == lo_page
                 else:
                     anchor_type = shape.getPropertyValue("AnchorType")
                     if anchor_type in (AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER):
                         anchor = shape.getAnchor()
-                        if anchor and self._page_at_range(doc, vc, anchor, retry_if_zero=False) == page:
+                        if anchor and self._page_at_range(doc, vc, anchor, retry_if_zero=False) == lo_page:
                             include_shape = True
             except Exception as exc:
                 reraise_if_disposed(exc)

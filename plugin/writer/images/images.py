@@ -271,14 +271,17 @@ class ImageGenerate(ToolWriterImageBase):
                 "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
                 "Omit while a graphic is selected to edit in place; omit with no selection to create a new image."
             )},
-            "aspect_ratio": {"type": "string", "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"], "default": "square"},
+            "aspect_ratio": {
+                "type": "string",
+                "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"],
+                "description": "Omit to use the aspect ratio set in Settings.",
+            },
             "base_size": {
                 "type": "integer",
                 "description": (
-                    "Generate resolution in pixels (> 0, default 1024). "
+                    "Generate resolution in pixels (> 0). Omit to use the size set in Settings. "
                     "On-page display is capped independently (~135mm longer edge)."
                 ),
-                "default": DEFAULT_IMAGE_BASE_SIZE,
             },
             "width": {"type": "integer", "description": "Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
             "height": {"type": "integer", "description": "Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution."},
@@ -537,7 +540,10 @@ class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
     name: str | None = "image_list"
-    description: str = "List all images/graphic objects in the document with name, dimensions, title, and description."
+    description: str = (
+        "List all images/graphic objects in the document with name, dimensions, title, and description."
+        " On Writer, an entry includes page (0-based, first page = 0) when its page is known."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
 
@@ -608,8 +614,9 @@ class ImageList(ToolWriterImageBase):
                             page_no = visual_helpers.safe_get_property(graphic, "AnchorPageNo", 0)
                             try:
                                 p = int(page_no)
+                                # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                 if p > 0:
-                                    entry["page"] = p
+                                    entry["page"] = p - 1
                             except (TypeError, ValueError):
                                 pass
                         else:
@@ -630,8 +637,9 @@ class ImageList(ToolWriterImageBase):
                                         vc.gotoRange(start, False)
                                         try:
                                             p = int(vc.getPage())
+                                            # 0 = unset/not laid out; LibreOffice pages are 1-based.
                                             if p > 0:
-                                                entry["page"] = p
+                                                entry["page"] = p - 1
                                         except (TypeError, ValueError):
                                             pass
                             except Exception as exc:
@@ -1057,7 +1065,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                     "required": ["box"],
                 },
             },
-            "units": enum_param(["px", "percent"], "Units of every box (default px)."),
+            "units": enum_param(["px", "percent"], "Units of every box.", default="px"),
             "width_mm": {"type": "number", "description": "Display width in millimetres (default: keep the current width)."},
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc."},
         },
@@ -1081,7 +1089,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         if source is None:
             return self._tool_error("Image '%s' has no picture data to mark." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        units = kwargs.get("units") or "px"
+        units = kwargs["units"]
         width_px: int | None = None
         height_px: int | None = None
 
@@ -1169,7 +1177,7 @@ class ImageDownload(ToolWriterImageBase):
         "type": "object",
         "properties": {
             "url": {"type": "string", "description": "URL of the image to download."},
-            "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."},
+            "force": {"type": "boolean", "default": False, "description": "Force re-download even if cached."},
         },
         "required": ["url"],
     }
@@ -1180,7 +1188,7 @@ class ImageDownload(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs["url"]
-        force = kwargs.get("force", False)
+        force = kwargs["force"]
         cancel = ctx.send_cancellation
 
         dl_result = _download_for_tool(self, url, force=force, cancel=cancel)
@@ -1241,20 +1249,23 @@ class ImageInsert(ToolWriterImageBase):
             "target": enum_param(
                 ["body", "header", "footer", "header_first", "footer_first"],
                 (
-                    "Writer insertion target (default: body). header/footer write the shared "
+                    "Writer insertion target. header/footer write the shared "
                     "page-style region. header_first/footer_first write the first-page letterhead "
                     "(set first_is_shared=false first, or the first page still shares HeaderText)."
                 ),
+                default="body",
             ),
             "style": {
                 "type": "string",
-                "description": "Page style for header/footer target (default: Standard).",
+                "default": "Standard",
+                "description": "Page style for header/footer target.",
             },
             "auto_height": {
                 "type": "boolean",
+                "default": True,
                 "description": (
                     "When target is a header/footer region, grow the region with the image "
-                    "(default: true) so a taller logo does not overlap the body. "
+                    "so a taller logo does not overlap the body. "
                     "Set false to keep a fixed header/footer height."
                 ),
             },
@@ -1279,8 +1290,8 @@ class ImageInsert(ToolWriterImageBase):
 
         locator = kwargs.get("locator")
         paragraph_index = kwargs.get("paragraph")
-        target = kwargs.get("target", "body")
-        style_name = kwargs.get("style", "Standard")
+        target = kwargs["target"]
+        style_name = kwargs["style"]
 
         cancel = ctx.send_cancellation
         local_path = _local_image_path(self, image_path, cancel)
@@ -1327,7 +1338,7 @@ class ImageInsert(ToolWriterImageBase):
                     width_mm=width_mm,
                     height_mm=height_mm,
                     style_name=style_name,
-                    auto_height=kwargs.get("auto_height", True),
+                    auto_height=kwargs["auto_height"],
                     ctx=ctx.ctx,
                 )
                 graphic = placed["graphic"]

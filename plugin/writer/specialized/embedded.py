@@ -156,7 +156,7 @@ class _EmbedRequest(NamedTuple):
 
 
 def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest | dict[str, Any]:
-    data = kwargs.get("data") or []
+    data = kwargs["data"]
     for row_idx, row in enumerate(data):
         if not isinstance(row, list):
             return tool._tool_error(
@@ -267,7 +267,8 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             "object_type": enum_param(["spreadsheet"], "Embedded object type (Calc spreadsheet only)."),
             "data": {
                 "type": "array",
-                "description": "Optional rows of cell values (string, number, or null). Default empty sheet.",
+                "default": [],
+                "description": "Optional rows of cell values (string, number, or null).",
                 "items": {
                     "type": "array",
                     "items": {"type": ["string", "number", "null"]},

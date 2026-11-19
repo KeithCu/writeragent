@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import Any, Iterator
 from unittest.mock import patch
 
@@ -16,6 +17,7 @@ from plugin.draw.comments import (
     ListPageComments,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.tool import prepare_tool_call
 
 
 class _DisposedException(Exception):
@@ -188,8 +190,15 @@ def test_list_empty_when_enumeration_is_none():
     page = _FakePage([])
     doc = _FakeDoc([page])
     ctx = _FakeContext(doc)
+    prepared = prepare_tool_call(
+        ListPageComments(),
+        SimpleNamespace(doc_type="impress", caller=None),
+        "page_comment_list",
+        {"page": 0},
+    )
+    assert prepared.error is None
     with _bridge(page=page, pages=doc._pages):
-        res = ListPageComments().execute(ctx, page=0)
+        res = ListPageComments().execute(ctx, **prepared.kwargs)
     assert res == {
         "status": "ok",
         "comments": [],
@@ -211,7 +220,7 @@ def test_list_reads_fields_and_single_page_resolution():
     )
     ctx = _FakeContext(_FakeDoc([page]))
     with _bridge(page=page, resolve=(page, 0)) as bridge:
-        res = ListPageComments().execute(ctx, page=2)
+        res = ListPageComments().execute(ctx, page=2, offset=0)
         bridge.resolve_page.assert_called_once_with(2, active_page_index=ctx.active_page_index)
     row = res["comments"][0]
     assert row["date"] == "2026-11-05 09:04"
@@ -229,7 +238,7 @@ def test_list_all_pages_orders_by_page_then_index():
     )
     ctx = _FakeContext(doc)
     with _bridge(pages=doc._pages):
-        res = ListPageComments().execute(ctx)
+        res = ListPageComments().execute(ctx, offset=0)
     assert [(c["page"], c["index"], c["text"]) for c in res["comments"]] == [
         (0, 0, "a0"),
         (0, 1, "a1"),
@@ -241,7 +250,7 @@ def test_list_cap_hint_and_offset():
     page = _FakePage([_FakeAnnotation(str(i)) for i in range(101)])
     ctx = _FakeContext(_FakeDoc([page]))
     with _bridge(page=page):
-        first = ListPageComments().execute(ctx, page=0)
+        first = ListPageComments().execute(ctx, page=0, offset=0)
     assert first["count"] == 100 and first["total"] == 101 and first["truncated"] is True
     assert "offset=100" in first["hint"]
 
@@ -274,7 +283,7 @@ def test_missing_annotation_access_service():
     page = _NoAnnotationPage()
     ctx = _FakeContext(_FakeDoc([page]))
     with _bridge(page=page, resolve=(page, 3)):
-        res = ListPageComments().execute(ctx, page=3)
+        res = ListPageComments().execute(ctx, page=3, offset=0)
     assert res["code"] == "ANNOTATIONS_UNAVAILABLE"
 
 
@@ -328,4 +337,4 @@ def test_disposal_reraises():
     ctx = _FakeContext(_FakeDoc([page]))
     with _bridge(page=page):
         with pytest.raises(DocumentDisposedError):
-            ListPageComments().execute(ctx, page=0)
+            ListPageComments().execute(ctx, page=0, offset=0)

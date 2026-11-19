@@ -74,7 +74,7 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
     # Spanning insert: Annotation registered as a TextField; matched passage stays in the body.
     assert "Anchor here please" in doc.getText().getString()
     assert res.get("name"), res
-    listed = CommentList().execute(tool_ctx)
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     assert listed.get("status") == "ok", listed
     listed_names = [c.get("name") for c in listed.get("comments") or []]
     assert res["name"] in listed_names, listed
@@ -109,7 +109,7 @@ def test_add_comment_reply_via_parent_name_uno(ctx, doc):
     assert reply.get("parent_name") == root["name"], reply
     assert reply["name"] != root["name"], reply
 
-    listed = CommentList().execute(tool_ctx)
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     assert listed.get("status") == "ok", listed
     parent = _by_name(listed["comments"], root["name"])
     child = _by_name(listed["comments"], reply["name"])
@@ -137,7 +137,7 @@ def test_add_comment_reply_to_reply_nests_uno(ctx, doc):
     assert c.get("parent_name") == b["name"], c
     assert c["parent_name"] != a["name"], c
 
-    listed = CommentList().execute(tool_ctx)
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=100)
     listed_b = _by_name(listed["comments"], b["name"])
     listed_c = _by_name(listed["comments"], c["name"])
     assert listed_b["parent_name"] == a["name"], listed

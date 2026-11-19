@@ -1020,7 +1020,7 @@ def test_paging_start_param_rejects_required_parameters():
                     "type": "object",
                     "properties": {
                         "scope": {"type": "string"},
-                        "start_index": {"type": "integer"},
+                        "start_index": {"type": "integer", "default": 0},
                     },
                     "required": ["scope"],
                 },
@@ -1147,7 +1147,7 @@ def test_paged_list_iterates_lazily():
                     "type": "object",
                     "properties": {
                         "author_filter": {"type": "string"},
-                        "start_index": {"type": "integer"},
+                        "start_index": {"type": "integer", "default": 0},
                         "max_comments": {"type": "integer"},
                     },
                 },

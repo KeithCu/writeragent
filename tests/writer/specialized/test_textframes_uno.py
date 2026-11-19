@@ -23,6 +23,9 @@ def test_frame_insert_list_delete_uno(ctx, doc):
         target="beginning",
         name="AgentFrame",
         text="Inside the frame",
+        width_mm=80.0,
+        height_mm=30.0,
+        anchor_type=0,
     )
     assert ins.get("status") == "ok", ins
     assert ins.get("frame_name") == "AgentFrame"

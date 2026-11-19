@@ -229,9 +229,10 @@ def test_get_page_objects_disposal_and_error_handling():
     doc_disp.getDrawPage.return_value.getCount.return_value = 0
     ctx = MagicMock()
     ctx.doc = doc_disp
+    ctx.services.document.get_page_count.return_value = 1
 
     with pytest.raises((DisposedException, DocumentDisposedError)):
-        GetPageObjects().execute(ctx, page=1)
+        GetPageObjects().execute(ctx, page=0)
 
     # Test 2: G1 succeeds, G2 raises RuntimeError -> G2 skipped, G1 kept, warning logged
     g1 = GraphicStub("G1")
@@ -255,7 +256,7 @@ def test_get_page_objects_disposal_and_error_handling():
     doc_live.getDrawPage.return_value.getCount.return_value = 0
     ctx.doc = doc_live
 
-    res = GetPageObjects().execute(ctx, page=1)
+    res = GetPageObjects().execute(ctx, page=0)
     assert res["status"] == "ok"
     assert len(res["images"]) == 1
     assert res["images"][0]["name"] == "G1"
@@ -270,14 +271,17 @@ def test_nav_goto_page_success():
     ctx = MagicMock()
     ctx.doc = doc
 
-    res = NavGotoPage().execute(ctx, page=3)
-    assert res == {"status": "ok", "page": 3}
+    res = NavGotoPage().execute(ctx, page=2)
+    assert res == {"status": "ok", "page": 2}
     vc.jumpToPage.assert_called_once_with(3)
 
 
 def test_nav_goto_page_failed_jump_reports_error():
     vc = MagicMock()
-    vc.jumpToPage.return_value = False
+    vc.jumpToPage.return_value = True
+    vc.getPage.return_value = 7
+    saved = MagicMock()
+    vc.getText.return_value.createTextCursorByRange.return_value = saved
     doc = MagicMock()
     doc.getCurrentController.return_value.getViewCursor.return_value = vc
     ctx = MagicMock()
@@ -285,7 +289,10 @@ def test_nav_goto_page_failed_jump_reports_error():
 
     res = NavGotoPage().execute(ctx, page=99)
     assert res["status"] == "error"
-    assert "Page 99 does not exist." in res["message"]
+    assert "Page 99 does not exist" in res["message"]
+    assert "7 page(s)" in res["message"]
+    assert "first page = 0" in res["message"]
+    vc.gotoRange.assert_called_once_with(saved, False)
 
 
 def test_clone_heading_block_without_writer_tree_service_is_tool_error():
@@ -315,8 +322,8 @@ def test_nav_goto_page_updates_selection_pin():
     ctx.doc = doc
     ctx.selection_pin = SelectionPin(MagicMock())
 
-    res = NavGotoPage().execute(ctx, page=5)
+    res = NavGotoPage().execute(ctx, page=4)
     assert res["status"] == "ok"
-    assert res["page"] == 5
+    assert res["page"] == 4
     assert ctx.selection_pin.range is cloned
 

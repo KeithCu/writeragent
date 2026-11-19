@@ -1976,18 +1976,20 @@ def test_sort_range_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
+        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1, ascending=True)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
         manipulator.range_sort.return_value = "Sorted"
-        res_ok = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True)
+        prep_ok = prepare_tool_call(_tool("sort_range"), SimpleNamespace(doc_type="calc"), "sort_range", {"range": ["A1:B2"], "has_header": True})
+        assert prep_ok.error is None
+        res_ok = _tool("sort_range").execute_safe(ctx, **prep_ok.kwargs)
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", [(0, True)], has_header=True)
 
         manipulator.range_sort.reset_mock()
-        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, then_by=[{"column": 0}])
+        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=0, ascending=True, then_by=[{"column": 0}])
         assert res_bad_then_by["status"] == "error"
         assert res_bad_then_by["code"] == "INVALID_PARAM"
         manipulator.range_sort.assert_not_called()
@@ -2006,7 +2008,7 @@ def test_sort_range_validation():
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
-        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True, sort_column=0, ascending=True)
         assert res_multi["status"] == "ok"
         assert res_multi["message"] == "A done. B done."
 
@@ -2405,3 +2407,46 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 2
     assert "Formulas use Calc syntax:" in res["warnings"][1]["message"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "base_kwargs"),
+    [
+        ("read_range", {"range": "A1"}),
+        ("merge_cells", {"range": "A1:B2"}),
+        ("delete_structure", {"structure_type": "rows", "start": 1}),
+        ("insert_structure", {"structure_type": "rows", "start": 1}),
+    ],
+)
+def test_core_calc_schema_defaults_match_runtime(tool_name, base_kwargs):
+    """Omitting a defaulted core Calc parameter must match passing its schema default."""
+    tool = _tool(tool_name)
+    defaults = {
+        k: spec["default"]
+        for k, spec in tool.parameters["properties"].items()
+        if "default" in spec
+    }
+    assert defaults, f"{tool_name} has no schema defaults"
+
+    def _run(extra_kwargs):
+        ctx = SimpleNamespace(doc=MagicMock())
+        with (
+            patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+            patch("plugin.calc.cells.CellInspector") as inspector_cls,
+            patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+        ):
+            inspector_cls.return_value.read_range.return_value = [[{"address": "A1", "value": 1}]]
+            manipulator = manipulator_cls.return_value
+            manipulator.merge_cells.return_value = SimpleNamespace(merged=True, hidden_count=0, hidden_cells=[])
+            manipulator.delete_structure.return_value = {"message": "deleted"}
+            manipulator.insert_structure.return_value = {"message": "inserted"}
+            res = tool.execute(ctx, **base_kwargs, **extra_kwargs)
+            return res, inspector_cls.return_value.mock_calls, manipulator.mock_calls
+
+    omitted_res, omitted_insp, omitted_manip = _run({})
+    explicit_res, explicit_insp, explicit_manip = _run(defaults)
+
+    assert omitted_res["status"] == "ok"
+    assert omitted_res == explicit_res
+    assert omitted_insp == explicit_insp
+    assert omitted_manip == explicit_manip

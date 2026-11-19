@@ -1,6 +1,7 @@
 # WriterAgent — unit tests for Impress speaker notes tools
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 
 from plugin.draw.notes import GetSpeakerNotes, SetSpeakerNotes
 from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.tool import prepare_tool_call
 
 
 class _DisposedException(Exception):
@@ -122,7 +124,7 @@ def test_set_missing_notes_page_names_slide():
     ctx = _ctx()
     with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        out = SetSpeakerNotes().execute(ctx, text="hello", page=0)
+        out = SetSpeakerNotes().execute(ctx, text="hello", page=0, append=False)
     assert out["status"] == "error"
     assert out["code"] == "NOTES_UNAVAILABLE"
     assert out.get("page", out.get("details", {}).get("page")) == 0
@@ -136,7 +138,7 @@ def test_set_missing_notes_shape_names_slide():
     ctx = _ctx()
     with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        out = SetSpeakerNotes().execute(ctx, text="hello", page=0)
+        out = SetSpeakerNotes().execute(ctx, text="hello", page=0, append=False)
     assert out["status"] == "error"
     assert out["code"] == "NOTES_UNAVAILABLE"
     assert out.get("page", out.get("details", {}).get("page")) == 0
@@ -151,7 +153,7 @@ def test_set_replaces_and_normalizes_crlf():
     ctx = _ctx()
     with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        out = SetSpeakerNotes().execute(ctx, text="one\r\ntwo\r\nthree", page=0)
+        out = SetSpeakerNotes().execute(ctx, text="one\r\ntwo\r\nthree", page=0, append=False)
     assert out["status"] == "ok"
     body = notes_shape.getString()
     assert body == "one\ntwo\nthree"
@@ -202,9 +204,16 @@ def test_append_default_is_replace():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
+    prepared = prepare_tool_call(
+        SetSpeakerNotes(),
+        SimpleNamespace(doc_type="impress", caller=None),
+        "slide_set_notes",
+        {"text": "new", "page": 0},
+    )
+    assert prepared.error is None
     with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        out = SetSpeakerNotes().execute(ctx, text="new", page=0)
+        out = SetSpeakerNotes().execute(ctx, **prepared.kwargs)
     assert out["status"] == "ok"
     assert notes_shape.getString() == "new"
 
@@ -234,4 +243,4 @@ def test_disposed_notes_page_propagates():
         with pytest.raises(DocumentDisposedError):
             GetSpeakerNotes().execute(ctx, page=0)
         with pytest.raises(DocumentDisposedError):
-            SetSpeakerNotes().execute(ctx, text="hi", page=0)
+            SetSpeakerNotes().execute(ctx, text="hi", page=0, append=False)
