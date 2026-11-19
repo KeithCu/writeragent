@@ -1,11 +1,11 @@
-# Structured Edit Diagnostics: `code` + `suggested_call` on Errors and Warnings (Plan)
+# Structured Edit Diagnostics: `code` + `suggested_call` on Errors and Warnings
 
-**Status:** Plan, incorporating the 2026-11-09 Opus review. Tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
+**Status:** Phases 0–3 shipped (incorporating the 2026-11-09 Opus review); Phase 4 (Calc and Draw adoption) remains optional. Tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
 **Scope:** Writer editing tools first (`apply_content`, `apply_style`, `search`, `set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
 
 ## 1. Goal
 
-Every non-success outcome of a Writer edit (a hard error, or a success with dropped or unapplied content) must carry three machine-readable fields:
+Every non-success outcome of a Writer edit (a hard error, or a success with dropped or unapplied content) carries three machine-readable fields:
 
 | Field | Meaning |
 |-------|---------|
@@ -15,7 +15,7 @@ Every non-success outcome of a Writer edit (a hard error, or a success with drop
 
 Why: prompt instructions carry complex API-mechanics rules largely because tool failures are prose that models must parse. A stable error code paired with a ready-to-execute suggested call allows trimming those defensive rules from the prompt, improving tool-use reliability especially for smaller models.
 
-**Also in scope: status-report item 4 (partial-match style skips).** When `data-lo-style` is skipped because a search match covers only part of a paragraph, the result returns a structured `STYLE_IGNORED_PARTIAL_MATCH` warning containing a `suggested_call` for `apply_style(target="search", ...)`. Today this remediation is only described in prose in `message` and `warning`. Item 4 serves as the primary concrete consumer of the shared `Diagnostic` mechanism. Details are in §3.5 and Phase 1.
+**Also in scope: status-report item 4 (partial-match style skips).** When `data-lo-style` is skipped because a search match covers only part of a paragraph, the result returns a structured `STYLE_IGNORED_PARTIAL_MATCH` warning containing a `suggested_call` for `apply_style(target="search", ...)`. Item 4 is the primary concrete consumer of the shared `Diagnostic` mechanism (`plugin/writer/html_import_styles.py` and `apply_document_content.py`). Details are in §3.5 and Phase 1.
 
 **Non-goals**
 - No change to which edits succeed or fail. This is a diagnostics and metadata layer, not an edit behavior change.
@@ -23,38 +23,31 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
 - No new HTTP client, transport, or wire protocol. Payloads remain standard JSON dicts returned by tool execution.
 - No speculative argument generation: `suggested_call` is omitted unless every required argument is known and validated.
 
-## 2. What exists today (verified in the tree)
+## 2. Architecture in the tree
 
-- **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", **details)` in `plugin/framework/errors.py:404-414`. `ToolBase._tool_error` in `plugin/framework/tool.py:242-251` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py:255-267`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments nest under `details`; `top_level=` places fields beside `code`.
+- **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", *, suggested_call=None, **details)` in `plugin/framework/errors.py`. `ToolBase._tool_error` in `plugin/framework/tool.py` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments nest under `details`; `top_level=` places fields beside `code`.
 - **Codes in use on the Writer edit path:**
-  - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `MATH_IMPORT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
-  - Existing codes in the tree missing from prior catalogs: `UNDO_UNAVAILABLE` (`plugin/writer/apply_document_content.py:644, 722, 1468`) and `TABLE_IN_ANCHOR_RANGE` (`plugin/writer/apply_document_content.py:1579`).
-  - Uncoded `_tool_error(...)` calls falling back to `TOOL_EXECUTION_ERROR`:
-    - `plugin/writer/apply_document_content.py`: `dry_run` target conflict (line 892), `position` errors (lines 903, 1186, 1188, 1192), content type/item errors (lines 1207, 1211), empty content on insert targets (line 1214), math segments with `position='before'/'after'` (line 1631), and table cell `position='before'/'after'` (line 1639).
-    - `plugin/writer/styles.py`: style missing error `_missing_style_error` (lines 518-525), empty style name (line 1312), `clear_direct` validations (lines 1338, 1342, 1347), occurrence out-of-range without code (line 1385), `UndoUnavailable` (line 1403), and mutation failures (lines 1407, 1408, 1426).
-    - `plugin/writer/selection.py`: parameter conflicts and validations (lines 75, 77, 87-95), occurrence parse (line 83), missing document view/controller (line 99), empty search text (line 106), cursor build failure (lines 116, 120), occurrence `IndexError` (line 142), shape-only match (line 147), and search text not found (line 148).
-    - `plugin/writer/search.py`: pattern required (line 1401) and query required (line 1526).
-  - `TABLE_BLOCK_IN_CELL`: block HTML into a table cell raises `ToolExecutionError(code="TABLE_BLOCK_IN_CELL")` in `replace_single_range_with_content` (`plugin/writer/html_import.py`); when this plan was written it was a raw `RuntimeError`.
+  - Standard codes: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `MATH_IMPORT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`, `UNDO_UNAVAILABLE` (`plugin/writer/apply_document_content.py`, `styles.py`), `TABLE_IN_ANCHOR_RANGE` (`plugin/writer/apply_document_content.py`), and `STYLE_NOT_FOUND` (`_missing_style_error` in `plugin/writer/styles.py`).
+  - Coded `_tool_error(...)` sites (Phase 2) across `plugin/writer/apply_document_content.py`, `plugin/writer/styles.py`, `plugin/writer/selection.py`, and `plugin/writer/search.py` (see §3.3).
+  - `TABLE_BLOCK_IN_CELL`: block HTML into a table cell raises `ToolExecutionError(code="TABLE_BLOCK_IN_CELL")` in `replace_single_range_with_content` (`plugin/writer/html_import.py`).
 - **Hand-built error dicts bypassing `make_tool_error`:**
-  - `build_search_not_found_response` in `plugin/writer/search.py:1262` (also reused in `plugin/writer/styles.py:1379`).
-  - Search near-miss responses (`closest_match`, `diff_at`), oversized refusals (`oversized: True`), and zero-replacement responses (`replaced_count: 0`) in `plugin/writer/search.py:1253, 1303`.
-  - Anchor miss dicts built in `apply_document_content._anchor_miss` (`plugin/writer/apply_document_content.py:1530-1556`), returning `{"status": "error", "message", "replaced_count": 0}` with no `code`.
-  - Drawing shape match messages (`search_mod.shape_only_search_message`) at `plugin/writer/apply_document_content.py:684, 1545`.
-  - Rollback failure payloads at `plugin/writer/apply_document_content.py:1481, 1499`.
-  - Hand-built dicts in `plugin/writer/styles.py`: line 1375 (`target='search' requires old_content`) and line 1451 (search-miss `ValueError`, with TODO at line 1449).
-  - *Invariant on hand-built dicts:* `is_replaced_zero_result` in `plugin/chatbot/tool_loop_actions.py:218-224` explicitly checks top-level `result_data.get("replaced_count") == 0`, and unit tests directly inspect top-level `closest_match`, `diff_at`, and `oversized`. These dicts must not be routed through `make_tool_error` (which moves extra kwargs under `details` and invokes `_()` on untranslated runtime text). Instead, each hand-built dict directly receives a `"code": "..."` field.
-- **Warning fields today:**
-  - Writer maintains two distinct warning fields with differing shapes:
-    1. `warnings: list[str]`: reports dropped `data-lo-para` properties via `html_import_styles.attach_para_warnings` (now `html_import_styles.attach_write_report` in `plugin/writer/html_import_styles.py`). Callers are `apply_document_content.py` and `page.py` (header/footer writes).
-    2. `warning: str` (singular): reports `data-lo-style` skips via `_attach_style_notes` (later unified into `html_import_styles.attach_write_report` via `WriteReport`), which formats `_LO_STYLE_PARTIAL_MATCH_NOTE` and `_LO_STYLE_RECORDING_NOTE` into singular `warning` and appends to `message`. Other Writer tools also write singular `warning` strings for unrelated conditions (`styles.py:372, 1276-1278`, `page.py:381, 901, 1413`, `selection.py:128`, `search.py:1484`, `get_document_content.py:166`).
-  - Silent style drop on before/after: block content next to a match (`apply_document_content.py:1674, 1683`) passes `apply_styles=False` to `insert_html_at_cursor`, stripping `data-lo-style` without emitting any warning note (`html_import.py:296, 305`).
-  - Draw, Calc, and vision: `result["warnings"]` is a `list[str]` (`plugin/draw/shapes.py:675-707`, `plugin/calc/charts.py:762-764`, `vision/venv/vision.py:71`).
+  - `build_search_not_found_response` in `plugin/writer/search.py` (also reused in `plugin/writer/styles.py`), search near-miss responses (`closest_match`, `diff_at`), oversized refusals (`oversized: True`), and zero-replacement responses (`replaced_count: 0`) in `plugin/writer/search.py`.
+  - Anchor miss dicts built in `apply_document_content._anchor_miss` (`plugin/writer/apply_document_content.py`), returning `{"status": "error", "code", "message", "replaced_count": 0}`.
+  - Drawing shape match messages (`search_mod.shape_only_search_message` in `plugin/writer/search.py`, `apply_document_content.py`, `selection.py`).
+  - Rollback failure payloads in `plugin/writer/apply_document_content.py` and `plugin/writer/styles.py`.
+  - Hand-built dicts in `plugin/writer/styles.py` (`target='search' requires old_content` and search-miss `ValueError`).
+  - *Invariant on hand-built dicts:* `is_replaced_zero_result` in `plugin/chatbot/tool_loop_actions.py` checks top-level `result_data.get("replaced_count") == 0`, and unit tests directly inspect top-level `closest_match`, `diff_at`, and `oversized`. These dicts are not routed through `make_tool_error` (which moves extra kwargs under `details` and invokes `_()` on untranslated runtime text); instead, each hand-built dict directly includes a `"code": "..."` field.
+- **Warning fields:**
+  - Writer unifies `data-lo-style` skips and `data-lo-para` drops into `warnings: list[Diagnostic]` via `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`, using `WriteReport`), called by `apply_document_content.py` and `page.py` (header/footer writes).
+  - Other Writer tools write singular `warning` strings for unrelated conditions (`styles.py`, `page.py`, `selection.py`, `search.py`, `get_document_content.py`).
+  - Silent style drop on before/after: block content next to a match (`apply_document_content.py`) passes `apply_styles=False` to `insert_html_at_cursor`, stripping `data-lo-style` without emitting a warning (`html_import.py`).
+  - Draw, Calc, and vision: `result["warnings"]` is `list[str]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, `vision/venv/vision.py`).
 
 ## 3. Design
 
 ### 3.1 Diagnostic and SuggestedCall shape
 
-Types and builders are added to existing `plugin/framework/errors.py` (which is already included in LibrePy's bundle list in `scripts/librepy_bundle_paths.py:144`). No new module file is introduced, avoiding bundle drift or import failures in LibrePy:
+Types and builders live in `plugin/framework/errors.py` (which is already included in LibrePy's bundle list in `scripts/librepy_bundle_paths.py`). No separate module file is needed, avoiding bundle drift or import failures in LibrePy:
 
 ```python
 # plugin/framework/errors.py
@@ -79,13 +72,13 @@ def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
 ```
 
 **Errors:**
-- Extend `make_tool_error(message, code="TOOL_EXECUTION_ERROR", *, suggested_call=None, **details)` to accept `suggested_call: SuggestedCall | None = None`.
-- Attach `suggested_call` at the top level of the returned payload dict alongside `code` and `message` when provided.
-- Do not store `suggested_call` on `ToolExecutionError`: the re-wrap at `apply_document_content.py:1060, 1076` preserves only `str(e)` and `code`, discarding exception attributes.
-- Hand-built error dicts add `"code": "..."` directly at the top level, keeping `replaced_count`, `closest_match`, `diff_at`, and `oversized` at the top level.
+- `make_tool_error(message, code="TOOL_EXECUTION_ERROR", *, suggested_call=None, **details)` accepts `suggested_call: SuggestedCall | None = None`.
+- `suggested_call` is attached at the top level of the returned payload dict alongside `code` and `message` when provided.
+- `suggested_call` is not stored on `ToolExecutionError`: the re-wrap in `apply_document_content.py` preserves only `str(e)` and `code`, discarding exception attributes.
+- Hand-built error dicts include `"code": "..."` directly at the top level, keeping `replaced_count`, `closest_match`, `diff_at`, and `oversized` at the top level.
 
 **Warnings:**
-- Each item in `result["warnings"]` becomes a `Diagnostic` dict.
+- Each item in `result["warnings"]` is a `Diagnostic` dict.
 - Context fields (such as `matches_skipped` and `matches_total`) sit flat on the `Diagnostic` dict rather than in a nested `details` dictionary.
 
 ### 3.2 Backward compatibility of `warnings` (Decision: Option A)
@@ -97,13 +90,12 @@ def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
 | C. Convert all domains to `Diagnostic` immediately | Single consistent schema. | Requires touching Calc, Draw, vision, and updating all tests across domains. |
 
 **Decision: Option A.**
-- Writer unifies style skips and `data-lo-para` drops into `result["warnings"]: list[Diagnostic]`.
-- Style skips in `_attach_style_notes` move from the singular `warning` string to `warnings: list[Diagnostic]`. `_attach_style_notes` stops writing the singular `warning` field, since the explanatory sentence is already appended to `message` (avoiding duplicate text). (Style skips and para warnings are unified in `html_import_styles.attach_write_report`).
+- Writer unifies style skips and `data-lo-para` drops into `result["warnings"]: list[Diagnostic]` via `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`), without writing the singular `warning` field (the explanatory sentence is already appended to `message`, avoiding duplicate text).
 - Other tools emitting singular `warning` strings (e.g. `selection.py`, `page.py`) remain untouched.
-- `attach_para_warnings` in `plugin/writer/html_import_styles.py` converts to output `list[Diagnostic]` with code `PARA_PROPERTY_UNSUPPORTED`. Because `page.py:1017` calls `attach_para_warnings`, page header/footer writes switch to `Diagnostic` concurrently in Phase 1.
-- Draw, Calc, and vision remain `list[str]` for now and can adopt `Diagnostic` opportunistically.
+- `attach_write_report` in `plugin/writer/html_import_styles.py` outputs `list[Diagnostic]` with `PARA_PROPERTY_UNSUPPORTED` for dropped `data-lo-para` properties, covering both `apply_document_content.py` and `page.py` header/footer writes.
+- Draw, Calc, and vision remain `list[str]` and can adopt `Diagnostic` opportunistically.
 
-*Affected test assertions updating in Phase 1:*
+*Test assertions updated in Phase 1:*
 - `warnings` assertions: `tests/writer/test_apply_document_content_structured_return.py:273, 294, 1032`, `tests/writer/test_page.py:423`, `tests/writer/test_page_header_html_uno.py:534, 548`, `tests/writer/test_html_import_uno.py:540`.
 - `warning` assertions: `tests/writer/test_apply_document_content.py`, `tests/writer/test_content_style_model_uno.py:401, 432, 470, 501, 537, 581`.
 
@@ -151,11 +143,8 @@ Rules for constructing suggestions:
 
 ### 3.5 Partial-match style skips (item 4) in detail
 
-**Current behavior:**
-`data-lo-style` is skipped when replacing text that does not span whole paragraphs (`_range_covers_whole_paragraphs`, `plugin/writer/html_import.py:499-525`) or while tracked changes are recording (`record_changes.is_recording_changes`). Notes are appended to `message` and singular `warning`. In before/after insertions, `apply_styles=False` silently drops `data-lo-style` without emitting notes (`apply_document_content.py:1674, 1683`, `html_import.py:296, 305`).
-
-**Target behavior:**
-For each style skip, `result["warnings"]` receives a `Diagnostic`:
+**Behavior:**
+`data-lo-style` is skipped when replacing text that does not span whole paragraphs (`_range_covers_whole_paragraphs`, `plugin/writer/html_import.py`) or while tracked changes are recording (`record_changes.is_recording_changes`). For each style skip, `result["warnings"]` receives a `Diagnostic` (via `html_import_styles.attach_write_report`):
 
 ```json
 {
@@ -197,34 +186,29 @@ For each style skip, `result["warnings"]` receives a `Diagnostic`:
 
 Each phase is independently shippable, maintains green tests, and requires no temporary compatibility shims.
 
-### Phase 0: Framework plumbing
-- Add `SuggestedCall`, `Diagnostic`, and `suggest_call` to `plugin/framework/errors.py`.
-- Add keyword-only `suggested_call: SuggestedCall | None = None` to `make_tool_error` and `format_error_payload` in `errors.py`.
-- Add schema-validation test helper in `tests/framework/test_errors.py` to validate `suggested_call` structures against tool schemas.
+### Phase 0: Framework plumbing — Done
+- `SuggestedCall`, `Diagnostic`, and `suggest_call` in `plugin/framework/errors.py`.
+- Keyword-only `suggested_call: SuggestedCall | None = None` on `make_tool_error` and `format_error_payload` in `errors.py`.
+- Schema-validation test helper in `tests/framework/test_errors.py` validating `suggested_call` structures against tool schemas.
 - Tests: `tests/framework/test_errors.py` (payload shape with and without `suggested_call`, schema validation helper).
 
-### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer)
-- Migrate `_attach_style_notes` in `plugin/writer/apply_document_content.py` (now `html_import_styles.attach_write_report`) to append `Diagnostic` dicts to `result["warnings"]` and discontinue writing singular `warning`.
-- Update `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` to return diagnostic codes (`STYLE_IGNORED_PARTIAL_MATCH`, `STYLE_IGNORED_RECORDING`) rather than note strings, simplifying aggregation.
-- Build `suggested_call` for `apply_style` adhering strictly to §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
-- Update `attach_para_warnings` in `plugin/writer/html_import_styles.py` to emit `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`). (This simultaneously updates `page.py:1017` header/footer writes).
-- Note: Full-document replacement already routes through `attach_para_warnings`, automatically picking up the new diagnostic shape.
+### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer) — Done
+- `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`) emits `Diagnostic` dicts in `result["warnings"]` instead of writing singular `warning`.
+- `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` returns diagnostic codes (`STYLE_IGNORED_PARTIAL_MATCH`, `STYLE_IGNORED_RECORDING`).
+- `suggested_call` for `apply_style` follows §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
+- `attach_write_report` emits `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`) for dropped `data-lo-para` properties across `apply_document_content.py` and `page.py` header/footer writes.
 - Tests: `tests/writer/test_apply_document_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
 
-### Phase 2: Code all Writer edit errors
-- Assign explicit `code` strings to all uncoded `_tool_error(...)` sites across `plugin/writer/apply_document_content.py`, `plugin/writer/styles.py`, `plugin/writer/selection.py`, and `plugin/writer/search.py` according to §3.3.
-- Convert raw `RuntimeError` in `plugin/writer/html_import.py:739` to `ToolExecutionError(code="TABLE_BLOCK_IN_CELL")`.
-- Add `"code": "..."` to hand-built error dicts in `search.py` (near-miss, oversized), `apply_document_content.py` (`_anchor_miss`, rollback), and `styles.py` (search miss). Retain all existing top-level fields (`replaced_count`, `closest_match`, `diff_at`, `oversized`).
+### Phase 2: Code all Writer edit errors — Done
+- Explicit `code` strings on `_tool_error(...)` sites across `plugin/writer/apply_document_content.py`, `plugin/writer/styles.py`, `plugin/writer/selection.py`, and `plugin/writer/search.py` according to §3.3.
+- `ToolExecutionError(code="TABLE_BLOCK_IN_CELL")` in `plugin/writer/html_import.py`.
+- `"code": "..."` on hand-built error dicts in `search.py` (near-miss, oversized), `apply_document_content.py` (`_anchor_miss`, rollback), and `styles.py` (search miss), retaining top-level fields (`replaced_count`, `closest_match`, `diff_at`, `oversized`).
 - Tests: `tests/writer/test_styles.py`, `tests/writer/test_selection.py`, `tests/writer/test_search.py`, `tests/writer/test_apply_document_content_structured_return.py`.
 
-### Phase 3: Prompt updates and documentation
-- Update prompt instructions with a minimal two-line change:
-  1. Update `plugin/framework/prompts.py:429` to reference `warnings[].suggested_call` for partial-match restyling.
-  2. Add the prefer-`suggested_call` rule to `CONFIRM_EDITS_FROM_STRUCTURED_FIELDS` in `plugin/framework/prompts.py:380-381`:
-     `"When a result includes suggested_call, prefer executing it over re-deriving the call."`
-- Keep existing prompt invariants untouched (deferred to separate PROMPT-TRIM work): retain `|outline` (`line 431`), no `$` (`line 425`), `style_unreviewed` (`lines 391-392`), `clear_direct` (`lines 434-435`), schema empty replacement sentence (`apply_document_content.py:487`), and table deletion rule (`apply_document_content.py:473`).
-- Mark Item 4 as ✅ in status reports.
-- Update documentation: add code catalog to `docs/framework/exception-policy.md`; update `docs/writer/llm-styles.md` and Writer `AGENTS.md`.
+### Phase 3: Prompt updates and documentation — Done
+- Prompt instructions in `plugin/framework/prompts.py` reference `warnings[].suggested_call` for partial-match restyling and include `"When a result includes suggested_call, prefer executing it over re-deriving the call."` in `CONFIRM_EDITS_FROM_STRUCTURED_FIELDS`.
+- Existing prompt invariants retained (`|outline`, no `$`, `style_unreviewed`, `clear_direct`, schema empty replacement sentence, table deletion rule).
+- Documentation updated: code catalog in `docs/framework/exception-policy.md`, `docs/writer/llm-styles.md`, and Writer `AGENTS.md`.
 - Tests: `tests/framework/test_prompts.py`.
 
 ### Phase 4 (Optional): Calc and Draw adoption
