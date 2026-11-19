@@ -175,11 +175,9 @@ class ToolWriterChartBase(ToolWriterSpecialBase):
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
-        "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
-        "Delegate every TOC job here as one task, including creating a new TOC (index_create kind=toc) "
-        "and editing rows; the indexes executor reads and edits rows in the document, so the main chat "
-        "must not rebuild a TOC with document-content edits or pass rows read from the document back in. "
-        "For a read-only request, report entry text and level."
+        "Tables of contents, alphabetical indexes, and native bibliography cites plus the reference table. "
+        "Delegate every TOC job here as one task, including creating a TOC and editing its rows; "
+        "the indexes sub-agent edits rows in place, so do not rebuild a TOC with document-content edits."
     )
 
 
@@ -191,7 +189,7 @@ class ToolWriterFieldBase(ToolWriterSpecialBase):
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
-    specialized_domain_description: ClassVar[str | None] = "View, add, and manage document comments and feedback."
+    specialized_domain_description: ClassVar[str | None] = "List, edit, resolve, and delete document comments, and run comment task workflows."
 
 
 class WriterAgentSpecialTracking(ToolWriterSpecialBase):
@@ -262,7 +260,10 @@ class ToolWriterWebResearchBase(ToolWriterSpecialBase):
 
 class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "document_research"
-    specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions"
+    specialized_domain_description: ClassVar[str | None] = (
+        f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions; "
+        "searches only the user's own files; answer public facts yourself or via web_research"
+    )
 
 
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):

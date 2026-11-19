@@ -392,3 +392,15 @@ def test_merged_vision_catalog_prefers_writer() -> None:
     get_tools()
     merged = {e["domain"]: e["description"] for e in get_specialized_domain_catalog(agent_label=None)}
     assert merged["vision"] == ToolWriterVisionBase.specialized_domain_description
+
+
+def test_indexes_toc_read_rule_reaches_sub_agent_not_catalog() -> None:
+    from plugin.doc.find_tools_tool import get_domain_guidance
+    from plugin.doc.specialized_catalog import loop_hint
+    from plugin.writer.specialized_base import ToolWriterIndexBase
+
+    hint = loop_hint("indexes", "Writer")
+    assert hint != ""
+    assert get_domain_guidance("indexes", agent_label=None) == hint
+    assert ToolWriterIndexBase.specialized_domain_description is not None
+    assert hint not in ToolWriterIndexBase.specialized_domain_description

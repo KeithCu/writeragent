@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 
 from .specialized_base import ToolWriterStructuralBase, enum_param
 
@@ -48,8 +47,7 @@ class NavHeading(ToolWriterStructuralBase):
     is_mutation: bool | None = False
     description: str = (
         "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. "
-        "Returns the target heading with bookmark for stable addressing. "
-        + PARAGRAPH_INDEX_DIRECTIVE
+        "Returns the target heading with bookmark for stable addressing."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -70,8 +68,7 @@ class NavSurroundings(ToolWriterStructuralBase):
     name: str | None = "nav_get_surroundings"
     is_mutation: bool | None = False
     description: str = (
-        "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. "
-        + PARAGRAPH_INDEX_DIRECTIVE
+        "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -93,8 +90,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
     name: str | None = "nav_list_heading_children"
     is_mutation: bool | None = False
     description: str = (
-        "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. "
-        + PARAGRAPH_INDEX_DIRECTIVE
+        "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

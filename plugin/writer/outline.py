@@ -53,11 +53,7 @@ class GetDocumentTree(ToolBase):
         "or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, "
         "not the chapter label; use chapter_number:3.1 when the field is present. "
         "Strategies: heading_only, first_lines, full. "
-        "depth=0 for unlimited, depth=1 for top-level only. "
-        "IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to "
-        "the user (they don't see them and they shift as the document changes). When pointing the "
-        "user to a location or an edit, quote the first few words of its text instead "
-        "(e.g. \"the sentence starting 'The Amazon…'\")."
+        "depth=0 for unlimited, depth=1 for top-level only."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
