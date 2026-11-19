@@ -254,8 +254,8 @@ def _post_audio_speech(
 def _default_endpoint_format() -> str:
     """First response_format to ask for. MP3 is smaller than WAV or PCM.
 
-    A server that rejects mp3 is retried once. Windows plays the mp3 via
-    WMPlayer.OCX without compiling C# per clip, and still uses SoundPlayer
+    A server that rejects mp3 is retried once. Windows plays the mp3 with
+    WinRT Windows.Media.Playback.MediaPlayer and still uses SoundPlayer
     when the bytes are WAV.
     """
     return "mp3"

@@ -528,45 +528,77 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
     return [stripped] if stripped else []
 
 
-# SoundPlayer opens WAV only and has no playback rate. Endpoint speech prefers
-# MP3, and WAV with rate != 1.0 also uses WMPlayer.OCX (no C# compilation).
-# The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE; any error or failed
-# start exits 1 and the caller falls back to SAPI.
-_WIN_WMP_PLAYER = (
-    "$ErrorActionPreference = 'Stop'; "
-    "try { "
-    "$wmp = New-Object -ComObject WMPlayer.OCX; "
-    "try { "
-    "$wmp.URL = $env:WA_AUDIO_PATH; "
-    "$wmp.controls.play(); "
-    "$started = $false; "
-    "$waited = 0; "
-    "while (-not $started -and $wmp.playState -ne 8) { "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "if ($wmp.playState -eq 3) { $wmp.settings.rate = [double]$env:WA_AUDIO_RATE; $started = $true; break } "
-    "if ($waited -ge 5000) { exit 1 } "
-    "Start-Sleep -Milliseconds 50; "
-    "$waited += 50 "
-    "} "
-    "while ($wmp.playState -in 3, 6, 7, 9) { "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "Start-Sleep -Milliseconds 50 "
-    "} "
-    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "if (-not $started -and $wmp.playState -ne 8) { exit 1 } "
-    "} finally { $wmp.close() } "
-    "exit 0 "
-    "} catch { exit 1 }"
-)
+# SoundPlayer opens WAV only and has no playback rate. An mp3, or a wav whose
+# rate is not 1.0, is played with WinRT Windows.Media.Playback.MediaPlayer.
+# That player uses Media Foundation, which is part of a normal Windows 10 or 11
+# install. WMPlayer.OCX is not used: it needs the optional Windows Media Player
+# feature. The script uses single quotes only so -Command does not strip quotes.
+# The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE. PlaybackSession is
+# polled because MediaPlayer leaves PlaybackState at Paused (4) when a clip
+# finishes, and WinRT events do not surface reliably through Register-ObjectEvent.
+# A failure exits 1 and the caller falls back to SAPI. Windows N still needs
+# the Media Feature Pack for this player.
+_WIN_MEDIA_PLAYER = r"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+$player = $null
+try {
+  $path = $env:WA_AUDIO_PATH
+  if ([string]::IsNullOrWhiteSpace($path)) { throw 'WA_AUDIO_PATH is empty' }
+  $full = (Resolve-Path -LiteralPath $path).Path
+  $uri = [Uri]::new($full)
+  $player = [Windows.Media.Playback.MediaPlayer, Windows.Media, ContentType=WindowsRuntime]::new()
+  $player.Volume = 1
+  $player.Source = [Windows.Media.Core.MediaSource, Windows.Media, ContentType=WindowsRuntime]::CreateFromUri($uri)
+  $player.Play()
+  $deadline = [datetime]::UtcNow.AddMinutes(10)
+  $openDeadline = [datetime]::UtcNow.AddSeconds(8)
+  $started = $false
+  $rateApplied = $false
+  while ($true) {
+    $session = $player.PlaybackSession
+    $state = [int]$session.PlaybackState
+    if ($state -eq 3 -or $state -eq 2) {
+      if (-not $rateApplied) {
+        $session.PlaybackRate = [double]$env:WA_AUDIO_RATE
+        $rateApplied = $true
+      }
+      $started = $true
+    }
+    $dur = 0.0
+    $pos = 0.0
+    try {
+      $dur = $session.NaturalDuration.TotalMilliseconds
+      $pos = $session.Position.TotalMilliseconds
+    } catch { }
+    $finished = ($started -and ($state -eq 0 -or $state -eq 4 -or ($dur -gt 0 -and $pos -ge $dur))) -or ($state -eq 4 -and $dur -gt 0 -and $pos -gt 0)
+    if ($finished) { break }
+    if (-not $started -and [datetime]::UtcNow -gt $openDeadline) { throw 'playback did not start' }
+    if ([datetime]::UtcNow -gt $deadline) { throw 'playback timed out' }
+    Start-Sleep -Milliseconds 100
+  }
+} catch {
+  [Console]::Error.WriteLine($_.Exception.Message)
+  exit 1
+} finally {
+  if ($null -ne $player) {
+    try { $player.Close() } catch { }
+  }
+}
+exit 0
+""".strip()
 _WIN_WAV_PLAYER = "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()"
 
 
 def _windows_player_command(file_path: str, rate: float = 1.0) -> tuple[str, list[str], dict[str, str]]:
-    """PowerShell playback for one clip. MP3 or non-unit rate uses WMPlayer.OCX; WAV at 1.0 uses SoundPlayer."""
-    use_wmp = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
-    script = _WIN_WMP_PLAYER if use_wmp else _WIN_WAV_PLAYER
-    cmd = ["powershell", "-NoProfile", "-Command", script]
-    return ("powershell", cmd, {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"})
+    """PowerShell playback for one clip. MP3 or non-unit rate uses WinRT MediaPlayer; WAV at 1.0 uses SoundPlayer."""
+    env = {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"}
+    use_media = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
+    if use_media:
+        cmd = ["powershell", "-NoProfile", "-STA", "-Command", _WIN_MEDIA_PLAYER]
+        return ("powershell", cmd, env)
+    cmd = ["powershell", "-NoProfile", "-Command", _WIN_WAV_PLAYER]
+    return ("powershell", cmd, env)
 
 
 def _get_player_candidates(file_path: str, rate: float = 1.0) -> list[tuple[str, list[str], dict[str, str] | None]]:
@@ -622,7 +654,15 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
         proc: subprocess.Popen[Any] | None = None
         try:
             log.info("Playing audio with command: %s", " ".join(cmd))
-            proc = _popen_for_speech(cmd, cancel, env=env)
+            proc = _popen_for_speech(
+                cmd,
+                cancel,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
             if proc is None:
                 return False
             ret = proc.wait()
@@ -631,10 +671,17 @@ def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0
                 return True
             if is_cancelled(cancel):
                 return False
-            log.warning("Audio player '%s' exited with code %d; trying next candidate", player_name, ret)
+            err = proc.stderr.read().strip() if proc.stderr is not None else ""
+            if err:
+                log.warning("Audio player '%s' exited with code %d (%s); trying next candidate", player_name, ret, err)
+            else:
+                log.warning("Audio player '%s' exited with code %d; trying next candidate", player_name, ret)
         except Exception as exc:
             log.warning("_play_audio_file playback error with '%s': %s", player_name, exc)
         finally:
+            if proc is not None and proc.stderr is not None:
+                with contextlib.suppress(Exception):
+                    proc.stderr.close()
             _clear_speech_proc(proc)
 
     log.warning("All audio players failed for: %s", file_path)
