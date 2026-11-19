@@ -607,9 +607,9 @@ Per [AGENTS.md](../../AGENTS.md): matching `test_*.py` names; run `make test` be
 ## Open
 
 - `[feature M post-v1]` Config-expanded directories (`workspace_extra_directories`) so document_research can list folders beyond the active document's parent, plus optional exclude globs for sensitive filenames. (§ Phase 1 Config-expanded directories)
-- `[idea M]` Gated `[NEARBY FILES]` catalog in the chat prompt so the model sees filenames without calling the list tool first. (§ Phase 2 Prompt integration)
+- `[idea M few]` Gated `[NEARBY FILES]` catalog in the chat prompt so the model sees filenames without calling the list tool first. (§ Phase 2 Prompt integration)
 - `[eng M]` Harden hidden opens with a weakref cache of opened models, idle close, a large-file size heuristic, and UNO tests for multi-doc isolation. (§ Phase 3 Hidden open hardening)
-- `[eng L]` Headless or separate-process reader so large sibling files do not block the UI LibreOffice instance. (§ Phase 4 Headless / separate process)
+- `[eng L many]` Headless or separate-process reader so large sibling files do not block the UI LibreOffice instance. (§ Phase 4 Headless / separate process)
 - `[feature M]` `@` mentions and a file picker in the sidebar to name another document. (§ Phase 5 UI: `@` mentions and pickers)
 - `[feature S]` Show chat status blocks for `research_list_nearby_files` and for inner read-tool steps, optionally behind a config toggle, with MCP parity needing a chat sink. (§ Status surfacing in chat)
 - `[feature S]` Document and test the MCP cross-document path for document_research. (§ Phase 6 Polish)
