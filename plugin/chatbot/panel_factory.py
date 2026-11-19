@@ -155,6 +155,7 @@ from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import (
     get_image_model,
     get_text_model,
+    memo_image_models_or_fetch,
     memo_text_models_or_fetch,
     set_image_model,
     set_text_model,
@@ -781,10 +782,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_text_model(set_val, update_lru=False)
 
         if image_model_selector:
-            # Refresh visual (image) model via shared helper; persist correction if strict replaced value
+            # Warm memo now; cold memo via background worker (never HTTP on UI thread).
             current_image = get_image_model()
+
+            def _on_image_fetched(ids: list[str]) -> None:
+                self._paint_fetched_image_models(current_endpoint, ids)
+
+            image_catalog = memo_image_models_or_fetch(
+                current_endpoint,
+                _on_image_fetched,
+                task_name="sidebar-image-models",
+            )
             set_image_val = populate_image_model_selector(
                 image_model_selector,
+                current_endpoint,
+                remote_models=image_catalog,
                 skip_remote_fetch=True,
             )
             if set_image_val != current_image:
@@ -816,6 +828,37 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     sel,
                     get_text_model(),
                     "model_lru",
+                    endpoint,
+                    remote_models=ids,
+                    skip_remote_fetch=True,
+                    keep_text=bool(typed),
+                )
+        finally:
+            self._in_refresh_controls = prior
+
+    def _paint_fetched_image_models(self, endpoint: str, ids: list[str]) -> None:
+        """Repaint the sidebar image model combo after an off-thread catalog fetch.
+
+        When the box holds typed text, only the list items are replaced, so
+        the text and caret stay exactly as they were. When the box is empty
+        or holds a placeholder, the stored model (or endpoint placeholder) is
+        shown. It runs between commit points, so it writes nothing to config.
+        """
+        if self._released or endpoint != get_current_endpoint():
+            return
+        sel = get_optional_control(self.m_panelRootWindow, "image_model_selector")
+        if not sel:
+            return
+        from plugin.chatbot.config_ui_helpers import populate_image_model_selector
+        from plugin.framework.model_lru import sanitize_model_combobox_value
+
+        prior = self._in_refresh_controls
+        self._in_refresh_controls = True
+        try:
+            with suppress_disposed("paint fetched sidebar image models", logger=log):
+                typed = sanitize_model_combobox_value(str(sel.getText() or ""))
+                populate_image_model_selector(
+                    sel,
                     endpoint,
                     remote_models=ids,
                     skip_remote_fetch=True,

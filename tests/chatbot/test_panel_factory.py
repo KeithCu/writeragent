@@ -514,6 +514,7 @@ def test_sidebar_text_combo_lists_warm_catalog_after_lru():
         return ""
 
     with patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=["vendor/a", "vendor/b"]), \
+         patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=["img"]), \
          patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru) as pop, \
          patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value="img") as image_pop, \
          patch("plugin.chatbot.config_ui_helpers.get_config", side_effect=get_cfg), \
@@ -636,6 +637,108 @@ def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
         mock_ep.return_value = endpoint
         el._released = True
         captured_callbacks[0](["vendor/released"])
+        assert combo_state["items"] == ["only-before"]
+
+
+def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text():
+    """Cold background fetch repaints the image combo while preserving typed text and handling empty catalogs."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.config_ui_helpers import populate_image_model_selector
+
+    endpoint = "https://api.anthropic.com"
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._released = False
+    el.m_panelRootWindow = MagicMock()
+    el._update_backend_indicator = MagicMock()
+    image_selector = MagicMock()
+    image_selector.getModel.return_value = MagicMock()
+    combo_state = {"text": "", "items": [], "sel": (0, 0)}
+
+    def get_text():
+        return combo_state["text"]
+
+    def set_text(val):
+        if val != combo_state["text"]:
+            combo_state["sel"] = (0, 0)
+        combo_state["text"] = val
+
+    def get_selection():
+        return combo_state["sel"]
+
+    def set_selection(sel):
+        combo_state["sel"] = sel
+
+    def remove_items(start, count):
+        if count:
+            combo_state["items"][start : start + count] = []
+
+    def add_items(items, pos):
+        combo_state["items"][pos:pos] = list(items)
+
+    image_selector.getText.side_effect = get_text
+    image_selector.setText.side_effect = set_text
+    image_selector.getSelection.side_effect = get_selection
+    image_selector.setSelection.side_effect = set_selection
+    image_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
+    image_selector.removeItems.side_effect = remove_items
+    image_selector.addItems.side_effect = add_items
+
+    captured_callbacks = []
+
+    def fake_memo(_ep, on_fetched, *, task_name):
+        captured_callbacks.append(on_fetched)
+        return None
+
+    with patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", side_effect=fake_memo), \
+         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", wraps=populate_image_model_selector), \
+         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+         patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
+         patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
+         patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+         patch("plugin.chatbot.config_ui_helpers.save") as mock_save, \
+         patch("plugin.chatbot.panel_factory.get_text_model", return_value="claude-sonnet-4"), \
+         patch("plugin.chatbot.panel_factory.get_image_model", return_value=""), \
+         patch("plugin.chatbot.config_ui_helpers.get_image_model", return_value=""), \
+         patch("plugin.chatbot.panel_factory.set_image_model") as mock_set_image_model, \
+         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint) as mock_ep, \
+         patch("plugin.chatbot.panel_factory.get_optional_control", return_value=image_selector):
+        el._populate_model_combos(None, image_selector)
+        assert "(Enter API Key to load models)" not in combo_state["items"]
+        assert len(captured_callbacks) == 1
+
+        # Typed text is preserved across repaint.
+        combo_state["text"] = "mid-typing/"
+        combo_state["sel"] = (4, 4)
+        image_selector.setText.reset_mock()
+        mock_set_image_model.reset_mock()
+        captured_callbacks[0](["vendor/img"])
+
+        assert "vendor/img" in combo_state["items"]
+        assert combo_state["text"] == "mid-typing/"
+        assert combo_state["sel"] == (4, 4)
+        image_selector.setText.assert_not_called()
+        mock_save.assert_not_called()
+        mock_set_image_model.assert_not_called()
+
+        # Placeholder in box when fetch completes with no image models -> shows endpoint empty-image placeholder.
+        combo_state["text"] = "(Connection failed)"
+        captured_callbacks[0]([])
+        assert combo_state["items"] == ["(No image models on this endpoint)"]
+        assert combo_state["text"] == "(No image models on this endpoint)"
+
+        # Endpoint changed before callback -> no-op.
+        combo_state["items"] = ["only-before"]
+        mock_ep.return_value = "http://localhost:1234"
+        captured_callbacks[0](["vendor/other-img"])
+        assert combo_state["items"] == ["only-before"]
+
+        # Panel released before callback -> no-op.
+        mock_ep.return_value = endpoint
+        el._released = True
+        captured_callbacks[0](["vendor/released-img"])
         assert combo_state["items"] == ["only-before"]
 
 
@@ -1471,6 +1574,7 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
         patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
+        patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=None),
     ):
         mock_pop_text.return_value = "gpt-4o"
         mock_pop_img.return_value = "dall-e-3"

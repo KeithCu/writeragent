@@ -806,3 +806,64 @@ def test_populate_hides_typed_partials_from_model_lru():
     assert "claude-opus-" not in items
 
 
+def test_anthropic_image_no_key_shows_enter_api_key_placeholder():
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
+        populate_combobox_with_lru(
+            ctrl,
+            "",
+            "image_model_lru",
+            "https://api.anthropic.com",
+            api_key_override="",
+            skip_remote_fetch=True,
+        )
+    items = list(ctrl.addItems.call_args[0][0])
+    assert items == ["(Enter API Key to load models)"]
+    ctrl.setText.assert_called_with("(Enter API Key to load models)")
+
+
+def test_anthropic_image_key_present_fetch_ok_no_image_models_shows_no_image_placeholder():
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
+        populate_combobox_with_lru(
+            ctrl,
+            "",
+            "image_model_lru",
+            "https://api.anthropic.com",
+            remote_models=[],
+            api_key_override="sk-ant-test",
+            skip_remote_fetch=True,
+        )
+    items = list(ctrl.addItems.call_args[0][0])
+    assert items == ["(No image models on this endpoint)"]
+    ctrl.setText.assert_called_with("(No image models on this endpoint)")
+
+
+@pytest.mark.parametrize(
+    "skip_remote_fetch",
+    [
+        pytest.param(True, id="pending"),
+        pytest.param(False, id="failed"),
+    ],
+)
+def test_anthropic_image_key_present_pending_or_failed_never_shows_api_key_placeholder(skip_remote_fetch: bool):
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+         patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=None):
+        populate_combobox_with_lru(
+            ctrl,
+            "",
+            "image_model_lru",
+            "https://api.anthropic.com",
+            api_key_override="sk-ant-test",
+            skip_remote_fetch=skip_remote_fetch,
+        )
+    items = list(ctrl.addItems.call_args[0][0])
+    assert items == ["(Connection failed)"]
+    assert "(Enter API Key to load models)" not in items
+
+
+

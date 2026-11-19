@@ -136,9 +136,11 @@ def _model_key(table: dict[str, Any], model_id: str) -> str:
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
 
-# Waiters for background /v1/models text catalog fetches, keyed by _catalog_memo_key.
+# Waiters for background /v1/models text and image catalog fetches, keyed by _catalog_memo_key.
 _text_fetch_lock = threading.Lock()
 _text_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
+_image_fetch_lock = threading.Lock()
+_image_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -733,13 +735,19 @@ def drop_non_text_models(
     return [m for m in ids if m not in memo.non_text_ids]
 
 
-def memo_text_models_or_fetch(
+def _memo_models_or_fetch(
     endpoint: str,
     on_fetched: Callable[[list[str]], None],
     *,
     task_name: str,
+    cached_fn: Callable[[str], list[str] | None],
+    fetch_fn: Callable[[str], list[str] | None],
+    waiters: dict[str, list[Callable[[list[str]], None]]],
+    lock: threading.Lock,
+    deliver_label: str,
+    post_filter: Callable[[str, list[str]], list[str]] | None = None,
 ) -> list[str] | None:
-    """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI.
+    """Return memoized catalog ids, or fetch once off-thread and post to UI.
 
     Called on the main thread; never performs HTTP there. Skips both the memo
     read and the worker fetch while the endpoint's key is an uncached
@@ -758,45 +766,84 @@ def memo_text_models_or_fetch(
     if provider_requires_api_key(get_provider_from_endpoint(endpoint)) and not has_api_key_for_endpoint(endpoint):
         return None
 
-    cached = cached_text_models(endpoint)
+    cached = cached_fn(endpoint)
     if cached is not None:
-        return drop_non_text_models(endpoint, cached)
+        return post_filter(endpoint, cached) if post_filter else cached
 
     key = _catalog_memo_key(endpoint)
-    with _text_fetch_lock:
-        if key in _text_fetch_waiters:
-            _text_fetch_waiters[key].append(on_fetched)
+    with lock:
+        if key in waiters:
+            waiters[key].append(on_fetched)
             return None
-        _text_fetch_waiters[key] = [on_fetched]
+        waiters[key] = [on_fetched]
 
     def _job() -> None:
         ids: list[str] | None = None
         done: list[Callable[[list[str]], None]] = []
         try:
-            ids = fetch_available_models(endpoint)
+            ids = fetch_fn(endpoint)
         finally:
-            with _text_fetch_lock:
-                done = _text_fetch_waiters.pop(key, [])
+            with lock:
+                done = waiters.pop(key, [])
 
         if ids is not None:
-            fetched_ids = drop_non_text_models(endpoint, ids)
+            fetched_ids = post_filter(endpoint, ids) if post_filter else ids
 
             def _deliver() -> None:
                 for cb in done:
                     def _call(fn: Callable[[list[str]], None] = cb) -> None:
                         fn(fetched_ids)
 
-                    best_effort(_call, "deliver fetched text models")
+                    best_effort(_call, deliver_label)
 
             main.post(_deliver)
 
     try:
         run_in_background(_job, name=task_name)
     except Exception:
-        with _text_fetch_lock:
-            _text_fetch_waiters.pop(key, None)
+        with lock:
+            waiters.pop(key, None)
         raise
     return None
+
+
+def memo_text_models_or_fetch(
+    endpoint: str,
+    on_fetched: Callable[[list[str]], None],
+    *,
+    task_name: str,
+) -> list[str] | None:
+    """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI."""
+    return _memo_models_or_fetch(
+        endpoint,
+        on_fetched,
+        task_name=task_name,
+        cached_fn=cached_text_models,
+        fetch_fn=fetch_available_models,
+        waiters=_text_fetch_waiters,
+        lock=_text_fetch_lock,
+        deliver_label="deliver fetched text models",
+        post_filter=drop_non_text_models,
+    )
+
+
+def memo_image_models_or_fetch(
+    endpoint: str,
+    on_fetched: Callable[[list[str]], None],
+    *,
+    task_name: str,
+) -> list[str] | None:
+    """Return memoized image-output ids, or fetch once off-thread and post to UI."""
+    return _memo_models_or_fetch(
+        endpoint,
+        on_fetched,
+        task_name=task_name,
+        cached_fn=cached_image_models,
+        fetch_fn=fetch_available_image_models,
+        waiters=_image_fetch_waiters,
+        lock=_image_fetch_lock,
+        deliver_label="deliver fetched image models",
+    )
 
 
 def cached_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
