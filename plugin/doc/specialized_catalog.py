@@ -69,7 +69,9 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
     Footnotes is one sentence for every app. Shapes is the coordinate-unit sentence for
-    every app. Indexes carries the TOC read-only reporting rule. Unknown domain or label -> "".
+    every app. Indexes carries the TOC read-only reporting rule here (rather than in the
+    delegate catalog) because only the running sub-agent or MCP tool_find caller reports
+    index results. Unknown domain or label -> "".
     """
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 

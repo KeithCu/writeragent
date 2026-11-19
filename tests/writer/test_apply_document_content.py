@@ -1818,7 +1818,3 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
     assert mock_insert.call_count == 2
     assert mock_insert.call_args_list[0] == mock_insert.call_args_list[1]
     assert mock_insert.call_args_list[0].args[2] == "<h1>A</h1>\n<p>B</p>"
-
-
-
-

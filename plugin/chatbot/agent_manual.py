@@ -111,7 +111,7 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "editing-html",
         WRITER_APPLY_DOCUMENT_HTML_RULES + HTML_MATH_AND_LINK_EXAMPLES,
-        "apply_content contract: targets, HTML array, math and heading-link examples, styles, reach",
+        "apply_content contract: targets, HTML array, math, heading-link, and ruby (furigana) examples, styles, reach",
     ),
     _Topic(
         "review-modes",

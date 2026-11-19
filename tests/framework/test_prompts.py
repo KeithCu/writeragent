@@ -715,6 +715,6 @@ def test_paragraph_index_rule_has_one_home() -> None:
     combined = prompt + json.dumps(schemas, ensure_ascii=False)
     assert combined.count(PARAGRAPH_INDEX_DIRECTIVE) == 1
     assert not any(
-        PARAGRAPH_INDEX_DIRECTIVE in (t.description or "")
+        PARAGRAPH_INDEX_DIRECTIVE in t.description
         for t in get_tools().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
     )

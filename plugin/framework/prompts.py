@@ -468,7 +468,8 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"{APPLY_DOCUMENT_TARGET_RULES}\n{SUB_AGENT_H
 
 # Examples served on demand: the editing-html manual_read topic and the sub-agent HTML block
 # append these; the sidebar ambient prompt does not. The Math rule above already gives the
-# delimiters, and html_import rewrites a bare href="#Heading" to the |outline form.
+# delimiters, html_import rewrites a bare href="#Heading" to the |outline form, and the ruby
+# line surfaces <ruby>/<rt> furigana support without spending ambient sidebar tokens on it.
 HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
