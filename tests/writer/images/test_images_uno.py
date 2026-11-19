@@ -12,7 +12,9 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
-from plugin.writer.images.images import ImageList
+from plugin.writer.images.images import ImageDelete, ImageGetInfo, ImageList
+from plugin.draw.shapes import DeleteShape
+from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
 
 def _logo_path() -> str:
@@ -70,3 +72,61 @@ def test_image_list_preserves_view_cursor(ctx, doc):
     p_idx_vc = doc_svc.find_paragraph_for_range(vc, para_ranges, text)
     p_idx_saved = doc_svc.find_paragraph_for_range(saved_pos, para_ranges, text)
     assert p_idx_vc == p_idx_saved
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
+    reloaded, docx_path = build_docx_objects_doc(ctx, doc)
+    try:
+        tctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
+        listed = ImageList().execute(tctx)
+        assert listed.get("status") == "ok", listed
+        imgs = listed["images"]
+
+        img11 = [i for i in imgs if i["name"] == "Image 11"]
+        assert len(img11) == 1, imgs
+        assert isinstance(img11[0].get("shape_index"), int), img11[0]
+
+        img1s = [i for i in imgs if i["name"] == "Image 1"]
+        assert len(img1s) == 2, imgs
+        assert all(isinstance(i.get("shape_index"), int) for i in img1s), img1s
+
+        info = ImageGetInfo().execute(tctx, name="Image 11")
+        assert info.get("status") == "ok", info
+
+        ambig = ImageDelete().execute(tctx, name="Image 1")
+        assert ambig.get("status") == "error", ambig
+        assert ambig.get("code") == "AMBIGUOUS_NAME", ambig
+        assert "shape_delete" in ambig.get("message", ""), ambig
+
+        dp = reloaded.getDrawPage()
+        assert len([i for i in range(dp.getCount()) if dp.getByIndex(i).getName() == "Image 1"]) == 2
+        assert reloaded.getGraphicObjects().hasByName("Image 1")
+
+        del11 = ImageDelete().execute(tctx, name="Image 11")
+        assert del11.get("status") == "ok", del11
+        assert "Image 11" not in [dp.getByIndex(i).getName() for i in range(dp.getCount())]
+
+        # Find the draw-page index of the GraphicObjectShape "Image 1" (not the FrameShape fly).
+        draw_img1_idx = next(
+            i
+            for i in range(dp.getCount())
+            if dp.getByIndex(i).getName() == "Image 1"
+            and dp.getByIndex(i).supportsService("com.sun.star.drawing.GraphicObjectShape")
+        )
+        del_shape = DeleteShape().execute(tctx, index=draw_img1_idx)
+        assert del_shape.get("status") == "ok", del_shape
+        assert reloaded.getGraphicObjects().hasByName("Image 1")
+        assert not any(
+            dp.getByIndex(i).getName() == "Image 1"
+            and dp.getByIndex(i).supportsService("com.sun.star.drawing.GraphicObjectShape")
+            for i in range(dp.getCount())
+        )
+    finally:
+        try:
+            reloaded.close(True)
+        except Exception:
+            pass
+        if os.path.exists(docx_path):
+            os.unlink(docx_path)

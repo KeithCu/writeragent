@@ -359,11 +359,40 @@ def test_get_active_draw_page_writer_with_controller_uses_document_page():
 
 def test_list_graphic_objects_reads_writer_graphic_collection():
     graphic = FakePropertyObject({"Graphic": object()}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
-    doc = FakeWriterDoc({"Image 1": graphic})
+    doc = FakeWriterDoc({"Image 1": graphic}, draw_page=FakeDrawPage([]))
 
     assert visual_helpers.get_visual_doc_type(doc) == "writer"
     assert visual_helpers.list_graphic_objects(doc) == [("Image 1", graphic)]
     assert visual_helpers.get_graphic_object_by_name(doc, "Image 1") is graphic
+
+
+def test_list_graphic_objects_writer_adds_draw_page_pictures():
+    class FakeFlyGraphic(FakePropertyObject):
+        def __init__(self, name: str):
+            super().__init__({"Graphic": object()}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+            self._name = name
+
+        def getName(self) -> str:
+            return self._name
+
+    fly = FakeFlyGraphic("Image 1")
+    shape_dup = FakeGraphicShape("Image 1")
+    shape_other = FakeGraphicShape("Image 11")
+    doc = FakeWriterDoc({"Image 1": fly}, draw_page=FakeDrawPage([fly, shape_dup, shape_other]))
+
+    items = visual_helpers.list_graphic_objects(doc)
+    assert len(items) == 3
+    assert [(n, getattr(item, "shape_index", None)) for item, (n, _g) in zip(items, items)] == [
+        ("Image 1", 0),
+        ("Image 1", 1),
+        ("Image 11", 2),
+    ]
+    assert visual_helpers.get_graphic_object_by_name(doc, "Image 11") is shape_other
+    with pytest.raises(visual_helpers.AmbiguousGraphicNameError) as exc_info:
+        visual_helpers.get_graphic_object_by_name(doc, "Image 1")
+    msg = str(exc_info.value)
+    assert "shape_delete" in msg
+    assert "0, 1" in msg
 
 
 def test_list_graphic_objects_reads_all_draw_pages():

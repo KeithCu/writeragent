@@ -33,17 +33,14 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 ## Issue 3: Pasted images (`GraphicObjectShape`) listed by `get_page_objects` cannot be deleted by any tool
 
 - **Upstream issue:** `Augusto-Zolet/writeragent#3`
-- **Status:** **partly fixed**
+- **Status:** **fixed**
 - **Evidence:**
-  - **What works now:**
-    - `shape_delete` (`plugin/draw/shapes.py:1358-1401`, via `_AnyDocumentShapeTool` with `doc_types = ["writer", "calc", "draw", "impress"]` and `_SingleDrawPageContainer` in `plugin/draw/bridge.py:38-52`) works on Writer's draw page (`page=0` or omitted) and removes shapes by `index` or `name` via `parent.remove(shape)`. Deleting by draw-page `index` also avoids the duplicate-name ambiguity described in the issue.
-    - `_writer_objects_section` (`plugin/doc/document_helpers.py:149-165`, added in PR #3639, `4e73464f0`) lists Writer draw-page objects (`Objects (index, kind, name, anchor):`) with their draw-page index and name via `plugin.draw.tree.shape_summary_line`.
-    - `shape_summary` (which crashed with `position cannot be determined with this method` and `Invalid page index: 7`) has been removed; `page_get_objects` (`plugin/writer/structural.py:88-273`, renamed from `get_page_objects` in PR #3582) reads `HoriOrientPosition`/`VertOrientPosition` before falling back to `getPosition()`.
-  - **What is still broken:**
-    - On Writer, `list_graphic_objects` (`plugin/doc/visual_helpers.py:656-664`) still only reads `doc.getGraphicObjects()` and does not scan `doc.getDrawPage()` for `com.sun.star.drawing.GraphicObjectShape`.
-    - Consequently, `image_list` (`plugin/writer/images/images.py:542-558`) still omits `GraphicObjectShape` items on Writer, and `image_delete` (`plugin/writer/images/images.py:1407-1443`) still returns `IMAGE_NOT_FOUND` for them (and its Writer deletion branch only calls `anchor.getText().removeTextContent(graphic)` rather than `draw_page.remove(shape)`).
-- **What remains:** Include `GraphicObjectShape` items from `doc.getDrawPage()` in `list_graphic_objects` for Writer (or route `image_delete` to `draw_page.remove` / document `shape_delete` in `image_list`/`image_delete` descriptions and handle duplicate names cleanly).
-- **Remaining size:** S–M
+  - `shape_delete` (`plugin/draw/shapes.py:1358-1401`, via `_AnyDocumentShapeTool` with `doc_types = ["writer", "calc", "draw", "impress"]` and `_SingleDrawPageContainer` in `plugin/draw/bridge.py:38-52`) works on Writer's draw page (`page=0` or omitted) and removes shapes by `index` or `name` via `parent.remove(shape)`. Deleting by draw-page `index` also avoids the duplicate-name ambiguity described in the issue.
+  - `_writer_objects_section` (`plugin/doc/document_helpers.py:149-165`, added in PR #3639, `4e73464f0`) lists Writer draw-page objects (`Objects (index, kind, name, anchor):`) with their draw-page index and name via `plugin.draw.tree.shape_summary_line`.
+  - `shape_summary` (which crashed with `position cannot be determined with this method` and `Invalid page index: 7`) has been removed; `page_get_objects` (`plugin/writer/structural.py:88-273`, renamed from `get_page_objects` in PR #3582) reads `HoriOrientPosition`/`VertOrientPosition` before falling back to `getPosition()`.
+  - On Writer, `list_graphic_objects` (`plugin/doc/visual_helpers.py`) now scans `doc.getDrawPage()` for `com.sun.star.drawing.GraphicObjectShape` as well as `doc.getGraphicObjects()`, and attaches each object's `shape_index`. `image_list` includes draw-page pictures with `shape_index`, `image_delete` and the other image tools resolve them by name, and duplicate names raise `AMBIGUOUS_NAME` listing the draw-page indexes and directing to `shape_delete(index=N)` without deleting anything.
+- **What remains:** Nothing.
+- **Remaining size:** —
 
 ---
 
@@ -92,16 +89,14 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 ## Issue 7: No way to delete a body text box: `frame_list` is empty, `shape_summary` and `get_page_objects` fail
 
 - **Upstream issue:** `Augusto-Zolet/writeragent#7`
-- **Status:** **partly fixed**
+- **Status:** **fixed**
 - **Evidence:**
-  - **What is fixed:**
-    - `frame_delete` (`plugin/writer/specialized/textframes.py:353-389`) was added in PR #3207 (`fde4c48a2`, merged Nov 5, 2026) and deletes a `TextFrame` by name via `anchor.getText().removeTextContent(frame)`.
-    - `shape_delete` (`plugin/draw/shapes.py:1358-1401`) deletes Draw-page text boxes/shapes on Writer (`page=0` or omitted) via `parent.remove(shape)`.
-    - `shape_summary` (which raised `position cannot be determined with this method`) was removed; `_writer_objects_section` (`plugin/doc/document_helpers.py:149-165`, PR #3639 `4e73464f0`) lists Writer draw-page objects safely, and `page_get_objects` (`plugin/writer/structural.py:88-273`, now 0-based per PR #3683 `c104c30b5`) uses `HoriOrientPosition`/`VertOrientPosition` and `_page_at_range(..., retry_if_zero=True)`.
-  - **What remains / unverified:**
-    - Both `frame_list` (`plugin/writer/specialized/textframes.py:104-121`) and `frame_get_info` (`plugin/writer/specialized/textframes.py:132-160`) still query `doc.getTextFrames()`; why `frame_list()` returned 0 frames on that `.docx` with tracked changes while `frame_get_info('Frame1')` succeeded is not explained by current `textframes.py` (no reproducer `.docx` is in the repo), and `.docx` text boxes imported as Draw shapes (`TextShape`/`FrameShape`) are listed under `DrawPage` / `page_get_objects` rather than `frame_list`.
-- **What remains:** Verify `frame_list` vs `DrawPage` behavior on a `.docx` with tracked changes and text boxes; if needed, surface a clear cross-reference when a named box is on `DrawPage` rather than `getTextFrames()`.
-- **Remaining size:** S
+  - `frame_delete` (`plugin/writer/specialized/textframes.py`) was added in PR #3207 (`fde4c48a2`, merged Nov 5, 2026) and deletes a `TextFrame` by name via `anchor.getText().removeTextContent(frame)`.
+  - `shape_delete` (`plugin/draw/shapes.py:1358-1401`) deletes Draw-page text boxes/shapes on Writer (`page=0` or omitted) via `parent.remove(shape)`.
+  - `shape_summary` (which raised `position cannot be determined with this method`) was removed; `_writer_objects_section` (`plugin/doc/document_helpers.py:149-165`, PR #3639 `4e73464f0`) lists Writer draw-page objects safely, and `page_get_objects` (`plugin/writer/structural.py:88-273`, now 0-based per PR #3683 `c104c30b5`) uses `HoriOrientPosition`/`VertOrientPosition` and `_page_at_range(..., retry_if_zero=True)`.
+  - Word-style text boxes (`TextBox=True` draw shapes with hidden `TextFrame` `TextBoxContent` omitted by `getTextFrames().getElementNames()`) are now surfaced by `frame_list` and `frame_get_info` with `shape_index` and `shape_name`, and `frame_delete` removes the owning draw shape (`doc.getDrawPage().remove(shape)`) so both the hidden frame and the shape are deleted together.
+- **What remains:** Nothing.
+- **Remaining size:** —
 
 ---
 
@@ -111,8 +106,8 @@ Assessment of open issues #1–#7 on [`Augusto-Zolet/writeragent`](https://githu
 |---|-------|--------|----------------|
 | 1 | `page_get_style_properties` `TypeError` on `Standard` | **fixed** | — |
 | 2 | Open/convert new document; sandbox blocks `subprocess` | **still open** | M |
-| 3 | Pasted `GraphicObjectShape` listed by `get_page_objects` undeletable | **partly fixed** | S–M |
+| 3 | Pasted `GraphicObjectShape` listed by `get_page_objects` undeletable | **fixed** | — |
 | 4 | Open `.docx` or copy template file from session | **still open** | M |
 | 5 | Writer tools missing when MCP session starts on Calc | **still open** | M |
 | 6 | Change font of direct-formatted text / whole document | **still open** | M |
-| 7 | Delete body text box (`frame_list` / `shape_summary` / `get_page_objects`) | **partly fixed** | S |
+| 7 | Delete body text box (`frame_list` / `shape_summary` / `get_page_objects`) | **fixed** | — |

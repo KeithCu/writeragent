@@ -543,6 +543,8 @@ class ImageList(ToolWriterImageBase):
     description: str = (
         "List all images/graphic objects in the document with name, dimensions, title, and description."
         " On Writer, an entry includes page (0-based, first page = 0) when its page is known."
+        " shape_index is the object's draw-page index on Writer (what shape_delete takes);"
+        " Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -550,7 +552,6 @@ class ImageList(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         doc = ctx.doc
         doc_type = visual_helpers.get_visual_doc_type(doc)
-        is_calc = doc_type == "calc"
         is_draw = doc_type in ("draw", "impress")
         is_writer = visual_helpers.is_writer_like(doc_type)
         if is_writer and not hasattr(doc, "getGraphicObjects"):
@@ -645,11 +646,10 @@ class ImageList(ToolWriterImageBase):
                             except Exception as exc:
                                 reraise_if_disposed(exc)
 
-                    if is_calc:
-                        for attr in ("sheet_index", "sheet_name"):
-                            val = getattr(item, attr, None)
-                            if val is not None:
-                                entry[attr] = val
+                    for attr in ("sheet_index", "sheet_name", "shape_index"):
+                        val = getattr(item, attr, None)
+                        if val is not None:
+                            entry[attr] = val
                     images.append(entry)
                 except Exception as exc:
                     reraise_if_disposed(exc)
@@ -1408,6 +1408,7 @@ class ImageDelete(ToolWriterImageBase):
     description: str = (
         "Delete an image from the document. Removes the graphic object; "
         "any frame created by image_insert_frame is a separate object."
+        " When several objects share the name, the error lists their draw-page indexes; delete one with shape_delete(index=N)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
