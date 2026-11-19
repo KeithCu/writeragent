@@ -136,11 +136,9 @@ def _model_key(table: dict[str, Any], model_id: str) -> str:
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
 
-# Waiters for background /v1/models text and image catalog fetches, keyed by _catalog_memo_key.
-_text_fetch_lock = threading.Lock()
-_text_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
-_image_fetch_lock = threading.Lock()
-_image_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
+# Waiters for background /v1/models catalog fetches, keyed by _catalog_memo_key.
+_catalog_fetch_lock = threading.Lock()
+_catalog_fetch_waiters: dict[str, list[tuple[str, Callable[[list[str]], None]]]] = {}
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -739,13 +737,8 @@ def _memo_models_or_fetch(
     endpoint: str,
     on_fetched: Callable[[list[str]], None],
     *,
+    kind: str,
     task_name: str,
-    cached_fn: Callable[[str], list[str] | None],
-    fetch_fn: Callable[[str], list[str] | None],
-    waiters: dict[str, list[Callable[[list[str]], None]]],
-    lock: threading.Lock,
-    deliver_label: str,
-    post_filter: Callable[[str, list[str]], list[str]] | None = None,
 ) -> list[str] | None:
     """Return memoized catalog ids, or fetch once off-thread and post to UI.
 
@@ -754,8 +747,9 @@ def _memo_models_or_fetch(
     ``keystore:`` reference (matching ``has_native_vision`` step 4b), because
     computing the memo key hashes the saved key and would trigger a keyring
     prompt on the UI thread. At most one fetch per endpoint+key runs in flight;
-    concurrent callers share the waiter list and receive one ``main.post``.
-    A failed fetch is not memoized; the next populate retries.
+    concurrent text and image callers share the waiter list and receive one
+    ``main.post`` with their respective slice. A failed fetch is not memoized;
+    the next populate retries.
     """
     from plugin.framework.client.auth import provider_requires_api_key
 
@@ -766,43 +760,67 @@ def _memo_models_or_fetch(
     if provider_requires_api_key(get_provider_from_endpoint(endpoint)) and not has_api_key_for_endpoint(endpoint):
         return None
 
-    cached = cached_fn(endpoint)
-    if cached is not None:
-        return post_filter(endpoint, cached) if post_filter else cached
+    if kind == "text":
+        cached = cached_text_models(endpoint)
+        if cached is not None:
+            return drop_non_text_models(endpoint, cached)
+    else:
+        cached = cached_image_models(endpoint)
+        if cached is not None:
+            return cached
 
     key = _catalog_memo_key(endpoint)
-    with lock:
-        if key in waiters:
-            waiters[key].append(on_fetched)
+    with _catalog_fetch_lock:
+        if key in _catalog_fetch_waiters:
+            _catalog_fetch_waiters[key].append((kind, on_fetched))
             return None
-        waiters[key] = [on_fetched]
+        _catalog_fetch_waiters[key] = [(kind, on_fetched)]
 
     def _job() -> None:
-        ids: list[str] | None = None
-        done: list[Callable[[list[str]], None]] = []
+        text_ids: list[str] | None = None
+        image_ids: list[str] | None = None
+        done: list[tuple[str, Callable[[list[str]], None]]] = []
         try:
-            ids = fetch_fn(endpoint)
+            if kind == "text":
+                text_ids = fetch_available_models(endpoint)
+            else:
+                image_ids = fetch_available_image_models(endpoint)
         finally:
-            with lock:
-                done = waiters.pop(key, [])
+            with _catalog_fetch_lock:
+                done = _catalog_fetch_waiters.pop(key, [])
 
-        if ids is not None:
-            fetched_ids = post_filter(endpoint, ids) if post_filter else ids
+        provider = get_provider_from_endpoint(endpoint)
+        if any(w_kind == "text" for w_kind, _ in done) and text_ids is None:
+            text_ids = cached_text_models(endpoint)
+            if text_ids is None and kind != "text" and provider == "openrouter":
+                text_ids = fetch_available_models(endpoint)
+        if any(w_kind == "image" for w_kind, _ in done) and image_ids is None:
+            image_ids = cached_image_models(endpoint)
+            if image_ids is None and kind != "image" and provider == "openrouter":
+                image_ids = fetch_available_image_models(endpoint)
 
+        deliveries: list[tuple[Callable[[list[str]], None], list[str]]] = []
+        filtered_text = drop_non_text_models(endpoint, text_ids) if text_ids is not None else None
+        for w_kind, cb in done:
+            payload = filtered_text if w_kind == "text" else image_ids
+            if payload is not None:
+                deliveries.append((cb, payload))
+
+        if deliveries:
             def _deliver() -> None:
-                for cb in done:
-                    def _call(fn: Callable[[list[str]], None] = cb) -> None:
-                        fn(fetched_ids)
+                for cb, payload in deliveries:
+                    def _call(fn: Callable[[list[str]], None] = cb, data: list[str] = payload) -> None:
+                        fn(data)
 
-                    best_effort(_call, deliver_label)
+                    best_effort(_call, f"deliver {task_name}")
 
             main.post(_deliver)
 
     try:
         run_in_background(_job, name=task_name)
     except Exception:
-        with lock:
-            waiters.pop(key, None)
+        with _catalog_fetch_lock:
+            _catalog_fetch_waiters.pop(key, None)
         raise
     return None
 
@@ -817,13 +835,8 @@ def memo_text_models_or_fetch(
     return _memo_models_or_fetch(
         endpoint,
         on_fetched,
+        kind="text",
         task_name=task_name,
-        cached_fn=cached_text_models,
-        fetch_fn=fetch_available_models,
-        waiters=_text_fetch_waiters,
-        lock=_text_fetch_lock,
-        deliver_label="deliver fetched text models",
-        post_filter=drop_non_text_models,
     )
 
 
@@ -837,12 +850,8 @@ def memo_image_models_or_fetch(
     return _memo_models_or_fetch(
         endpoint,
         on_fetched,
+        kind="image",
         task_name=task_name,
-        cached_fn=cached_image_models,
-        fetch_fn=fetch_available_image_models,
-        waiters=_image_fetch_waiters,
-        lock=_image_fetch_lock,
-        deliver_label="deliver fetched image models",
     )
 
 

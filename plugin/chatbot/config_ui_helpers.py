@@ -297,10 +297,14 @@ def populate_combobox_with_lru(
         from plugin.framework.i18n import _
         # prompt_lru / image_base_size_lru use endpoint="" — no /v1/models fetch attempted.
         if endpoint:
+            # Key presence (not fetch_succeeded) gates the API-key placeholder because
+            # the sidebar populates before its off-thread catalog fetch finishes.
             if provider and provider_requires_api_key(provider) and not has_key:
                 to_show.append(_("(Enter API Key to load models)"))
             elif req_cap == "image" and fetch_succeeded:
                 to_show.append(_("(No image models on this endpoint)"))
+            elif skip_remote_fetch and remote_models is None:
+                to_show.append(_("(Loading models…)"))
             else:
                 to_show.append(_("(Connection failed)"))
 

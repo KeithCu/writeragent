@@ -14,6 +14,7 @@ from plugin.framework.i18n import _
 _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
     "(Enter API Key to load models)",
     "(Connection failed)",
+    "(Loading models…)",
     "(No image models on this endpoint)",
     "(Default for current endpoint)",
 )

@@ -1674,7 +1674,7 @@ def test_memo_text_models_or_fetch_cold_one_job_posts_all_waiters():
 
     endpoint = "http://localhost:11434"
     cfg._catalog_memos.clear()
-    cfg._text_fetch_waiters.clear()
+    cfg._catalog_fetch_waiters.clear()
     jobs = []
     posted = []
     cb1_calls = []
@@ -1703,7 +1703,7 @@ def test_memo_text_models_or_fetch_cold_one_job_posts_all_waiters():
     finally:
         cfg._catalog_memos.clear()
         # Reset in case an assertion fails before the job runs.
-        cfg._text_fetch_waiters.clear()
+        cfg._catalog_fetch_waiters.clear()
 
 
 def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
@@ -1711,7 +1711,7 @@ def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
 
     endpoint = "http://localhost:11434"
     cfg._catalog_memos.clear()
-    cfg._text_fetch_waiters.clear()
+    cfg._catalog_fetch_waiters.clear()
     jobs = []
     posted = []
 
@@ -1732,7 +1732,7 @@ def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
     finally:
         cfg._catalog_memos.clear()
         # Reset in case an assertion fails before the job runs.
-        cfg._text_fetch_waiters.clear()
+        cfg._catalog_fetch_waiters.clear()
 
 
 @pytest.mark.parametrize(
@@ -1844,7 +1844,7 @@ def test_memo_text_models_or_fetch_together_delivers_text_only():
     posted = []
     received: list[list[str]] = []
     mf._catalog_memos.clear()
-    mf._text_fetch_waiters.clear()
+    mf._catalog_fetch_waiters.clear()
     try:
         with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
              patch.object(mf, "get_api_key_for_endpoint", return_value="k"), \
@@ -1869,4 +1869,124 @@ def test_memo_text_models_or_fetch_together_delivers_text_only():
         assert warm == _TOGETHER_TEXT_IDS
     finally:
         mf._catalog_memos.clear()
-        mf._text_fetch_waiters.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_memo_image_models_or_fetch_warm_returns_image_ids_without_non_text_filter():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "http://localhost:11434"
+    cfg._catalog_memos.clear()
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.requests.sync_request") as mock_http, \
+             patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+            cfg._catalog_memos[cfg._catalog_memo_key(endpoint)] = cfg.CatalogMemo(
+                ids=["llama3"],
+                image_ids=["flux-dev"],
+                non_text_ids={"flux-dev"},
+            )
+            got = cfg.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
+        assert got == ["flux-dev"]
+        mock_http.assert_not_called()
+        mock_bg.assert_not_called()
+    finally:
+        cfg._catalog_memos.clear()
+
+
+def test_memo_text_and_image_models_share_one_cold_job_and_deliver_separate_slices():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "http://localhost:11434"
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    jobs = []
+    posted = []
+    text_calls: list[list[str]] = []
+    image_calls: list[list[str]] = []
+    body = {"data": [{"id": "llama3"}, {"id": "flux-schnell"}]}
+
+    try:
+        with patch.object(mf, "get_api_key_for_endpoint", return_value=""), \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=body) as mock_http:
+            assert mf.memo_text_models_or_fetch(endpoint, text_calls.append, task_name="sidebar-models") is None
+            assert mf.memo_image_models_or_fetch(endpoint, image_calls.append, task_name="sidebar-image-models") is None
+            assert len(jobs) == 1
+
+            jobs[0]()
+            assert mock_http.call_count == 1
+            assert len(posted) == 1
+            posted[0]()
+            assert text_calls == [["llama3", "flux-schnell"]]
+            assert image_calls == [["flux-schnell"]]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "needs_keystore", "has_key"),
+    [
+        ("https://openrouter.ai/api", True, True),
+        ("https://openrouter.ai/api", False, False),
+    ],
+)
+def test_memo_image_models_or_fetch_never_reads_locked_key_or_fetches_keyless(
+    endpoint: str,
+    needs_keystore: bool,
+    has_key: bool,
+):
+    import plugin.framework.client.model_fetcher as cfg
+
+    with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=needs_keystore), \
+         patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=has_key), \
+         patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint") as mock_get_key, \
+         patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+        got = cfg.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
+    assert got is None
+    mock_get_key.assert_not_called()
+    mock_bg.assert_not_called()
+
+
+def test_memo_image_models_or_fetch_openrouter_uses_images_models_endpoint():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://openrouter.ai/api"
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    jobs = []
+    posted = []
+    received: list[list[str]] = []
+    body = {"data": [{"id": "google/gemini-2.5-flash-image"}]}
+
+    try:
+        with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="sk-or-test"), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False), \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=body) as mock_http:
+            assert mf.memo_image_models_or_fetch(endpoint, received.append, task_name="sidebar-image-models") is None
+            assert len(jobs) == 1
+            jobs[0]()
+            assert mock_http.call_count == 1
+            assert mock_http.call_args.args[0].endswith("/v1/images/models")
+            assert len(posted) == 1
+            posted[0]()
+            assert received == [["google/gemini-2.5-flash-image"]]
+
+        with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", return_value="sk-or-test"), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=False):
+            warm = mf.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="sidebar-image-models")
+        assert warm == ["google/gemini-2.5-flash-image"]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
