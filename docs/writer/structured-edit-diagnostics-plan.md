@@ -161,7 +161,7 @@ Rules for constructing suggestions:
 8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `apply_style` already supports).
 9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Because `_lo_style_for_replaced_range` checks partial match before recording, a partial match during recording triggers `STYLE_IGNORED_PARTIAL_MATCH`. Gating on recording status prevents emitting an untracked `apply_style` suggestion during redline recording.
 10. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
-11. **Before/after insertions:** Before/after block inserts apply `data-lo-style` via `insert_html_after_paragraph` (`plugin/writer/html_import.py`, called with `apply_styles=True` from `apply_document_content.py`), importing into a fresh paragraph, so no warning is needed.
+11. **Before/after insertions:** `before` imports at the start of the match's paragraph via `insert_html_at_cursor` (default `apply_styles=True`); `after` uses `insert_html_after_paragraph(apply_styles=True)`, which opens a fresh paragraph. Neither merges, so styles apply and no warning is needed.
 
 **Tests for item 4:**
 - `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.

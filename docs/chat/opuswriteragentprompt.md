@@ -33,7 +33,7 @@
 | 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ✅ Validated via LibreOffice TextSearch2 (ICU); Python-only syntax rejected, ICU classes allowed | st-regex-icu |
 | 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ✅ Writer edit path (Calc/Draw optional); see [structured-edit-diagnostics-plan.md](../writer/structured-edit-diagnostics-plan.md) | Phases 0–3 |
 
-**Tally:** 13 shipped, 3 partial, 6 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
+**Tally:** 15 shipped, 3 partial, 4 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
 
 ## 2. What changed, in plain terms
 
