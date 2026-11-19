@@ -1844,6 +1844,42 @@ def test_memo_text_models_or_fetch_picks_up_settings_memo_with_uncached_keystore
         mf._text_fetch_waiters.clear()
 
 
+def test_memo_text_models_or_fetch_locked_keystore_skips_later_populates():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://api.anthropic.com/v1"
+    locked = {"value": False}
+    jobs = []
+
+    def fake_get_key(_slot: str) -> str:
+        locked["value"] = True
+        return ""
+
+    mf._catalog_memos.clear()
+    mf._text_fetch_waiters.clear()
+    try:
+        with patch.object(mf, "api_key_locked_for_endpoint", side_effect=lambda _ep: locked["value"]), \
+             patch.object(mf, "api_key_needs_keystore_read", return_value=True), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", side_effect=fake_get_key) as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=None):
+            assert mf.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t1") is None
+            assert len(jobs) == 1
+            jobs[0]()
+            assert locked["value"] is True
+            calls_after_worker = mock_get_key.call_count
+
+            # Next populate after locked/cancelled read starts no new job or keystore read.
+            assert mf.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
+            assert len(jobs) == 1
+            assert mock_get_key.call_count == calls_after_worker
+    finally:
+        mf._catalog_memos.clear()
+        mf._text_fetch_waiters.clear()
+
+
 TOGETHER_MODELS_BODY = [
     {"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "type": "chat", "context_length": 131072},
     {"id": "meta-llama/Llama-3.1-8B-Reference", "type": "language"},
