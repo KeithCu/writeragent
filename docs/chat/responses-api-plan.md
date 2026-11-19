@@ -616,6 +616,8 @@ Per project rule, run `make test` before considering implementation complete.
 
 ### Milestone 1: OpenRouter Stateless Beta
 
+**Status (partial):** Stateless Responses transport is implemented in `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`) and called from `plugin/framework/client/openai_shim.py` for `gpt-6*` models when tools are present. The general `api_mode=responses` config setting remains open.
+
 Purpose: make the beta testable with minimal blast radius.
 
 Work:

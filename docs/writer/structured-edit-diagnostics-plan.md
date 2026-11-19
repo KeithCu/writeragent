@@ -1,6 +1,6 @@
 # Structured Edit Diagnostics: `code` + `suggested_call` on Errors and Warnings (Plan)
 
-**Status:** Plan, incorporating the 2026-11-09 Opus review. Tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
+**Status:** Phases 0–3 shipped (`suggest_call` in `plugin/framework/errors.py`, `STYLE_IGNORED_PARTIAL_MATCH` in `plugin/writer/html_import_styles.py`, `OLD_CONTENT_NOT_FOUND` / `ANCHOR_START_NOT_FOUND` / `OLD_CONTENT_TOO_LARGE` / `SHAPE_TEXT_NEEDS_DELEGATION` in `plugin/writer/search.py` and `plugin/writer/apply_document_content.py`, and the `suggested_call` rule in `plugin/framework/prompts.py`). Incorporates the 2026-11-09 Opus review and tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
 **Scope:** Writer editing tools first (`apply_content`, `apply_style`, `search`, `set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
 
 ## 1. Goal

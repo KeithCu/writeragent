@@ -402,7 +402,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 
 **Policy:** `BINARY_MIN_CELLS = 100` — 2D grids with **≥ 100 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
-**Still deferred:** vendored codecs, mmap, payload cache, venv tool RPC.
+**Still deferred:** vendored codecs, mmap, payload cache. (Venv tool RPC is shipped in `plugin/scripting/host_rpc.py`.)
 
 ### Current pipeline and costs
 
