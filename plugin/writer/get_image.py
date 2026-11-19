@@ -221,11 +221,17 @@ class GetImage(ToolBase):
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
         source = _IMAGE_NAME_SOURCE.get(doc_type or "")
-        if source is None:
+        if doc_type != "calc" and source is None:
             return params
         out = copy.deepcopy(params)
-        out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
-        out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
+        if doc_type == "calc":
+            # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
+            # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
+            # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
+            del out["properties"]["page"]
+        if source is not None:
+            out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
+            out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
         return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
@@ -255,10 +261,6 @@ class GetImage(ToolBase):
                 return self._tool_error("page must be a non-negative integer (0-based).")
             if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
-            if ctx.doc_type == "calc":
-                return self._tool_error(
-                    "page render is for Writer, Draw, or Impress; on Calc pass image=<name> or selection=true."
-                )
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
