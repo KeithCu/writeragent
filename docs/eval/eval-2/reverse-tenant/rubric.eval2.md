@@ -49,4 +49,4 @@ CLI: `scripts/eval_2_reverse_tenant_oracle.py` or
 
 ## Open
 
-- `[eng M]` Extend the Reverse Tenant oracle with the deferred checks: exact gold payroll dollars, named-range layout, per-musician totals and dropdown cosmetics. (§ Soft / later (not v1))
+- `[eng M few]` Extend the Reverse Tenant oracle with the deferred checks: exact gold payroll dollars, named-range layout, per-musician totals and dropdown cosmetics. (§ Soft / later (not v1))
