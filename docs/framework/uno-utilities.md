@@ -472,7 +472,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **Notebook markdown images**
 
-`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path`: `normalize_file_url` (`url_utils`), then `uno.fileUrlToSystemPath`, falling back on `urllib.request.url2pathname(urllib.parse.unquote(urlparse(src).path))`.
+`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path` ([`plugin/notebook/writer_importer.py`](../../plugin/notebook/writer_importer.py)): `normalize_file_url` (`url_utils`), then `uno.fileUrlToSystemPath`, falling back on the shared stdlib `path_from_file_url` helper ([`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py)).
 
 ### 3.5 `uno_context.py` scope creep
 
@@ -519,7 +519,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` moved to `vcl_pumping` (re-exported by `uno_context`), and takes the panel's Ask field explicitly.
 10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
-12. Notebook `file://` strip fallback → same URL→path helper.
+12. Notebook `file://` strip fallback → **Landed.** `plugin/notebook/writer_importer.py` (`_file_url_to_local_path`) now falls back to `plugin/scripting/sandbox.py` (`path_from_file_url`). Tests: `tests/notebook/test_writer_importer.py`.
 13. `DocumentService.doc_key` → `get_runtime_uid` (or uid-or-url like MCP). **Landed.** Tree / proximity / FTS caches key on `uid:` / `url:`; modify and unload emit `document:cache_invalidated`. Tests: `tests/writer/test_document_helpers.py`, `tests/writer/test_tree.py`, `tests/writer/test_tree_uno.py`.
 14. Promote `uno_context._normalize_doc_url` to public name when P1 lands. **Landed** as `normalize_doc_url`.
 
@@ -555,7 +555,6 @@ Any P1 unify should extend the **matching** `test_*.py` for the module that beco
 ## Open
 
 - `[eng S]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
-- `[eng S unverified]` Make the research, config and gallery code use the one `path_settings_from_ctx` PathSettings locator instead of separate lookups. (§ 4. Ranked future-work recommendations)
+- `[eng S]` Make `plugin/framework/config.py` (`_resolve_config_path_from_ctx`) and `plugin/writer/images/image_tools.py` (`add_image_to_gallery`) use the shared `path_settings_from_ctx` locator (`plugin/doc/document_research.py` and `plugin/draw/designs.py` already use it). (§ 4. Ranked future-work recommendations)
 - `[eng S]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)
-- `[eng S unverified]` Make the notebook `file://` strip fallback use the shared URL-to-path helper. (§ 4. Ranked future-work recommendations)
-- `[eng S unverified]` Unify the GraphicProvider icon load between `main.py` and `librepy/sidebar_menus.py`, keeping LibrePy's filesystem fallback. (§ 4. Ranked future-work recommendations)
+- `[eng S]` Unify the GraphicProvider icon load between `main.py` and `librepy/sidebar_menus.py`, keeping LibrePy's filesystem fallback. (§ 4. Ranked future-work recommendations)
