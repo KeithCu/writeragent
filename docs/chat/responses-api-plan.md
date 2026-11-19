@@ -614,18 +614,20 @@ Per project rule, run `make test` before considering implementation complete.
 
 ## Recommended Milestones
 
-### Milestone 1: OpenRouter Stateless Beta
+### Milestone 1: OpenRouter Stateless Beta (partially shipped)
+
+**Status:** Partially shipped — `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`, `parse_responses_sync`) implements a stateless Responses transport called from `plugin/framework/client/openai_shim.py` (`OpenAIShim`, provider `openai` only) for `gpt-6*` models when tools are present. `OpenRouterShim` has no Responses path, so OpenRouter routing, the config-only `api_mode=responses` opt-in, and the exit criterion below are still open.
 
 Purpose: make the beta testable with minimal blast radius.
 
 Work:
 
-- Add config-only `api_mode=responses`.
-- Add Responses tool schema converter with `strict: false`.
-- Add stateless message/item adapter.
-- Add non-streaming parser and streaming accumulator.
-- Keep all state local and in-memory.
-- Use full converted history for every OpenRouter Responses request.
+- Config-only `api_mode=responses` (still open).
+- Responses tool schema converter (`_responses_tools` in `plugin/framework/client/responses_shim.py`) with `strict: false` (done).
+- Stateless message/item adapter (`responses_input` / `responses_payload` in `plugin/framework/client/responses_shim.py`) (done).
+- Non-streaming parser (`parse_responses_sync`) and streaming parser (`parse_responses_chunk`) in `plugin/framework/client/responses_shim.py` (done).
+- Keep all state local and in-memory (done).
+- Use full converted history for every OpenRouter Responses request (still open).
 
 Exit criteria:
 
