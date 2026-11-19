@@ -40,9 +40,10 @@ This is the focused evolution of the high-level analysis ideas previously sketch
   - `plugin/calc/specialized.py`: `DelegateToSpecializedCalc` (gateway, `delegate_to_subagent`).
   - `plugin/calc/base.py`: Many `ToolCalc*Base` with `specialized_domain` (solvers, python, pivot_tables, charts, ranges, search, sheets, conditional_formatting, etc.).
   - `plugin/doc/specialized_base.py` (shared): Spins smol `ToolCallingAgent` with `SmolToolAdapter`s from `registry.get_tools(..., active_domain=domain)`. The gateway calls `run_inner_tool_agent`, which calls `build_toolcalling_agent` and `SmolAgentExecutor`. Supports `workflow_finished`.
-- Expanded `analysis` domain and tools are implemented (`plugin/calc/analysis.py` `analyze_data`, `plugin/calc/viz.py` `plot_data`, `plugin/calc/forecast.py` `forecast_data`, `plugin/calc/viz_auto_plot.py`, plus Goal Seek/Solver), backed by trusted helpers in `plugin/scripting/analysis.py` (`describe_data` via `fg-data-profiling`, `monte_carlo` via `pandas-montecarlo`, `run_regression`, `cluster_numeric`, `detect_outliers`, etc.). Calc chat currently hides `analysis` and `python` via `CALC_HIDDEN_SPECIALIZED_DOMAINS`, while trusted helpers remain active for Run Python Script and tests.
+- Trusted analysis helpers in `plugin/scripting/venv/analysis.py` (`describe_data` via `fg-data-profiling`, `monte_carlo` via `pandas-montecarlo`, `run_regression`, `cluster_numeric`, `detect_outliers`, etc.) are live for Run Python Script, `=PY()`, and tests (`plugin/scripting/analysis.py` is the lazy-export facade). The chat tools (`analyze_data` in `plugin/calc/analysis.py`, `plot_data` in `plugin/calc/viz.py`, `forecast_data` in `plugin/calc/forecast.py`, plus `calc_goal_seek` and `calc_solver`) are written but parked on `ToolBaseDummy` and not registered on any surface (`viz_auto_plot.py` is a helper module with no tool class). No `ToolCalc*Base` in `plugin/calc/base.py` has `specialized_domain = "analysis"`, and `CALC_HIDDEN_SPECIALIZED_DOMAINS` (`plugin/framework/prompts.py`) hides `analysis`, `python`, and `python/sql` from Calc chat.
 
 **Remaining gaps vs. desired:**
+- No live chat-level analysis tool surface (`analyze_data`, `plot_data`, `forecast_data`, and solvers are parked on `ToolBaseDummy`; re-enabling requires switching their base to a `ToolCalc*Base` with an `analysis` domain).
 - No discovery bridge tool (`find_and_analyze_relevant_ranges`) for first-class integration between `document_research` (surfacing Calc siblings from Writer) and Calc analysis.
 - "Cleanup" (turning analysis results into formatted Writer content) is ad-hoc today.
 
@@ -410,11 +411,9 @@ Table rows capped at 50 (`MAX_TABLE_ROWS`). Errors use `code` + `message` (e.g. 
 
 **Still TODO (post Phase 0):** Discovery bridge (`find_and_analyze_relevant_ranges`), Writer cleanup tools, analysis cache, cross-doc Writer→Calc handoff polish.
 
-Remaining unimplemented tools (not yet separate tools):
-
 **Tool / domain surface (reuse existing machinery)**:
-- In `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`) and the solvers are implemented; `find_and_analyze_relevant_ranges` and `get_analysis_result_for_writer_cleanup` remain TODO.
-- `plugin/calc/base.py`: `ToolCalcPythonSqlBase` and `specialized_domain = "analysis"` are implemented.
+- In `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`) and the solvers (`calc_goal_seek`, `calc_solver`) are written but parked on `ToolBaseDummy` (not registered); `find_and_analyze_relevant_ranges` and `get_analysis_result_for_writer_cleanup` remain TODO.
+- `plugin/calc/base.py`: No `analysis` base exists. The live SQL surface is `ToolCalcPythonSqlBase` (`specialized_domain = "python/sql"`).
 - The delegation gateway (`specialized.py`) and smol sub-agent path (`specialized_base.py`) will automatically pick up the new tools when `domain="analysis"`.
 - For Calc callers: full power (high-level helpers preferred; raw python domain as escape hatch).
 - For Writer callers: the gateway is already there; just make sure the domain is listed in prompts and the delegate description. The Writer LLM gets the "standard functions" surface plus the ability to request raw Python when needed.
@@ -428,15 +427,15 @@ Remaining unimplemented tools (not yet separate tools):
 
 **Phasing (MVP-first, heavily reusing existing code)**
 
-1. **Phase 0 — Done (trusted helpers + MVP wiring):**
-   - ~~Add the trusted analysis helpers module (`plugin/scripting/analysis.py`).~~ **Done**
-   - ~~Wire high-level tools in `analysis.py` (`analyze_data`) plus `viz.py` (`plot_data`), `forecast.py` (`forecast_data`), and `viz_auto_plot.py`.~~ **Done**
+1. **Phase 0 (trusted helpers + MVP wiring):**
+   - ~~Add the trusted analysis helpers module (`plugin/scripting/venv/analysis.py`, with lazy-export facade `plugin/scripting/analysis.py`).~~ **Done**
+   - Chat tools in `analysis.py` (`analyze_data`), `viz.py` (`plot_data`), and `forecast.py` (`forecast_data`) are written but parked on `ToolBaseDummy` (unregistered); `viz_auto_plot.py` is a helper module with no tool class.
    - ~~Update `analysis-tools.md` and tool descriptions/hints so high-level helpers are preferred.~~ **Done**
-   - ~~Expose under the `"analysis"` domain and update delegation prompts.~~ **Done**
+   - Expose under an active `"analysis"` domain base and update delegation prompts — **not live** (no `analysis` base exists in `plugin/calc/base.py`).
    - ~~Enhance init-script support to ship default helpers.~~ **Done**
 
 2. **Phase 1 (sub-agent surface + discovery)**:
-   - ~~Make "analysis" a proper delegable domain with its own focused toolset.~~ **Done** — `domain="analysis"` includes `analyze_data`, `calc_goal_seek`, and `calc_solver`.
+   - Make `"analysis"` a live delegable domain with its own focused toolset (`analyze_data`, `calc_goal_seek`, and `calc_solver` are currently parked on `ToolBaseDummy`).
    - Add discovery-oriented tools inside it (compose with existing `get_sheet_summary`, range tools, and document_research when needed). Support the Excel-like feature of rich data awareness (we implement via embeddings + our explicit data handoff rather than Excel-style formula-static `%Pn%` bridges / co-volatility; see [ms-py §5.8](../scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import)).
    - ~~Full sub-agent support (smol with limited toolset for the analysis task).~~ **Done** via existing delegation path.
    - Define a standard compact result schema (metrics + data_tables + suggested_writes + writer_cleanup_hints) — this helps both Calc application and Writer "cleanup".
@@ -512,7 +511,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
 - Cleanup fidelity: how smart should the Writer-side "nice formatting + insert" step be? (tables, headings, cross-references back to the source Calc ranges, etc.)
 - Composition with web_research, librarian, or other specialists (e.g. "research the assumptions and then run sensitivity analysis on them in the attached budget").
 - Future expansion beyond Calc: if users start keeping serious data in Writer tables, how (if ever) to bring them into the analysis flow without making extraction too fragile.
-- **Visualization / forecasting extensions (shipped):** trusted `plot_data` ([`plugin/calc/viz.py`](../../plugin/calc/viz.py)), [`forecast_data`](../../plugin/calc/forecast.py) time-series helpers (Phase 1 shipped: anomalies + `auto_plot` bands — [Forecasting Phase 1](../scripting/numpy-domains.md#forecasting-phase-1)), [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py), and Run Python Script **[Viz]** / **[Forecast]** sections — [../scripting/numpy-domains.md § Scientific domain roadmap](../scripting/numpy-domains.md#scientific-domain-roadmap-trusted-helpers).
+- **Visualization / forecasting extensions:** trusted viz/forecasting helpers and Run Python Script **[Viz]** / **[Forecast]** sections shipped (Phase 1 shipped: anomalies + `auto_plot` bands — [Forecasting Phase 1](../scripting/numpy-domains.md#forecasting-phase-1), [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py), [../scripting/numpy-domains.md § Scientific domain roadmap](../scripting/numpy-domains.md#scientific-domain-roadmap-trusted-helpers)), while the chat tools `plot_data` ([`plugin/calc/viz.py`](../../plugin/calc/viz.py)) and [`forecast_data`](../../plugin/calc/forecast.py) are parked on `ToolBaseDummy`.
 
 This keeps the implementation small by maximal reuse of delegation, embeddings for discovery, trusted execution (Calc context), data handoff patterns, and the existing document_research cross-doc machinery.
 
