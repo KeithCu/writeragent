@@ -8,13 +8,7 @@ Related: [benchmarks.md](benchmarks.md), [eval-dev-plan.md](eval-dev-plan.md),
 [string-harness-upgrade.md](string-harness-upgrade.md),
 [dspy-prompt-optimization-plan.md](dspy-prompt-optimization-plan.md).
 
-**Status:** A/B: 20b gained `data_sorting`; header misses persist (models
-likely pass `has_header=false` explicitly — runtime already defaults True
-when omitted). `range_sort` now **requires** `has_header`. Calc directives
-are two short **Do Z because Y** lines (sort routing + `has_header`), not
-a mashed one-liner. Tax relative rule stayed helpful for 120b. Shared
-prompt; no 20b fork. Selective catalog re-measure (PR 613) and next
-steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-current--prs-616--617--618).
+**Status:** Shipped: `SortRangeTool` (`plugin/calc/cells.py`) now **requires** `has_header` (`["range", "has_header"]`), `CALC_CORE_DIRECTIVES` (`plugin/framework/prompts.py`) splits `SORT:` into two short lines (routing + header labels), and `openai/gpt-oss-20b` passes both `data_sorting` and `tax_column` in [`benchmark_results_details.json`](../../scripts/prompt_optimization/benchmark_results_details.json) (14/19 hard pass). Shared prompt; no 20b fork. Selective catalog re-measure (PR 613) and next steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-current--prs-616--617--618).
 
 ## Snapshot
 
@@ -221,9 +215,7 @@ production-compatible version of a demo is 2–3 lines in
 - [x] Draft the Calc directive patches + `range_sort` description (DO-first sort + `has_header`; relative formulas; slimmed after 120b miss)
 - [x] First 5-task A/B on 20b and 120b — 20b gained `data_sorting`; 120b `has_header` miss (`header row is not first`)
 - [x] Re-A/B after wording — header misses persist; likely explicit `has_header=false`
-- `[eng S unverified]` [ ] Re-A/B after required `has_header` + split DO lines
-- `[eng S unverified]` [ ] Full 17 if the A/B is a win and 120b does not regress
-- `[eng S unverified]` [ ] Tool-subset sweep if `data_sorting` still fails
+- `[eng S]` [ ] Full 17 if the A/B is a win and 120b does not regress
 - [x] Wrap `llm_chat_eval` as a DSPy module (`program_llm.py`; MIPROv2 `--student llm`)
 - `[idea M]` [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
