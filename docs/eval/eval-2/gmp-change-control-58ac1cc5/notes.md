@@ -77,4 +77,4 @@ not a letter-shift of `rubric_pretty.txt`.
 
 ## Open
 
-- `[eng S]` Harness: open the Draw sidebar deck and register the form as a live peer without a human click before a headed trial. (§ Pre-open recipe (v1 cheat))
+- `[eng S few]` Harness: open the Draw sidebar deck and register the form as a live peer without a human click before a headed trial. (§ Pre-open recipe (v1 cheat))
