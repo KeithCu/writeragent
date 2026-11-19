@@ -68,6 +68,14 @@ log = logging.getLogger(__name__)
 
 # Longest an SSE keepalive wait goes without checking HttpServer.stop's flag.
 _SSE_STOP_POLL_SEC = 0.5
+# event: message is what python-sdk _handle_sse_event reads. One process-wide
+# session means every connected stream gets the same notification (the spec's
+# "one stream per message" rule assumes one client per session).
+_TOOLS_LIST_CHANGED_EVENT = (
+    b"event: message\ndata: "
+    + json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}).encode("utf-8")
+    + b"\n\n"
+)
 
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({wire_types.MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
 
@@ -471,7 +479,7 @@ class MCPProtocolHandler:
         )
 
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15, stop_event: threading.Event | None = None) -> None:
-        """Keep an SSE stream alive until the client drops or the HTTP server stops.
+        """Keep an SSE stream alive and announce tool-catalog changes until disconnect or server stop.
 
         This loop runs on the ThreadingMixIn request thread until the socket
         errors. HttpServer.stop() only ends serve_forever(), so each toggle
@@ -488,6 +496,7 @@ class MCPProtocolHandler:
         if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
             return
+        seen_generation = mcp_session.tool_catalog_generation()
         try:
             while not stop_event.is_set():
                 try:
@@ -509,12 +518,20 @@ class MCPProtocolHandler:
                         if left <= 0:
                             break
                         readable, _unused, _unused2 = select.select([sock], [], [], min(left, _SSE_STOP_POLL_SEC))
-                        if readable:
+                        if readable or mcp_session.tool_catalog_generation() != seen_generation:
                             break
                 except (OSError, ValueError):
                     break
                 if stop_event.is_set():
                     break
+                current_generation = mcp_session.tool_catalog_generation()
+                if current_generation != seen_generation:
+                    seen_generation = current_generation
+                    try:
+                        handler.wfile.write(_TOOLS_LIST_CHANGED_EVENT)
+                        handler.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
                 if not readable:
                     continue
                 try:

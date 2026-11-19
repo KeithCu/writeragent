@@ -22,7 +22,7 @@ def test_initialize_result_required_keys():
         instructions="test instructions",
     )
     assert result["protocolVersion"] == "2024-11-05"
-    assert result["capabilities"]["tools"]["listChanged"] is False
+    assert result["capabilities"]["tools"]["listChanged"] is True
     assert result["serverInfo"]["name"] == "WriterAgent MCP"
     assert result["serverInfo"]["version"] == "1.0.0"
     assert result["instructions"] == "test instructions"

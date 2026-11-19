@@ -44,16 +44,16 @@ The chosen binary must be on `PATH`. `start()` stores a different `last_error` w
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
-| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP). `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
+| `GET` | `/mcp` | SSE stream: keepalive comments and `notifications/tools/list_changed` when the open document-type set changes. `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
 | `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
-| `GET` | `/health` | Liveness |
+| `GET` | `/health` | Liveness and `tool_catalog_generation` counter |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
 
 There is **no** `/api/config` endpoint (removed — config is Settings / `writeragent.json` only).
 
 **Code:** [`plugin/mcp_server/mcp_protocol.py`](../plugin/mcp_server/mcp_protocol.py), [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py), [`plugin/mcp_server/__init__.py`](../plugin/mcp_server/__init__.py), [`plugin/mcp_server/server.py`](../plugin/mcp_server/server.py) (`mcp_endpoint_url`).
 
-**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. Today only SSE keepalive is sent. `_mcp_initialize` filters to `_SUPPORTED_HTTP_PROTOCOL_VERSIONS` or else `MCP_PROTOCOL_VERSION`, and `initialize_result` copies that single `protocol_version`. Release OXTs strip `@deal`.
+**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. `GET /mcp` and `GET /sse` streams send keepalive comments plus `notifications/tools/list_changed` events when the open document-type set changes. `_mcp_initialize` filters to `_SUPPORTED_HTTP_PROTOCOL_VERSIONS` or else `MCP_PROTOCOL_VERSION`, and `initialize_result` copies that single `protocol_version`. Release OXTs strip `@deal`.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
@@ -444,7 +444,9 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 
 > Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `tool_find` covers the full no-document catalog on demand).
 
-> Note: `tools/list` is not re-sent when the mode changes mid-connection (`listChanged` is `false`), so reconnect after switching modes.
+> Note: `initialize` advertises `tools.listChanged: true` so clients re-list when a document type is opened or closed. A `mcp.tool_exposure_mode` change mid-connection is still not announced, so reconnect after switching modes.
+
+**Tool list changes:** Registering MCP routes installs one process-wide `GlobalEventBroadcaster` listener (`DocumentService.watch_open_doc_types`) that records `open_doc_types()` in `mcp_session.record_open_doc_types`. When the set of open document types changes (a new type opens, or the last document of a type closes), `tool_catalog_generation()` advances. Connected `GET /mcp` and `GET /sse` streams check the counter every 0.5 s (`_SSE_STOP_POLL_SEC`) and write `event: message` / `data: {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}`. Multiple document events inside one 0.5 s slice coalesce into one notification, and because WriterAgent has one process-wide session every connected stream receives the same frame. `/health` exposes `tool_catalog_generation` for the stdio bridge. Clients that never open `GET /mcp` or ignore `notifications/tools/list_changed` must re-run `tools/list` or reconnect.
 
 ---
 
@@ -568,7 +570,7 @@ The bridge is a **pure-stdlib** stdio MCP server that forwards JSON-RPC to Libre
 | `WRITERAGENT_MCP_URL` | `http://localhost:18765/mcp` | Target MCP endpoint |
 | `WRITERAGENT_MCP_PROTOCOL` | `2025-11-25` (keep in sync with [`wire_types.py`](../plugin/mcp_server/wire_types.py)) | Protocol version in placeholder `initialize` when LO is down |
 
-**When LibreOffice is down at handshake:** `initialize` still succeeds locally (placeholder `instructions`, `tools.listChanged: true`); `tools/list` returns `[]`; other methods return a clear "not reachable" error. A background watcher emits `notifications/tools/list_changed` when `/health` transitions to up, so tools refresh **without restarting the MCP client**.
+**When LibreOffice is down at handshake:** `initialize` still succeeds locally (placeholder `instructions`, `tools.listChanged: true`); `tools/list` returns `[]`; other methods return a clear "not reachable" error. A background watcher emits `notifications/tools/list_changed` when `/health` transitions to up or its `tool_catalog_generation` changes, so tools refresh **without restarting the MCP client**.
 
 **Stale instructions edge case:** `initialize` `instructions` are delivered **once per MCP session**. If the bridge served the placeholder because LO was still starting, the client will **not** automatically receive the real manual when LO comes up — only the tool list refreshes. **Restart the MCP client** (or reconnect) after LibreOffice is running if you need the full `initialize` instructions. Direct HTTP clients that connect after LO is up are unaffected.
 

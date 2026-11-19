@@ -133,7 +133,9 @@ def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None
 def initialize_result(*, protocol_version: str, server_version: str, instructions: str) -> dict[str, Any]:
     return {
         "protocolVersion": protocol_version,
-        "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
+        # The GET stream emits notifications/tools/list_changed when the open
+        # document-type set changes (mcp_protocol._run_sse_keepalive_loop).
+        "capabilities": {"tools": {"listChanged": True}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
         "serverInfo": {"name": "WriterAgent MCP", "version": server_version},
         "instructions": instructions,
     }

@@ -148,3 +148,25 @@ def test_stale_batch_is_404_without_processing(mcp_server):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         _post_mcp(mcp_server, batch, session_id="deadbeef")
     assert exc_info.value.code == 404
+
+
+def test_record_open_doc_types_seeds_then_advances_only_on_change():
+    mcp_session.reset_tool_catalog_for_tests()
+    try:
+        assert mcp_session.tool_catalog_generation() == 0
+        assert mcp_session.record_open_doc_types(frozenset({"calc"})) is False
+        assert mcp_session.tool_catalog_generation() == 0
+
+        assert mcp_session.record_open_doc_types(frozenset({"calc"})) is False
+        assert mcp_session.tool_catalog_generation() == 0
+
+        assert mcp_session.record_open_doc_types(frozenset({"calc", "writer"})) is True
+        assert mcp_session.tool_catalog_generation() == 1
+
+        assert mcp_session.record_open_doc_types(frozenset({"calc"})) is True
+        assert mcp_session.tool_catalog_generation() == 2
+
+        assert mcp_session.record_open_doc_types(frozenset()) is True
+        assert mcp_session.tool_catalog_generation() == 3
+    finally:
+        mcp_session.reset_tool_catalog_for_tests()
