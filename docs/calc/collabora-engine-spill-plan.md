@@ -341,3 +341,11 @@ The following items are deliberately separated from this engine spill implementa
 | **AddIn Matrix Push** | Converts UNO sequences to `ScMatrix` | [`sc/source/core/tool/addincol.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addincol.cxx) `SetResult` |
 | **JSON Deserialization** | Converts JSON envelope to UNO Any / Sequence | [`scaddins/source/pythoncompute/anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) `promoteFlatNumeric`, `elemsToAny` |
 | **LibrePy Column Spill** | Desktop extension spill grid normalization | [`plugin/calc/python/addin_values.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/addin_values.py) `result_as_spill_grid` |
+
+
+## Open
+
+- `[feature M unverified]` Make `=PY()` and `=PYTHON()` count as array-intent in the Collabora engine (`rpnIntendsArrayResult`) so the cell becomes a dynamic-array master and spills, resizes, shrinks and collapses to a scalar. (§ 7. Proposed Engine Modifications)
+- `[eng M unverified]` Add CppUnit tests for spill: basic 2x2, `#SPILL!` collision and resolution, scalar collapse, `#BUSY!` stability, `=@PY`, CSE, `=SUM(PY())` and ODS/XLSX roundtrips. (§ 9. Verification & Test Plan)
+- `[fidelity S unverified]` Serialize 1D JSON lists as a column vector in `anyjson.cxx` (`promoteFlatNumeric`, `elemsToAny`) to match Excel and LibrePy. (§ 10. Out of Scope & Future Work)
+- `[fidelity S]` Format DataFrame header rows for results delivered by the Collabora compute container, which today passes the raw JSON grid. (§ 10. Out of Scope & Future Work)

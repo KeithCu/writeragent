@@ -614,3 +614,24 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | **1d** | Shared kernel per document, wsd-owned `session_id`. | Last: it brings back state and lifetime risk (see [Bug classes fixed](#bug-classes-fixed-and-how-we-prevent-them)). |
 
 Phases 2–5 each get a one-page plan when they come up.
+
+## Open
+
+- `[feature M]` Python error detail look-aside so a failing `=PY()` stays `#VALUE!` with `ISERROR` true while the selected cell's error help and status bar show the Python message (Collabora Core and AddIn work). (§ F6 — Python error detail (look-aside))
+- `[eng M]` Land the plot-images (F3) and single-cell auto-spill (F7) branches on Gerrit, which are implemented but not yet submitted. (§ Ordered slices)
+- `[feature M]` Shared workbook kernel for Online: coolwsd sets a server-derived `session_id` and mode, and calls `/v1/session/reset` on broker destroy, since only the service side exists. (§ F5 — Shared workbook kernel)
+- `[eng S]` Manual or scripted scalar NumPy smoke path showing `import numpy` runs only in the compute service process. (§ F2 — Scalar NumPy smoke)
+- `[eng S]` Switch the kit to the multipart POST and retire the single-JSON peel ingress in the compute service. (§ HTTP ingress: peel vs multipart)
+- `[eng S]` Ops-level compute container isolation: cgroup memory and CPU limits and a private bridge network. (§ G5 — Service isolation)
+- `[eng S]` Close remaining Online test gaps: allowlist reject, corrupt upward-frame injection, and disconnect mid-flight. (§ G8 — Test coverage gaps)
+- `[eng S]` Reviewer nits: a release-note sentence on the `PY` display name versus Excel semantics, en-US-only AddIn help, C-ABI-only exports for `anyjson` test helpers, and `IwyuFilter_scaddins.yaml`. (§ Still open before Gerrit)
+- `[eng M]` Prepare the series split (generic Calc fixes, Core AddIn, Online kit/wsd, feature branches) for upload when requested. (§ G9 — Series, naming, and hygiene)
+- `[fidelity S]` Core alias so Collabora Online can open LibrePy-written `=PY()` files, which currently show `#NAME?` in that direction. (§ File interop with LibrePy / WriterAgent (desktop))
+- `[eng S]` Classic `RemoteComputeBackend` that posts to the compute service so the service can be debugged without an Online rebuild. (§ Classic remote testing (optional))
+- `[eng S unverified]` Publish the compute image with a pinned NumPy, a short admin enablement doc, and a CI smoke test running `=PY("1+1")`. (§ Baby steps, 0a)
+- `[eng S]` Gather real latency and payload-size numbers from early users before touching any limit. (§ Baby steps, 0c)
+- `[idea S]` AddIn-emitted `timeout_ms`, deferred because wsd defaults and service clamping suffice. (§ Explicitly deferred)
+- `[feature L]` Browser Monaco / Run Script / diagnostics authoring UX for Online, not pywebview in the jail. (§ Next steps (roadmap), Phase 2)
+- `[feature M]` Excel `.xlsx` Python support on Online by calling the OOXML rewriter on open and save. (§ Next steps (roadmap), Phase 3)
+- `[feature M]` Expose LibrePy-style local OCR on Online with a config settings UI. (§ Next steps (roadmap), Phase 4)
+- `[feature L]` Admin-baked science helper stacks in the compute image, exposing analysis helper tools without the calc facade. (§ Next steps (roadmap), Phase 5)

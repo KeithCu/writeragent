@@ -363,3 +363,10 @@ No `make test-uno`. No LO scripted pack work.
   (beyond the flag row) when we want native fidelity on every task —
   already supported by the harness; not required for the string-world
   work in this doc.
+
+## Open
+
+- `[feature M]` Multi-turn eval: refresh `[DOCUMENT CONTENT]` after each user turn using `export_for_prompt()`. (§ Later (not this plan))
+- `[eng S]` Implement more core tools on the worlds, such as `add_comment` and `sheet_list`, when a task needs them. (§ Later (not this plan))
+- `[eng M]` Run MIPROv2 against `agent_score` once the metric is stable. (§ Later (not this plan))
+- `[eng M unverified]` Broader `--backend lo` / `--backend auto` ranking of the full pack for native fidelity on every task. (§ Later (not this plan))

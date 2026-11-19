@@ -44,3 +44,7 @@ styling, and a full gold-rubric grader. Do not fail on `.xlsx` vs `.ods`.
 
 CLI: `scripts/eval_2_calc_primary_oracle.py` or
 `scripts/eval_2_headed.py --task calc-primary-model --score`.
+
+## Open
+
+- `[eng M]` Extend the Calc-primary oracle with the deferred checks: dropdown data-validation chrome, exact gold NPV and ranking order, and chart styling. (§ Soft / later (not v1))

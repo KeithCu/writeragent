@@ -903,3 +903,24 @@ Remaining work lives in the child doc (or [§7 backlog](#calc-ux-backlog)). Do *
 | Monaco editor remaining phases | [scripting/monaco-editor-dev-plan.md](scripting/monaco-editor-dev-plan.md) |
 | Jupyter Writer import (Phase 1: import + ▶ run, ATX markdown, output replace) | [writer/jupyter-notebook-import.md](writer/jupyter-notebook-import.md) |
 
+
+## Open
+
+- `[feature M]` Object cards: show a compact cell label such as `[DataFrame 150×4]` for complex `=PY()` returns and an inspect dialog with shape, dtypes and head, instead of `#VALUE!`. (§ Calc UX backlog > Object cards)
+- `[feature M unverified]` Context-aware `=PY()` generation from nearby ranges and headers, a pasteable `=PY("…")` template from `=PROMPT()`, and stronger multi-step analysis prompts. (§ Calc UX backlog > AI code synthesis)
+- `[feature M unverified]` Return a DataFrame as a rich Calc table with headers, formats and filters, and optionally keep the first row or column as the pandas Index. (§ Calc UX backlog > Unphased items)
+- `[feature M unverified]` JSON `result` envelope (`__wa_payload__`) so one `=PY()` or agent script can update several cells through `payload_codec` and a host apply step. (§ Calc UX backlog > Unphased items)
+- `[feature S unverified]` Short traceback snippet in the cell error string and an inline stdout or thumbnail preview under the cell. (§ Calc UX backlog > Unphased items)
+- `[feature M]` Per-formula `timeout_sec` and idle-worker teardown; today only the global Settings → Python timeout exists. (§ Calc UX backlog > Unphased items)
+- `[eng M]` Shared-kernel soft timeout that sends `SIGINT` then `SIGKILL` and invalidates the DAG state, plus LRU bounds on large DataFrames kept in the shared namespace. (§ Calc UX backlog > Unphased items)
+- `[feature M unverified]` Named ranges, structured tables and `headers` passed into `data` for `=PY()`. (§ Calc UX backlog > Unphased items)
+- `[fidelity M unverified]` Align mismatched multi-range shapes before NumPy calls such as `np.corrcoef`, and keep pass-through blanks empty via a blank side-channel. (§ Calc UX backlog > Unphased items)
+- `[feature L]` Python edit dialog: a modal XDL editor (tier 1), a short formula plus a document-store key (tier 2), and a LibrePythonista-style IDE surface (tier 3). (§ Optional: Python edit dialog (deferred UX))
+- `[feature S]` Settings or wizard default that creates the code-in-a-cell `=PY($A$1; …)` pattern for long scripts. (§ Future product directions (WriterAgent))
+- `[feature L]` Python editor gaps: syntax squiggles, a Calc range picker and full Jedi autocompletion in the CodeMirror/Monaco child. (§ Run Python Script & the Python editor)
+- `[fidelity L]` LibreOffice/Collabora compiler patch: grow the 1024-character `MAXSTRLEN` string-symbol limit and accept curly quotes, with `LEN` core tests. (§ Future LibreOffice formula-string work)
+- `[feature M]` Floating plot layer and the unshipped shortcuts for plot float vs embedded, Value vs Object return, and object card preview. (§ Keyboard shortcuts and recalc)
+- `[eng M unverified]` Serialization performance work, including the Cython `vec_pack` download. (§ Other deferred pointers)
+- `[feature L unverified]` Remaining domain helpers for geospatial and audio. (§ 9. Implementation status)
+- `[feature L unverified]` Collabora Online jail-safe `=PY()` plot and Monaco support. (§ 9. Implementation status)
+- `[idea M]` Low-priority ideas: a Mito-style GUI-to-pandas action recorder, A2UI-style dynamic sidebar controls from sheet context, spreadsheet-to-Python import, and `sheet.range("A1:B2").values = matrix` sugar once the tool RPC is stable. (§ Calc UX backlog > Unphased items)

@@ -259,3 +259,8 @@ Each phase is independently shippable, maintains green tests, and requires no te
 | `plugin/writer/apply_document_content.py` | `tests/writer/test_apply_document_content_structured_return.py` | Coded parameter validation errors; `PARA_PROPERTY_UNSUPPORTED` warnings in `warnings` list. |
 | UNO integration | `tests/writer/test_content_style_model_uno.py` | Replay test: execute `suggested_call` and verify host paragraph is restyled while neighbouring paragraphs are preserved. |
 | `plugin/framework/prompts.py` | `tests/framework/test_prompts.py` | Prompt retains `suggested_call` rule in `CONFIRM_EDITS_FROM_STRUCTURED_FIELDS`. |
+
+## Open
+
+- `[eng M]` Migrate Calc and Draw `warnings` from `list[str]` to `list[Diagnostic]` (`plugin/draw/shapes.py`, `plugin/calc/charts.py`, vision). (§ Phase 4 (Optional): Calc and Draw adoption)
+- `[fidelity S unverified]` Warn when before/after inserts silently drop `data-lo-style` via `apply_styles=False`, accounting for boundary snapping. (§ Partial-match style skips (item 4) in detail)

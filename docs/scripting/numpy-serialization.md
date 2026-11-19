@@ -809,3 +809,14 @@ UNO read → Py list per cell → host_pack (array.tobytes) → pickle.dumps (pr
 | Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
 | Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
 | DataFrame `.to_dict` | Priority 5 |
+
+## Open
+
+- `[eng S]` Profile inside LibreOffice (legs A to D: UNO range read, host pack, worker round-trip, host unpack) on realistic sheets, as the gate for every other serialization change. (§ Priority 1 — Profile inside LibreOffice (gate for everything else))
+- `[eng M]` Pack closer to UNO cells with a single UNO-to-bytes pass or Cython pack, only if the profile shows read and pack dominate. (§ Priority 3 — Host: pack closer to UNO cells (code, if profiling says read/pack hurts))
+- `[eng M]` Cython flatten accelerator build and packaging, currently experimental and not shipped. (§ Building host native extensions (Cython))
+- `[eng M]` Keep `split_grid` opaque through the matrix and session egress path, decoding to lists only per-cell, if host unpack dominates. (§ Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot))
+- `[idea S]` Optional `float32` envelope dtype to roughly halve wire bytes when precision allows. (§ Priority 5 — Smaller wire and pandas egress (experiments))
+- `[eng M]` Worker payload cache keyed by `data_id` plus range content hash so an unchanged range is not resent on every recalc. (§ Priority 6 — Worker payload cache (same range, many recalcs))
+- `[idea M]` Vendored msgpack/orjson codecs or temp-file mmap transport, only if LibreOffice profiles show serialization dominating. (§ Priority 7 — Defer unless LO profiles disagree with bench)
+- `[eng S]` Add a `--candidates` option to `scripts/bench_serialization.py` to compare orjson, msgpack and zlib against the current formats. (§ Benchmark checklist (regression / future optimizations))

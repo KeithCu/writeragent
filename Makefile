@@ -355,6 +355,9 @@ openrouter-catalog:
 	"$(PYTHON)" scripts/sync_orca_openrouter_catalog.py
 	"$(PYTHON)" -m ruff format plugin/framework/default_models.py
 
+open-index:
+	"$(PYTHON)" scripts/generate_open_index.py
+
 update-xml:
 	"$(PYTHON)" -c "import sys; sys.path.insert(0, '$(SCRIPTS)'); from manifest_registry import generate_update_xml; generate_update_xml('$(PROJECT_ROOT)', 'update.xml')"
 

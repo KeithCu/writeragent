@@ -671,3 +671,16 @@ If starting implementation in the Collabora Online / Core tree, a plausible orde
 - **Files:** `kit/ChildSession.cpp`, `test/UnitPythonCompute.cpp`.
 - Verify two-cell Shared Kernel execution in Online: Cell 1 sets `x = 42`, Cell 2 evaluates `x + 1`, result is `43` with zero race conditions.
 - Verify cap-hit infobar message delivery to client session.
+
+
+## Open
+
+- `[eng M]` Off-main multi-workbook keyed strip: carry a real eval-time workbook id so two open workbooks strip independently on off-main recalc. (§ 8. Implementation status)
+- `[eng S]` Sheet-scoped mixed-poison hint, so a user-authored `=PY()` on one sheet does not stop strip-safe marking of the same code on another sheet. (§ 7. Risks)
+- `[eng S]` Full re-chain of a sheet when the rehoming mismatch after insert or delete is large, including undo after deleting a middle cell. (§ 10. Tests)
+- `[eng S]` Strip-on-disable: turning the flag off removes the fields we attached while keeping user-authored last arguments. (§ 9.4 Flag turned off — leave refs)
+- `[feature M]` Cross-sheet and workbook-global order chains and spatial clustering of independent `=PY()` groups. (§ 8. Implementation status)
+- `[feature S]` Raise the 100-cell discovery cap, add sidebar annotations and an Excel export special case for geometric chains. (§ 8. Implementation status)
+- `[eng S]` Finish the doc updates listed before calling the geometric order flag shipped: hub session modes, ms-py-compatibility pointer, Settings helper text, status flip. (§ 11. Docs still to update before calling this shipped)
+- `[idea L]` Chain-batch the dirty suffix of a geometric chain into one compute-service POST to save round trips in Collabora Online. (§ Batching — not needed for LibrePy; maybe for the compute service)
+- `[feature L unverified]` Collabora engine implementation: `ScGeometricRecalcManager` in `sc/`, an inhibit gate while the predecessor is pending, param-cache identity per cell, load-time restore, cap-hit infobar and CppUnit tests. (§ 13.6 Implementation Phases (Roadmap for C++ Development))

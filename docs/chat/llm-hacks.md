@@ -238,3 +238,8 @@ Tests: [`tests/framework/test_stream_delta.py`](../../tests/framework/test_strea
 ---
 
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
+
+## Open
+
+- `[fidelity S]` Send `"think": true` or a reasoning effort from `OllamaShim.build_chat_request` for thinking-capable models if Ollama's reasoning still does not reach the sidebar. (§ 7. Local LLM thinking, Step 3)
+- `[fidelity S]` Stop a bare `<` split exactly before `/think>` from leaking into content in the think-tag splitter. (§ 7. Local LLM thinking, Tag parsing and remaining edge cases)

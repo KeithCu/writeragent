@@ -593,3 +593,13 @@ Our solution is the `next_tool` dispatcher:
 The original [writeragent2](file:///home/keithcu/Desktop/Python/writeragent/writeragent2) attempted to dodge UI freezes by forcing the entire program state onto a background thread, which ironically caused deadlocks and crashes because LibreOffice does not allow cross-thread UI/Document manipulation.
 
 Our new architecture keeps the orchestration safely on the main thread while using threading purely for I/O and explicitly pumping LibreOffice events (`processEventsToIdle`). This guarantees a perfectly responsive sidebar without compromising application stability.
+
+## Open
+
+- `[eng M unverified]` Finish the producer-batching audit by routing every remaining raw `CHUNK` / `THINKING` put through a `BatchingStreamQueue` or an explicit flush before control items, starting with the ACP backend. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S unverified]` Flush the active send's batcher before the rich-text rerender or clear path in `panel.py` so un-emitted text is not lost. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S]` Add a streaming test asserting that consumer-side `CHUNK` frequency stays near four to five per second with a batching producer. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S]` Make the batcher the default in the generic `run_*_async` helpers, with an opt-out for tests that need exact fragment timing. (§ What was deliberately left in the "global audit" bucket)
+- `[fidelity S]` Add provider-specific filtering of replayed reasoning, such as dropping stale Gemini encrypted blocks after an upstream switch. (§ 3.4 Future considerations (notes))
+- `[eng S]` Add a combined stream test fixture for `reasoning_details` plus `tool_calls`. (§ 3.4 Future considerations (notes))
+- `[eng S]` Expose the reasoning-preservation toggle and cap in Settings instead of module globals. (§ 3.4 Future considerations (notes))

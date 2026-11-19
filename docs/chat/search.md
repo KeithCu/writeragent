@@ -183,3 +183,9 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 - Language: the document-level `CharLocale` wins; otherwise the first non-empty body paragraph with a usable locale (tables and blank paragraphs are skipped, `zxx` is ignored). The response reports `detected_language` (the tag as read), `language` (the Snowball algorithm actually used; still `english` when unsupported) and `stem_fallback: true` when the detected tag has no Snowball algorithm.
 - Stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) are normalized through the same tokenizer as document and query tokens, so accented and punctuated entries match.
 - Grammar: `AND` is the default, plus `OR`, `NOT`, and one `NEAR/N` per query. `NEAR/N` is *paragraph-index distance* (within N paragraphs), not word proximity. Mixed `AND`/`OR` and a second `NEAR/N` are rejected with an error.
+
+---
+
+## Open
+
+- `[feature L]` Connect to the user's running Chrome (CDP) or Firefox (Marionette) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)

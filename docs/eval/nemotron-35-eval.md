@@ -196,10 +196,11 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 
 ## Open
 
-- [ ] Bucket A: dest + `range_sort` A/B on Lightning, 20b, 120b
-- [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
-- [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
-- [ ] Bucket D: Writer apply / don’t-destroy lines
-- [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
-- [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
-- [ ] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped wording
+- `[eng M unverified]` [ ] Bucket A: dest + `range_sort` A/B on Lightning, 20b, 120b
+- `[eng S unverified]` [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
+- `[eng S unverified]` [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
+- `[eng S unverified]` [ ] Bucket D: Writer apply / don’t-destroy lines
+- `[eng S unverified]` [ ] Bucket E: thinking-off token/pass A/B (Lightning only)
+- `[eng M unverified]` [ ] Full 17 for Lightning after a winning bucket; 20b + 120b smoke
+- `[eng S unverified]` [ ] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped wording
+- `[idea S]` Try OpenRouter Exacto routing for tool-calling accuracy on Lightning, with the same A/B caveats. (§ E — thinking off (harness experiment, not a shipped prompt))

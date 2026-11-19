@@ -1168,3 +1168,18 @@ Only if inline HTML + tables still collapse in Writer:
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
 > Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+
+## Open
+
+- `[feature M]` Draw and Impress text-box egress: insert OCR text near the selected graphic instead of returning text only. (§ 4b. Phase 1b Calc development plan (shipped))
+- `[feature L]` `detect_objects`, `detect_layout` and `recognize_pipeline` helpers on Ultralytics with Vision Helpers templates. (§ 9. Trusted helpers (planned API))
+- `[feature M]` `analyze_image` multi-helper LLM tool taking a helper name, params and a source (selection, named graphic or nearby file). (§ 18.2 Planned: `analyze_image` (multi-helper))
+- `[feature S]` Per-folder OCR result cache keyed by content hash, beside the embeddings cache. (§ 14. Caching)
+- `[idea S]` `perceptual_hash` helper on numpy. (§ 9. Trusted helpers (planned API))
+- `[feature S]` Context-menu entry or a Recognize Image menu item on a graphic that runs the Extract text helper. (§ 2.6 Optional follow-on UX (not Phase 1))
+- `[feature S]` Image name field in the Monaco script toolbar instead of editing `image_name` in params. (§ 3. Current code state (grounded))
+- `[feature M]` Block colour sampling for visual layout HTML: banners and panels take background and text colours sampled from the source image, behind `html_mode=layout`. (§ 21.5 Phase 1 — Block color sampling (Tier B))
+- `[eng S]` Validation spikes for visual layout HTML: StarWriter colour retention, XHTML import versus StarWriter, and table-grid columns. (§ 21.4 Phase 0 — Validation spikes (1 day, low risk))
+- `[fidelity S]` Semantic enrichment of vision HTML: list items, title versus section heading levels, and bold ALL-CAPS lines. (§ 21.7 Phase 3 — Tier A semantic enrichment (can parallel Phase 1))
+- `[idea L]` Host insert path for visual layout through vision-only style application, XHTML import, Writer text frames or an ODT fragment, if inline tables and colours are not enough. (§ 21.8 Phase 4 — Host / insert path (if Tiers B–C insufficient))
+- `[feature S]` Write the alt text or description of a graphic from its OCR summary. (§ 2.4 Applying results (host egress))

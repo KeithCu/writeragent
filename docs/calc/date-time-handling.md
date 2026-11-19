@@ -1000,3 +1000,13 @@ Through the production `CellInspector.read_range(include_format_info=True)`:
 - [Eike Rathke on date acceptance patterns](https://erack.org/blog/archives/8-LibreOffice-date-acceptance-patterns.html) — ISO 8601 is accepted in every locale; note the interactive-input caveat in §8.1.
 - [ODF 1.3 schema](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part3-schema/OpenDocument-v1.3-os-part3-schema.html) — persisted date/time value types.
 - [Microsoft Excel 1900 leap-year behavior](https://learn.microsoft.com/en-us/troubleshoot/office/excel/wrongly-assumes-1900-is-leap-year) — raw-serial interoperability boundary.
+
+
+## Open
+
+- `[feature M]` Accept locale-display date and time forms (such as `08/05/2026`) on write, which is ambiguous across locales today and is written as text. (§ 5.7 What to do next)
+- `[fidelity S]` Widen the write grammar to unpadded dates (`2026-8-8`), fractional seconds, `24:00` and calendar durations (`P1D`, Y/M/W). (§ 5.7 What to do next)
+- `[idea M]` Accept offset or `Z` datetimes on write and convert them using a stored document timezone, instead of leaving them as text. (§ 4.1 Connection-Time Clock Context)
+- `[idea S]` Use the destination cell's number-format `Locale` (or the Options locale) instead of the document `CharLocale` when mixed-locale columns justify it. (§ M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`)
+- `[fidelity M]` Spreadsheet-import epoch cleanup for dates, separate from `=PY()`. (§ 5.7 What to do next)
+- `[eng M]` Strict transactional rollback of a `write_range` beyond the existing `WriterCompoundUndo`. (§ 5.7 What to do next)

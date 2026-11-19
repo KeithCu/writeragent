@@ -277,3 +277,7 @@ Fill this in as you go. Do not delete failed experiments.
 | 2026-10-11 | CI 38155455781 | Windows pytest | `make test` | `write_packed_frame_with_timeout` fileno check before win32 branch (BytesIO/mocks logging without deadline); in-process pipe write timeout skipped on win32 (unclosed blocked CRT write); allow `EACCES` on Windows socket bind conflict. |
 
 Invalid length prefix still raises `IpcFrameError` with `stdout_rest=` (empty `b''` when the POSIX leftover peek is skipped on win32). POSIX peek uses `os.set_blocking`; skip on win32. That is the error contract, not debug.
+
+## Open
+
+- `[eng S]` Revert the `PYTEST_WORKERS=6` cap on `test-run` and related Makefile targets now that the leftover-stdout cause is fixed, if it was only a workaround. (§ Suggested production shape (only after a hypothesis wins))

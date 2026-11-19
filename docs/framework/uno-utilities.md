@@ -551,3 +551,11 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | `guard_uno` boundaries | `tests/framework/test_guard_uno_boundaries.py` |
 
 Any P1 unify should extend the **matching** `test_*.py` for the module that becomes the new home, not add a fourth URL test file.
+
+## Open
+
+- `[eng S unverified]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
+- `[eng S unverified]` Make the research, config and gallery code use the one `path_settings_from_ctx` PathSettings locator instead of separate lookups. (§ 4. Ranked future-work recommendations)
+- `[eng S]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)
+- `[eng S unverified]` Make the notebook `file://` strip fallback use the shared URL-to-path helper. (§ 4. Ranked future-work recommendations)
+- `[eng S unverified]` Unify the GraphicProvider icon load between `main.py` and `librepy/sidebar_menus.py`, keeping LibrePy's filesystem fallback. (§ 4. Ranked future-work recommendations)

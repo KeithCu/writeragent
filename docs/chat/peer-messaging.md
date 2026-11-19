@@ -537,3 +537,14 @@ Ordered preference (2026-09-20): Keith preferred **(1) single-tool auto-detect**
 - [GDPval GMP gold `58ac1cc5`](../eval/gdpval/58ac1cc5-5754-4580-8c9c-8c67e1a9d619/README.md) — untouched gold materials
 - [eval-2 GMP Change Control](../eval/eval-2/gmp-change-control-58ac1cc5/) — Writer + Draw pre-open port
 - [mock-llm-sidebar.md](../tests/mock-llm-sidebar.md) — Packets B–G soak + Packet P dual peer
+
+---
+
+## Open
+
+- `[eng M]` Collapse `peer_send_work` / `peer_send_result` into one `send_peer_message` tool that infers work vs result from whether the target is the sender of the current Peer-work envelope, so a model cannot call the wrong one. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[eng S]` Teach the fan-out second hop in prompts: after a child peer replies, the middle peer must still send its own result back to the original asker. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[eng S]` Re-run headed Scenario 8 (Calc plus Impress KPI) as split asks with a File Save before disk checks, or score Impress as its own prove. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[idea M unverified]` Waiting chrome that shows "Waiting for peer..." after the caller drain exits and auto-starts the follow-up turn when the reply arrives. (§ 3.1 Alternatives considered (kept))
+- `[idea L]` Blocking `ask_peer` wrapper (A2) that waits for a compact peer result, offered only as an explicit escape hatch rather than a silent fallback. (§ A2. Demoted - optional later / documented escape hatch)
+- `[idea L]` Multiplexed drain with mid-loop `PEER_REPLY` injection so a reply can land inside the caller's current turn. (§ 3.1 Alternatives considered (kept))

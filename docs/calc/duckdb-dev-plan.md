@@ -521,3 +521,12 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Pretty-demo polish: SQL_DuckDB teaches `{sheet}` / `{named_range}` / sibling `file#Sheet` (named ranges `SalesData` / `MarketingData` as the live `=PY()` data args). ZIP join is a live `=PY()` via `run_sql` + `scoped_dir` (same 15×5 spill gutter; SQL still only in cells). |
 | 2026-09-05 | XLSX `SalesData` / `MarketingData` are absolute (`$A$4:$J$39`) so `=PY()` from SQL_DuckDB RESULTS does not pack a shifted/empty `data[0]`. `scoped_dir` inject reuses the cached `calc:file:` folder off-main. |
 | 2026-10-14 | invalidate_session_tables drops materialized flat-file tables, not only unregister relations, and drops the stem view that reads that table. List-file stems are views over the basename table. Two files with the same stem log Skipping stem alias and keep the first alias. |
+
+
+## Open
+
+- `[feature S]` Expose DuckDB SQL (`query_folder_sql`, `session_duckdb`) in the default chat and `=PY()` import-policy prompts once the path is product-ready. (§ Current Implementation (as of latest increment))
+- `[feature S unverified]` Offer the SQL tools over MCP through the existing tool registry. (§ User exposure matrix)
+- `[eng M]` Auto-export a sheet snapshot to temporary Parquet for huge ranges so they do not go through the wire grid. (§ Open questions)
+- `[idea M]` Zero-copy Arrow registration of split_grid arrays via pyarrow, and Parquet export from Calc. (§ Open questions)
+- `[eng S]` Close the raw `import duckdb` bypass of the COPY/escape firewall in `=PY()`, and jail persistent sessions on DuckDB older than 1.3. (§ Security and sandbox)

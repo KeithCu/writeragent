@@ -781,3 +781,14 @@ For a **minimal viable Writer-based editor** (no autocomplete, basic syntax high
 **Implementation:** [`document_scripts.py`](../../plugin/scripting/document_scripts.py) (`save_script_to_origin`, `delete_script_from_origin`), [`domain_registry.py`](../../plugin/scripting/domain_registry.py), [`editor_host.py`](../../plugin/scripting/editor_host.py) IPC, [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js). **Tests:** [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py), [`test_domain_registry.py`](../../tests/scripting/test_domain_registry.py), [`test_document_scripts_uno.py`](../../tests/scripting/test_document_scripts_uno.py).
 
 User workflow and feature context: [../enabling_numpy_in_libreoffice.md §3 Monaco](../enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script) and [§7 document-attached scripts](../enabling_numpy_in_libreoffice.md#run-python-script--document-attached-scripts).
+
+## Open
+
+- `[feature M]` Real-time syntax validation: debounced `compile()` check on the LibreOffice side with red squiggles in Monaco and stale-response dropping. (§ Phase 2B — Real-time syntax validation (medium risk))
+- `[feature M]` Calc range picker button in the editor that inserts a range such as `Sheet1.A1:B10` at the cursor using `GlobalCalcRangeSelector`. (§ Phase 2C — Calc range picker (medium risk, high value))
+- `[feature L]` Show more than one editor buffer at once by routing extra sessions to extra pywebview windows in the same child process, capped at 2 or 3. (§ Multiple editor views (windows vs tabs))
+- `[feature L]` Formula bar button or double-click-cell entry to open Edit Python in Cell, which needs research into Calc input line customization. (§ Phase 3 — Broader surfaces)
+- `[idea S]` Optional setting to auto-close the editor on Save instead of staying open. (§ Open questions (decide before large work))
+- `[idea S]` Send sheet and tab names from LibreOffice to the editor on load for sheet-name completion if Jedi alone is not enough. (§ Phase 2D — Jedi autocompletion (child-only, performance-sensitive))
+- `[fidelity S unverified]` Viz plot polish: plot anchor and z-order, replace-existing-chart, and a UNO end-to-end test for `=PYTHON()` image insert. (§ Phase 3 — Broader surfaces)
+- `[idea L]` Embedded-Writer Python editor as a lightweight quick-edit surface for Run Python Script if pywebview proves too fragile. (§ 9. Alternative: Embedded Writer as Python Editor (Research Notes))

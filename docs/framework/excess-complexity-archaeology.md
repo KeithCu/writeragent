@@ -1110,3 +1110,10 @@ in the same comment-only PR.
 - [uno-thread-safety.md](uno-thread-safety.md): why UNO disposal handling is not
   "excess."
 - `git log --grep=s55 --oneline`: the commits discussed here.
+
+## Open
+
+- `[eng S]` Dispose the LibrePy sidebar controller when panel setup fails after `PythonSidebarController` is built, and restore the test removed with that cleanup. (§ New items for "Known risks" (verified in the diffs unless noted))
+- `[eng S unverified]` Restore unit coverage for hands-free restart (`sticky_restart` and `stop_during_take` matrices) and a `_prepare_mcp_execution` test with non-string, `None` and missing-key arguments. (§ Known risks of this process)
+- `[eng S unverified]` Put back the bugfix rationale comments deleted while their guards stayed (BibliographicType range, `uno_same`, `refuse_tracked_insert_or_delete`). (§ New items for "Known risks" (verified in the diffs unless noted))
+- `[eng S unverified]` Comment-only PR: fix comments spliced by the #3243 sweep and about ten doc statements that contradict the code. (§ 25. Residue of the cleanup itself: comments spliced by a sweep)

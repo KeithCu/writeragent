@@ -45,3 +45,7 @@ Exact heading wording, comment author names, three comments vs one,
 
 CLI: `scripts/eval_2_long_writer_oracle.py` or
 `scripts/eval_2_headed.py --task long-writer-pack --score`.
+
+## Open
+
+- `[eng S]` Extend the long Writer pack oracle with the deferred checks: exact heading wording, three comments instead of one, and style extras. (§ Soft / later (not v1))

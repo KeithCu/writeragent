@@ -78,3 +78,14 @@ The original list of "natural mistake" tests is mostly covered for shipped items
 
 - Status comes from commit messages, diffs, and spot greps of `plugin/`. Items marked ❓ or ⬜ were not found in a quick search, not proven absent. Verify before acting on them.
 - The report's effort estimates were guesses from outside the codebase. The commits show the Low/Medium estimates were about right.
+
+## Open
+
+- `[fidelity S]` Treat `code` and `pre` content literally so `$$`, `\(` and `\[` inside code spans are not parsed as math (silent corruption today). (§ 3. Open work, by payoff, item 1)
+- `[fidelity M]` Generalize the `warnings` array from `data-lo-para` and `data-lo-style` to every ignored attribute, including table-cell styles. (§ 3. Open work, by payoff, item 2)
+- `[fidelity S]` Add an explicit opt-in so an edit that empties a table's last text cannot delete the table as a side effect. (§ 3. Open work, by payoff, item 3)
+- `[eng S]` Rename the `clear_direct` options (`none` / `style_props` / `all`) so the parameter needs no paragraph of explanation. (§ 3. Open work, by payoff, item 4)
+- `[fidelity M]` Report removed indents on restyle, or fold the style change and text edits into one undo step, so the `style_unreviewed` prompt rule can go. (§ 3. Open work, by payoff, item 6)
+- `[feature S unverified]` Explicit delete through `position='delete'` on the write tool. (§ 1. Scoreboard, row 20)
+- `[eng L]` Stable `error_code` plus `suggested_call` on every error in the Writer edit path, the change that most shrinks the prompt. (§ 3. Open work, by payoff, item 7)
+- `[eng S]` Add the missing regression tests: code-span escaping, clearing table cells one at a time, and centered alignment on write. (§ 5. Regression tests)

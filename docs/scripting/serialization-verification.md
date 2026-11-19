@@ -222,3 +222,10 @@ make crosshair-check
 - Strong existing test coverage
 - Performance-critical path for `=PYTHON()` and chat tools
 - Mistakes affect both Calc and LLM observation quality
+
+## Open
+
+- `[eng S]` Optional CI job running `make verify` (or the two serialization verification files) on a schedule or PR label. (§ Next steps)
+- `[eng M]` Define a clear bar for the pack/unpack `# crosshair: off` entry points so `payload_codec` verification status can move from partial. (§ Known gaps)
+- `[eng S]` Harvest `make crosshair-cover` examples into pytest oracles for new edge inputs. (§ Next steps)
+- `[eng S]` Script to refresh `verification_status.json` after CrossHair runs. (§ Next steps)

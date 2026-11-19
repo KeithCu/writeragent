@@ -49,3 +49,6 @@ Every Writer page index exposed to the model (`page_get_objects`, `nav_goto_page
 ### Calc Charts and Form Controls
 
 Similarly, Calc spreadsheets maintain their own Draw layer for charts, form controls, and shapes. Exposing this through the LO-DOM pattern would allow the agent to understand dashboard layouts, spatial organization, and chart metadata programmatically, without requiring screenshots of the spreadsheet.
+## Open
+
+- `[feature M unverified]` LO-DOM style tree for Calc's draw layer (charts, form controls, shapes) so the agent can read dashboard layout and chart metadata without screenshots. (§ Calc Charts and Form Controls)

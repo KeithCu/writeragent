@@ -214,3 +214,22 @@ For complete LibreOffice Calc UNO API documentation:
 For recent feature additions:
 - [LibreOffice 26.2 Release Notes](https://www.howtogeek.com/libreoffices-first-big-update-for-2026-has-arrived/)
 - [LibreOffice 26.2 New Features](https://9to5linux.com/libreoffice-26-2-open-source-office-suite-officially-released-this-is-whats-new)
+
+## Open
+
+- `[feature M]` Scattered cell updates in one call (a batch parameter on `write_range` or a `write_cell_batch` tool) without UI dispatches. (§ Formulas & Range Writing API Comparison)
+- `[feature M]` Data validation tools for Calc (no `validation.py` in the tree). (§ 3.1 Current implementation)
+- `[feature M]` Calc table tools and structured references. (§ 3.1 Current implementation, § 3.2 Future enhancements)
+- `[feature L]` Scenario manager and what-if data tables. (§ 3.2 Future enhancements)
+- `[feature M]` Direct pivot chart creation from data. (§ 3.2 Future enhancements)
+- `[feature L]` External data beyond folder SQL, such as database links and web queries. (§ 3.2 Future enhancements)
+- `[fidelity S]` Per-cell unlock and cell-protection tools to complete sheet protection. (§ 3.2 Future enhancements)
+- `[fidelity M]` Fuller change tracking on Calc, where `tracking_list` is unsupported when `getRedlines` is absent. (§ 3.2 Future enhancements)
+- `[fidelity S]` Optional `move_contents` on the merge tool so hidden cell content moves into the top-left cell like the UI does. (§ 3.5 Deferred ideas)
+- `[feature S]` Let `sheet_create` accept `source` or `values` so a new sheet can be created and filled in one call. (§ 3.4 Future ideas)
+- `[eng S]` Wrap `=PY()` plot placement in `UndoStepOrRollback` so it undoes as one step, safe on Collabora Online. (§ 3.5 Deferred ideas)
+- `[idea M]` Rewrite typed `=PY("...xl('A1')...")` formulas into the dependency-tracked form with a cell-input hook. (§ 3.5 Deferred ideas)
+- `[idea M]` Coerce locale dates and numbers such as `1,5` stored as text, beyond the shipped warn-only check. (§ 3.4 Future ideas)
+- `[idea M]` Auto-detect the header row on `sort_range` and report `header_detected`, needing its own eval. (§ 3.4 Future ideas)
+- `[idea L]` Promote the most-used tools (sort, new sheet, chart) out of delegation so the prompt describes fewer domains. (§ 3.4 Future ideas)
+- `[idea L]` Render Markdown in the sidebar so the prompt no longer has to demand HTML. (§ 3.4 Future ideas)

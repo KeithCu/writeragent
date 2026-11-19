@@ -696,3 +696,23 @@ For recent feature additions:
 - [LibreOffice 26.2 Release Notes](https://www.howtogeek.com/libreoffices-first-big-update-for-2026-has-arrived/)
 - [LibreOffice 26.2 New Features](https://9to5linux.com/libreoffice-26-2-open-source-office-suite-officially-released-this-is-whats-new)
 
+
+## Open
+
+- `[fidelity M]` Section tools for file link, DDE, footnote/endnote scoping and background graphics, each as its own single-purpose tool. (§ Later phases (not implemented; same granular rule))
+- `[feature M]` AutoText tools and richer multi-level TOC enhancement. (§ Domain, modules, and extended LO surface)
+- `[fidelity S]` Text frame x/y positioning, image watermarks, and `embedded_edit` for the OLE domain. (§ Domain, modules, and extended LO surface)
+- `[fidelity S]` Mail merge via email, labels and envelopes (only file and printer output exist). (§ Domain, modules, and extended LO surface)
+- `[fidelity M]` Per-cell table formatting, surgical rewrite of a host cell that keeps its nested table, and copying cell images in HTML export. (§ Still open / out of scope)
+- `[fidelity S]` Table-set-cell inside a frame or section within a host cell. (§ Still open / out of scope)
+- `[feature L]` Tokenized placeholder protocol so whole-document rewrites keep images, shapes and OLE objects. (§ Strategy 1: Tokenized Placeholder Protocol (Recommended))
+- `[feature L unverified]` Batch Section Rewriting mode that applies one instruction per heading section with review or apply flow. (§ 8.1 Possible Feature: Batch Section Rewriting)
+- `[feature S unverified]` Config or query option to list specialized tools on MCP `tools/list` for external agents. (§ 6.7 Cross-cutting Enhancements)
+- `[feature M]` One-click task presets (improve, business letter, minutes and similar) in the sidebar. (§ 8.1 Ideas worth adopting (future))
+- `[feature L]` Document Cleaner workflow: analyze, choose profile, preview, then apply via style, index and page tools. (§ 8.2 Document Cleaner -> existing tools)
+- `[idea M]` Confirmation panel before the first mutation of a bulk structural cleanup batch. (§ 8.1 Ideas worth adopting (future))
+- `[eng S]` Better local Ollama onboarding and connection-error hints in settings. (§ 8.1 Ideas worth adopting (future))
+- `[eng M]` Stop chat answers that put JSON or HTML in chat and leave the document unchanged, starting with a prompt fix checked by `make eval-ab`. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[fidelity S]` Add `start` and `end` to the paragraph alignment enum so right-to-left text reads back correctly. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[idea S unverified]` Decide whether `get_image` stays visible when native vision support is unknown. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))
+- `[eng S unverified]` Make the `hori_orient`/`vert_orient` image schema and description agree on strings versus raw UNO integers. (§ 8.4 Deferred ideas (follow-up triage, Nov 2026))

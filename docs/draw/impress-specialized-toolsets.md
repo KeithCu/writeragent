@@ -570,3 +570,21 @@ Review row 14 is keep-as-is, with no work: the undo stack is shared with the use
 - [Writer specialized toolsets](../writer/specialized-toolsets.md) — Architecture reference
 - [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `peer_send_work / peer_send_result`; Draw is a v1 peer, not a mega-agent tool list
 - [AGENTS.md](../../AGENTS.md) — Project overview
+
+---
+
+## Open
+
+- `[feature M]` Slide and shape animations for Impress (`get_animations`, `set_animations`, `add_animation`). (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature S]` Slide show controls to start and stop a presentation. (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature M]` Draw layer management tools. (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature M]` Insert and control audio and video media on slides. (§ 5.3 Priority 3: Specialized Domains)
+- `[feature M]` Export tools for PDF, image and video output from Draw and Impress. (§ 5.3 Priority 3: Specialized Domains)
+- `[feature L]` Custom shows, timings and rehearse, and a presenter console with a notes timer. (§ 5.5 Priority 5: Future / Nice-to-Have)
+- `[feature M]` Guides and grid control (snap settings, custom guides) and 3D shape creation. (§ 5.5 Priority 5: Future / Nice-to-Have)
+- `[eng M unverified]` Add a `DrawJSONBackend` to prompt optimization, extend the eval dataset with Draw and Impress examples, and add Draw-specific rubrics. (§ 5.4 Priority 4: Evaluation System Integration)
+- `[idea L]` Let the outer agent see nested tool schemas of a `shapes` delegation to check arguments instead of exchanging prose. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M]` Return OCR text from `get_image` alongside the pixels so OCR no longer needs a vision delegation. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M]` Let `delegate` accept structured refs (`page`, `shape_name`, `range`) instead of prose conventions in `task`. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M]` Replace keyword routing rules with a redirect error returned when a delegation uses the wrong domain. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea L]` Deliver peer results automatically at turn end and block extra tool calls while waiting, instead of relying on model memory for the protocol. (§ 9. Future ideas (from Opus prompt review, Nov 2026))

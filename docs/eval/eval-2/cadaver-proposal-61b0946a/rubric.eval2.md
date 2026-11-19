@@ -52,3 +52,7 @@ name is not a scored string. Do not fail on `.docx` vs `.odt`.
 
 CLI: `scripts/eval_2_cadaver_oracle.py` or
 `scripts/eval_2_headed.py --task cadaver-proposal --score`.
+
+## Open
+
+- `[eng S]` Extend the Cadaver oracle with the deferred soft checks: exact dollar figures, lab-fee sharing, per-department procedure ranges and chart aesthetics. (§ Soft / later (not v1))

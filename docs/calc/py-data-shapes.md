@@ -326,3 +326,12 @@ Not planned unless a real product need appears. **Do not treat the list below as
 - Formula parameters: 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; per-formula `timeout_sec`.
 - Range alignment helper for mismatched multi-range shapes before `np.corrcoef` / element-wise math — see [Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog).
 - `per-workbook `WorkbookState.matrix`` keys use `repr(worker_data)` (`WorkerResultSession` in [`function.py`](../../plugin/calc/python/function.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.
+
+
+## Open
+
+- `[idea M]` Blank side-channel on `split_grid` with masked-array ingress so pass-through blanks stay empty and `np.mean` ignores Calc blanks. (§ Deferred upgrades)
+- `[feature M]` Extra `=PY()` formula parameters: a third `extras` argument for recalc dependencies, a `collapse` option on conversion, and a per-formula `timeout_sec`. (§ Deferred upgrades)
+- `[feature S]` Range alignment helper for mismatched multi-range shapes before `np.corrcoef` or element-wise math. (§ Deferred upgrades)
+- `[feature M unverified]` Import LibrePythonista `lp("A1:B10")` calls by rewriting them to `data.to_pandas(header_row=None)`. (§ Why CalcRange, not DataFrame by default)
+- `[eng S]` Key the per-workbook `WorkbookState.matrix` by a packed-payload digest and cell count instead of `repr(worker_data)`. (§ Deferred upgrades)

@@ -522,3 +522,10 @@ Wrong bug class. Everything in 12.1 runs on the main UI thread (red). Layers A�
 - [`threading.md`](threading.md) — Pool architecture, drain ownership, and subprocess IPC pipe safety.
 - [`streaming-and-threading.md`](streaming-and-threading.md) — Drain loop, cancellation, and main-thread marshal checklist.
 - [`formal-verification.md`](formal-verification.md) — Why value-level formal verification (CrossHair/deal) does not apply to thread affinity effect typing.
+
+## Open
+
+- `[eng M]` Native test that assigns `=PY("1+1")` over a socket bridge under `lo-test-threadguard`, so remote-bridge worker paths run against live LibreOffice (GUI formula-bar recalculation hides them). (§ 11. Open Items & Ongoing Audits)
+- `[eng S unverified]` Switch the opt-in `uno_thread_safety` pytest fixture on by default for unit tests that touch document helpers, so off-main mock access is caught early. (§ 11. Open Items & Ongoing Audits)
+- `[eng S]` Move the Opengrep gate from `--taint-intrafile` to `--taint-interfile` once the upstream inter-file taint mode leaves alpha. (§ 11. Open Items & Ongoing Audits)
+- `[eng S unverified]` Audit every new UNO service factory or model loader so it wraps what it returns in `guard_uno` at birth, keeping the viral proxy intact. (§ 11. Open Items & Ongoing Audits)

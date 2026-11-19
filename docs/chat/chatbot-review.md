@@ -215,3 +215,11 @@ These live outside `plugin/chatbot` and show up in the findings above.
 - `plugin/scripting/host_rpc.py` and `plugin/scripting/venv_worker.py`: PPT document binding and cancel. See item 6.
 - `plugin/audio/tts_service.py` `sync_tts_ui`: Together voices use the live endpoint argument. OpenRouter voice rows call `_saved_endpoint_is_openrouter()`, which reads the saved URL. Before OK, an OpenRouter choice still builds voices as if the old host were current.
 - `plugin/framework/config.py` `validate()` already runs `endpoint_from_selector_text`. Do not add a second normalizer in the settings dialog.
+
+## Open
+
+- `[fidelity S]` Fire the image-model combo's text listener as well as its item listener so a typed image model id is saved. (§ 10 A failed panel create stays latched)
+- `[fidelity S]` Measure button widths from the translated labels `_(lab)` instead of the English "Send", "Record", "Stop Rec" and "Accept" lists. (§ 10 A failed panel create stays latched)
+- `[eng S unverified]` Make the PPT-Master child loop and tool-frame dispatch stop when the host reports Stop, instead of checking only before the turn. (§ 6 PPT-Master follows the focused window and ignores Stop)
+- `[eng S unverified]` Reserve a short environment header in the bug-report body so a long traceback no longer drops version, OS and model. (§ Small collapses)
+- `[eng S unverified]` Make Vision OK keep the dialog open on a failed save and read controls with `get_optional`. (§ 9 Vision OK closes after a failed save)

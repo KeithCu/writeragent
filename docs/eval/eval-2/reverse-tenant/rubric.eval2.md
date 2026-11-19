@@ -46,3 +46,7 @@ Do not require the Writer brief to stay byte-identical.
 
 CLI: `scripts/eval_2_reverse_tenant_oracle.py` or
 `scripts/eval_2_headed.py --task reverse-tenant --score`.
+
+## Open
+
+- `[eng M]` Extend the Reverse Tenant oracle with the deferred checks: exact gold payroll dollars, named-range layout, per-musician totals and dropdown cosmetics. (§ Soft / later (not v1))

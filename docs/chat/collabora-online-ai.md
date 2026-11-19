@@ -432,3 +432,15 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 
 > [!NOTE]
 > WriterAgent does not need Collabora's WebSocket routing, kit jails, or LOKit protocol serialization. Prefer **existing plugin modules** (parity table) over copy-pasting sketches; use appendices for gaps and roadmap ordering.
+
+## Open
+
+- `[feature M]` Content-control tools for Writer (list, extract and transform by index, tag or alias), with no `contentcontrol` code in the tree yet. (§ 13 Writer/Calc Content Controls)
+- `[feature S]` Optional `filter=` parameter on `get_tree` (`contentcontrol`, `charts`, `slides`, ...) for parity with Collabora structure extraction. (§ 14 Filtered Structure Extraction)
+- `[feature M]` Batch scattered formula commit with an approval summary and one undo step. (§ 10 Batch Formula Commit with Approval)
+- `[feature M unverified]` "Fix with AI" entry from the Calc formula error UI that feeds the `FormulaDepChain` dependency JSON into a diagnosis prompt. (§ 11 Formula Dependency Diagnosis)
+- `[feature M unverified]` Inspect-vs-mutate approval tiers, with a `requires_approval` flag on tools that routes through `show_approval_dialog` in the tool loop. (§ 15 Inspect vs Mutate Approval Tiers)
+- `[eng M]` Wrap whole chat tool batches in one compound undo step instead of only edit-selection. (§ 7 Transactional Undo Context Grouping)
+- `[feature L]` Re-register the unified Impress `transform_document_structure` tool with an allowlist of `.uno` commands plus `GenerateImage`, `MarkObject` and content controls. (§ C Unified Slide Transform)
+- `[feature S unverified]` Tool progress status lines in the sidebar for long UNO operations. (§ 18 Tool Progress Streaming)
+- `[fidelity S unverified]` Polish items: navigation-only fast path, per-tool rejection payloads, selection-gated extract, and more link-target categories (OLE, images, drawing objects). (§ P4 Polish)
