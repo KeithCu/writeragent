@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -72,23 +73,29 @@ def test_export_filter():
     assert draw_err[0] == "UNKNOWN_FORMAT"
 
 
-def test_resolve_file_target():
+def test_resolve_file_target(tmp_path):
     assert resolve_file_target("relative/doc.odt") is None
     assert resolve_file_target("http://example.com/doc.odt") is None
 
-    resolved = resolve_file_target("/tmp/wa probe/Modèle é.odt")
+    target = tmp_path / "wa probe" / "Modèle é.odt"
+    resolved = resolve_file_target(str(target))
     assert resolved is not None
     path, url = resolved
-    assert path == "/tmp/wa probe/Modèle é.odt"
+    assert path == str(target)
+    assert url == target.as_uri()
     assert url.startswith("file:///")
     assert "%20" in url
     assert "%C3%A9" in url
 
-    with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/from url.odt"):
-        assert resolve_file_target("file:///tmp/from%20url.odt") == (
-            "/tmp/from url.odt",
-            "file:///tmp/from%20url.odt",
-        )
+    rooted = resolve_file_target("/wa-rooted/x.odt")
+    assert rooted is not None
+    assert rooted[0] == os.path.normpath(os.path.abspath("/wa-rooted/x.odt"))
+
+    url_target = tmp_path / "from url.odt"
+    assert resolve_file_target(url_target.as_uri()) == (
+        str(url_target),
+        url_target.as_uri(),
+    )
 
 
 def test_document_open_missing_file(tmp_path):
