@@ -1557,13 +1557,10 @@ def test_run_sandboxed_code_timeout_carries_execution_timeout_code(fresh_sandbox
     [
         "import writeragent as wa\nresult = dir(wa)",
         "import writeragent as wa\nresult = dir(wa.shape)",
-        "import writeragent as wa\nresult = wa.__doc__",
-        "import writeragent as wa\nresult = wa.shape.upsert.__doc__",
-        "import writeragent as wa\nresult = getattr(wa, '__doc__')",
     ],
 )
 def test_blocked_introspection_suggests_wa_help(fresh_sandbox_sessions, code: str) -> None:
-    """dir() and __doc__ remain blocked in the sandbox and point the model to wa.help(name)."""
+    """dir() stays blocked in the sandbox and points the model to wa.help(name)."""
     res = sandbox_run(code, session_id="calc:help-hint-test", timeout_sec=5)
     assert res["status"] == "error", res
     assert "wa.help(name)" in res["message"]

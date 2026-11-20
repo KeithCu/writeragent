@@ -324,8 +324,7 @@ def format_script_api_catalog(domains: list[str]) -> str:
     Each entry is the ``wa.<namespace>.<method>(...)`` call and the full
     generated method docstring (description and Args). That docstring is the
     text ``scripts/generate_tool_proxies.py`` ``_method_doc_lines`` wrote into
-    ``writeragent_api``. The venv sandbox blocks ``inspect``, ``dir``, and
-    ``__doc__``, so the inner agent cannot read this off the proxy itself.
+    ``writeragent_api``. The venv sandbox blocks ``inspect`` and ``dir``.
     Empty when the proxy module is not shipped (LibrePy).
     """
     return _format_script_api_catalog_cached(tuple(domains))

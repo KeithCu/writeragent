@@ -346,7 +346,7 @@ def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
         "__builtins__",
         "__class__",
         "__dict__",
-        "__doc__",
+        "__mro__",
     ),
 )
 def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
