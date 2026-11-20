@@ -81,18 +81,21 @@ def test_resolve_file_target(tmp_path):
     resolved = resolve_file_target(str(target))
     assert resolved is not None
     path, url = resolved
-    assert path == os.path.normpath(os.path.abspath(target))
+    assert path == str(target)
     assert url == target.as_uri()
     assert url.startswith("file:///")
     assert "%20" in url
     assert "%C3%A9" in url
 
+    rooted = resolve_file_target("/wa-rooted/x.odt")
+    assert rooted is not None
+    assert rooted[0] == os.path.normpath(os.path.abspath("/wa-rooted/x.odt"))
+
     url_target = tmp_path / "from url.odt"
-    with patch("plugin.doc.document_research.system_path_from_url", return_value=str(url_target)):
-        assert resolve_file_target(url_target.as_uri()) == (
-            str(url_target),
-            url_target.as_uri(),
-        )
+    assert resolve_file_target(url_target.as_uri()) == (
+        str(url_target),
+        url_target.as_uri(),
+    )
 
 
 def test_document_open_missing_file(tmp_path):
