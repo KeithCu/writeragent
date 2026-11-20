@@ -154,6 +154,103 @@ def test_executor_still_forbids_class_dunder():
         raise AssertionError("np.__class__ must remain forbidden")
 
 
+def _string_or_none(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def test_executor_allows_string_identity_dunders():
+    """__name__, __qualname__, __doc__, and __module__ reads return a string or None."""
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator"])
+    executor.send_tools({})
+    executor(
+        "import math\n"
+        "import operator\n"
+        "def greet(x):\n"
+        "    return x\n"
+        "class Box:\n"
+        '    """a box"""\n'
+        "    pass\n"
+        "obj = Box()\n"
+        "result = {\n"
+        '    "fn": greet.__name__,\n'
+        '    "fn_qual": greet.__qualname__,\n'
+        '    "fn_doc": greet.__doc__,\n'
+        '    "fn_mod": greet.__module__,\n'
+        '    "cls": Box.__name__,\n'
+        '    "cls_qual": Box.__qualname__,\n'
+        '    "cls_doc": Box.__doc__,\n'
+        '    "cls_mod": Box.__module__,\n'
+        '    "typ": type(obj).__name__,\n'
+        '    "typ_qual": type(obj).__qualname__,\n'
+        '    "typ_doc": type(obj).__doc__,\n'
+        '    "typ_mod": type(obj).__module__,\n'
+        '    "sin": math.sin.__name__,\n'
+        '    "sin_qual": math.sin.__qualname__,\n'
+        '    "sin_doc": math.sin.__doc__,\n'
+        '    "sin_mod": math.sin.__module__,\n'
+        '    "getattr_fn": getattr(greet, "__name__"),\n'
+        '    "getattr_cls": getattr(Box, "__doc__"),\n'
+        '    "getattr_typ": getattr(type(obj), "__name__"),\n'
+        '    "getattr_qual": getattr(math.sin, "__qualname__"),\n'
+        '    "getattr_mod": getattr(math.sin, "__module__"),\n'
+        '    "attrgetter": operator.attrgetter("__name__")(math.sin),\n'
+        "}\n"
+    )
+    got = executor.state["result"]
+    assert got["fn"] == "greet"
+    assert got["cls"] == "Box"
+    assert got["cls_qual"] == "Box"
+    assert got["cls_doc"] == "a box"
+    assert got["typ"] == "Box"
+    assert got["typ_qual"] == "Box"
+    assert got["typ_doc"] == "a box"
+    assert got["sin"] == "sin"
+    assert got["sin_qual"] == "sin"
+    assert got["sin_mod"] == "math"
+    assert isinstance(got["sin_doc"], str) and got["sin_doc"]
+    assert got["getattr_fn"] == "greet"
+    assert got["getattr_cls"] == "a box"
+    assert got["getattr_typ"] == "Box"
+    assert got["getattr_qual"] == "sin"
+    assert got["getattr_mod"] == "math"
+    assert got["attrgetter"] == "sin"
+    for key in ("fn_qual", "fn_doc", "fn_mod", "cls_mod", "typ_mod"):
+        assert _string_or_none(got[key])
+        if key != "fn_doc":
+            assert isinstance(got[key], str) and got[key]
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = obj.__class__",
+            id="instance_class",
+        ),
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = type(obj).__subclasses__",
+            id="type_subclasses",
+        ),
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = getattr(obj, '__class__')",
+            id="getattr_class",
+        ),
+        pytest.param(
+            "result = getattr(int, '__subclasses__')",
+            id="getattr_subclasses",
+        ),
+    ],
+)
+def test_executor_still_forbids_escape_dunders(code: str) -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    message = str(exc_info.value)
+    assert "Forbidden access to dunder attribute" in message
+    assert "__class__" in message or "__subclasses__" in message
+
+
 def test_executor_allows_repr_builtin():
     executor = _executor_with_dummy_version()
     executor("result = repr([1, 'a'])")

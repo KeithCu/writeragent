@@ -73,8 +73,14 @@ MAX_OPERATIONS = 10000000
 MAX_WHILE_ITERATIONS = 1000000
 MAX_EXECUTION_TIME_SECONDS = 30
 ALLOWED_DUNDER_METHODS = frozenset({"__init__", "__str__", "__repr__"})
-# np.__version__ (and pd/sp/...) is a read-only string, not __class__/__globals__. Allow version only.
-ALLOWED_DUNDER_ATTRIBUTES = frozenset({"__version__"})
+# String or None. Not an object handle like __class__ or __globals__.
+ALLOWED_DUNDER_ATTRIBUTES = frozenset({
+    "__doc__",
+    "__module__",
+    "__name__",
+    "__qualname__",
+    "__version__",
+})
 
 _OPS_KEY = object()
 _PRINT_OUTPUTS_KEY = object()

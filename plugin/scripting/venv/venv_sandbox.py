@@ -1050,8 +1050,7 @@ def _with_fix_hint(message: str) -> str:
     if "wa.help(" in message:
         return message
     if (
-        "Forbidden access to dunder attribute: __doc__" in message
-        or "Forbidden function evaluation: 'dir' " in message
+        "Forbidden function evaluation: 'dir' " in message
         or "name 'dir' is not defined" in message
     ):
         return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
