@@ -15,8 +15,9 @@
                 <prop oor:name="Id" oor:type="xs:string">
                     <value>LibrePyDeck</value>
                 </prop>
+                <!-- Deck icons are 24 px PNGs, not SVG: LibreOffice rasterizes an extension SVG IconURL once at screen DPI (vectorgraphicdata.cxx convertPrimitive2DSequenceToBitmap), so on macOS it becomes about 27-33 px and overflows the 24-point slot, and it gets no HiDPI redraw (ImplImage::getBitmapForHiDPI covers only stock and metafile images); assets/python_logo.svg is the source for python_24.png. -->
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.librepy/assets/python_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.librepy/assets/python_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.text.TextDocument, any, visible; com.sun.star.text.WebDocument, any, visible; com.sun.star.text.GlobalDocument, any, visible;</value>

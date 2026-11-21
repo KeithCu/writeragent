@@ -352,7 +352,7 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 - `get_extension_url` → `PackageInformationProvider.getPackageLocation(id)` or `vnd.sun.star.extension://<id>`.
 - Dialogs: `base + "/Dialogs/" + name + ".xdl"` (file URL when the OXT is unpacked; vnd URL as fallback).
-- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile). `resolve_menu_icon_pixel_size` returns 16 on macOS without probing; VCL on Mac draws URL-loaded images at bitmap size in points, so the 26/32 and 48 assets overflow (issue 3710).
+- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile). `resolve_menu_icon_pixel_size` returns 16 on macOS without probing; VCL on Mac draws URL-loaded images at bitmap size in points, so the 26/32 and 48 assets overflow (issue 3710). Sidebar deck icons are static 24 px PNGs in `Sidebar.xcu` because VCL draws URL bitmaps at bitmap size and the deck slot is 24 px (`sfx2/source/sidebar/Tools.cxx` `GetImage`, `vcl/source/image/Image.cxx` `Draw`). Deck icons stay PNG: an SVG IconURL is turned into a bitmap at the screen DPI (`vectorgraphicdata.cxx` `convertPrimitive2DSequenceToBitmap`, macOS DPI from `AquaSalGraphics::initResolution`), so it is about 27–33 px on a Mac and gains no HiDPI sharpness (`ImplImage::getBitmapForHiDPI` covers stock and metafile images only). `assets/writeragent_logo.svg` is the source for `logo_24.png`.
 
 **Dispatch (menu / protocol handler)**
 

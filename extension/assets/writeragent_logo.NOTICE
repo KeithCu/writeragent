@@ -1,0 +1,12 @@
+WriterAgent logo (writeragent_logo.svg → logo_24.png)
+=======================================================
+Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
+
+Source: simplified from logo.jpg, the WriterAgent project logo, under the same
+terms as logo.jpg.
+
+Deck icon is a 24×24 PNG rather than SVG; see docs/framework/uno-utilities.md.
+
+Regenerate 24×24 PNG (sidebar deck icon):
+  rsvg-convert -w 24 -h 24 --background-color=none writeragent_logo.svg -o /tmp/wa24.png
+  magick /tmp/wa24.png PNG32:logo_24.png

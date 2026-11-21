@@ -15,8 +15,9 @@
                 <prop oor:name="Id" oor:type="xs:string">
                     <value>WriterAgentDeck</value>
                 </prop>
+                <!-- Deck icons are 24 px PNGs, not SVG: LibreOffice rasterizes an extension SVG IconURL once at screen DPI (vectorgraphicdata.cxx convertPrimitive2DSequenceToBitmap), so on macOS it becomes about 27-33 px and overflows the 24-point slot, and it gets no HiDPI redraw (ImplImage::getBitmapForHiDPI covers only stock and metafile images); assets/writeragent_logo.svg is the source for logo_24.png. -->
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/logo_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/logo_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>
@@ -29,8 +30,9 @@
                 <prop oor:name="Id" oor:type="xs:string">
                     <value>LibrePyDeck</value>
                 </prop>
+                <!-- See WriterAgentDeck IconURL above: 24 px PNG to avoid macOS SVG DPI overflow; assets/python_logo.svg is the source for python_24.png. -->
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/python_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/python_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.text.TextDocument, any, visible; com.sun.star.text.WebDocument, any, visible; com.sun.star.text.GlobalDocument, any, visible;</value>
