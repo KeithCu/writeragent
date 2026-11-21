@@ -98,8 +98,6 @@ def encode_corpus_code(model_name: str) -> str:
 import time
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 
-texts = data
-
 rows = [
     {{
         "text": text,
@@ -196,7 +194,7 @@ def bench_model(
         mgr.execute(
             ExecRequest(
                 code=encode_corpus_code(model_name),
-                data=texts,
+                bindings={"texts": texts},
                 timeout_sec=timeout_sec,
                 session_id=session_id,
             ),

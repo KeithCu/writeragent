@@ -648,7 +648,7 @@ class TestComputeHttp:
         assert body.get("status") == "error"
 
     def test_numpy_mean(self, compute_url: str) -> None:
-        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [10, 20, 30, 40]})
+        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [[10, 20, 30, 40]]})
         assert body["status"] == "ok"
         assert body["result"] == 25.0
 

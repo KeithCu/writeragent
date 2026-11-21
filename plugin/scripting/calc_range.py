@@ -448,7 +448,7 @@ def _deal_inner_grid_cell_ok(c: Any) -> bool:
     return isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype")
 
 
-def _deal_json_list_of_grids_arg_ok(*args: Any, **kwargs: Any) -> bool:
+def _deal_json_argument_list_arg_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
@@ -521,8 +521,8 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
 
     - ``calc_range`` → ``(range,)``
     - ``multi_data`` of ranges/grids → one CalcRange per item
-    - JSON list-of-2D-grids (Online compute) → one CalcRange per item
-    - bare grid / list → single CalcRange
+    - JSON array of formula arguments (Online compute: bare values and/or nested grids) → one CalcRange per item
+    - bare grid (list of flat rows), split_grid or scalar → single CalcRange
     - ``None`` → empty tuple
     """
     # crosshair: off
@@ -533,27 +533,30 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
         selected = wire.get("items") or []
     elif isinstance(wire, (list, tuple)) and wire and all(is_calc_range_payload(x) or isinstance(x, CalcRange) for x in wire):
         selected = wire
-    elif _is_json_list_of_grids(wire):
+    elif _is_json_argument_list(wire):
         selected = wire
     if selected is not None:
         return tuple(materialize_calc_range(item) for item in selected)
     return (materialize_calc_range(wire),)
 
 
-@deal.pre(lambda obj: _deal_json_list_of_grids_arg_ok(obj))
-def _is_json_list_of_grids(obj: Any) -> bool:
+@deal.pre(lambda obj: _deal_json_argument_list_arg_ok(obj))
+def _is_json_argument_list(obj: Any) -> bool:
     # crosshair: off
-    """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
+    """True when *obj* is a JSON array of =PY() arguments rather than one range.
 
-    A normal 2D sheet block ``[[1, 2], [3, 4]]`` has scalar cells — not a list of grids.
-    ``[[[1, 2]], [[3], [4]]]`` is two rectangular ranges.
+    Collabora's AddIn (anyjson.cxx buildExecuteRequestJson) sends a single
+    argument as ``data`` itself and two or more as a JSON array. Calc hands
+    the AddIn a single cell or literal as a bare value and a range as a
+    nested grid (sc/source/core/tool/interpr4.cxx ScInterpreter::ScExternal,
+    SC_ADDINARG_VALUE_OR_ARRAY), and writeAnyGrid always emits a range as
+    ``[[...]]``. So a list holding a bare value or a nested grid is one input
+    per item (``[5, [[1, 2]]]``, ``[5, 6]``), while a list of flat rows such
+    as ``[[1, 2], [3, 4]]`` is one range.
     """
-    if not isinstance(obj, (list, tuple)) or len(obj) < 1:
+    if not isinstance(obj, (list, tuple)) or not obj:
         return False
-    if not all(isinstance(item, (list, tuple)) for item in obj):
-        return False
-    # At least one item must itself be a 2D grid (first cell is a sequence).
-    return any(item and isinstance(item[0], (list, tuple)) and not isinstance(item[0], (str, bytes)) for item in obj)
+    return any(not isinstance(item, (list, tuple)) or (item and isinstance(item[0], (list, tuple))) for item in obj)
 
 
 

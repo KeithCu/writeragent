@@ -139,6 +139,10 @@ Rebuild after IDL changes: `scripts/rebuild_xprompt_rdb.sh` → [`extension/XPyt
 | --- | --- | --- |
 | `=PY("…"; A1:A5)` | `CalcRange` for `A1:A5` | `[data]` |
 | `=PY("…"; A1:A5; C1:C5)` | same list as `ranges` | `[range0, range1]` |
+| `=PY("…"; 5; A1:B1)` | same list as `ranges` | `[1x1 CalcRange (5), CalcRange A1:B1]` |
+| `=PY("…"; 5; 6)` | same list as `ranges` | `[1x1 CalcRange (5), 1x1 CalcRange (6)]` |
+
+On Collabora Online the AddIn sends one argument as `data` itself and several as a JSON array. A range is always a nested grid `[[…]]` and a single cell or literal is a bare value. So each array item becomes its own input, a list of flat rows is one range, and desktop (`multi_data` envelopes) gives the same `ranges` (desktop peels a trailing single-cell argument as a result index unless the code indexes `data[`/`ranges[`; see `function.py:_split_trailing_index`).
 
 **Example — weighted average across regions** (multi-arg: index with `data[i]` or loop `ranges`):
 
