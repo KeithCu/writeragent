@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- WriterAgent pen with a cut-down circuit web, drawn on a 24 px grid for the sidebar deck icon -->
+  <g fill="none" stroke="#22bfc4" stroke-width="0.9" stroke-linecap="round">
+    <path d="M8.2,18.2 H5.6 L4.0,16.6"/><path d="M8.6,20.8 H3.6"/>
+    <path d="M15.8,18.2 H18.4 L20.0,16.6"/><path d="M15.4,20.8 H20.4"/>
+  </g>
+  <g fill="none" stroke="#22bfc4" stroke-width="0.9">
+    <circle cx="3.4" cy="16.0" r="0.95"/><circle cx="2.6" cy="20.8" r="0.95"/>
+    <circle cx="20.6" cy="16.0" r="0.95"/><circle cx="21.4" cy="20.8" r="0.95"/>
+  </g>
+  <path fill="#3b6fca" d="M11.6,1.23 L6.2,7 C7.6,8.6 8.8,10.5 9,12.6 L11.6,12.6 L11.6,6.95 A1.5,1.5 0 0 1 11.6,4.05 Z"/>
+  <path fill="#22bfc4" d="M12.4,1.23 L17.8,7 C16.4,8.6 15.2,10.5 15,12.6 L12.4,12.6 L12.4,6.95 A1.5,1.5 0 0 0 12.4,4.05 Z"/>
+  <rect x="7.6" y="13.4" width="8.8" height="2.4" rx="0.7" fill="#3b6fca"/>
+  <path fill="#3b6fca" d="M9.4,16.6 L14.6,16.6 C13.9,19 13.2,21.5 8.4,23.5 C10.8,21.4 10.4,19 9.4,16.6 Z"/>
+  <path fill="#22bfc4" d="M12.7,16.6 L14.3,16.6 C13.8,18.6 13.1,20.3 11.7,21.7 C12.3,20 12.6,18.4 12.7,16.6 Z"/>
+</svg>

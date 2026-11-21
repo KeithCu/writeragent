@@ -34,9 +34,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
     [
         pytest.param("extension/assets/python_logo.svg", "extension/assets/python_logo.NOTICE", "extension/assets/python_32.png", id="test_python_logo_dev_sources_excluded_from_oxt"),
         pytest.param("extension/assets/jupyter_logo.svg", "extension/assets/jupyter_logo.NOTICE", "extension/assets/gear_32.png", id="test_jupyter_logo_dev_sources_excluded_from_oxt"),
+        pytest.param("extension/assets/writeragent_logo.svg", "extension/assets/writeragent_logo.NOTICE", "extension/assets/logo_24.png", id="writeragent_logo"),
     ],
 )
-def test_python_logo_dev_sources_excluded_from_oxt(svg_path, notice_path, png_path):
+def test_logo_dev_sources_excluded_from_oxt(svg_path, notice_path, png_path):
     assert should_exclude(svg_path) is True
     assert should_exclude(notice_path) is True
     assert should_exclude(png_path) is False
