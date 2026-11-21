@@ -90,6 +90,24 @@ def test_vision_standalone_controls_within_bounds() -> None:
     _assert_controls_fit_and_do_not_overlap(root, check_overlap=True)
 
 
+def test_vision_standalone_ok_is_plain_push_button() -> None:
+    """Modeless Vision OK must not use button-type=ok (that skips the save listener)."""
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    root = ET.fromstring(generate_standalone_config_dialog(vision))
+    buttons = {
+        el.get(f"{{{_DLG_NS}}}id"): el
+        for el in root.findall(".//dlg:button", {"dlg": _DLG_NS})
+    }
+    ok_btn = buttons["btn_ok"]
+    close_btn = buttons["btn_close"]
+    assert ok_btn.get(f"{{{_DLG_NS}}}button-type") is None
+    assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
+    assert close_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
+
+
 def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
     """OK is default+ok and Cancel is cancel without default so Escape/Cancel returns false from execute() and nothing is written."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
