@@ -99,12 +99,13 @@ def _validate_helper(helper: str) -> str:
 
 
 def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
+    # Keep the region so zh-TW reaches Docling and Paddle as Traditional Chinese.
     # 1. CharLocale from the target graphic
     if graphic_obj is not None:
         try:
             locale = graphic_obj.getPropertyValue("CharLocale")
-            if locale and getattr(locale, "Language", None):
-                return str(locale.Language).lower()
+            if locale and locale.Language:
+                return f"{locale.Language}-{locale.Country}" if locale.Country else locale.Language
         except Exception as exc:
             reraise_if_disposed(exc)
 
@@ -113,7 +114,7 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
 
     lo_locale = get_lo_locale(ctx)
     if lo_locale:
-        return lo_locale.split("_")[0].split("-")[0].lower()
+        return lo_locale.replace("_", "-")
 
     return "en"
 
