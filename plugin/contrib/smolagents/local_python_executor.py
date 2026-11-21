@@ -831,6 +831,7 @@ class ExecutionTimeoutError(BaseException):
     user_traceback: str = ""
 
 
+# WriterAgent local patch (2026-11): errors that get user frames; control-flow signals (Return/Break/Continue) and host stops stay out.
 _TRACED_ERRORS = (Exception, ExecutionTimeoutError)
 
 
@@ -2025,7 +2026,8 @@ def evaluate_raise(
     else:
         cause = None
     if exc is not None:
-        # WriterAgent local patch (2026-11): explicit `raise X` records the raise line even in the same frame.
+        # WriterAgent local patch (2026-11): explicit `raise X` records the raise line even in the same frame;
+        # a bare class (`raise ValueError`) is skipped, since its instance is made by `raise` and noted by evaluate_ast.
         if raise_node.exc is not None and isinstance(exc, BaseException):
             _note_user_frame(exc, state.get(_FRAME_KEY), raise_node, explicit_raise=True)
         if cause is not None:

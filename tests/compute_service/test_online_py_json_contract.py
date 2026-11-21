@@ -11,6 +11,7 @@ over the compute_service wire. Keep this file aligned when changing anyjson.cxx.
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 from compute_service.formula_worker import _handle_request
@@ -246,6 +247,10 @@ class TestOnlinePyJsonContract:
         assert out["result"] == expected
         json.dumps(out, allow_nan=False)
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="SIGALRM timeout path is Unix-only; the thread-pool fallback may win the race and carry no frames",
+    )
     def test_timeout_traceback_on_wire(self) -> None:
         env = _handle_request(
             {"code": "def spin():\n    while True:\n        pass\n\nspin()", "timeout_sec": 1}

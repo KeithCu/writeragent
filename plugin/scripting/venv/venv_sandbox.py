@@ -50,8 +50,6 @@ from plugin.contrib.smolagents.local_python_executor import (
     get_file_os_proxy,
     print_outputs_from_state,
 )
-
-_INIT_SCRIPT_FILE = "<init script>"
 from plugin.contrib.smolagents import local_python_executor as lpe
 from plugin.scripting.session_key import (
     SessionKey,
@@ -96,6 +94,7 @@ from plugin.scripting.sandbox import (
 install_alias_authorizer()
 
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
+_INIT_SCRIPT_FILE = "<init script>"
 
 
 @dataclass

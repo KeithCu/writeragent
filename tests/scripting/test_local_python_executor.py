@@ -3039,6 +3039,10 @@ def test_user_traceback_rerun_of_same_code_stays_sandbox() -> None:
     assert '  File "<sandbox>", line 2, in g' in exc_info.value.user_traceback
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGALRM timeout path is Unix-only; the thread-pool fallback may win the race and carry no frames",
+)
 def test_timeout_user_traceback_names_running_line() -> None:
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
