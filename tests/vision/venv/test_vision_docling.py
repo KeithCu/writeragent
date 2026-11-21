@@ -1099,6 +1099,18 @@ def _make_ocrmac_no_languages_error() -> RuntimeError:
         return exc
 
 
+def _make_nemotron_broken_import_error() -> ImportError:
+    try:
+        try:
+            raise ModuleNotFoundError("No module named 'nemotron_ocr.inference'")
+        except ModuleNotFoundError:
+            raise ImportError(
+                'Nemotron OCR is not installed. Install the optional dependency via `pip install "docling[feat-ocr-nemotron]"`.'
+            )
+    except ImportError as exc:
+        return exc
+
+
 @pytest.mark.parametrize(
     ("backend_id", "err", "expected_fragments"),
     [
@@ -1117,14 +1129,25 @@ def _make_ocrmac_no_languages_error() -> RuntimeError:
             _make_ocrmac_no_languages_error(),
             ("did not report any recognition language", "VNRecognizeTextRequest"),
         ),
+        (
+            "nemotron",
+            RuntimeError("Nemotron OCR requires Python 3.12."),
+            ("requires Python 3.12. ", "pip install nemotron-ocr"),
+        ),
+        (
+            "nemotron",
+            _make_nemotron_broken_import_error(),
+            ("nemotron_ocr.inference", "pip install nemotron-ocr"),
+        ),
     ],
-    ids=["tesseract", "ocrmac-broken-import", "ocrmac-no-languages"],
+    ids=["tesseract", "ocrmac-broken-import", "ocrmac-no-languages", "nemotron-runtime", "nemotron-broken-import"],
 )
 def test_engine_startup_failure_maps_to_backend_unavailable(backend_id, err, expected_fragments):
     with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
         res = extract_text(b"png", {"ocr_backend": backend_id})
     assert res["status"] == "error"
     assert res["code"] == "OCR_BACKEND_UNAVAILABLE"
+    assert ".." not in res["message"]
     for fragment in expected_fragments:
         assert fragment in res["message"]
 

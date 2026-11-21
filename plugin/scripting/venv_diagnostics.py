@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 # Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program on PATH or its default install folder) are listed when present and never counted as Missing.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _OCR_ENGINE_KEYS = ("easyocr", "openvino", "nemotron_ocr", "ocrmac", "tesseract")
+_NEMOTRON_RUNTIME_ERROR_KEY = "nemotron_ocr_runtime_error"  # probe key: Docling's reason when nemotron_ocr is present but cannot run
 _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage") + _OCR_ENGINE_KEYS
 # Primary Docling OCR keys shown under Missing (OCR) when the stack is not ready.
 _VISION_OCR_PRIMARY_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline")
@@ -182,7 +183,9 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
 
-# find_spec / which only, so the probe does not pay torch or CUDA start-up for optional engines.
+# Optional engines are probed with find_spec / which only, so the probe does not start torch or CUDA for them.
+# The exception is a present nemotron_ocr: it runs Docling's own NemotronOcrModel.validate_runtime (platform,
+# Python, CUDA), and torch is already loaded by the docling.document_converter import earlier in this script.
 # Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py.
 _OCR_ENGINE_PROBE_BODY = f"""\
 import importlib.util
@@ -193,6 +196,13 @@ for key in {tuple(k for k in _OCR_ENGINE_KEYS if k != "tesseract")!r}:
     except BaseException:
         out[key] = None
 out["tesseract"] = "present" if any(shutil.which(p) for p in {TESSERACT_PROGRAMS!r}) else None
+if out.get("nemotron_ocr") == "present":
+    try:
+        from docling.datamodel.accelerator_options import AcceleratorOptions
+        from docling.models.stages.ocr.nemotron_ocr_model import NemotronOcrModel
+        NemotronOcrModel.validate_runtime(AcceleratorOptions())
+    except BaseException as exc:
+        out[{_NEMOTRON_RUNTIME_ERROR_KEY!r}] = str(exc)[:300]
 """
 
 _VISION_PROBE_SCRIPT = _import_probe_script(
@@ -540,6 +550,9 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
             lines.append(f"Missing (OCR): {', '.join(primary_missing)}")
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
+    nemotron_error = packages.get(_NEMOTRON_RUNTIME_ERROR_KEY)
+    if nemotron_error:
+        lines.append(f"{_('Nemotron OCR cannot start in this venv:')} {nemotron_error}")
     return lines
 
 
