@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.vision.vision_common import HELPER_NAMES, resolve_vision_insert_mode
+from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after_insert, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
 
@@ -300,6 +301,27 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     return cursor
 
 
+def _writer_review_recording_enabled() -> bool:
+    """True when WriterAgent edit review recording is available and enabled."""
+    try:
+        from plugin.writer.edit_review import review_recording_enabled
+    except ImportError:
+        return False
+    return bool(review_recording_enabled())
+
+
+def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
+    """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic."""
+    if not image_name:
+        raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
+    from plugin.doc.visual_helpers import delete_graphic, get_graphic_object_by_name
+
+    target = get_graphic_object_by_name(doc, image_name)
+    if target is None:
+        raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
+    delete_graphic(doc, target)
+
+
 def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
     """Insert formatted vision HTML immediately after the selected graphic anchor."""
     from plugin.writer.html_import import insert_html_at_cursor
@@ -310,13 +332,22 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     image_name = str((params or {}).get("image_name") or "").strip() or None
+    delete_image = resolve_delete_image_after_insert(ctx, params)
+    if delete_image and _writer_review_recording_enabled():
+        # dispose is not a redline, so reject could not restore the image.
+        delete_image = False
 
     def _apply_insert() -> None:
-        cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
-        insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
-        # Shipped callers always set image_name; the selection-only path was checked pre-insert.
-        if image_name and not _writer_graphic_present(doc, image_name):
-            raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
+        # One Ctrl+Z for insert plus optional image delete. A failed delete or
+        # presence check rolls the insert back, so the image is never lost without its text.
+        with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
+            cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
+            insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
+            # Shipped callers always set image_name; the selection-only path was checked pre-insert.
+            if image_name and not _writer_graphic_present(doc, image_name):
+                raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
+            if delete_image:
+                _delete_inserted_image(doc, image_name)
 
     from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
@@ -338,26 +369,32 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     image_name = str((params or {}).get("image_name") or "").strip() or None
 
     if is_calc(doc):
+        delete_image = resolve_delete_image_after_insert(ctx, params)
         if insert_mode == "structured" and helper == "extract_structure":
-            try:
-                row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name)
-                log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
-                return
-            except ToolExecutionError as exc:
-                if exc.code != "VISION_ERROR":
-                    raise
-                log.debug("structured Calc insert empty; falling back to HTML")
-                # vision_html_from_result returns result["html"] — the bbox fragment
-                # after structured mode overwrote Docling. Prefer html_docling.
-                preserved = result.get("html_docling")
-                if isinstance(preserved, str) and preserved.strip():
-                    fallback_html = preserved
-                else:
-                    fallback_html = vision_html_from_result(result)
-                insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
-                return
+            with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
+                try:
+                    row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name)
+                    log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
+                except ToolExecutionError as exc:
+                    if exc.code != "VISION_ERROR":
+                        raise
+                    log.debug("structured Calc insert empty; falling back to HTML")
+                    # vision_html_from_result returns result["html"] — the bbox fragment
+                    # after structured mode overwrote Docling. Prefer html_docling.
+                    preserved = result.get("html_docling")
+                    if isinstance(preserved, str) and preserved.strip():
+                        fallback_html = preserved
+                    else:
+                        fallback_html = vision_html_from_result(result)
+                    insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
+                if delete_image:
+                    _delete_inserted_image(doc, image_name)
+            return
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
-        insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
+        with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
+            insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
+            if delete_image:
+                _delete_inserted_image(doc, image_name)
         return
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")

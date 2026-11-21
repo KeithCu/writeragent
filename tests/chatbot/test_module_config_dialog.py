@@ -441,3 +441,52 @@ def test_stale_status_after_finish_is_ignored():
     token, stale_text = posted_report[0]
     dialog._on_run_status(token, stale_text)
     assert lbl_status.setText.call_args_list[-1].args == ("Done: 1 characters.",)
+
+
+def test_dialog_without_apply_saves_on_ok_and_discards_on_cancel_after_run():
+    """When btn_apply is absent, OK saves and closes while Cancel discards edits even after Run."""
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, PreviewImage, _active_dialogs
+
+    _active_dialogs.clear()
+    listeners: dict[str, list[MagicMock]] = {}
+    buttons: dict[str, MagicMock] = {}
+    for name in ("btn_run", "btn_ok", "btn_close"):
+        btn = MagicMock()
+        listeners[name] = []
+        btn.addActionListener.side_effect = lambda lst, _n=name: listeners[_n].append(lst)
+        buttons[name] = btn
+
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: buttons.get(name)
+    field_ctrl = MagicMock()
+    field_ctrl.State = 1
+    buttons["delete_image_after_insert"] = field_ctrl
+
+    specs = [{"name": "delete_image_after_insert", "type": "boolean", "widget": "checkbox", "config_key": "vision.delete_image_after_insert", "default": False}]
+    job = MagicMock(return_value=PreviewImage(MagicMock(), 100, 100, "Done."))
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=specs),
+        patch("plugin.chatbot.module_config_dialog.populate_settings_control"),
+        patch("plugin.chatbot.module_config_dialog.read_settings_control", return_value=True),
+        patch("plugin.chatbot.module_config_dialog.apply_field_specs_result") as mock_apply,
+        patch("plugin.chatbot.module_config_dialog._PreviewPane"),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog = ModuleConfigDialog.show(MagicMock(), "vision", preview_job=job)
+        # Click Run, then Cancel (btn_close): must not persist settings.
+        listeners["btn_run"][0].actionPerformed(MagicMock())
+        assert job.call_count == 1
+        mock_apply.assert_not_called()
+        listeners["btn_close"][0].actionPerformed(MagicMock())
+        mock_apply.assert_not_called()
+        assert dialog._closed is True
+
+        # Re-open and click OK: must persist and close.
+        dialog2 = ModuleConfigDialog.show(MagicMock(), "vision", preview_job=job)
+        listeners["btn_ok"][-1].actionPerformed(MagicMock())
+        mock_apply.assert_called_once_with({"delete_image_after_insert": True}, specs)
+        assert dialog2._closed is True

@@ -106,6 +106,29 @@ def test_vision_standalone_ok_is_plain_push_button() -> None:
     assert ok_btn.get(f"{{{_DLG_NS}}}button-type") is None
     assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
     assert close_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
+    footer_ids = sorted(k for k in buttons if not k.startswith("btn_tab_"))
+    assert footer_ids == ["btn_close", "btn_ok", "btn_run"]
+    assert close_btn.get(f"{{{_DLG_NS}}}value") == "Cancel"
+
+
+def test_standalone_dialog_with_apply_keeps_apply_and_close_label() -> None:
+    """Module dialogs that list apply keep btn_apply and label btn_close as Close."""
+    from manifest_xdl import generate_standalone_config_dialog
+
+    mod = {
+        "name": "other",
+        "title": "Other",
+        "config_dialog": {"id": "OtherDialog", "width": 350, "height": 130, "buttons": ["apply", "ok", "close"]},
+        "config": {"x": {"type": "int", "widget": "number", "label": "X"}},
+    }
+    root = ET.fromstring(generate_standalone_config_dialog(mod))
+    buttons = {
+        el.get(f"{{{_DLG_NS}}}id"): el
+        for el in root.findall(".//dlg:button", {"dlg": _DLG_NS})
+    }
+    footer_ids = sorted(k for k in buttons if not k.startswith("btn_tab_"))
+    assert footer_ids == ["btn_apply", "btn_close", "btn_ok"]
+    assert buttons["btn_close"].get(f"{{{_DLG_NS}}}value") == "Close"
 
 
 def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:

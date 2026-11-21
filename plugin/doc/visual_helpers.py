@@ -31,7 +31,8 @@ from plugin.framework.doc_type import (
     get_document_type,
 )
 from plugin.doc.text_helpers import FAILED
-from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -754,6 +755,26 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         hit_page.remove(hit_shape)
         return True
     return False
+
+
+def delete_graphic(doc: Any, graphic: Any) -> None:
+    """Remove a graphic object from a Writer, Calc, Draw, or Impress document."""
+    doc_type = get_visual_doc_type(doc)
+    if not is_writer_like(doc_type):
+        try:
+            removed = remove_graphic_from_draw_pages(doc, graphic)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc), code="AMBIGUOUS_NAME") from exc
+        if not removed:
+            raise ToolExecutionError(_("Image not found."), code="IMAGE_NOT_FOUND")
+        return
+    try:
+        anchor = graphic.getAnchor()
+        text = anchor.getText()
+        text.removeTextContent(graphic)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
 
 
 def get_graphic_object_by_name(

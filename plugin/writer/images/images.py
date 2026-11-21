@@ -1433,17 +1433,12 @@ class ImageDelete(ToolWriterImageBase):
         if err is not None:
             return err
 
-        doc_type = visual_helpers.get_visual_doc_type(ctx.doc)
-        if not visual_helpers.is_writer_like(doc_type):
-            try:
-                if not visual_helpers.remove_graphic_from_draw_pages(ctx.doc, graphic):
-                    return _image_not_found(self, image_name)
-            except ValueError as exc:
-                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name)
-        else:
-            anchor = graphic.getAnchor()
-            text = anchor.getText()
-            text.removeTextContent(graphic)
+        try:
+            visual_helpers.delete_graphic(ctx.doc, graphic)
+        except ToolExecutionError as exc:
+            if exc.code == "IMAGE_NOT_FOUND":
+                return _image_not_found(self, image_name)
+            return self._tool_error(str(exc), code=exc.code, image_name=image_name)
 
         return {"status": "ok", "deleted": image_name}
 

@@ -12,7 +12,7 @@ config_dialog:
   height: 130
   moveable: true
   resizeable: true
-  buttons: [run, apply, ok, close]
+  buttons: [run, ok, close]
   preview: {height: 200}
 
 actions:
@@ -159,6 +159,14 @@ config:
     options:
       - {value: html, label: Standard HTML}
       - {value: structured, label: Structured (layout / cell grid)}
+
+  delete_image_after_insert:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: tables
+    label: Delete image after OCR
+    helper: Remove the source image from the document after OCR inserts its content.
 
   layout_model:
     type: string
