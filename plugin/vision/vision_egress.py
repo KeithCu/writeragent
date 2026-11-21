@@ -110,6 +110,109 @@ def _dispatch_escape(controller: Any, ctx: Any) -> None:
         log.debug("prepare_vision_writer_insert: escape dispatch failed: %s", ex)
 
 
+def _same_graphic(left: Any, right: Any) -> bool:
+    """True when two UNO graphic references are the same object or share a name."""
+    if left is None or right is None:
+        return False
+    if left is right:
+        return True
+    try:
+        left_name = str(left.getName() or "")
+        right_name = str(right.getName() or "")
+    except Exception:
+        return False
+    return bool(left_name) and left_name == right_name
+
+
+def _text_content_is_graphic(node: Any, graphic: Any) -> bool:
+    """True when *node* exposes this graphic as TextContent / TextEmbeddedObject."""
+    for prop in ("TextContent", "TextEmbeddedObject"):
+        try:
+            content = node.getPropertyValue(prop)
+        except Exception:
+            content = getattr(node, prop, None)
+        if _same_graphic(content, graphic):
+            return True
+    return False
+
+
+def _range_holds_as_char_graphic(rng: Any, graphic: Any) -> bool:
+    """True when *rng* is the as-char graphic character (Frame / TextContent).
+
+    A text cursor does not itself have TextPortionType (UnknownPropertyException).
+    After goRight(1, True), a non-empty getString() is ordinary text — the
+    cursor is already past the graphic — and must not be treated as a hit
+    even if content enumeration still yields an adjacent graphic. An empty
+    selection is the graphic character (getString omits it); confirm via
+    TextContent / portion type Frame when those are available.
+    """
+    try:
+        if rng.getString():
+            return False
+    except Exception:  # noqa: S110 - UNO getString on a text cursor
+        pass
+    try:
+        if str(rng.getPropertyValue("TextPortionType") or "") == "Frame":
+            if _text_content_is_graphic(rng, graphic):
+                return True
+    except Exception:  # noqa: S110 - TextPortionType is absent on text cursors
+        pass
+    try:
+        enum = rng.createContentEnumeration("com.sun.star.text.TextContent")
+        while enum is not None and enum.hasMoreElements():
+            if _same_graphic(enum.nextElement(), graphic):
+                return True
+    except Exception:  # noqa: S110 - content enumeration is optional
+        pass
+    # getString() omits the as-char graphic character, so a successful
+    # one-character expansion that is still empty is sitting on it.
+    try:
+        return not (rng.getString() or "")
+    except Exception:
+        return False
+
+
+def _should_step_over_as_char_graphic(cursor: Any, graphic: Any) -> bool:
+    """True only when the cursor sits *on* an as-char graphic and must step over it.
+
+    Writer-inserted as-char anchors may already be collapsed *after* the
+    graphic. goRight(1) then skips the next text character and splits it
+    (T3 → T / 3). Step only when AnchorType is AS_CHARACTER and the character
+    to the right is the graphic itself (an empty one-character expansion).
+    """
+    from plugin.doc.visual_helpers import anchor_type_index, safe_get_property
+
+    if anchor_type_index(safe_get_property(graphic, "AnchorType", None)) != 1:
+        return False
+    try:
+        probe = cursor.getText().createTextCursorByRange(cursor)
+        if not probe.goRight(1, True):
+            return False
+        return _range_holds_as_char_graphic(probe, graphic)
+    except Exception:
+        return False
+
+
+def _enter_paragraph_after_break(cursor: Any) -> None:
+    """Move into the paragraph created by the preceding insertControlCharacter.
+
+    After a break the cursor may already sit at the start of the new
+    paragraph. An unconditional goRight(1) then skips the first following
+    text character (T3 → T / 3) or an as-char graphic that begins the new
+    paragraph (images-only OCR can land out of order). Stay put when the
+    cursor is already at the paragraph start.
+    """
+    try:
+        text = cursor.getText()
+        start = text.createTextCursorByRange(cursor)
+        start.gotoStartOfParagraph(False)
+        if int(text.compareRegionStarts(cursor.getStart(), start.getStart())) == 0:
+            return
+    except Exception:  # noqa: S110 - fall back to goRight when comparison is unavailable
+        pass
+    cursor.goRight(1, False)
+
+
 def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None, graphic: Any | None = None) -> Any:
     """Return a collapsed text cursor in a new paragraph after the target graphic.
 
@@ -163,21 +266,23 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
         # Selection was cleared above so collapseToEnd is trustworthy (getEnd() can
         # resolve before the image while a graphic stays UI-selected).
         cursor = text.createTextCursorByRange(anchor)
-        # As-char (and some fly) anchors are a collapsed range at the graphic
-        # character. collapseToEnd is then a no-op and a paragraph break lands
-        # *before* the image. Step over the graphic first. Use ``is True`` so
-        # unit-test MagicMocks still take the collapseToEnd path.
-        try:
-            collapsed = cursor.isCollapsed() is True
-        except Exception:
-            collapsed = False
-        if collapsed:
+        # A collapsed as-char anchor may sit *on* the graphic character
+        # (collapseToEnd is then a no-op and a break lands before the image)
+        # or already *after* it (goRight would skip the next text character).
+        # Step over only when the character to the right is the graphic.
+        # Use ``is True`` so unit-test MagicMocks still take collapseToEnd.
+        if _should_step_over_as_char_graphic(cursor, resolved):
             cursor.goRight(1, False)
         else:
-            cursor.collapseToEnd()
+            try:
+                collapsed = cursor.isCollapsed() is True
+            except Exception:
+                collapsed = False
+            if not collapsed:
+                cursor.collapseToEnd()
         # Model-level separator: keeps the graphic char out of the HTML import range.
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.goRight(1, False)
+        _enter_paragraph_after_break(cursor)
     except ToolExecutionError:
         raise
     except Exception as ex:

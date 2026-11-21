@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -383,21 +383,71 @@ def test_prepare_vision_writer_insert_accepts_draw_page_only_graphic():
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
+def _as_char_graphic(graphic):
+    """AnchorType AS_CHARACTER (IDL index 1) for the step-over probe."""
+    graphic.getPropertyValue.side_effect = lambda name: 1 if name == "AnchorType" else MagicMock()
+    return graphic
+
+
+def _probe_range(*, portion_type: str, content: object):
+    probe = MagicMock()
+    probe.goRight.return_value = True
+    # Frame / graphic characters have no text; ordinary text must be non-empty
+    # so the production gate does not treat a MagicMock getString as a hit.
+    probe.getString.return_value = "" if portion_type == "Frame" else "T"
+    probe.getPropertyValue.side_effect = lambda name: {
+        "TextPortionType": portion_type,
+        "TextContent": content,
+    }.get(name, MagicMock())
+    probe.createContentEnumeration.side_effect = Exception("no enum")
+    return probe
+
+
 def test_prepare_vision_writer_insert_steps_over_collapsed_as_char_anchor():
-    """A collapsed as-char anchor sits on the graphic; collapseToEnd would insert above it."""
+    """A collapsed as-char anchor that sits on the graphic must step over it."""
     from plugin.vision.vision_egress import prepare_vision_writer_insert
 
     doc, ctx, graphic, cursor, text = _prepare_ctx()
     cursor.isCollapsed.return_value = True
+    cursor.getText.return_value = text
     doc.getGraphicObjects.return_value.hasByName.return_value = True
+    _as_char_graphic(graphic)
+    probe = _probe_range(portion_type="Frame", content=graphic)
+    text.createTextCursorByRange.side_effect = [cursor, probe]
 
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
         "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic
     ):
         prepare_vision_writer_insert(doc, ctx, image_name="Image1")
 
-    cursor.goRight.assert_any_call(1, False)
+    # First goRight steps over the graphic; the second is the post-break move.
+    assert cursor.goRight.call_args_list[0] == call(1, False)
+    assert cursor.goRight.call_count == 2
     cursor.collapseToEnd.assert_not_called()
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def test_prepare_vision_writer_insert_does_not_step_over_following_text():
+    """A collapsed as-char anchor already after the graphic must not skip the next character."""
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc, ctx, graphic, cursor, text = _prepare_ctx()
+    cursor.isCollapsed.return_value = True
+    cursor.getText.return_value = text
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+    _as_char_graphic(graphic)
+    # goRight(1, True) would select ordinary text, not the graphic.
+    probe = _probe_range(portion_type="Text", content=None)
+    text.createTextCursorByRange.side_effect = [cursor, probe]
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic
+    ):
+        prepare_vision_writer_insert(doc, ctx, image_name="Image1")
+
+    cursor.collapseToEnd.assert_not_called()
+    # Only the post-paragraph-break goRight.
+    assert cursor.goRight.call_args_list == [call(1, False)]
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
