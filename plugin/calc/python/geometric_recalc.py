@@ -222,7 +222,7 @@ def maybe_strip_geometric_eval_args(
     """Drop the last split arg when the triple is strip-safe.
 
     Must run after ``split_python_addin_data_args`` and before
-    ``calc_addin_args_from_split`` / the matrix-index heuristic.
+    ``calc_addin_args_from_split`` packs the inputs.
     Off the UI thread, or with no caller document, args come back unchanged;
     ``build_cell_context`` reads the key only on the UI thread because that
     read is UNO.
