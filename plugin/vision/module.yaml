@@ -63,7 +63,6 @@ config:
       - {value: tesseract, label: "Tesseract (command line)"}
       - {value: ocrmac, label: "Apple Vision (macOS)"}
       - {value: nemotron, label: "NVIDIA Nemotron OCR (Linux, CUDA)"}
-      - {value: auto, label: Docling auto}
 
   lang:
     type: string
@@ -210,5 +209,5 @@ config:
     label: Fix rotated text (RapidOCR)
     x: 188
     width: 150
-    helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines, not Docling auto.
+    helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines.
 
