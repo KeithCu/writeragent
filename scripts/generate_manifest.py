@@ -92,10 +92,18 @@ def validate_modules(manifests, project_root=None):
                 buttons = cd["buttons"]
                 if not isinstance(buttons, list) or len(buttons) == 0:
                     raise ValueError(f"{yp}: config_dialog.buttons: must be a non-empty list")
-                valid_buttons = {"apply", "ok", "close"}
+                valid_buttons = {"run", "apply", "ok", "close"}
                 for btn in buttons:
                     if btn not in valid_buttons:
                         raise ValueError(f"{yp}: config_dialog.buttons: invalid button {btn!r}")
+            if "preview" in cd:
+                preview = cd["preview"]
+                p_height = preview.get("height") if isinstance(preview, dict) else None
+                if isinstance(p_height, bool) or not isinstance(p_height, int) or p_height <= 0:
+                    raise ValueError(f"{yp}: config_dialog.preview.height: must be a positive integer")
+            eff_buttons = cd.get("buttons") or ["apply", "ok", "close"]
+            if ("run" in eff_buttons) != ("preview" in cd):
+                raise ValueError(f"{yp}: config_dialog: the run button and preview go together")
 
         for action_name, action_def in m.get("actions", {}).items():
             if isinstance(action_def, dict) and "icon" in action_def:

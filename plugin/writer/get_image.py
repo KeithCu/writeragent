@@ -17,24 +17,20 @@ from __future__ import annotations
 import base64
 import copy
 import logging
-import os
-import tempfile
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
-from plugin.doc.text_helpers import clone_text_range, jump_view_cursor_to_page
-from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+from plugin.writer.page_png import render_writer_page_png, write_page_png
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
 log = logging.getLogger(__name__)
-
-_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def _is_draw_family(doc: Any) -> bool:
@@ -45,75 +41,6 @@ def _is_draw_family(doc: Any) -> bool:
 def _ok_image(source: str, raw: bytes) -> dict[str, Any]:
     b64 = base64.b64encode(raw).decode("utf-8")
     return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
-
-
-def _with_page_png(page: int, export: Any) -> tuple[bytes | None, str | None]:
-    tmp_path = None
-    try:
-        fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
-        os.close(fd)
-        export(tmp_path)
-        with open(tmp_path, "rb") as f:
-            png = f.read()
-        if png[:8] != _PNG_MAGIC:
-            return None, "could not render page %d: the PNG export produced no valid image." % page
-        return png, None
-    except Exception as e:
-        reraise_if_disposed(e)
-        return None, "could not render page %d: %s" % (page, e)
-    finally:
-        if tmp_path:
-            best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
-
-
-def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
-    """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
-
-    *page* is model-facing (first page = 0); jump_view_cursor_to_page converts it to Writer's
-    1-based page — error text still quotes the 0-based index the model sent.
-
-    NATIVE LibreOffice path ONLY — the writer_png_Export graphic filter, targeted per page with the
-    view cursor (jumpToPage): cross-platform, no external binary, no PDF round-trip, and the filter
-    reuses LO's own page painting (headers, frames, shapes, images all faithful). XRenderable
-    is not used: on real multi-page documents its getRendererCount reports 1 page whatever
-    options are passed, and its getDIB() bitmaps are build-dependent. The view cursor is saved and
-    restored best-effort (the jump may briefly scroll the window). There is intentionally NO fallback — on
-    any failure this returns a clear reason (surfaced by the caller as a tool error), never a
-    silent failure or an empty image."""
-    try:
-        vc = doc.getCurrentController().getViewCursor()
-    except Exception as e:
-        # Disposal must reach execute_safe as DOCUMENT_DISPOSED, not a render reason.
-        reraise_if_disposed(e)
-        return None, "could not render page %d: no document view available (%s)" % (page, e)
-
-    # Save the view cursor so the page jump can be undone. clone_text_range
-    # copies it through the cursor's own XText; if that raises, the restore
-    # below is skipped.
-    saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
-
-    try:
-        total = jump_view_cursor_to_page(vc, page)
-        if total is not None:
-            return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
-        # UNO imports only here: nothing above needs them, so validation/error paths stay
-        # exception-free even where the uno module is unavailable (e.g. mocked test envs).
-        import uno
-        from com.sun.star.beans import PropertyValue
-
-        def export(tmp_path: str) -> None:
-            doc.storeToURL(
-                uno.systemPathToFileUrl(tmp_path),
-                (PropertyValue(Name="FilterName", Value="writer_png_Export"),),
-            )
-
-        return _with_page_png(page, export)
-    except Exception as e:
-        reraise_if_disposed(e)
-        return None, "could not render page %d: %s" % (page, e)
-    finally:
-        if saved is not None:
-            best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after page render")
 
 
 def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
@@ -165,14 +92,14 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
         if not ok:
             raise RuntimeError("GraphicExportFilter returned false.")
 
-    return _with_page_png(page, export)
+    return write_page_png(page, export)
 
 
 def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
     if _is_draw_family(doc):
         return _render_draw_page_png(ctx, doc, page)
-    return _render_writer_page_png(doc, page)
+    return render_writer_page_png(doc, page)
 
 
 # Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:

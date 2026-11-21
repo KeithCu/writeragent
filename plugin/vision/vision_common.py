@@ -15,6 +15,9 @@ HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
 IMPLEMENTED_HELPERS = HELPER_NAMES
 
+# Loads the Docling models for a params set; not an OCR helper.
+LOAD_MODELS_HELPER = "load_models"
+
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})
 DEFAULT_OCR_BACKEND = "rapidocr"

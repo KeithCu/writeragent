@@ -186,6 +186,51 @@ def _add_standalone_field(board, field_name, schema, y, page, *, where="") -> in
     return y if schema.get("inline") else y + _STANDALONE_ROW_HEIGHT + _STANDALONE_ROW_GAP
 
 
+_FOOTER_BUTTON_LABELS = {
+    "run": "Run",
+    "apply": "Apply",
+    "ok": "OK",
+    "close": "Close",
+}
+
+
+def _add_preview_area(board, width: int, content_bottom: int, footer_y: int) -> None:
+    """Add page-0 preview placeholder, vertical scrollbar, and status label."""
+    margin = _STANDALONE_MARGIN
+    gap = _STANDALONE_ROW_GAP
+    status_y = footer_y - gap - 12
+    top = content_bottom + gap
+    bottom = status_y - gap
+    bar_left = width - margin - 10
+    pane_h = max(1, bottom - top)
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): "preview_area",
+        _dlg("left"): str(margin),
+        _dlg("top"): str(top),
+        _dlg("width"): str(bar_left - margin - 2),
+        _dlg("height"): str(pane_h),
+        _dlg("value"): "",
+    })
+    ET.SubElement(board, _dlg("scrollbar"), {
+        _dlg("id"): "sb_preview",
+        _dlg("left"): str(bar_left),
+        _dlg("top"): str(top),
+        _dlg("width"): "10",
+        _dlg("height"): str(pane_h),
+        _dlg("align"): "vertical",
+        _dlg("live-scroll"): "true",
+        _dlg("tabstop"): "true",
+    })
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): "lbl_preview_status",
+        _dlg("left"): str(margin),
+        _dlg("top"): str(status_y),
+        _dlg("width"): str(width - 2 * margin),
+        _dlg("height"): "12",
+        _dlg("value"): "",
+    })
+
+
 def generate_standalone_config_dialog(module):
     """Generate a tall, tabbed, modeless-ready settings XDL for *module*."""
     cfg_dialog = module.get("config_dialog") or {}
@@ -193,7 +238,8 @@ def generate_standalone_config_dialog(module):
     module_name = module["name"]
     dialog_id = cfg_dialog.get("id") or ("WriterAgent_%sSettings" % module_name.replace(".", "_"))
     width = int(cfg_dialog.get("width") or 440)
-    height = int(cfg_dialog.get("height") or 480)
+    preview_height = int((cfg_dialog.get("preview") or {}).get("height") or 0)
+    height = int(cfg_dialog.get("height") or 480) + preview_height
     title = cfg_dialog.get("title") or module.get("title") or module_name.title()
 
     pages_in_use: list[str] = []
@@ -267,14 +313,16 @@ def generate_standalone_config_dialog(module):
         page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum, where=where)
 
     footer_y = height - _STANDALONE_FOOTER_MARGIN
+    if preview_height:
+        _add_preview_area(board, width, max(page_y.values()), footer_y)
     buttons = cfg_dialog.get("buttons") or ["apply", "ok", "close"]
-    
+
     btn_w = 70
     btn_gap = 10
-    visible_keys = [k for k in ["apply", "ok", "close"] if k in buttons]
+    visible_keys = [k for k in ("run", "apply", "ok", "close") if k in buttons]
     btn_specs = []
     for idx, key in enumerate(visible_keys):
-        label = "Apply" if key == "apply" else ("OK" if key == "ok" else "Close")
+        label = _FOOTER_BUTTON_LABELS[key]
         btn_id = f"btn_{key}"
         left = width - _STANDALONE_MARGIN - (len(visible_keys) - idx) * btn_w - (len(visible_keys) - 1 - idx) * btn_gap
         btn_specs.append((key, btn_id, label, footer_y, left))

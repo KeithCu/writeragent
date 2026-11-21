@@ -650,6 +650,50 @@ def test_extract_text_docling_returned_no_document(result):
     mock_html.assert_not_called()
 
 
+def test_load_models_then_extract_reuses_one_converter():
+    docling_mod._converter_cache.clear()
+    base_models = MagicMock()
+    base_models.InputFormat.IMAGE = "IMAGE"
+    created = []
+
+    def fake_converter(**kwargs):
+        conv = MagicMock()
+        conv.convert.return_value = MagicMock(document=MagicMock())
+        created.append(conv)
+        return conv
+
+    converter_mod = MagicMock()
+    converter_mod.DocumentConverter.side_effect = fake_converter
+    converter_mod.ImageFormatOption.side_effect = lambda **kw: kw
+
+    def fake_import(name):
+        if name == "docling.datamodel.base_models":
+            return base_models
+        if name == "docling.document_converter":
+            return converter_mod
+        raise ImportError(name)
+
+    with (
+        patch.object(docling_mod, "_build_pipeline_options", return_value=MagicMock()),
+        patch.object(docling_mod.importlib, "import_module", side_effect=fake_import),
+    ):
+        loaded = docling_mod.load_models({"layout_model": "heron"})
+        docling_mod._convert_image_bytes(b"\x89PNG\r\n\x1a\n", {"layout_model": "heron"})
+
+    assert loaded == {"status": "ok", "helper": "load_models"}
+    assert len(created) == 1
+    created[0].initialize_pipeline.assert_called_once_with("IMAGE")
+    created[0].convert.assert_called_once()
+
+
+def test_load_models_maps_import_error():
+    docling_mod._converter_cache.clear()
+    with patch.object(docling_mod, "_get_docling_converter", side_effect=ImportError("No module named 'docling'")):
+        out = docling_mod.load_models({})
+    assert out["status"] == "error"
+    assert out["code"] == "DOCLING_UNAVAILABLE"
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [

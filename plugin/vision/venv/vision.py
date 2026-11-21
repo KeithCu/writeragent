@@ -16,10 +16,12 @@ from typing import Any
 from plugin.vision.vision_common import (
     DEFAULT_VISION_INSERT_MODE,
     IMPLEMENTED_HELPERS,
+    LOAD_MODELS_HELPER,
     VISION_IMAGE_MAX_BYTES,
     detect_vision_input_format,
     error_result,
     fallback_engine_enabled,
+    ok_result,
     resolve_engine,
 )
 
@@ -111,6 +113,16 @@ def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any])
     return updated
 
 
+def _load_models(params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        engine = resolve_engine(params)
+    except ValueError as exc:
+        return error_result("INVALID_PARAM", str(exc), helper=LOAD_MODELS_HELPER)
+    if engine != "docling":
+        return ok_result(LOAD_MODELS_HELPER)
+    return importlib.import_module("plugin.vision.venv.vision_docling").load_models(params)
+
+
 def run_vision(
     spec: dict[str, Any] | str,
     image: Any,
@@ -142,6 +154,8 @@ def run_vision(
         )
 
     try:
+        if helper == LOAD_MODELS_HELPER:
+            return _load_models(params)
         result = _dispatch_helper(helper, image, params)
         return apply_structured_insert_html(result, params)
     except ModuleNotFoundError as exc:

@@ -408,3 +408,17 @@ def test_apply_structured_insert_html_skips_html_mode():
     result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
     out = apply_structured_insert_html(result, {"insert_mode": "html"})
     assert out is result
+
+
+def test_run_vision_routes_load_models():
+    with patch("plugin.vision.venv.vision_docling.load_models", return_value={"status": "ok", "helper": "load_models"}) as mock_load:
+        out = run_vision({"helper": "load_models", "params": {"layout_model": "heron"}}, None, {})
+    assert out == {"status": "ok", "helper": "load_models"}
+    mock_load.assert_called_once_with({"layout_model": "heron"})
+
+
+def test_load_models_paddle_engine_skips_docling():
+    with patch("plugin.vision.venv.vision_docling.load_models") as mock_load:
+        out = run_vision({"helper": "load_models", "params": {"engine": "paddle"}}, None, {})
+    assert out == {"status": "ok", "helper": "load_models"}
+    mock_load.assert_not_called()

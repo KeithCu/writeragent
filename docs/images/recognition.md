@@ -154,7 +154,9 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 
 At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors hidden key `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
 
-Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py).
+Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py); live preview job: [`vision_preview.py`](../../plugin/vision/vision_preview.py).
+
+The **Run** button previews the first selected image in the active document using the dialog's unsaved values (without saving to disk). It runs `extract_structure` with the dialog's `insert_mode`, renders page 1 of a hidden Writer document (`5 mm` margins, `1600 px` wide via [`page_png.py`](../../plugin/writer/page_png.py)), and displays it in the scrollable preview pane. For Calc `structured` mode, the preview shows the layout HTML rather than the cell grid. Status progresses through `Running…` → `Loading models…` → `Recognizing text…` → `Rendering preview…` → `Done: N characters.`. Closing the dialog (Close, OK, or window X) cancels an in-flight preview. Because LibreOffice UNO exposes no mouse-wheel listener for AWT controls, scrolling uses the vertical scrollbar (drag, arrows, page click, or keys when focused).
 
 ### 2.6 Optional follow-on UX (not Phase 1)
 
@@ -516,9 +518,10 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Config schema + tabs | [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml) (`settings_tab: false`, `config_dialog`) |
 | Generated XDL | `VisionSettingsDialog.xdl` via `make manifest` / [`manifest_xdl.py`](../../scripts/manifest_xdl.py) |
 | Menu entry | [`extension/Addons.xcu`](../../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../../plugin/main.py) |
-| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
+| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)`, `_PreviewPane` + Run job |
+| Preview job | [`vision_preview.py`](../../plugin/vision/vision_preview.py) — `load_models` warm-up + `extract_structure` + hidden Writer page 1 render |
 
-Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size` and `rapidocr_detect_orientation` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
+Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size` and `rapidocr_detect_orientation` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run. Before OCR, `run_vision_preview` sends `LOAD_MODELS_HELPER` (`"load_models"`) with the exact OCR params; `vision_docling.load_models` calls `converter.initialize_pipeline(...)` on the single-entry `_converter_cache` so the subsequent OCR call reuses the loaded models.
 
 ---
 
