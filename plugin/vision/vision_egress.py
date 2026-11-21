@@ -52,8 +52,25 @@ _PARAGRAPH_BREAK = 0
 
 
 def _writer_graphic_present(doc: Any, name: str) -> bool:
-    """O(1) check: Writer keeps text graphics in a name container; scanning all is O(n)."""
-    return bool(doc.getGraphicObjects().hasByName(name))
+    """True when a Writer graphic still exists under *name*.
+
+    Text flies are in ``getGraphicObjects()`` (O(1) ``hasByName``). As-char
+    frames (and some imported/SdrGrafObj pictures) live only on the draw page
+    and are found by ``get_graphic_object_by_name``, which is how insert
+    already resolves the target. ``hasByName`` alone is a false negative for
+    those and aborts a successful OCR.
+    """
+    if not name:
+        return False
+    try:
+        if bool(doc.getGraphicObjects().hasByName(name)):
+            return True
+    except Exception as ex:
+        reraise_if_disposed(ex)
+        log.debug("hasByName failed for %r", name, exc_info=True)
+    from plugin.doc.visual_helpers import get_graphic_object_by_name
+
+    return get_graphic_object_by_name(doc, name) is not None
 
 
 def _focus_writer_frame(controller: Any) -> None:
@@ -146,7 +163,18 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
         # Selection was cleared above so collapseToEnd is trustworthy (getEnd() can
         # resolve before the image while a graphic stays UI-selected).
         cursor = text.createTextCursorByRange(anchor)
-        cursor.collapseToEnd()
+        # As-char (and some fly) anchors are a collapsed range at the graphic
+        # character. collapseToEnd is then a no-op and a paragraph break lands
+        # *before* the image. Step over the graphic first. Use ``is True`` so
+        # unit-test MagicMocks still take the collapseToEnd path.
+        try:
+            collapsed = cursor.isCollapsed() is True
+        except Exception:
+            collapsed = False
+        if collapsed:
+            cursor.goRight(1, False)
+        else:
+            cursor.collapseToEnd()
         # Model-level separator: keeps the graphic char out of the HTML import range.
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.goRight(1, False)
