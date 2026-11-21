@@ -148,6 +148,7 @@ def test_merge_vision_params_reads_ocr_engine_settings():
         "vision.device": "cpu",
         "vision.rapidocr_model_size": "medium",
         "vision.rapidocr_detect_orientation": False,
+        "vision.ocrmac_recognition": "fast",
     }
     with patch("plugin.framework.config.get_config", side_effect=lambda k: values.get(k)):
         merged = merge_vision_params(None, None)
@@ -157,6 +158,7 @@ def test_merge_vision_params_reads_ocr_engine_settings():
             "device": "cpu",
             "rapidocr_model_size": "medium",
             "rapidocr_detect_orientation": False,
+            "ocrmac_recognition": "fast",
         }
         overridden = merge_vision_params(None, {"lang": "fr"})
         assert overridden == {
@@ -165,6 +167,7 @@ def test_merge_vision_params_reads_ocr_engine_settings():
             "device": "cpu",
             "rapidocr_model_size": "medium",
             "rapidocr_detect_orientation": False,
+            "ocrmac_recognition": "fast",
         }
 
 

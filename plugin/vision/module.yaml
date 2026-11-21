@@ -219,3 +219,15 @@ config:
     width: 150
     helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines.
 
+  ocrmac_recognition:
+    type: string
+    default: accurate
+    widget: select
+    page: advanced
+    label: Apple Vision recognition
+    width: 52
+    helper: Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer languages.
+    options:
+      - {value: accurate, label: Accurate (default)}
+      - {value: fast, label: Fast}
+
