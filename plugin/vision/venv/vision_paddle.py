@@ -336,7 +336,7 @@ def _decode_image(image: Any, params: dict[str, Any]) -> Any:
 
 
 def _engine_or_error(factory: Any, params: dict[str, Any], helper: str, fail_log: str) -> tuple[Any, dict[str, Any] | None]:
-    """Map Settings ``lang`` to a PP-OCR code and turn constructor failures into error_result."""
+    """Map Settings ``lang`` to a PP-OCR code and turn constructor failures into error_result; leaving them unhandled aborts the vision call."""
     requested = str(params.get("lang") or "").strip()
     lang = paddle_lang_code(requested)
     if lang is None:
