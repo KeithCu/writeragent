@@ -129,9 +129,7 @@ def test_extract_text_docling_unavailable_no_fallback(mock_convert):
 
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
-    mock_convert.side_effect = AttributeError(
-        "'LayoutModelConfig' object has no attribute 'get_engine_config'"
-    )
+    mock_convert.side_effect = docling_mod.DoclingApiMismatchError("Docling too old")
 
     with patch("plugin.vision.venv.vision_paddle.decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"

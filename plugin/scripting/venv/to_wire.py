@@ -15,7 +15,7 @@ import io
 import sys
 from typing import Any
 
-from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, HOST_PICKLE_LEAF_TYPES
 from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.payload_codec import (
     ForceBinary,
@@ -205,6 +205,26 @@ def figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
     return pack_image_envelope(buf.getvalue(), fmt)
 
 
+# A plot SVG larger than this is re-rendered as a 150-dpi PNG. Sixteen plots of this size fill
+# the 16 MiB IPC frame (DEFAULT_MAX_PAYLOAD_BYTES), and coolwsd caps a compute response at the
+# same 16 MiB after base64 adds a third. A 100,000-point scatter is about 10 MB as SVG and
+# about 25 KB as PNG.
+_MAX_PLOT_SVG_BYTES = DEFAULT_MAX_PAYLOAD_BYTES // 16
+
+
+def plot_image_payload(fig: Any) -> dict[str, Any]:
+    """Render a cell's figure as SVG, or as PNG when the SVG is over _MAX_PLOT_SVG_BYTES.
+
+    The PNG is kept only when it is smaller; a very large figsize can make it bigger than the SVG.
+    """
+    payload = figure_to_image_payload(fig)
+    if len(payload["data"]) > _MAX_PLOT_SVG_BYTES:
+        png = figure_to_image_payload(fig, fmt="png")
+        if len(png["data"]) < len(payload["data"]):
+            return png
+    return payload
+
+
 def _pil_image_to_payload(img: Any) -> dict[str, Any]:
     """Convert a PIL Image to an image payload dict."""
     buf = io.BytesIO()
@@ -262,7 +282,7 @@ def to_wire(
 
         # 2. Matplotlib Figure
         if mpl_fig is not None and isinstance(val, mpl_fig.Figure):
-            return figure_to_image_payload(val)
+            return plot_image_payload(val)
 
         # 3. PIL Image
         if pil_mod is not None and isinstance(val, pil_mod.Image):
