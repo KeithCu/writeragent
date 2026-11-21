@@ -290,7 +290,10 @@ def generate_standalone_config_dialog(module):
             _dlg("tabstop"): "true",
         }
         if key == "ok":
-            btn_attrs[_dlg("button-type")] = "ok"
+            # Modeless standalone dialogs use setVisible(), not execute().
+            # button-type="ok" makes VCL end/hide the dialog without
+            # actionPerformed, so OK would not save. Keep default so Enter
+            # still activates the wired listener.
             btn_attrs[_dlg("default")] = "true"
         elif key == "close":
             btn_attrs[_dlg("button-type")] = "cancel"
