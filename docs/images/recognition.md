@@ -102,7 +102,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path
-2. In that venv: pip install docling rapidocr-paddle numpy pillow onnxruntime
+2. In that venv: pip install docling onnxruntime css-inline
    (Paddle-only fallback: pip install paddleocr paddlepaddle numpy — set params engine=paddle)
    (ultralytics not required until Phase 4 helpers)
 3. Open a Writer document
@@ -116,7 +116,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path (same venv as analysis helpers)
-2. pip install docling rapidocr-paddle numpy pillow onnxruntime
+2. pip install docling onnxruntime css-inline
 3. Open a Calc document with a cell-anchored embedded image
 4. Click the image so it is selected (export source)
 5. WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text → Run
@@ -145,7 +145,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Launch | Role |
 |--------|------|
 | **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json`. `worker_timeout_sec`, `artifacts_path`, and `force_full_page_ocr` are `writeragent.json`-only. |
-| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling and rapidocr are both present, or when PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
+| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or, when Docling is not installed, PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract`) are listed when present and never counted as Missing; paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
@@ -413,14 +413,14 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 
 | # | Library | Install | Role |
 |---|---------|---------|------|
-| **1** | **Docling** | `pip install docling rapidocr-paddle numpy pillow onnxruntime` | **Default** OCR, layout, tables — `engine=docling` |
+| **1** | **Docling** | `pip install docling onnxruntime css-inline` | **Default** OCR, layout, tables — `engine=docling` |
 | **2** | **PaddleOCR** | `pip install paddleocr paddlepaddle numpy` | Lightweight fallback — `engine=paddle` |
 | **3** | **Ultralytics** | `pip install ultralytics` | YOLO detection — **Phase 4+** helpers only |
 
 Primary install (Docling default):
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow onnxruntime
+pip install docling onnxruntime css-inline
 ```
 
 Paddle-only fallback:
@@ -432,7 +432,7 @@ pip install paddleocr paddlepaddle numpy
 Full stack:
 
 ```bash
-pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pillow onnxruntime
+pip install docling onnxruntime css-inline paddleocr paddlepaddle ultralytics
 ```
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
@@ -442,7 +442,9 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | Param | Default | Values |
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
-| `ocr_backend` | `"rapidocr"` | `"auto"`, `"rapidocr"`, `"rapidocr_paddle"`, `"easyocr"`, `"tesseract"`, `"surya"` (requires `docling-surya` + `allow_external_plugins`) |
+| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_onnx"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"`, `"auto"` |
+| `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. Docling ≥ 2.127 is required for non-default languages |
+| `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
 | `fallback_engine` | `true` | When Docling is missing, or a Docling runtime `VISION_ERROR` looks like a layout API/AttributeError (`get_engine_config` / `LayoutModelConfig`), auto-fallback to Paddle if installed |
@@ -478,22 +480,22 @@ OpenCV is allowed by default in the LLM sandbox for ad hoc scripts; **new truste
 | Self-check? | Optional; graceful skip if absent (like `fg-data-profiling` for analysis) |
 | Sandbox blocklist? | Not required for trusted modules |
 
-### 7.4 Alternative: Surya (single library)
+### 7.4 Surya
 
-**[Surya](https://github.com/VikParuchuri/surya)** (`surya-ocr`) — transformer OCR + layout + reading order. **GPL-3.0** (compatible with WriterAgent GPL v3+). Use via Docling plugin [`docling-surya`](https://pypi.org/project/docling-surya/) with `ocr_backend=surya` and `allow_external_plugins=true` — not co-maintained as a separate native stack.
+No Surya OCR backend; Docling's `surya_ocr2_5` VLM preset is a separate, undecided engine path.
 
 ### 7.5 Docling vs native PaddleOCR
 
-Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.com/RapidAI/RapidOCR)** with a **`paddle` backend** (`rapidocr-paddle`) that runs the same model family. For direct PP-OCR API access, set `engine=paddle`. A custom Docling `BaseOcrModel` plugin wrapping PaddleOCR is a possible future research add-on.
+Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.com/RapidAI/RapidOCR)** with a **`paddle` backend** (`ocr_backend=rapidocr_paddle`) that runs the same model family. For direct PP-OCR API access, set `engine=paddle`. A custom Docling `BaseOcrModel` plugin wrapping PaddleOCR is a possible future research add-on.
 
 ### 7.6 OCR research quick reference
 
 | Goal | Params / install |
 |------|------------------|
-| Default (Docling + Paddle models via RapidOCR) | defaults — `pip install docling rapidocr-paddle onnxruntime` |
-| Compare EasyOCR / Tesseract | `ocr_backend=easyocr` or `tesseract` + matching pip extra |
-| Surya via Docling plugin | `pip install docling-surya surya-ocr`; `ocr_backend=surya`, `allow_external_plugins=true` |
-| Apple macOS Vision | Docling `OcrMacOptions` (system dependency) |
+| Default (Docling + RapidOCR ONNX) | defaults — `pip install docling onnxruntime css-inline` |
+| RapidOCR with OpenVINO / Paddle / PyTorch | `ocr_backend=rapidocr_openvino` / `rapidocr_paddle` / `rapidocr_torch` + matching engine package |
+| EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (`tesseract` on `PATH`) |
+| Apple macOS Vision / NVIDIA Nemotron | `ocr_backend=ocrmac` (`pip install ocrmac`, macOS) or `ocr_backend=nemotron` (`pip install nemotron-ocr`, Linux CUDA) |
 | Lightweight Paddle-only | `engine=paddle`; `pip install paddleocr paddlepaddle` |
 
 ### 7.7 Other packages (mention only)
@@ -513,7 +515,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Menu entry | [`extension/Addons.xcu`](../../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../../plugin/main.py) |
 | Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
 
-Persisted keys include `device`, `images_scale`, `ocr_backend`, `lang`, `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
+Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
 
 ---
 
@@ -677,7 +679,8 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
-| `OCR_BACKEND_UNAVAILABLE` | Docling installed but chosen `ocr_backend` / plugin missing |
+| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing (message carries the install line); no Paddle fallback |
+| `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine has no model for the requested language (`details` has `language`, `engine`) |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |
 
@@ -765,7 +768,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 Venv package requirements for Vision Helpers are also summarized in the [domain package groups table](../scripting/numpy-domains.md#planned-domain-package-groups). Trusted-code pattern (host stub → venv module): [../enabling_numpy_in_libreoffice.md §5](../enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow onnxruntime
+pip install docling onnxruntime css-inline
 ```
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional hidden `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
@@ -774,12 +777,13 @@ pip install docling rapidocr-paddle numpy pillow onnxruntime
 
 | Probe | Report |
 |-------|--------|
-| `import docling`, `import rapidocr` (or onnxruntime variant), `css_inline` | OCR required (Docling primary); Missing (OCR) when stack not ready |
+| `import docling`, `import rapidocr`, `import onnxruntime`, `css_inline` | OCR required (Docling primary); Missing (OCR) when stack not ready |
+| `find_spec` / `which` for `easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` | optional OCR engines; listed when present and never counted as Missing |
 | `import paddleocr`, `import paddle` | optional fallback (or OCR ready when Paddle-only); never required Missing when Docling works |
 | `import ultralytics` | Optional (not installed) until Phase 4 |
 | Optional `import skimage` | Optional (not installed) |
 
-Docling without rapidocr is not OCR-ready. The default backend is rapidocr (vision_common.DEFAULT_OCR_BACKEND).
+Docling without rapidocr and onnxruntime is not OCR-ready. The default backend is rapidocr (vision_common.DEFAULT_OCR_BACKEND).
 
 When any group still has Missing packages, Test ends (after all probes finish) with copy-paste lines:
 

@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
+import shutil
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -196,10 +198,8 @@ def test_apply_pipeline_params_maps_flat_keys():
     pipeline = MagicMock()
     table_opts = MagicMock()
     layout_opts = MagicMock()
-    acc_opts = MagicMock()
     pipeline.table_structure_options = table_opts
     pipeline.layout_options = layout_opts
-    pipeline.accelerator_options = acc_opts
 
     with patch("plugin.vision.venv.vision_docling._resolve_layout_model_spec", return_value="heron-spec"):
         fast_mode = MagicMock()
@@ -224,41 +224,12 @@ def test_apply_pipeline_params_maps_flat_keys():
 
     assert pipeline.images_scale == 2.0
     assert pipeline.document_timeout == 120
-    assert acc_opts.device == "cpu"
-    assert acc_opts.num_threads == 8
+    mock_pipeline_mod.AcceleratorOptions.assert_called_once_with(device="cpu", num_threads=8)
+    assert pipeline.accelerator_options is mock_pipeline_mod.AcceleratorOptions.return_value
     assert table_opts.mode == fast_mode
     assert table_opts.do_cell_matching is False
     assert layout_opts.create_orphan_clusters is False
     assert layout_opts.model_spec == "heron-spec"
-
-
-def test_build_pipeline_options_surya():
-    mock_surya = MagicMock()
-    mock_surya.SuryaOcrOptions.return_value = "surya-opts"
-
-    mock_pipeline_mod = MagicMock()
-    pdf_opts_cls = MagicMock()
-    pdf_opts_instance = MagicMock()
-    pdf_opts_cls.return_value = pdf_opts_instance
-    mock_pipeline_mod.PdfPipelineOptions = pdf_opts_cls
-
-    def side_effect(name):
-        if name == "docling_surya":
-            return mock_surya
-        if name == "docling.datamodel.pipeline_options":
-            return mock_pipeline_mod
-        return MagicMock()
-
-    with patch("importlib.import_module", side_effect=side_effect):
-        pipeline_opts = docling_mod._build_pipeline_options(
-            docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya", "lang": "en"})
-        )
-
-    assert pipeline_opts == pdf_opts_instance
-    assert pdf_opts_cls.call_args.kwargs["allow_external_plugins"] is True  # surya is a docling external plugin; without this it silently falls back
-    mock_surya.SuryaOcrOptions.assert_called_once_with(lang=["en"])
-    assert pdf_opts_instance.ocr_options == "surya-opts"
-    assert pdf_opts_instance.ocr_model == "suryaocr"
 
 
 def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
@@ -677,3 +648,150 @@ def test_extract_text_docling_returned_no_document(result):
     assert out["status"] == "error"
     assert "returned no document" in out["message"]
     mock_html.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("en", ("iso:en",)),
+        ("en, de,en", ("iso:en", "iso:de")),
+        ("en_US", ("iso:en_US",)),
+        ("zh-TW", ("iso:zh-TW",)),
+        ("japan", ("japan",)),
+        ("chinese_cht", ("chinese_cht",)),
+        ("script/Cyrillic", ("script/Cyrillic",)),
+        ("iso:zh-Hant", ("iso:zh-Hant",)),
+        (["en", " de "], ("iso:en", "iso:de")),
+        (None, ("iso:en",)),
+        ("", ("iso:en",)),
+        (",,", ("iso:en",)),
+    ],
+)
+def test_docling_ocr_langs(raw, expected):
+    assert docling_mod.docling_ocr_langs(raw) == expected
+
+
+def test_from_params_ru_gets_iso_prefix():
+    assert docling_mod.DoclingPipelineParams.from_params({"lang": "ru"}).lang == ("iso:ru",)
+
+
+def test_installed_ocr_backend_missing_module_names_install_line():
+    real_find_spec = importlib.util.find_spec
+
+    def fake_find_spec(name, *args):
+        if name == "easyocr":
+            return None
+        return real_find_spec(name, *args)
+
+    with patch("importlib.util.find_spec", side_effect=fake_find_spec):
+        with pytest.raises(docling_mod.OcrBackendError, match="pip install easyocr"):
+            docling_mod._installed_ocr_backend("easyocr")
+
+
+def test_installed_ocr_backend_tesseract_needs_program():
+    with patch("shutil.which", return_value=None):
+        with pytest.raises(docling_mod.OcrBackendError, match="tesseract.*PATH"):
+            docling_mod._installed_ocr_backend("tesseract")
+
+
+def test_installed_ocr_backend_rejects_surya():
+    with pytest.raises(docling_mod.OcrBackendError, match="Unknown ocr_backend 'surya'"):
+        docling_mod._installed_ocr_backend("surya")
+
+
+def test_ocr_language_unsupported_maps_to_code():
+    class OcrLanguageNotSupportedError(RuntimeError):
+        def __init__(self, msg: str, *, language: str, engine: str):
+            super().__init__(msg)
+            self.language = language
+            self.engine = engine
+
+    err = OcrLanguageNotSupportedError("no model for ru", language="ru", engine="RapidOCR")
+    with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
+        res = extract_text(b"png", {"lang": "ru"})
+
+    assert res["status"] == "error"
+    assert res["code"] == "OCR_LANGUAGE_UNSUPPORTED"
+    assert res["details"] == {"language": "ru", "engine": "RapidOCR"}
+
+
+def test_settings_ocr_backend_options_are_registry_ids():
+    yaml_path = Path(__file__).resolve().parents[3] / "plugin" / "vision" / "module.yaml"
+    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    cfg = data["config"]["ocr_backend"]
+    assert cfg["default"] == "rapidocr"
+    for opt in cfg["options"]:
+        assert opt["value"] in docling_mod.OCR_BACKENDS
+
+
+@pytest.mark.parametrize(
+    ("backend_id", "expected_kind", "expected_rapid_backend"),
+    [
+        ("rapidocr", "rapidocr", "onnxruntime"),
+        ("rapidocr_onnx", "rapidocr", "onnxruntime"),
+        ("rapidocr_openvino", "rapidocr", "openvino"),
+        ("rapidocr_paddle", "rapidocr", "paddle"),
+        ("rapidocr_torch", "rapidocr", "torch"),
+        ("easyocr", "easyocr", None),
+        ("tesseract", "tesseract", None),
+        ("nemotron", "nemotron-ocr", None),
+        ("ocrmac", "ocrmac", None),
+        ("auto", "auto", None),
+    ],
+)
+def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
+    _require_installed_od_docling()
+    norm = docling_mod.DoclingPipelineParams.from_params({"ocr_backend": backend_id, "lang": "en"})
+    with (
+        patch("importlib.util.find_spec", return_value=object()),
+        patch("shutil.which", return_value="/usr/bin/tesseract"),
+    ):
+        opts = docling_mod._resolve_ocr_options(norm)
+
+    assert opts.kind == expected_kind
+    assert opts.lang == ["iso:en-Latn"]
+    if expected_rapid_backend is not None:
+        assert opts.backend == expected_rapid_backend
+
+
+def test_extract_text_real_docling_rejects_bad_device():
+    _require_installed_od_docling()
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+    res = extract_text(_tiny_hello_ocr_png(), {"device": "bogus"})
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_docling_non_latin_lang():
+    _require_installed_od_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "rapidocr", "lang": "ru"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "ok"
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_tesseract_cli():
+    _require_installed_od_docling()
+    if not shutil.which("tesseract"):
+        pytest.skip("tesseract CLI not on PATH")
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "tesseract", "lang": "en"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "ok"

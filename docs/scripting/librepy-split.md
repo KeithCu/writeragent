@@ -875,7 +875,7 @@ Omit `vision_tools.py` for menu-only core (chat `image_extract_structure`).
 | Units | pint |
 | Text | spacy, textdescriptives, … |
 | Quant | yfinance, pandas_ta, … |
-| Vision | docling, rapidocr-paddle, pillow, css-inline |
+| Vision | docling, rapidocr, onnxruntime, css-inline |
 | Python editor | pywebview, PyQt6, PyQt6-WebEngine, qtpy (+ rocher for Monaco) |
 
 See [numpy-domains.md](numpy-domains.md) and [../images/recognition.md](../images/recognition.md) for authoritative lists.
@@ -1161,7 +1161,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 ### User venv packages
 
 ```bash
-uv pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime
+uv pip install docling onnxruntime css-inline
 # optional fallback: paddleocr paddlepaddle
 ```
 

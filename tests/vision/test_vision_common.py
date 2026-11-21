@@ -140,3 +140,16 @@ def test_table_from_span_cells_falls_through_bad_alias():
     table = table_from_span_cells(cells, 2, 1, name="t")
     assert table["rows"] == [["A"]]
 
+
+def test_merge_vision_params_reads_ocr_engine_settings():
+    values = {
+        "vision.ocr_backend": "tesseract",
+        "vision.lang": "de",
+        "vision.device": "cpu",
+    }
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: values.get(k)):
+        merged = merge_vision_params(None, None)
+        assert merged == {"ocr_backend": "tesseract", "lang": "de", "device": "cpu"}
+        overridden = merge_vision_params(None, {"lang": "fr"})
+        assert overridden == {"ocr_backend": "tesseract", "lang": "fr", "device": "cpu"}
+
