@@ -48,9 +48,10 @@ def _apply_paddle_fallback(
     # Fall back only for DOCLING_UNAVAILABLE (package missing) or
     # DOCLING_API_MISMATCH (Docling version break, issue 587). Docling emits
     # that code instead of matching brittle substrings ('get_engine_config' /
-    # 'LayoutModelConfig'). OCR_BACKEND_UNAVAILABLE (user-configured rapidocr
-    # missing) and LAYOUT_MODEL_UNAVAILABLE are configuration errors for the
-    # requested engine and must not fall back.
+    # 'LayoutModelConfig'). OCR_BACKEND_UNAVAILABLE (the chosen ocr_backend's
+    # packages or program are missing, found by vision_docling's pre-flight),
+    # OCR_LANGUAGE_UNSUPPORTED and LAYOUT_MODEL_UNAVAILABLE are configuration
+    # errors for the requested engine and must not fall back.
     code = docling_result.get("code")
     if (
         docling_result.get("status") != "error"
