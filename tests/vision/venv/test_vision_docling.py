@@ -1115,7 +1115,7 @@ def _make_ocrmac_no_languages_error() -> RuntimeError:
         (
             "ocrmac",
             _make_ocrmac_no_languages_error(),
-            ("VNRecognizeTextRequest",),
+            ("did not report any recognition language", "VNRecognizeTextRequest"),
         ),
     ],
     ids=["tesseract", "ocrmac-broken-import", "ocrmac-no-languages"],

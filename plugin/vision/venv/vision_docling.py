@@ -269,9 +269,9 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     }
     if row.threshold_field:
         kwargs[row.threshold_field] = norm.text_score
+    # Engine-only fields are added only for their own engine, because the other OcrOptions classes forbid extra fields.
     if row.rapidocr_engine:
         kwargs["backend"] = row.rapidocr_engine
-        # Engine-only fields are added only for their own engine, because the other OcrOptions classes forbid extra fields.
         kwargs["model_size"] = norm.rapidocr_model_size
         kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
     if norm.backend == "ocrmac":
@@ -557,9 +557,13 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
         )
         if backend:
             cause = exc.__cause__ or exc.__context__ or exc
+            if str(exc).startswith("Apple Vision did not report any recognition language"):
+                detail = f"{exc} ({cause})" if cause is not exc else str(exc)
+            else:
+                detail = f"{cause}. {OCR_BACKENDS[backend].install_hint}"
             return error_result(
                 "OCR_BACKEND_UNAVAILABLE",
-                f"OCR backend {backend!r} was found but cannot start: {cause}. {OCR_BACKENDS[backend].install_hint}",
+                f"OCR backend {backend!r} was found but cannot start: {detail}",
                 helper=helper,
             )
     if isinstance(exc, ImportError):
