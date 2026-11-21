@@ -155,6 +155,8 @@ class DoclingPipelineParams:
     full_page_ocr: bool
     document_timeout: float
     artifacts_path: str
+    rapidocr_model_size: str        # "tiny" | "small" | "medium"; Docling validates
+    rapidocr_detect_orientation: bool
 
     @classmethod
     def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
@@ -186,6 +188,8 @@ class DoclingPipelineParams:
             full_page_ocr=full_page_ocr,
             document_timeout=float(params.get("document_timeout") or 0),
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
+            rapidocr_model_size=str(params.get("rapidocr_model_size") or "small").strip().lower() or "small",
+            rapidocr_detect_orientation=vision_bool(params.get("rapidocr_detect_orientation", False)),
         )
 
 
@@ -201,6 +205,9 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     if row.rapidocr_engine:
         kwargs["backend"] = row.rapidocr_engine
         kwargs["text_score"] = norm.text_score
+        # RapidOcrOptions-only fields; other OcrOptions classes forbid extra fields.
+        kwargs["model_size"] = norm.rapidocr_model_size
+        kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
     try:
         opts_cls = getattr(pipeline_options_mod, row.options_class)
     except AttributeError as exc:
@@ -580,6 +587,11 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
         )
+    # RapidOCR has no PP-OCRv6 checkpoint at the chosen rapidocr_model_size for this language (tiny has no
+    # Japanese model). Docling raises docling.exceptions.RapidOcrModelSizeNotSupportedError, a RuntimeError,
+    # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.
+    if type(exc).__name__ == "RapidOcrModelSizeNotSupportedError":
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)

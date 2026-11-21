@@ -146,10 +146,24 @@ def test_merge_vision_params_reads_ocr_engine_settings():
         "vision.ocr_backend": "tesseract",
         "vision.lang": "de",
         "vision.device": "cpu",
+        "vision.rapidocr_model_size": "medium",
+        "vision.rapidocr_detect_orientation": False,
     }
     with patch("plugin.framework.config.get_config", side_effect=lambda k: values.get(k)):
         merged = merge_vision_params(None, None)
-        assert merged == {"ocr_backend": "tesseract", "lang": "de", "device": "cpu"}
+        assert merged == {
+            "ocr_backend": "tesseract",
+            "lang": "de",
+            "device": "cpu",
+            "rapidocr_model_size": "medium",
+            "rapidocr_detect_orientation": False,
+        }
         overridden = merge_vision_params(None, {"lang": "fr"})
-        assert overridden == {"ocr_backend": "tesseract", "lang": "fr", "device": "cpu"}
+        assert overridden == {
+            "ocr_backend": "tesseract",
+            "lang": "fr",
+            "device": "cpu",
+            "rapidocr_model_size": "medium",
+            "rapidocr_detect_orientation": False,
+        }
 

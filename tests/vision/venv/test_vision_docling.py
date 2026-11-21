@@ -785,7 +785,14 @@ def test_settings_ocr_backend_options_are_registry_ids():
 )
 def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
     _require_installed_od_docling()
-    norm = docling_mod.DoclingPipelineParams.from_params({"ocr_backend": backend_id, "lang": "en"})
+    norm = docling_mod.DoclingPipelineParams.from_params(
+        {
+            "ocr_backend": backend_id,
+            "lang": "en",
+            "rapidocr_model_size": "medium",
+            "rapidocr_detect_orientation": True,
+        }
+    )
     with (
         patch("importlib.util.find_spec", return_value=object()),
         patch("shutil.which", return_value="/usr/bin/tesseract"),
@@ -796,6 +803,8 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
     assert opts.lang == ["iso:en-Latn"]
     if expected_rapid_backend is not None:
         assert opts.backend == expected_rapid_backend
+        assert opts.model_size == "medium"
+        assert opts.detect_orientation is True
 
 
 def test_extract_text_real_docling_rejects_bad_device():
@@ -839,3 +848,79 @@ def test_extract_text_real_tesseract_cli():
     if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
         pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
     assert result["status"] == "ok"
+
+
+def test_from_params_rapidocr_options():
+    default = docling_mod.DoclingPipelineParams.from_params({})
+    assert (default.rapidocr_model_size, default.rapidocr_detect_orientation) == ("small", False)
+
+    custom = docling_mod.DoclingPipelineParams.from_params(
+        {"rapidocr_model_size": " Medium ", "rapidocr_detect_orientation": "true"}
+    )
+    assert (custom.rapidocr_model_size, custom.rapidocr_detect_orientation) == ("medium", True)
+
+    off = docling_mod.DoclingPipelineParams.from_params({"rapidocr_detect_orientation": "off"})
+    assert off.rapidocr_detect_orientation is False
+
+    assert docling_mod.DoclingPipelineParams.from_params({"rapidocr_model_size": "medium"}) != default
+
+
+def test_rapidocr_model_size_not_supported_maps_to_invalid_param():
+    class RapidOcrModelSizeNotSupportedError(RuntimeError):
+        pass
+
+    err = RapidOcrModelSizeNotSupportedError("RapidOCR has no tiny model for iso:ja-Jpan")
+    with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
+        res = extract_text(b"png", {"lang": "ja", "rapidocr_model_size": "tiny"})
+
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "RapidOCR has no tiny model" in res["message"]
+
+
+def test_extract_text_real_docling_tiny_japanese_is_invalid_param():
+    _require_installed_od_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("css_inline")
+
+    res = extract_text(
+        _tiny_hello_ocr_png(),
+        {"ocr_backend": "rapidocr", "lang": "ja", "rapidocr_model_size": "tiny"},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_docling_detect_orientation_reads_rotated_page():
+    _require_installed_od_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("css_inline")
+
+    img_path = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "ocr_verification_corpus"
+        / "10_docling_rotated_90_dense_text.png"
+    )
+    if not img_path.is_file():
+        pytest.skip(f"corpus image missing: {img_path}")
+
+    result = extract_text(
+        img_path.read_bytes(),
+        {
+            "layout_model": "heron",
+            "ocr_backend": "rapidocr",
+            "lang": "en",
+            "rapidocr_detect_orientation": True,
+        },
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+
+    assert result["status"] == "ok"
+    assert "ZQXPHOENIX" in result["full_text"]

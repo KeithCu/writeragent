@@ -207,3 +207,5 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `layout_model` | `string` | `"heron"` |  | Layout model Options: heron (Heron (default)), egret_large (Egret large (slower, complex docs)) |
 | `do_formula_enrichment` | `boolean` | `false` |  | Opt-in. Downloads extra VLM models on first use; slower. |
 | `do_code_enrichment` | `boolean` | `false` |  | Specialized OCR for code/terminal screenshots. |
+| `rapidocr_model_size` | `string` | `"small"` |  | RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny is fastest and has no Japanese model; medium is the most accurate. Options: tiny (Tiny), small (Small (default)), medium (Medium) |
+| `rapidocr_detect_orientation` | `boolean` | `false` |  | Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines, not Docling auto. |
