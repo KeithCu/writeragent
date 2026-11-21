@@ -1018,7 +1018,9 @@ def _serialize_cell_result(
     nulled so they can cross the pickle boundary. A returned figure or seaborn grid, or a
     list of them, becomes those images in that order, and every other open figure is closed
     without being shown. An artist (plt.plot's lines, plt.title's Text, an Axes or an Axes
-    array) or a blank figure shows every open figure that has a drawing.
+    array) or a blank figure shows every open figure that has a drawing. Artists and
+    returned figures are handled before serialize_result, which would reject them, and every
+    open figure is closed afterwards; a figure left open would be what the next cell returns.
 
     A non-image value, including result = 42, is replaced when a figure is still open. That replacement stays.
     """

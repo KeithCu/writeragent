@@ -208,7 +208,7 @@ def figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
 # A plot SVG larger than this is re-rendered as a 150-dpi PNG. Sixteen plots of this size fill
 # the 16 MiB IPC frame (DEFAULT_MAX_PAYLOAD_BYTES), and coolwsd caps a compute response at the
 # same 16 MiB after base64 adds a third. A 100,000-point scatter is about 10 MB as SVG and
-# about 60 KB as PNG.
+# about 25 KB as PNG.
 _MAX_PLOT_SVG_BYTES = DEFAULT_MAX_PAYLOAD_BYTES // 16
 
 
