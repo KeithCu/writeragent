@@ -451,9 +451,10 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
 | `rapidocr_model_size` | `"small"` | `"tiny"` \| `"small"` \| `"medium"`. Applies to `rapidocr*` backends and PP-OCRv6 languages only (other languages ignore it). `tiny` with Japanese returns `INVALID_PARAM` |
 | `rapidocr_detect_orientation` | `false` | Re-read a region at 90°, 180°, and 270° when fewer than half its lines read confidently. Applies to `rapidocr*` backends only |
+| `ocrmac_recognition` | `"accurate"` | `"accurate"` \| `"fast"`. Applies to `ocrmac` only; bad values return `INVALID_PARAM` |
 | `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.145 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
 
-`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is passed as `text_score` to `rapidocr*` backends and as `confidence_threshold` to `easyocr` (ignored by the other engines), and is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size` and `rapidocr_detect_orientation` apply to `rapidocr*` backends only, and both are part of the converter cache key.
+`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is passed as `text_score` to `rapidocr*` backends and as `confidence_threshold` to `easyocr` (ignored by the other engines), and is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size`, `rapidocr_detect_orientation`, and `ocrmac_recognition` are also part of the converter cache key; the first two apply to `rapidocr*` backends only, and `ocrmac_recognition` applies to `ocrmac` only.
 
 WriterAgent requires Docling ≥ 2.145 (released 2026-10-29). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.145"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.145.
 
@@ -507,6 +508,8 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 
 **EasyOCR notes:** Every language in `lang` must share one recognition model: Latin-script languages mix freely; Japanese, Korean, Simplified and Traditional Chinese, Thai, Tamil, Telugu and Kannada each pair only with English; Cyrillic, Arabic, Devanagari and Bengali each mix within their own group plus English; other mixes return `INVALID_PARAM` (EasyOCR `Reader.setModelLanguage`). `device` = `auto`, `cuda`, or `mps` turns the GPU on (Docling `decide_device`). Models download on first use to `~/.EasyOCR/model` (or `EASYOCR_MODULE_PATH`). With `artifacts_path` set, models are read from `<artifacts_path>/EasyOcr` with downloads off — prefetch with `docling-tools models download easyocr --easyocr-lang de -o <artifacts_path>`. When the `easyocr` package is present but a dependency does not import, the result is `OCR_BACKEND_UNAVAILABLE` naming the missing module, with no Paddle fallback.
 
+**Apple Vision (ocrmac) notes:** Runs on device, needs no model download, and requires macOS with `pip install ocrmac` (pyobjc Vision). Off macOS the result is `OCR_BACKEND_UNAVAILABLE` at pre-flight. `lang` tags are matched to Vision's list (`en` → `en-US`, `zh-TW` → `zh-Hant`); that list depends on the macOS version and `ocrmac_recognition`, and `fast` reads fewer languages. Unknown languages return `OCR_LANGUAGE_UNSUPPORTED`. `text_score` is ignored. A broken `ocrmac`/pyobjc install, or Vision reporting no recognition languages, returns `OCR_BACKEND_UNAVAILABLE` with no Paddle fallback.
+
 ### 7.7 Other packages (mention only)
 
 | Package | Stance |
@@ -525,7 +528,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)`, `_PreviewPane` + Run job |
 | Preview job | [`vision_preview.py`](../../plugin/vision/vision_preview.py) — `load_models` warm-up + `extract_structure` + hidden Writer page 1 render |
 
-Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size` and `rapidocr_detect_orientation` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run. Before OCR, `run_vision_preview` sends `LOAD_MODELS_HELPER` (`"load_models"`) with the exact OCR params; `vision_docling.load_models` calls `converter.initialize_pipeline(...)` on the single-entry `_converter_cache` so the subsequent OCR call reuses the loaded models.
+Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size`, `rapidocr_detect_orientation`, and `ocrmac_recognition` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run. Before OCR, `run_vision_preview` sends `LOAD_MODELS_HELPER` (`"load_models"`) with the exact OCR params; `vision_docling.load_models` calls `converter.initialize_pipeline(...)` on the single-entry `_converter_cache` so the subsequent OCR call reuses the loaded models.
 
 ---
 
@@ -690,7 +693,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
 | `DOCLING_API_MISMATCH` | Installed Docling older than 2.145; message names the version and the upgrade command (Paddle fallback applies) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
-| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing (message carries the install line), or the Tesseract program found does not start, or EasyOCR is installed but one of its dependencies does not import; no Paddle fallback |
+| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing or wrong platform (message carries the install line), or the engine was found but cannot start (Tesseract program does not run, EasyOCR/ocrmac dependency does not import, Apple Vision lists no languages); no Paddle fallback |
 | `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine has no model for the requested language (`details` has `language`, `engine`) |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |

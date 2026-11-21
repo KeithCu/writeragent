@@ -11,6 +11,7 @@ import importlib.util
 import logging
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -80,6 +81,12 @@ class OcrBackend:
     # OcrOptions field that takes the text_score setting (RapidOCR text_score, EasyOCR confidence_threshold);
     # empty when the engine has no recognition-confidence filter.
     threshold_field: str = ""
+    # sys.platform value the engine runs on ("" = any). Docling's OcrMacModel.__init__
+    # (models/stages/ocr/ocr_mac_model.py) refuses anything but "darwin".
+    sys_platform: str = ""
+    # Start of the ImportError/RuntimeError message Docling's model __init__ raises when the
+    # engine passed pre-flight but cannot start (broken dependency, program that does not run).
+    startup_errors: tuple[str, ...] = ()
 
 
 def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
@@ -104,6 +111,7 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
         ("easyocr",),
         install_hint="pip install easyocr",
         threshold_field="confidence_threshold",
+        startup_errors=("EasyOCR is not installed",),
     ),
     "tesseract": OcrBackend(
         "TesseractCliOcrOptions",
@@ -113,6 +121,7 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
             "macOS: Homebrew or MacPorts; Windows: the UB Mannheim installer). WriterAgent looks for tesseract "
             "on PATH and in its default install folder."
         ),
+        startup_errors=("Tesseract is not available",),
     ),
     "nemotron": OcrBackend(
         "NemotronOcrOptions",
@@ -121,7 +130,13 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
             "pip install nemotron-ocr (Docling runs Nemotron OCR only on Linux x86_64 with an NVIDIA CUDA GPU)."
         ),
     ),
-    "ocrmac": OcrBackend("OcrMacOptions", ("ocrmac",), install_hint="pip install ocrmac (macOS only)."),
+    "ocrmac": OcrBackend(
+        "OcrMacOptions",
+        ("ocrmac",),
+        sys_platform="darwin",
+        install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
+        startup_errors=("ocrmac is not correctly installed", "Apple Vision did not report any recognition language"),
+    ),
 }
 
 
@@ -131,6 +146,10 @@ def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
     if row is None:
         raise OcrBackendError(
             f"Unknown ocr_backend {name!r}; expected one of: {', '.join(sorted(OCR_BACKENDS))}"
+        )
+    if row.sys_platform and sys.platform != row.sys_platform:
+        raise OcrBackendError(
+            f"OCR backend {name!r} does not run on this system (the Python venv reports {sys.platform!r}). {row.install_hint}"
         )
     missing = [m for m in row.modules if importlib.util.find_spec(m) is None]
     program = next((found for found in map(shutil.which, row.programs) if found), "")
@@ -170,6 +189,9 @@ def _check_docling_version() -> None:
         return
 
 
+_OCRMAC_RECOGNITION = ("accurate", "fast")  # OcrMacOptions.recognition values ocrmac accepts
+
+
 @dataclass(frozen=True, slots=True)
 class DoclingPipelineParams:
     """Normalized pipeline parameters parsed once for cache key and options application."""
@@ -191,6 +213,7 @@ class DoclingPipelineParams:
     artifacts_path: str
     rapidocr_model_size: str        # "tiny" | "small" | "medium"; Docling validates
     rapidocr_detect_orientation: bool
+    ocrmac_recognition: str         # "accurate" | "fast"; validated in from_params
 
     @classmethod
     def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
@@ -205,6 +228,9 @@ class DoclingPipelineParams:
             full_page_ocr = False
         else:
             full_page_ocr = vision_bool(params.get("force_full_page_ocr", True))
+        recognition = str(params.get("ocrmac_recognition") or "accurate").strip().lower() or "accurate"
+        if recognition not in _OCRMAC_RECOGNITION:
+            raise ValueError(f"ocrmac_recognition must be 'accurate' or 'fast', not {recognition!r}")
         return cls(
             backend=resolve_ocr_backend(params),
             lang=docling_ocr_langs(params.get("lang")),
@@ -224,6 +250,7 @@ class DoclingPipelineParams:
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
             rapidocr_model_size=str(params.get("rapidocr_model_size") or "small").strip().lower() or "small",
             rapidocr_detect_orientation=vision_bool(params.get("rapidocr_detect_orientation", False)),
+            ocrmac_recognition=recognition,
         )
 
 
@@ -242,11 +269,13 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     }
     if row.threshold_field:
         kwargs[row.threshold_field] = norm.text_score
+    # Engine-only fields are added only for their own engine, because the other OcrOptions classes forbid extra fields.
     if row.rapidocr_engine:
         kwargs["backend"] = row.rapidocr_engine
-        # RapidOcrOptions-only fields; other OcrOptions classes forbid extra fields.
         kwargs["model_size"] = norm.rapidocr_model_size
         kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
+    if norm.backend == "ocrmac":
+        kwargs["recognition"] = norm.ocrmac_recognition
     if program:
         # Absolute path, so Docling's --version/--list-langs/OCR subprocesses do not depend on the worker's PATH.
         kwargs["tesseract_cmd"] = program
@@ -512,17 +541,31 @@ def export_docling_to_html(document: Any) -> str:
 
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
-    # Docling's EasyOcrModel.__init__ (models/stages/ocr/easyocr_model.py) re-raises any failed
-    # `import easyocr` as ImportError("EasyOCR is not installed ...") inside the except block, so the real
-    # cause (for example a missing scikit-image) is __context__. The pre-flight already found the easyocr
-    # package, so this is an engine install problem: report it as such and never fall back to Paddle.
-    if isinstance(exc, ImportError) and str(exc).startswith("EasyOCR is not installed"):
-        return error_result(
-            "OCR_BACKEND_UNAVAILABLE",
-            f"EasyOCR is installed in the Python venv but does not import: {exc.__context__ or exc.__cause__ or exc}. "
-            f"{OCR_BACKENDS['easyocr'].install_hint}",
-            helper=helper,
+    # Docling's engine models raise these from __init__ when pre-flight found the engine but it cannot start:
+    # EasyOcrModel / OcrMacModel re-raise a failed engine import as a new ImportError inside the except block
+    # (the real cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`, and
+    # ocr_mac_model._get_vision_languages raises RuntimeError from the pyobjc error. Reporting them as
+    # OCR_BACKEND_UNAVAILABLE keeps them out of the DOCLING_UNAVAILABLE arm, so no Paddle fallback runs.
+    if isinstance(exc, (ImportError, RuntimeError)):
+        backend = next(
+            (
+                bid
+                for bid, row in OCR_BACKENDS.items()
+                if row.startup_errors and str(exc).startswith(row.startup_errors)
+            ),
+            "",
         )
+        if backend:
+            cause = exc.__cause__ or exc.__context__ or exc
+            if str(exc).startswith("Apple Vision did not report any recognition language"):
+                detail = f"{exc} ({cause})" if cause is not exc else str(exc)
+            else:
+                detail = f"{cause}. {OCR_BACKENDS[backend].install_hint}"
+            return error_result(
+                "OCR_BACKEND_UNAVAILABLE",
+                f"OCR backend {backend!r} was found but cannot start: {detail}",
+                helper=helper,
+            )
     if isinstance(exc, ImportError):
         if is_css_inline_import_error(exc):
             return css_inline_unavailable_result(helper)
@@ -555,10 +598,6 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
         )
-    # Docling's TesseractOcrCliModel.__init__ (models/stages/ocr/tesseract_ocr_cli_model.py) wraps a failed
-    # `tesseract --version` / `--list-langs` in this RuntimeError: the program was found but does not run.
-    if isinstance(exc, RuntimeError) and str(exc).startswith("Tesseract is not available"):
-        return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
     # RapidOCR has no PP-OCRv6 checkpoint at the chosen rapidocr_model_size for this language (tiny has no
     # Japanese model). Docling raises docling.exceptions.RapidOcrModelSizeNotSupportedError, a RuntimeError,
     # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.
