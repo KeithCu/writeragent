@@ -21,7 +21,7 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 from dataclasses import dataclass
 import logging
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
@@ -43,6 +43,9 @@ from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import calc_selection_to_a1
 from plugin.calc.calc_addin_data import resolve_python_data
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 from plugin.calc.python.formula_edit import parse_data_binding_text
 from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 from plugin.calc.rich_html import insert_cell_html_rich
@@ -410,7 +413,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
 
-    outcomes = []
+    outcomes: list["VisionInsertOutcome"] = []
     if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])

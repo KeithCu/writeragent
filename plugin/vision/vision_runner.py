@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from dataclasses import dataclass, field
 
@@ -23,6 +23,9 @@ from plugin.vision.vision_common import (
     merge_vision_params,
 )
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 
 
 def supports_vision_manual(doc: Any) -> bool:
@@ -312,7 +315,7 @@ def run_and_insert_vision_for_selection(
                 continue
 
             if insert_into_document:
-                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> str:
+                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> VisionInsertOutcome:
                     from plugin.vision.vision_egress import insert_vision_result
 
                     return insert_vision_result(ctx, doc, res, params=per_insert)

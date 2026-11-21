@@ -375,7 +375,8 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     """Insert vision output into Writer or Calc."""
     from plugin.framework.doc_type import is_calc, is_writer
 
-    # Docling returns skeleton HTML for a blank image; inserting it only adds an empty paragraph or cell.
+    # Docling returns skeleton HTML for a blank image; inserting it only adds an empty paragraph or cell,
+    # and the image-delete below must never run for an empty result.
     if not ocr_found_content(result):
         return "empty"
 
