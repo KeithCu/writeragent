@@ -16,7 +16,7 @@
                     <value>LibrePyDeck</value>
                 </prop>
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.librepy/assets/python_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.librepy/assets/python_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.text.TextDocument, any, visible; com.sun.star.text.WebDocument, any, visible; com.sun.star.text.GlobalDocument, any, visible;</value>

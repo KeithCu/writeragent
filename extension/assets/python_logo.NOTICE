@@ -1,5 +1,5 @@
-Python logo (python_logo.svg → python_32.png)
-==============================================
+Python logo (python_logo.svg → python_24.png, python_32.png)
+===========================================================
 Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
 
 Source: https://commons.wikimedia.org/wiki/File:Python-logo-notext.svg
@@ -9,6 +9,10 @@ suitability for / implementation in Python:
 https://www.python.org/psf/trademarks/
 https://www.python.org/community/logos/
 
-Regenerate 32×32 PNG:
+Regenerate 24×24 PNG (sidebar deck icon; LibreOffice's deck slot is its 24 px lc_ icon size):
+  rsvg-convert -w 96 -h 96 --background-color=none python_logo.svg -o /tmp/py96.png
+  magick /tmp/py96.png -resize 24x24 -filter Lanczos PNG32:python_24.png
+
+Regenerate 32×32 PNG (menubar icon):
   rsvg-convert -w 64 -h 64 --background-color=none python_logo.svg -o /tmp/py64.png
   magick /tmp/py64.png -resize 32x32 -filter Lanczos PNG32:python_32.png

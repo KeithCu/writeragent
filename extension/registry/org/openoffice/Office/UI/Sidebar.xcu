@@ -16,7 +16,7 @@
                     <value>WriterAgentDeck</value>
                 </prop>
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/logo_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/logo_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>
@@ -30,7 +30,7 @@
                     <value>LibrePyDeck</value>
                 </prop>
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/python_32.png</value>
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/python_24.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.text.TextDocument, any, visible; com.sun.star.text.WebDocument, any, visible; com.sun.star.text.GlobalDocument, any, visible;</value>
