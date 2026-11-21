@@ -193,7 +193,7 @@ An earlier draft put a short string in the cell (`ISERROR` false). That is rejec
 | No emitter, pending timeout, superseded | `#N/A` | yes | none |
 | coolwsd infra: timeout / network / empty URL / allowlist | `#N/A` | yes | the wsd reason; classify known `replyError` prefixes (today many of these still collapse to `#VALUE!`) |
 | `"Python compute is disabled"` | `#DISABLED` | no | none. Kept as a string on purpose: it should not happen on a configured system, and it says the system is off, which the author cannot fix in Python |
-| Service `status=error` with a message (Python exception text, etc.) | `#VALUE!` | yes | the message; later the trimmed traceback and stdout |
+| Service `status=error` with a message (Python exception text, etc.) | `#VALUE!` | yes | the message, trimmed `traceback`, and `stdout` |
 | Bad JSON / missing `result` / empty error | `#VALUE!` | yes | none (no useful message) |
 | Empty `code` | `Err:502` | yes | already `IllegalArgumentException` |
 
@@ -427,7 +427,7 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
    - The status bar text for the cursor cell is requested in `sc/source/ui/view/cellsh.cxx` (`SID_TABLE_CELL`) and built from `GetLongErrorString` in `tabvwsha.cxx`. Same lookup at the call site, so Classic shows it too.
 
    No new protocol message and no browser change for this step.
-5. **Later.** When the service sends a trimmed `traceback` and `stdout`, they go in the same entry, and the diagnostics sidebar lists the store by cell address. That listing is the only new protocol surface, and it is a separate patch.
+5. **Diagnostics sidebar.** The service sends the trimmed `traceback` and `stdout`, and step 1 stores them in the same entry; the diagnostics sidebar listing the store by cell address is a separate patch.
 
 **Other rows of the matrix:**
 

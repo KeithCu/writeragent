@@ -2141,3 +2141,19 @@ def test_axes_array_result_captures_its_figure(fresh_sandbox_sessions) -> None:
     assert is_image_payload(res["result"])
     assert b'id="axes_2"' in res["result"]["data"]
 
+
+def test_runtime_error_returns_user_traceback_without_host_paths() -> None:
+    res = sandbox_run("def f(x):\n    return x / 0\n\nresult = f(2)")
+    assert res["status"] == "error"
+    tb = res.get("user_traceback", "")
+    assert "in f" in tb
+    assert ".py" not in tb
+    assert "traceback" not in res
+
+
+def test_dir_refusal_keeps_fix_hint_in_user_traceback() -> None:
+    res = sandbox_run("print(dir(1))")
+    assert res["status"] == "error"
+    assert "wa.help(name)" in res.get("message", "")
+    assert "wa.help(name)" in res.get("user_traceback", "")
+

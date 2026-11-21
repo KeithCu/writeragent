@@ -945,7 +945,9 @@ class PythonWorkerManager:
             details=response.get("details") or {},
         )
         out["stdout"] = (response.get("stdout") or "").strip()
-        out["traceback"] = str(tb or "")
+        # A user-code error carries only user_traceback, and it is not appended
+        # to the message, which already names the failing line.
+        out["traceback"] = str(tb or response.get("user_traceback") or "")
         return out
 
     def _read_response_bytes(

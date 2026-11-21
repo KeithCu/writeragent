@@ -1084,27 +1084,31 @@ def _blocked_import_hint(module: str) -> str:
     return "this module is blocked in the sandbox"
 
 
-def _with_fix_hint(message: str) -> str:
-    """Append an actionable fix hint when a sandbox error has a known remedy.
+def _with_fix_hint(message: str) -> tuple[str, str]:
+    """Return ``(hinted_message, hint_suffix)`` when a sandbox error has a known remedy.
 
     The model sees only this error message, so naming the fix or Settings
     toggle directly avoids repeated trial-and-error.
     """
-    if "wa.help(" in message:
-        return message
-    if (
-        "Forbidden function evaluation: 'dir' " in message
-        or "name 'dir' is not defined" in message
-    ):
-        return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
-    for needle, hint in _ERROR_FIX_HINTS:
-        if needle in message:
-            return f"{message.rstrip('.')} — {hint}."
-    match = _BLOCKED_IMPORT_RE.match(message)
-    if match:
-        hint = _blocked_import_hint(match.group(1))
-        return f"{message.rstrip('.')} — {hint}."
-    return message
+    hint = ""
+    if "wa.help(" not in message:
+        if (
+            "Forbidden function evaluation: 'dir' " in message
+            or "name 'dir' is not defined" in message
+        ):
+            hint = "use wa.help(name) instead (or wa.help() to list namespaces)."
+        else:
+            for needle, entry in _ERROR_FIX_HINTS:
+                if needle in message:
+                    hint = f"{entry}."
+                    break
+            else:
+                match = _BLOCKED_IMPORT_RE.match(message)
+                if match:
+                    hint = f"{_blocked_import_hint(match.group(1))}."
+    if not hint:
+        return message, ""
+    return f"{message.rstrip('.')} — {hint}", hint
 
 
 def _fail_cell(
@@ -1214,12 +1218,19 @@ def _run_on_executor(
             stdout=print_outputs_from_state(executor.state),
         )
     except InterpreterError as e:
-        return _fail_cell(
+        hinted_message, hint = _with_fix_hint(str(e))
+        failed = _fail_cell(
             executor,
             prior_result,
-            _with_fix_hint(str(e)),
+            hinted_message,
             stdout=print_outputs_from_state(executor.state),
         )
+        # user_traceback holds only the user's frames, never a host path, so
+        # compute_service may forward it; the internal-fault arms below keep the
+        # host traceback for local diagnostics only.
+        if e.user_traceback:
+            failed["user_traceback"] = f"{e.user_traceback}\nHint: {hint}" if hint else e.user_traceback
+        return failed
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
         # the cell's prints are already in _print_outputs; pass them as

@@ -59,7 +59,36 @@ class TestOnlinePyJsonContract:
         out = _execute_code("result = 1 / 0")
         assert out["status"] == "error"
         assert out.get("error")
+        assert out.get("traceback") == (
+            "Traceback (most recent call last):\n"
+            '  File "<sandbox>", line 1, in <module>\n'
+            "    result = 1 / 0\n"
+            "ZeroDivisionError: division by zero"
+        )
         json.dumps(out, allow_nan=False)
+
+    def test_nested_function_traceback_on_wire(self) -> None:
+        out = _execute_code("def f(x):\n    return x / 0\n\nresult = f(2)")
+        assert out["status"] == "error"
+        tb = out.get("traceback", "")
+        assert 'File "<sandbox>", line 2, in f' in tb
+        assert "    return x / 0" in tb
+        assert ".py" not in tb
+        assert "/plugin/" not in tb
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            pytest.param("result = (1,", id="syntax_error"),
+            pytest.param("import subprocess\nresult = subprocess", id="blocked_import"),
+            pytest.param("import threading\nresult = threading.Lock()", id="unserialisable_result"),
+            pytest.param("raise SystemExit(3)", id="system_exit"),
+        ],
+    )
+    def test_no_traceback_without_user_frames(self, code: str) -> None:
+        out = _execute_code(code)
+        assert out["status"] == "error"
+        assert "traceback" not in out
 
     def test_ragged_grid_passes_through_unpadded(self) -> None:
         # The Python service does not pad ragged grids; the result must stay

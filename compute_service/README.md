@@ -132,15 +132,30 @@ request shapes, why multipart exists, and the plan to retire peel.
   - A dict result stays a JSON object, which the kit shows as `#VALUE!`.
 
 - **Evaluation Error Response (`200 OK`)**:
-  Evaluation errors (e.g. `SyntaxError`, `ZeroDivisionError`, unauthorized imports) return `200 OK` with `status: "error"` so HTTP transport is distinguished from evaluated code errors:
+  Evaluation errors (e.g. `SyntaxError`, `ZeroDivisionError`, unauthorized imports) return `200 OK` with `status: "error"` so HTTP transport is distinguished from evaluated code errors.
+
+  Parse or policy error (no `traceback` key):
   ```json
   {
     "id": "req-123",
     "status": "error",
-    "error": "SyntaxError: invalid syntax ({string}, line 1)",
+    "error": "Code parsing failed on line 1 due to: SyntaxError: '(' was never closed (<unknown>, line 1)\nresult = (1,\n         ^",
     "stdout": ""
   }
   ```
+
+  Runtime user error (`traceback` carries user frames only):
+  ```json
+  {
+    "id": "req-124",
+    "status": "error",
+    "error": "Code execution failed at line 'result = f(2)' due to: ZeroDivisionError: division by zero",
+    "stdout": "",
+    "traceback": "Traceback (most recent call last):\n  File \"<sandbox>\", line 4, in <module>\n    result = f(2)\n  File \"<sandbox>\", line 2, in f\n    return x / 0\nZeroDivisionError: division by zero"
+  }
+  ```
+
+  `traceback` appears only when the user's code raised while running. It lists only user frames in CPython layout, with file name `<sandbox>`. Line numbers count from the code that defined each function (cell, init script, named library). Recursion is collapsed (`[Previous line repeated N more times]`). It never contains a server path. It is absent for parse errors, imports refused before running, timeouts, `SystemExit`/`KeyboardInterrupt`, unserialisable results, and worker faults.
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
   `session_reset` is set when this call's process had to create the namespace and the pool already had a row for that id (crash, idle eviction, recycle respawn). A brand-new id creates a namespace and does not set the flag. A call that never reaches the child leaves the row in place, so a later call that does run still sets the flag. There is no marker list; a stale row is dropped once it has been stale for `idle_worker_ttl_sec`. Stale rows are not live sessions and do not pin recycle or idle-eviction. Idle eviction itself is unchanged from A: the worker dies, the rows stay stale, the next sticky call reports the flag:
@@ -256,7 +271,7 @@ Each error `code` and its status live in [`error_codes.py`](error_codes.py); `te
 
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
-| **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A cell timeout (`EXECUTION_TIMEOUT`), `REQUEST_NOT_SERIALIZABLE`, `MISSING_DEPENDENCIES`, and `MISSING_CODE` take the route default; any formula error inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
+| **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A cell timeout (`EXECUTION_TIMEOUT`), `REQUEST_NOT_SERIALIZABLE`, `MISSING_DEPENDENCIES`, and `MISSING_CODE` take the route default; any formula error inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ..., "traceback"?: "..."}` |
 | **`400 Bad Request`** | Malformed JSON or multipart (`BAD_REQUEST_BODY`), missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`; `INVALID_SESSION_ID`), a non-finite or non-scalar `id` (`NaN`, `Infinity`, `1e9999`, or a nested value such as `[1e999]`) on execute, vision, or reset, a bad vision multipart body, a missing vision `image` part and `file_path` (`MISSING_IMAGE_SOURCE`; a non-string or empty path that reaches the worker is `INVALID_FILE_PATH`), vision `image` part and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, an unknown vision `helper` (`INVALID_REQUEST`; omitted or blank stays `extract_text`), vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is missing, not a regular file, or unreadable (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), `Transfer-Encoding: chunked`, invalid or missing `Content-Length`, truncated body, or mid-read connection error (`BAD_FRAMING`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer {secret}` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` (`UNAUTHORIZED`) | `{"status": "error", "code": "UNAUTHORIZED", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`403 Forbidden`** | Cross-origin request or non-loopback Host header in keyless mode (`CROSS_ORIGIN_REFUSED`) | `{"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "..."}` |
