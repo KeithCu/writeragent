@@ -372,7 +372,7 @@ def test_unwrap_cell_comprehensive():
         pytest.param((5.0, ((1.0, 2.0),)), [5, [[1, 2]]], id="scalar_then_row_range"),
         pytest.param((5.0, 6.0), [5, 6], id="two_scalars"),
         pytest.param((((1.0, 2.0, 3.0),), ((4.0, 5.0, 6.0),)), [[[1, 2, 3]], [[4, 5, 6]]], id="two_row_ranges"),
-        pytest.param(((((1.0,), (2.0,), (3.0,)),),), [[1], [2], [3]], id="column_range"),
+        pytest.param((((1.0,), (2.0,), (3.0,)),), [[1], [2], [3]], id="column_range"),
     ],
 )
 def test_desktop_and_online_arguments_materialize_alike(uno_varargs, online_json):
@@ -381,7 +381,7 @@ def test_desktop_and_online_arguments_materialize_alike(uno_varargs, online_json
     wire = (
         pack_calc_multi_data_for_wire(grids, force="never")
         if len(args) > 1
-        else pack_calc_data_for_wire(grids[0], force="never")
+        else pack_calc_data_for_wire(grids, force="never")
     )
     assert [(r.shape, r.values) for r in materialize_inputs(wire)] == [
         (r.shape, r.values) for r in materialize_inputs(online_json)
