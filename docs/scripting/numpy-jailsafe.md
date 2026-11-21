@@ -605,7 +605,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 
 | Step | What | Why / done when |
 |---|---|---|
-| **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. Done: [quickstart](../../compute_service/collabora-quickstart.md) and the smoke step in `compute-image.yml`. |
+| **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. Done: [Collabora admin setup](../../compute_service/README.md#production--collabora-online) and the smoke step in `compute-image.yml`. |
 | **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
 | **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
 | **1a** | Python error detail in a per-cell look-aside; the cell stays `#VALUE!` (`ISERROR` true). Online's error help and the status bar show the message for the selected cell ([F6](#f6--python-error-detail-look-aside)). | Most visible gap. After plot insert, because it reuses that interpreter hook. |
