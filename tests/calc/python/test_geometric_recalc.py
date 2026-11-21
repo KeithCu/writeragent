@@ -1024,7 +1024,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — strip before index heuristic / calc_addin_args_from_split
+# Phase 4 — strip before calc_addin_args_from_split packs the inputs
 # ---------------------------------------------------------------------------
 
 
