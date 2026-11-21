@@ -167,7 +167,7 @@ def _range_holds_as_char_graphic(rng: Any, graphic: Any) -> bool:
     # getString() omits the as-char graphic character, so a successful
     # one-character expansion that is still empty is sitting on it.
     try:
-        return not (rng.getString() or "")
+        return not rng.getString()
     except Exception:
         return False
 
