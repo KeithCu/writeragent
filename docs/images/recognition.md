@@ -444,7 +444,7 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | Param | Default | Values |
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
-| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_onnx"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"`, `"auto"` |
+| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"` |
 | `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. |
 | `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
@@ -453,7 +453,7 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | `rapidocr_detect_orientation` | `false` | Re-read a region at 90°, 180°, and 270° when fewer than half its lines read confidently. Applies to `rapidocr*` backends only |
 | `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.145 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
 
-`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size` and `rapidocr_detect_orientation` apply to `rapidocr*` backends only (not `auto`, which builds its own `RapidOcrOptions`), and both are part of the converter cache key.
+`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size` and `rapidocr_detect_orientation` apply to `rapidocr*` backends only, and both are part of the converter cache key.
 
 WriterAgent requires Docling ≥ 2.145 (released 2026-10-29). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.145"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.145.
 

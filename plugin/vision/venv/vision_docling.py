@@ -91,7 +91,6 @@ def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
 # (host diagnostics cannot import this venv-side module because LibrePy builds may omit plugin.vision).
 OCR_BACKENDS: dict[str, OcrBackend] = {
     "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
-    "rapidocr_onnx": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
     "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
     "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
     "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
@@ -112,7 +111,6 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
         ),
     ),
     "ocrmac": OcrBackend("OcrMacOptions", ("ocrmac",), install_hint="pip install ocrmac (macOS only)."),
-    "auto": OcrBackend("OcrAutoOptions"),
 }
 
 

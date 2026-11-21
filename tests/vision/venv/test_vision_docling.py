@@ -711,9 +711,10 @@ def test_installed_ocr_backend_tesseract_needs_program():
             docling_mod._installed_ocr_backend("tesseract")
 
 
-def test_installed_ocr_backend_rejects_surya():
-    with pytest.raises(docling_mod.OcrBackendError, match="Unknown ocr_backend 'surya'"):
-        docling_mod._installed_ocr_backend("surya")
+@pytest.mark.parametrize("backend", ["surya", "auto", "rapidocr_onnx"])
+def test_installed_ocr_backend_rejects_unknown(backend):
+    with pytest.raises(docling_mod.OcrBackendError, match=f"Unknown ocr_backend {backend!r}"):
+        docling_mod._installed_ocr_backend(backend)
 
 
 def test_ocr_language_unsupported_maps_to_code():
@@ -745,7 +746,6 @@ def test_settings_ocr_backend_options_are_registry_ids():
     ("backend_id", "expected_kind", "expected_rapid_backend"),
     [
         ("rapidocr", "rapidocr", "onnxruntime"),
-        ("rapidocr_onnx", "rapidocr", "onnxruntime"),
         ("rapidocr_openvino", "rapidocr", "openvino"),
         ("rapidocr_paddle", "rapidocr", "paddle"),
         ("rapidocr_torch", "rapidocr", "torch"),
@@ -753,7 +753,6 @@ def test_settings_ocr_backend_options_are_registry_ids():
         ("tesseract", "tesseract", None),
         ("nemotron", "nemotron-ocr", None),
         ("ocrmac", "ocrmac", None),
-        ("auto", "auto", None),
     ],
 )
 def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
