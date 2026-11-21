@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
-from plugin.scripting.payload_codec import host_unpack_data
+from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.sandbox import build_sandbox_policy
 from plugin.scripting.venv import venv_sandbox as vs
 from plugin.scripting.venv.venv_sandbox import (
@@ -2046,4 +2046,98 @@ def test_sandbox_allows_binding_bare_math_names_and_keeps_auto_math(fresh_sandbo
     bare_err = sandbox_run("result = sqrt(4)", timeout_sec=5)
     assert bare_err["status"] != "ok"
     assert "Forbidden function evaluation: 'sqrt'" in bare_err.get("message", "")
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected_gids", "expect_captured_note"),
+    [
+        pytest.param("f1", ["first"], False, id="returned_f1"),
+        pytest.param("[f2, f1]", ["second", "first"], False, id="list_order"),
+        pytest.param("plt.close(f1)\n[f1, f2]", ["first", "second"], False, id="closed_in_list"),
+        pytest.param("plt.plot([1])", ["first", "second"], True, id="artist_keeps_capture"),
+    ],
+)
+def test_returned_figures_render_in_returned_order(
+    fresh_sandbox_sessions,
+    tail: str,
+    expected_gids: list[str],
+    expect_captured_note: bool,
+) -> None:
+    pytest.importorskip("matplotlib")
+    import matplotlib.pyplot as plt
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "f1 = plt.figure(); f1.add_subplot().set_gid('first')\n"
+        "f2 = plt.figure(); f2.add_subplot().set_gid('second')\n"
+        f"{tail}"
+    )
+    res = sandbox_run(code, session_id="calc:returned-figs", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert plt.get_fignums() == []
+    images = find_image_payloads(res["result"])
+    assert len(images) == len(expected_gids)
+    for img, gid in zip(images, expected_gids, strict=True):
+        assert f'id="{gid}"'.encode() in img["data"]
+    stdout = res.get("stdout", "")
+    assert ("Captured" in stdout) is expect_captured_note
+
+
+def test_blank_returned_figure_shows_seaborn_figure(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("seaborn")
+    pytest.importorskip("pandas")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "import pandas as pd\n"
+        "import seaborn as sns\n"
+        "df = pd.DataFrame({'Country': ['US', 'CA'], 'Sales': [10, 20], 'Segment': ['A', 'B']})\n"
+        "fig = plt.figure()\n"
+        "plot = sns.catplot(data=df, x='Country', y='Sales', hue='Segment', kind='bar')\n"
+        "fig"
+    )
+    res = sandbox_run(code, session_id="calc:blank-fig-seaborn", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param("pairplot = sns.pairplot(df)", id="pairplot"),
+        pytest.param("g = sns.catplot(data=df, x='Country', y='Sales', hue='Segment', kind='bar')\ng", id="catplot"),
+        pytest.param("sns.jointplot(data=df, x='Sales', y='Sales')", id="jointplot"),
+    ],
+)
+def test_seaborn_grid_result_is_a_plot(fresh_sandbox_sessions, tail: str) -> None:
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("seaborn")
+    pytest.importorskip("pandas")
+
+    code = (
+        "import pandas as pd\n"
+        "import seaborn as sns\n"
+        "df = pd.DataFrame({'Country': ['US', 'CA', 'US'], 'Sales': [10, 20, 30], 'Segment': ['A', 'B', 'A']})\n"
+        f"{tail}"
+    )
+    res = sandbox_run(code, session_id="calc:seaborn-grid", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+
+
+def test_axes_array_result_captures_its_figure(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "fig, axs = plt.subplots(1, 2)\n"
+        "axs"
+    )
+    res = sandbox_run(code, session_id="calc:axes-array", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_2"' in res["result"]["data"]
 
