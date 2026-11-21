@@ -145,7 +145,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Launch | Role |
 |--------|------|
 | **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json`. `worker_timeout_sec`, `artifacts_path`, and `force_full_page_ocr` are `writeragent.json`-only. |
-| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or when PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract`) are listed when present and never counted as Missing; paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
+| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or, when Docling is not installed, PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract`) are listed when present and never counted as Missing; paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
