@@ -1161,7 +1161,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 ### User venv packages
 
 ```bash
-uv pip install docling onnxruntime css-inline
+uv pip install "docling>=2.145" onnxruntime css-inline
 # optional fallback: paddleocr paddlepaddle
 ```
 

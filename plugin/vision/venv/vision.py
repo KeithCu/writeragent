@@ -46,11 +46,9 @@ def _apply_paddle_fallback(
     # PDF bytes stay on the Docling error: Paddle decode is PNG/JPEG only, and
     # decoding %PDF as an image only logs a second failure.
     # Fall back only for DOCLING_UNAVAILABLE (package missing) or
-    # DOCLING_API_MISMATCH (Docling version break, issue 587). Docling emits
-    # that code instead of matching brittle substrings ('get_engine_config' /
-    # 'LayoutModelConfig'). OCR_BACKEND_UNAVAILABLE (the chosen ocr_backend's
-    # packages or program are missing, found by vision_docling's pre-flight),
-    # OCR_LANGUAGE_UNSUPPORTED and LAYOUT_MODEL_UNAVAILABLE are configuration
+    # DOCLING_API_MISMATCH (installed Docling older than the version vision_docling requires).
+    # OCR_BACKEND_UNAVAILABLE (the chosen ocr_backend's packages or program are missing,
+    # found by vision_docling's pre-flight) and OCR_LANGUAGE_UNSUPPORTED are configuration
     # errors for the requested engine and must not fall back.
     code = docling_result.get("code")
     if (
