@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import logging
-import re
 import threading
 import time
 from typing import Any
@@ -62,7 +61,7 @@ from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, in_sync_host_dispatch, sync_host_dispatch
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import find_image_payloads, is_split_grid, wire_cell_count
+from plugin.scripting.payload_codec import find_image_payloads
 from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -71,13 +70,6 @@ log = logging.getLogger(__name__)
 _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
 
 _PY_PASS_GAP_SEC = 2.0
-
-_INDEXED_BINDING_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:data|ranges)\[")
-
-
-def _code_uses_indexed_multi_data(code: str) -> bool:
-    """True when inline code references bare ``data[n]`` or ``ranges[n]`` (a preceding ``.`` does not count; all PY args are data ranges)."""
-    return bool(_INDEXED_BINDING_RE.search(code or ""))
 
 
 @dataclass(eq=False, slots=True)
@@ -357,30 +349,6 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
                 return _execute_python_addin_impl(ctx, code, data, doc=doc)
 
 
-def _split_trailing_index(code: str, args: list[Any], py_data: Any) -> tuple[list[Any], Any, Any]:
-    """Peel a trailing scalar index argument from multi-arg or single-arg =PY() inputs."""
-    index_arg = None
-    if py_data is not None:
-        is_multi = len(args) > 1
-        if is_multi and not _code_uses_indexed_multi_data(code):
-            last_arg = args[-1]
-            if not isinstance(last_arg, (list, tuple)) or wire_cell_count(py_data[-1]) == 1:
-                idx_val = py_data[-1]
-                while isinstance(idx_val, list) and idx_val:
-                    idx_val = idx_val[0]
-                index_arg = idx_val
-                py_data = py_data[:-1]
-                args = args[:-1]
-                if py_data:
-                    if len(args) <= 1:
-                        py_data = py_data[0]
-                else:
-                    py_data = None
-        elif is_scalar_index_arg(py_data) and not is_split_grid(py_data):
-            index_arg = unwrap_single_cell(py_data)
-    return args, py_data, index_arg
-
-
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     target_doc: Any = doc
     on_main = main.is_current()
@@ -391,8 +359,10 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         ensure_geometric_strip_index_for_eval(cell_ctx)
         args = maybe_strip_geometric_eval_args(code, args, cell_ctx)
         py_data = calc_addin_args_from_split(args)
-        args, py_data, index_arg = _split_trailing_index(code, args, py_data)
         is_multi = len(args) > 1
+        # Every argument is an input, as on Collabora Online. A lone numeric argument
+        # (the ROW()-1 form of a desktop matrix formula) also picks one element of a list result.
+        index_arg = unwrap_single_cell(py_data) if not is_multi and is_scalar_index_arg(py_data) else None
         max_cells = configured_python_max_data_cells()
         if py_data is not None:
             size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)

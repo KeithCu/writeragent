@@ -142,7 +142,7 @@ Rebuild after IDL changes: `scripts/rebuild_xprompt_rdb.sh` → [`extension/XPyt
 | `=PY("…"; 5; A1:B1)` | same list as `ranges` | `[1x1 CalcRange (5), CalcRange A1:B1]` |
 | `=PY("…"; 5; 6)` | same list as `ranges` | `[1x1 CalcRange (5), 1x1 CalcRange (6)]` |
 
-On Collabora Online the AddIn sends one argument as `data` itself and several as a JSON array. A range is always a nested grid `[[…]]` and a single cell or literal is a bare value. So each array item becomes its own input, a list of flat rows is one range, and desktop (`multi_data` envelopes) gives the same `ranges` (desktop peels a trailing single-cell argument as a result index unless the code indexes `data[`/`ranges[`; see `function.py:_split_trailing_index`).
+On Collabora Online the AddIn sends one argument as `data` itself and several as a JSON array. A range is always a nested grid `[[…]]` and a single cell or literal is a bare value. So each array item becomes its own input, a list of flat rows is one range, and desktop (`multi_data` envelopes) gives the same `ranges`. Every argument is an input on both products; to pick one element of a list result, index in code, e.g. `result = vals[int(data[1])]`. Desktop's single-argument `ROW()-n` matrix-formula form is described in [Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 **Example — weighted average across regions** (multi-arg: index with `data[i]` or loop `ranges`):
 

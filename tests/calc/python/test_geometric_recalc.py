@@ -686,7 +686,7 @@ def test_fill_down_unanimous_ours_is_strip_safe():
     assert first_key not in safe
 
 
-def test_mixed_matrix_index_poisons_the_triple():
+def test_mixed_user_last_arg_poisons_the_triple():
     """Same (code, n_args=2), one ours and one not → neither is strip-safe."""
     from plugin.calc.python.geometric_recalc import compute_eval_index
 
@@ -1024,7 +1024,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — strip before index heuristic / calc_addin_args_from_split
+# Phase 4 — strip before calc_addin_args_from_split packs the inputs
 # ---------------------------------------------------------------------------
 
 
@@ -1080,28 +1080,6 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
         assert not is_multi_data(wire)
         assert is_calc_range_payload(wire)
         assert wire["shape"] == [3, 1]
-
-
-def test_strip_runs_before_matrix_index_peel():
-    """Last geometric 1-cell must not become index_arg (silent wrong numbers)."""
-    from plugin.calc.python.function import execute_python_addin
-    _reset_geo()
-    col, pred = _mean_range_and_pred()
-    replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
-    with (
-        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
-        # The caller doc is a stub; keep the strip-safe set this test installed.
-        patch("plugin.calc.python.function.ensure_geometric_strip_index_for_eval"),
-    ):
-        mock_run.return_value = {"status": "ok", "result": [10, 20, 30]}
-        out = execute_python_addin(object(), "np.mean(data)", (col, pred), doc=_wb_doc())
-        # Without strip, pred 0 would be index_arg and return 10. Strip first
-        # so finalize sees no index and returns the first scalar of the list.
-        assert out == 10
-        # And the worker saw a single range (not list-of-ranges).
-        from plugin.scripting.payload_codec import is_multi_data
-
-        assert not is_multi_data(mock_run.call_args.kwargs["data"])
 
 
 def test_fill_down_both_strip():

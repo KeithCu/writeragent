@@ -602,7 +602,7 @@ Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolea
     ```
   3. Confirm with **Ctrl+Shift+Enter** (curly braces `{=…}` in each cell of the block is normal).
 
-The add-in takes only `(code, data)`. A third argument, such as a range plus `ROW()-n`, is **Err:504**. Pass `ROW()-n` alone when it is the per-cell index. Pass the range alone when `data` should be that grid.
+`ROW()-n` works as a per-cell index only when it is the sole argument. With two or more arguments every argument is an input (`data` is their list). To index alongside a range, do it in code: `=PY("result = f(data[0])[int(data[1])]"; A1:A10; ROW()-1)`. Pass the range alone when `data` should be that grid.
 
 #### Matrix Formula Optimization (Fast-Path)
 

@@ -58,7 +58,7 @@ The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.o
 - `data[0]` is the named range (`SalesData` / `MarketingData`) — the Calc form of `{named_range}`, not a frozen A1.
 - `data[1]` is the SQL cell or multi-row block (joined with newlines).
 - Editing the SQL cells dirties RESULTS through Calc's normal DAG.
-- `data[` in the payload is required so the trailing SQL cell is not peeled as a matrix index.
+- `data[0]`/`data[1]` are required because with two arguments `data` is the list of inputs.
 - Sheet-only RESULTS use injected `session_duckdb()` (Phase D shared-kernel catalog).
 - Scenario 3 (ZIP ⨝ `zip_income.csv`) is a live `=PY()` via injected `run_sql` + `scoped_dir` (the document folder). The sibling CSV is **not** a Calc argument — same catalog as `query_folder_sql`. Off-main recalc reuses the folder cached from a `calc:file:` session id (no `getURL()`). Bind `scoped_dir=None` only when no folder is known so the name exists (join then errors loud instead of `NameError`).
 - XLSX `SalesData` / `MarketingData` must be **absolute** (`Sheet!$A$4:$J$39`). Relative `Sheet!A4:J39` looks correct in UNO / Name Manager but `=PY()` evaluates the name from the SQL_DuckDB RESULTS cell and packs a shifted or empty `data[0]` (BinderException `Region` / `Channel`).
