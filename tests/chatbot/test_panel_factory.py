@@ -1039,7 +1039,6 @@ def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
         stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
-        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=ext_url))
         stack.enter_context(patch("plugin.chatbot.panel_factory.get_extension_url", return_value=ext_url))
         stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_filename", return_value="python_16.png"))
         ctor = stack.enter_context(

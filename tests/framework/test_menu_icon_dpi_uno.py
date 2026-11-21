@@ -24,13 +24,16 @@ def test_ladder_pngs_load_at_exact_size(ctx):
 
 @native_test
 def test_stock_icons_load_with_origin_url(ctx):
-    """Each STOCK_ICON_* loads at 16x16 and preserves its OriginURL."""
+    """Each STOCK_ICON_* loads at the device's stock scale and preserves its OriginURL."""
     reset_menu_icon_dpi_cache()
     for url in (STOCK_ICON_SETTINGS, STOCK_ICON_SEARCH, STOCK_ICON_MATH):
         g = load_menu_graphic(ctx, url)
         assert g is not None, f"Failed to load {url}"
         assert g.OriginURL == url
-        assert (g.SizePixel.Width, g.SizePixel.Height) == (16, 16)
+        # ImageRequestParameters::scalePercentage (vcl/source/image/ImplImageTree.cxx:76-84)
+        # scales stock icons by the default device DPI percentage (16 at 100%, 32 at 200%).
+        w, h = g.SizePixel.Width, g.SizePixel.Height
+        assert w == h and w % 16 == 0 and w > 0
 
 
 @native_test

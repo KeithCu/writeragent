@@ -90,7 +90,8 @@ class ModuleBase(ABC):
 
         Override in subclass to provide state-dependent menu icons.
         Return an icon prefix like "running", "stopped".
-        The framework will load ``assets/{prefix}_16.png`` from the OXT.
+        The framework loads the DPI-picked ``{prefix}_{16,24,32,40}.png`` via
+        ``load_menu_graphic`` (menubar ImageManager caps at 16 px).
         Return None to keep the icon declared in module.yaml.
         """
         return None

@@ -775,7 +775,7 @@ def test_icon_apply_signature_and_icons_unchanged():
     assert (main.menu_icons._icon_apply_signature(cmds, 24) == stamp) is False
 
 
-def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
+def test_menu_icons_apply_skips_reload_on_same_stamp(monkeypatch):
     """MenuIcons.apply skips reload when stamp matches and reloads on prefix change."""
     loader_calls: list[tuple[str, int]] = []
     fake_graphic = MagicMock()
