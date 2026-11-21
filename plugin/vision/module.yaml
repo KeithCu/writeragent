@@ -100,7 +100,7 @@ config:
     page: general
     width: 50
     label: OCR confidence threshold
-    helper: Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text.
+    helper: Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines ignore it). Raise it to drop garbage text; 0.0 keeps all text.
 
   # Read by client._resolve_vision_timeout_sec; configured in writeragent.json only.
   worker_timeout_sec:

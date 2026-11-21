@@ -196,7 +196,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `ocr_backend` | `string` | `"rapidocr"` |  | OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be installed in the Python venv; Settings → Python → Test lists the installed ones. Options: rapidocr (RapidOCR (ONNX, default)), rapidocr_openvino (RapidOCR (OpenVINO)), rapidocr_paddle (RapidOCR (PaddlePaddle)), rapidocr_torch (RapidOCR (PyTorch)), easyocr (EasyOCR), tesseract (Tesseract (command line)), ocrmac (Apple Vision (macOS)), nemotron (NVIDIA Nemotron OCR (Linux, CUDA)) |
 | `lang` | `string` | `""` |  | Language codes such as en, de or zh-TW, comma separated (Docling engines; the Paddle engine uses only a single PP-OCR code). Empty uses the language of the image or of LibreOffice. |
 | `device` | `string` | `"auto"` |  | Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU always works. Options: auto (Auto), cpu (CPU), cuda (CUDA), mps (MPS) |
-| `text_score` | `float` | `0.5` | `0.0`–`1.0` | Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text. |
+| `text_score` | `float` | `0.5` | `0.0`–`1.0` | Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines ignore it). Raise it to drop garbage text; 0.0 keeps all text. |
 | `worker_timeout_sec` | `int` | `300` | `30`–`600` | Internal. Host time limit for one Vision helper call, including Docling import and first model download. |
 | `artifacts_path` | `string` | `""` |  | Internal. Optional folder from docling-tools models download (offline use). |
 | `force_full_page_ocr` | `boolean` | `true` |  | Internal. OCR the whole image, not only detected text regions. PDFs ignore this setting. |

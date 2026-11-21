@@ -11,6 +11,7 @@ import importlib
 import importlib.metadata
 import logging
 import shutil
+import sys
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -744,24 +745,27 @@ def test_settings_ocr_backend_options_are_registry_ids():
 
 
 @pytest.mark.parametrize(
-    ("backend_id", "expected_kind", "expected_rapid_backend"),
+    ("backend_id", "expected_kind", "expected_rapid_backend", "threshold_field"),
     [
-        ("rapidocr", "rapidocr", "onnxruntime"),
-        ("rapidocr_openvino", "rapidocr", "openvino"),
-        ("rapidocr_paddle", "rapidocr", "paddle"),
-        ("rapidocr_torch", "rapidocr", "torch"),
-        ("easyocr", "easyocr", None),
-        ("tesseract", "tesseract", None),
-        ("nemotron", "nemotron-ocr", None),
-        ("ocrmac", "ocrmac", None),
+        ("rapidocr", "rapidocr", "onnxruntime", "text_score"),
+        ("rapidocr_openvino", "rapidocr", "openvino", "text_score"),
+        ("rapidocr_paddle", "rapidocr", "paddle", "text_score"),
+        ("rapidocr_torch", "rapidocr", "torch", "text_score"),
+        ("easyocr", "easyocr", None, "confidence_threshold"),
+        ("tesseract", "tesseract", None, None),
+        ("nemotron", "nemotron-ocr", None, None),
+        ("ocrmac", "ocrmac", None, None),
     ],
 )
-def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
+def test_resolve_ocr_options_real_docling_builds_each_backend(
+    backend_id, expected_kind, expected_rapid_backend, threshold_field
+):
     _require_supported_docling()
     norm = docling_mod.DoclingPipelineParams.from_params(
         {
             "ocr_backend": backend_id,
             "lang": "en",
+            "text_score": 0.3,
             "rapidocr_model_size": "medium",
             "rapidocr_detect_orientation": True,
         }
@@ -774,12 +778,63 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
 
     assert opts.kind == expected_kind
     assert opts.lang == ["iso:en-Latn"]
+    if threshold_field is not None:
+        assert getattr(opts, threshold_field) == 0.3
     if backend_id == "tesseract":
         assert opts.tesseract_cmd == "/usr/bin/tesseract"
     if expected_rapid_backend is not None:
         assert opts.backend == expected_rapid_backend
         assert opts.model_size == "medium"
         assert opts.detect_orientation is True
+
+
+def test_resolve_ocr_options_easyocr_gets_text_score_as_confidence_threshold():
+    fake_mod = SimpleNamespace(
+        OcrMode=SimpleNamespace(FULL_PAGE="full", DEFAULT="default"),
+        EasyOcrOptions=dict,
+    )
+    norm = docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "easyocr", "text_score": 0.3})
+    with (
+        patch.dict(sys.modules, {"docling.datamodel.pipeline_options": fake_mod}),
+        patch("importlib.util.find_spec", return_value=object()),
+    ):
+        opts = docling_mod._resolve_ocr_options(norm)
+
+    assert opts["confidence_threshold"] == 0.3
+    for forbidden in ("text_score", "backend", "model_size"):
+        assert forbidden not in opts
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_easyocr_reads_text():
+    _require_supported_docling()
+    pytest.importorskip("easyocr")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "easyocr", "lang": "en"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "ok"
+    assert "hello" in result["full_text"].lower()
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_easyocr_incompatible_languages_is_invalid_param():
+    _require_supported_docling()
+    pytest.importorskip("easyocr")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "easyocr", "lang": "ja,ko"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_extract_text_real_docling_rejects_bad_device():

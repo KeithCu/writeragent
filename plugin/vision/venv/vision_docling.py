@@ -77,6 +77,9 @@ class OcrBackend:
     programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
     install_hint: str = ""
     rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
+    # OcrOptions field that takes the text_score setting (RapidOCR text_score, EasyOCR confidence_threshold);
+    # empty when the engine has no recognition-confidence filter.
+    threshold_field: str = ""
 
 
 def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
@@ -85,6 +88,7 @@ def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
         ("rapidocr", module),
         install_hint=f"pip install rapidocr {pip_name}",
         rapidocr_engine=engine,
+        threshold_field="text_score",
     )
 
 
@@ -95,7 +99,12 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
     "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
     "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
     "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
-    "easyocr": OcrBackend("EasyOcrOptions", ("easyocr",), install_hint="pip install easyocr"),
+    "easyocr": OcrBackend(
+        "EasyOcrOptions",
+        ("easyocr",),
+        install_hint="pip install easyocr",
+        threshold_field="confidence_threshold",
+    ),
     "tesseract": OcrBackend(
         "TesseractCliOcrOptions",
         programs=TESSERACT_PROGRAMS,
@@ -231,9 +240,10 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
         "lang": list(norm.lang),
         "mode": ocr_mode.FULL_PAGE if norm.full_page_ocr else ocr_mode.DEFAULT,
     }
+    if row.threshold_field:
+        kwargs[row.threshold_field] = norm.text_score
     if row.rapidocr_engine:
         kwargs["backend"] = row.rapidocr_engine
-        kwargs["text_score"] = norm.text_score
         # RapidOcrOptions-only fields; other OcrOptions classes forbid extra fields.
         kwargs["model_size"] = norm.rapidocr_model_size
         kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
@@ -502,7 +512,17 @@ def export_docling_to_html(document: Any) -> str:
 
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
-    # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
+    # Docling's EasyOcrModel.__init__ (models/stages/ocr/easyocr_model.py) re-raises any failed
+    # `import easyocr` as ImportError("EasyOCR is not installed ...") inside the except block, so the real
+    # cause (for example a missing scikit-image) is __context__. The pre-flight already found the easyocr
+    # package, so this is an engine install problem: report it as such and never fall back to Paddle.
+    if isinstance(exc, ImportError) and str(exc).startswith("EasyOCR is not installed"):
+        return error_result(
+            "OCR_BACKEND_UNAVAILABLE",
+            f"EasyOCR is installed in the Python venv but does not import: {exc.__context__ or exc.__cause__ or exc}. "
+            f"{OCR_BACKENDS['easyocr'].install_hint}",
+            helper=helper,
+        )
     if isinstance(exc, ImportError):
         if is_css_inline_import_error(exc):
             return css_inline_unavailable_result(helper)
@@ -520,6 +540,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"import_error": root_msg},
         )
+    # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
     if isinstance(exc, OcrBackendError):
         return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
     if isinstance(exc, DoclingApiMismatchError):
