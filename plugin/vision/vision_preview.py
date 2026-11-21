@@ -21,7 +21,7 @@ from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import LOAD_MODELS_HELPER, detect_vision_input_format
-from plugin.vision.vision_egress import insert_vision_result, vision_html_from_result
+from plugin.vision.vision_egress import insert_vision_item, vision_html_from_result
 from plugin.vision.vision_runner import (
     no_image_selected_error,
     run_and_insert_vision_for_selection,
@@ -68,7 +68,7 @@ def _make_load_models_hook(
             loaded = run_vision(ctx, spec, None, cancel=cancel)
             if loaded.get("status") == "error":
                 # The OCR request below reports the real error (and may fall back to Paddle).
-                log.info("Vision preview model load failed: %s", loaded.get("message"))
+                log.info("Vision model warm-up failed: %s", loaded.get("message"))
             last_key = cache_key
         report(_("Recognizing text…"))
 
@@ -128,26 +128,19 @@ def run_vision_insert(
         cancel=cancel,
         on_exported=_make_load_models_hook(ctx, cancel, report),
     )
-    if result.get("code") == "USER_STOPPED" or is_cancelled(cancel):
+    if result.get("code") == "USER_STOPPED":
         raise SendCancelled("Vision run cancelled")
 
     indiv_results = result.get("individual_results") or []
     if indiv_results:
         report(_("Inserting…"))
-
-        def _insert_all() -> None:
-            if is_cancelled(cancel):
-                raise SendCancelled("Vision run cancelled")
-            for indiv_res in indiv_results:
+        for indiv_res in indiv_results:
+            def _insert_one(res: dict[str, Any] = indiv_res) -> None:
                 if is_cancelled(cancel):
                     raise SendCancelled("Vision run cancelled")
-                img_name = indiv_res.get("image_name") or (indiv_res.get("context") or {}).get("image_name")
-                insert_params = dict(values)
-                if img_name:
-                    insert_params["image_name"] = img_name
-                insert_vision_result(ctx, doc, indiv_res, params=insert_params)
+                insert_vision_item(ctx, doc, res, values)
 
-        main.call(_insert_all)
+            main.call(_insert_one)
 
     if result.get("status") == "error":
         raise ToolExecutionError(

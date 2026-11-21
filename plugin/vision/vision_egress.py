@@ -398,3 +398,12 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                 _delete_inserted_image(doc, image_name)
         return
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
+
+
+def insert_vision_item(ctx: Any, doc: Any, result: dict[str, Any], params: dict[str, Any] | None = None) -> None:
+    """Insert one OCR result item, passing its ``image_name`` so a collapsed selection never replaces text."""
+    insert_params = dict(params or {})
+    img_name = result.get("image_name")
+    if img_name:
+        insert_params["image_name"] = img_name
+    insert_vision_result(ctx, doc, result, params=insert_params)

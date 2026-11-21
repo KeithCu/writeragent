@@ -123,7 +123,7 @@ def test_preview_with_delete_image_after_insert_never_inserts_or_deletes():
             return_value={"status": "ok", "helper": "extract_structure", "html": "<p>hello</p>", "full_text": "hello"},
         ),
         patch("plugin.vision.vision_preview.render_preview_page", return_value=expected),
-        patch("plugin.vision.vision_preview.insert_vision_result") as mock_insert,
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
         patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete,
     ):
         out = run_vision_preview(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
@@ -160,7 +160,7 @@ def test_run_vision_insert_inserts_all_images_and_warms_models_once():
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
         patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.vision.vision_preview.run_vision", return_value={"status": "ok"}) as mock_rpc,
-        patch("plugin.vision.vision_preview.insert_vision_result") as mock_insert,
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         summary = run_vision_insert(ctx, {"delete_image_after_insert": True, "lang": "en"}, cancel, reports.append)
 
@@ -194,28 +194,76 @@ def test_run_vision_insert_cancelled_before_insert_skips_insert():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
+    call_idx = 0
 
-    def fake_selection(c, d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None):
-        cancel.cancel()
-        return {
-            "status": "ok",
-            "images_processed": 1,
-            "full_text": "hello",
-            "individual_results": [{"status": "ok", "html": "<p>hello</p>", "full_text": "hello", "image_name": "Img1"}],
-        }
+    def main_call_cancels_on_insert(fn, *a, **kw):
+        nonlocal call_idx
+        call_idx += 1
+        if call_idx == 2:
+            # Cancel right as the UI-thread insert closure is dispatched, after OCR returned ok.
+            cancel.cancel()
+        return fn(*a, **kw)
 
     with (
-        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.main.call", side_effect=main_call_cancels_on_insert),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
-        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
-        patch("plugin.vision.vision_preview.insert_vision_result") as mock_insert,
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={
+                "status": "ok",
+                "images_processed": 1,
+                "full_text": "hello",
+                "individual_results": [{"status": "ok", "html": "<p>hello</p>", "full_text": "hello", "image_name": "Img1"}],
+            },
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         with pytest.raises(SendCancelled):
             run_vision_insert(ctx, {}, cancel, lambda _t: None)
 
     mock_insert.assert_not_called()
+
+
+def test_run_vision_insert_cancelled_between_images_stops_after_first():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    call_idx = 0
+
+    def main_call_cancels_before_second(fn, *a, **kw):
+        nonlocal call_idx
+        call_idx += 1
+        if call_idx == 3:
+            # 1: _run_target, 2: insert Img1, 3: insert Img2 (cancelled before running).
+            cancel.cancel()
+        return fn(*a, **kw)
+
+    res1 = {"status": "ok", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1"}
+    res2 = {"status": "ok", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=main_call_cancels_before_second),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={
+                "status": "ok",
+                "images_processed": 2,
+                "full_text": "one\n\ntwo",
+                "individual_results": [res1, res2],
+            },
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
+    ):
+        with pytest.raises(SendCancelled):
+            run_vision_insert(ctx, {}, cancel, lambda _t: None)
+
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs["params"] == {"image_name": "Img1"}
 
 
 def test_run_vision_insert_partial_failure_inserts_succeeded_and_raises():
@@ -238,7 +286,7 @@ def test_run_vision_insert_partial_failure_inserts_succeeded_and_raises():
                 "individual_results": [res1],
             },
         ),
-        patch("plugin.vision.vision_preview.insert_vision_result") as mock_insert,
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         with pytest.raises(ToolExecutionError, match="OCR failed for Img2"):
             run_vision_insert(ctx, {"delete_image_after_insert": False}, cancel, lambda _t: None)
@@ -261,7 +309,7 @@ def test_run_vision_insert_total_error_never_inserts():
             "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
             return_value={"status": "error", "code": "VISION_ERROR", "message": "No text found.", "individual_results": []},
         ),
-        patch("plugin.vision.vision_preview.insert_vision_result") as mock_insert,
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         with pytest.raises(ToolExecutionError, match="No text found."):
             run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)

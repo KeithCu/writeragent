@@ -405,7 +405,7 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
     # Weight: only vision runs load plugin.vision (see _prepare_vision).
-    from plugin.vision.vision_egress import insert_vision_result
+    from plugin.vision.vision_egress import insert_vision_item
 
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
@@ -414,13 +414,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])
         for indiv_res in indiv_results:
-            # insert_vision_result requires the image_name to be set in params for correct insertion
-            # The background thread set it in the response context or we pass it
-            img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
-            insert_params = dict(prepared.params)
-            if img_name:
-                insert_params["image_name"] = img_name
-            insert_vision_result(prepared.ctx, prepared.doc, indiv_res, params=insert_params)
+            insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params)
 
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
