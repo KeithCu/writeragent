@@ -182,7 +182,7 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
     assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr"
 
 
-def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None):
+def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
     name = params["image_name"]
     return {
         "status": "ok",
@@ -285,7 +285,7 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
         name = params["image_name"]
         if name == "Img2":
             return {"status": "error", "code": "VISION_ERROR", "helper": helper, "message": "boom"}
@@ -495,7 +495,7 @@ def test_stop_break_reports_partial_and_stopped():
     mock_pairs = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
     scope = SendCancellation()
 
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
         name = params["image_name"]
         if name == "Img1":
             scope.cancel()
@@ -536,7 +536,7 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
 
     call_count = [0]
 
-    def fake_run_trusted(ctx, doc, *, helper, params, cancel=None):
+    def fake_run_trusted(ctx, doc, *, helper, params, cancel=None, on_exported=None):
         call_count[0] += 1
         if call_count[0] == 1:
             return {"status": "ok", "helper": helper, "full_text": "text1", "html": "<p>1</p>"}
@@ -590,4 +590,19 @@ def test_run_trusted_vision_calls_on_exported_with_sent_params():
     assert events[0][1]["lang"] == "fr"
     assert "image_name" not in events[0][1]
     assert events[0][2] == b"png-data"
+
+
+def test_run_and_insert_vision_for_selection_forwards_on_exported():
+    ctx = MagicMock()
+    doc = MagicMock()
+    hook = MagicMock()
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", return_value={"status": "ok", "helper": "extract_structure", "full_text": "ok", "html": "<p>ok</p>"}) as mock_run,
+    ):
+        run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False, on_exported=hook)
+
+    assert mock_run.call_args.kwargs["on_exported"] is hook
 

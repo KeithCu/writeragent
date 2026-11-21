@@ -12,7 +12,7 @@ config_dialog:
   height: 130
   moveable: true
   resizeable: true
-  buttons: [run, ok, close]
+  buttons: [run, preview, ok, close]
   preview: {height: 200}
 
 actions:

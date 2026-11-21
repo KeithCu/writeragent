@@ -673,3 +673,36 @@ def test_calc_delete_image_after_insert_error_or_empty_keeps_graphic(mock_calc_h
             mock_calc_html.assert_not_called()
 
 
+
+
+# Docling returns skeleton HTML (title, empty body) when OCR finds nothing; only full_text/tables show it.
+_NO_TEXT_RESULT = {"status": "ok", "helper": "extract_structure", "html": "<h1>image</h1><p></p>", "full_text": "", "tables": []}
+
+
+@patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
+@patch("plugin.writer.html_import.insert_html_at_cursor")
+@patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
+def test_writer_delete_image_skipped_when_ocr_found_no_text(mock_prepare, mock_insert, _review):
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    mock_prepare.return_value = MagicMock()
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+
+    with patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete:
+        insert_vision_result_into_writer(
+            MagicMock(), doc, dict(_NO_TEXT_RESULT), params={"image_name": "Img1", "delete_image_after_insert": True}
+        )
+
+    mock_delete.assert_not_called()
+
+
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_calc_delete_image_skipped_when_ocr_found_no_text(mock_calc_html):
+    from plugin.vision.vision_egress import insert_vision_result
+
+    doc = MagicMock()
+    stack, mock_delete = _calc_egress_patches(doc, MagicMock(), mode="html")
+    with stack:
+        insert_vision_result(MagicMock(), doc, dict(_NO_TEXT_RESULT), params={"image_name": "Img1", "delete_image_after_insert": True})
+    mock_delete.assert_not_called()

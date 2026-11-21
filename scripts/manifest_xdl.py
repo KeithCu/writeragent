@@ -188,6 +188,7 @@ def _add_standalone_field(board, field_name, schema, y, page, *, where="") -> in
 
 _FOOTER_BUTTON_LABELS = {
     "run": "Run",
+    "preview": "Preview",
     "apply": "Apply",
     "ok": "OK",
     "close": "Close",
@@ -320,7 +321,7 @@ def generate_standalone_config_dialog(module):
 
     btn_w = 70
     btn_gap = 10
-    visible_keys = [k for k in ("run", "apply", "ok", "close") if k in buttons]
+    visible_keys = [k for k in ("run", "preview", "apply", "ok", "close") if k in buttons]
     btn_specs = []
     for idx, key in enumerate(visible_keys):
         # When Apply is absent, closing discards unsaved edits, so label it Cancel.

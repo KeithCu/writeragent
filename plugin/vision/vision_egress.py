@@ -310,6 +310,13 @@ def _writer_review_recording_enabled() -> bool:
     return bool(review_recording_enabled())
 
 
+def _ocr_found_content(result: dict[str, Any]) -> bool:
+    """False when OCR ran but found no text or tables; Docling still returns skeleton HTML then."""
+    if "full_text" not in result:
+        return True
+    return bool(str(result.get("full_text") or "").strip() or result.get("tables"))
+
+
 def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
     """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic."""
     if not image_name:
@@ -332,7 +339,8 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     image_name = str((params or {}).get("image_name") or "").strip() or None
-    delete_image = resolve_delete_image_after_insert(ctx, params)
+    # An empty OCR result must never cost the user the image.
+    delete_image = resolve_delete_image_after_insert(ctx, params) and _ocr_found_content(result)
     if delete_image and _writer_review_recording_enabled():
         # dispose is not a redline, so reject could not restore the image.
         delete_image = False
@@ -369,7 +377,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     image_name = str((params or {}).get("image_name") or "").strip() or None
 
     if is_calc(doc):
-        delete_image = resolve_delete_image_after_insert(ctx, params)
+        delete_image = resolve_delete_image_after_insert(ctx, params) and _ocr_found_content(result)
         if insert_mode == "structured" and helper == "extract_structure":
             with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
                 try:
@@ -398,3 +406,12 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                 _delete_inserted_image(doc, image_name)
         return
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
+
+
+def insert_vision_item(ctx: Any, doc: Any, result: dict[str, Any], params: dict[str, Any] | None = None) -> None:
+    """Insert one OCR result item, passing its ``image_name`` so a collapsed selection never replaces text."""
+    insert_params = dict(params or {})
+    img_name = result.get("image_name")
+    if img_name:
+        insert_params["image_name"] = img_name
+    insert_vision_result(ctx, doc, result, params=insert_params)

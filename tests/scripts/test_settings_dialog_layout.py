@@ -107,8 +107,15 @@ def test_vision_standalone_ok_is_plain_push_button() -> None:
     assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
     assert close_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
     footer_ids = sorted(k for k in buttons if not k.startswith("btn_tab_"))
-    assert footer_ids == ["btn_close", "btn_ok", "btn_run"]
+    assert footer_ids == ["btn_close", "btn_ok", "btn_preview", "btn_run"]
+    assert buttons["btn_run"].get(f"{{{_DLG_NS}}}value") == "Run"
+    assert buttons["btn_preview"].get(f"{{{_DLG_NS}}}value") == "Preview"
     assert close_btn.get(f"{{{_DLG_NS}}}value") == "Cancel"
+    x_order = [
+        int(buttons[bid].get(f"{{{_DLG_NS}}}left"))
+        for bid in ("btn_run", "btn_preview", "btn_ok", "btn_close")
+    ]
+    assert x_order == sorted(x_order) and len(set(x_order)) == 4
 
 
 def test_standalone_dialog_with_apply_keeps_apply_and_close_label() -> None:
@@ -429,7 +436,7 @@ def test_vision_standalone_dialog_fields_agreement() -> None:
     extras = xdl_ids - spec_names
     for extra in extras:
         is_known_extra = (
-            extra in ("VisionSettingsDialog", "__module__", "btn_run", "btn_apply", "btn_ok", "btn_close", "preview_area", "sb_preview", "lbl_preview_status")
+            extra in ("VisionSettingsDialog", "__module__", "btn_run", "btn_preview", "btn_apply", "btn_ok", "btn_close", "preview_area", "sb_preview", "lbl_preview_status")
             or extra.startswith("label_")
             or extra.startswith("btn_tab_")
         )
@@ -598,19 +605,19 @@ def test_standalone_preview_adds_height_and_page0_controls() -> None:
     base_mod = {
         "name": "prev",
         "title": "Preview",
-        "config_dialog": {"id": "PrevDialog", "width": 350, "height": 130, "buttons": ["run", "apply", "ok", "close"], "preview": {"height": 200}},
+        "config_dialog": {"id": "PrevDialog", "width": 350, "height": 130, "buttons": ["run", "preview", "ok", "close"], "preview": {"height": 200}},
         "config": {"x": {"type": "int", "widget": "number", "label": "X"}},
     }
     root = ET.fromstring(generate_standalone_config_dialog(base_mod))
     assert root.get(f"{{{_DLG_NS}}}height") == str(130 + 200)
     by_id = {ctrl_id: el for el in root.iter() if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))}
-    for cid in ("btn_run", "sb_preview", "preview_area", "lbl_preview_status"):
+    for cid in ("btn_run", "btn_preview", "sb_preview", "preview_area", "lbl_preview_status"):
         assert cid in by_id
         assert by_id[cid].get(f"{{{_DLG_NS}}}page") is None
 
     area_bottom = int(by_id["preview_area"].get(f"{{{_DLG_NS}}}top")) + int(by_id["preview_area"].get(f"{{{_DLG_NS}}}height"))
     status_top = int(by_id["lbl_preview_status"].get(f"{{{_DLG_NS}}}top"))
-    footer_top = int(by_id["btn_run"].get(f"{{{_DLG_NS}}}top"))
+    footer_top = int(by_id["btn_preview"].get(f"{{{_DLG_NS}}}top"))
     assert area_bottom < status_top < footer_top
 
     no_preview = {
@@ -620,7 +627,7 @@ def test_standalone_preview_adds_height_and_page0_controls() -> None:
         "config": {"x": {"type": "int", "widget": "number", "label": "X"}},
     }
     plain_ids = {ctrl_id for el in ET.fromstring(generate_standalone_config_dialog(no_preview)).iter() if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))}
-    for cid in ("btn_run", "sb_preview", "preview_area", "lbl_preview_status"):
+    for cid in ("btn_run", "btn_preview", "sb_preview", "preview_area", "lbl_preview_status"):
         assert cid not in plain_ids
 
 

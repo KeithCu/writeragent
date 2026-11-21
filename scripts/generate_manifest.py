@@ -92,7 +92,7 @@ def validate_modules(manifests, project_root=None):
                 buttons = cd["buttons"]
                 if not isinstance(buttons, list) or len(buttons) == 0:
                     raise ValueError(f"{yp}: config_dialog.buttons: must be a non-empty list")
-                valid_buttons = {"run", "apply", "ok", "close"}
+                valid_buttons = {"run", "preview", "apply", "ok", "close"}
                 for btn in buttons:
                     if btn not in valid_buttons:
                         raise ValueError(f"{yp}: config_dialog.buttons: invalid button {btn!r}")
@@ -102,8 +102,8 @@ def validate_modules(manifests, project_root=None):
                 if isinstance(p_height, bool) or not isinstance(p_height, int) or p_height <= 0:
                     raise ValueError(f"{yp}: config_dialog.preview.height: must be a positive integer")
             eff_buttons = cd.get("buttons") or ["apply", "ok", "close"]
-            if ("run" in eff_buttons) != ("preview" in cd):
-                raise ValueError(f"{yp}: config_dialog: the run button and preview go together")
+            if ("preview" in eff_buttons) != ("preview" in cd):
+                raise ValueError(f"{yp}: config_dialog: the preview button and preview pane go together")
 
         for action_name, action_def in m.get("actions", {}).items():
             if isinstance(action_def, dict) and "icon" in action_def:
@@ -115,7 +115,7 @@ def validate_modules(manifests, project_root=None):
         config = m.get("config", {})
         if isinstance(config, dict):
             for fname, schema in config.items():
-                if fname in ("__module__", "btn_apply", "btn_ok", "btn_close") or fname.startswith("btn_tab_"):
+                if fname in ("__module__", "btn_run", "btn_preview", "btn_apply", "btn_ok", "btn_close") or fname.startswith("btn_tab_"):
                     raise ValueError(f"{yp}: config.{fname}: reserved config key name {fname!r}")
                 if not isinstance(schema, dict):
                     continue
