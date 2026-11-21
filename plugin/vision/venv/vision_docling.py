@@ -514,7 +514,6 @@ def export_docling_to_html(document: Any) -> str:
 
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
-    # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
     # Docling's EasyOcrModel.__init__ (models/stages/ocr/easyocr_model.py) re-raises any failed
     # `import easyocr` as ImportError("EasyOCR is not installed ...") inside the except block, so the real
     # cause (for example a missing scikit-image) is __context__. The pre-flight already found the easyocr
@@ -522,7 +521,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
     if isinstance(exc, ImportError) and str(exc).startswith("EasyOCR is not installed"):
         return error_result(
             "OCR_BACKEND_UNAVAILABLE",
-            f"EasyOCR is installed in the Python venv but does not import: {exc.__context__}. "
+            f"EasyOCR is installed in the Python venv but does not import: {exc.__context__ or exc.__cause__ or exc}. "
             f"{OCR_BACKENDS['easyocr'].install_hint}",
             helper=helper,
         )
@@ -543,6 +542,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"import_error": root_msg},
         )
+    # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
     if isinstance(exc, OcrBackendError):
         return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
     if isinstance(exc, DoclingApiMismatchError):

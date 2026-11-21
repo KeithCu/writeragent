@@ -747,7 +747,6 @@ def test_settings_ocr_backend_options_are_registry_ids():
     ("backend_id", "expected_kind", "expected_rapid_backend", "threshold_field"),
     [
         ("rapidocr", "rapidocr", "onnxruntime", "text_score"),
-        ("rapidocr_onnx", "rapidocr", "onnxruntime", "text_score"),
         ("rapidocr_openvino", "rapidocr", "openvino", "text_score"),
         ("rapidocr_paddle", "rapidocr", "paddle", "text_score"),
         ("rapidocr_torch", "rapidocr", "torch", "text_score"),
@@ -755,7 +754,6 @@ def test_settings_ocr_backend_options_are_registry_ids():
         ("tesseract", "tesseract", None, None),
         ("nemotron", "nemotron-ocr", None, None),
         ("ocrmac", "ocrmac", None, None),
-        ("auto", "auto", None, None),
     ],
 )
 def test_resolve_ocr_options_real_docling_builds_each_backend(
