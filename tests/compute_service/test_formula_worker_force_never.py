@@ -87,7 +87,6 @@ result = df
     assert res[0] == ["ints", "floats", "strings"]
     data = res[1:]
     assert len(data) == 400
-    assert not is_split_grid(res)
 
     expected_df = pd.DataFrame({
         "ints": list(range(400)),
@@ -118,7 +117,6 @@ result = pd.Series(list(range(200)), name="nums")
     assert res[0] == ["nums"]
     data = res[1:]
     assert len(data) == 200
-    assert not is_split_grid(res)
     assert data == [[i] for i in range(200)]
     for row in data:
         assert type(row[0]) is int

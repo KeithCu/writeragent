@@ -69,7 +69,8 @@ import json, sys
 resp = json.loads(sys.argv[1])
 expected = json.loads(sys.argv[2])
 assert resp.get("status") == "ok", f"unexpected status: {resp}"
-assert resp.get("result") == expected, f"expected {expected!r}, got {resp.get(\"result\")!r}"
+got = resp.get("result")
+assert got == expected, f"expected {expected!r}, got {got!r}"
 ' "$resp" "$expected"
 }
 

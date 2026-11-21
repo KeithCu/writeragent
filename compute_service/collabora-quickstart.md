@@ -91,7 +91,7 @@ networks:
 |---|---|
 | `#DISABLED` | `enable` is false, or the build lacks `--enable-python-compute` |
 | `#VALUE!` + log `Rejected python compute request to host not in KIT allowlist` | Add the `lok_allow` host |
-| `#VALUE!` + log `Python compute: HTTP 401` | The `api_key` differs from the service key |
+| `#VALUE!` + log `Python compute: HTTP 401` (log level `information` or higher) | The `api_key` differs from the service key |
 | `#VALUE!` + `Network error reaching Python compute service` | Check `url`, or verify `python-compute` is up |
 
 ## Writing `=PY()` in Online: code in a cell
