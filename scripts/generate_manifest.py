@@ -107,7 +107,7 @@ def validate_modules(manifests, project_root=None):
         config = m.get("config", {})
         if isinstance(config, dict):
             for fname, schema in config.items():
-                if fname in ("__module__", "btn_apply", "btn_ok", "btn_close") or fname.startswith(("btn_tab_", "hlp_")):
+                if fname in ("__module__", "btn_apply", "btn_ok", "btn_close") or fname.startswith("btn_tab_"):
                     raise ValueError(f"{yp}: config.{fname}: reserved config key name {fname!r}")
                 if not isinstance(schema, dict):
                     continue

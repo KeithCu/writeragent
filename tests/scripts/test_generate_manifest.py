@@ -264,7 +264,7 @@ def test_validation_config_dialog_invalid_button():
 
 @pytest.mark.parametrize(
     "bad_key",
-    ["__module__", "btn_apply", "btn_ok", "btn_close", "btn_tab_general", "hlp_tip"],
+    ["__module__", "btn_apply", "btn_ok", "btn_close", "btn_tab_general"],
 )
 def test_validation_reserved_config_key_name(bad_key):
     modules = [

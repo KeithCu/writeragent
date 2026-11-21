@@ -144,15 +144,15 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 
 | Launch | Role |
 |--------|------|
-| **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| OCR \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json` |
+| **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json`. `worker_timeout_sec`, `artifacts_path`, and `force_full_page_ocr` are `writeragent.json`-only. |
 | Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling and rapidocr are both present, or when PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). `vision.worker_timeout_sec` still allows per-vision override. |
+| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). Hidden key `vision.worker_timeout_sec` still allows per-vision override. |
 
-At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
+At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors hidden key `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
 
 Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py).
 
@@ -513,7 +513,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Menu entry | [`extension/Addons.xcu`](../../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../../plugin/main.py) |
 | Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
 
-Persisted keys include `device`, `images_scale`, `ocr_backend`, `lang`, `table_mode`, `layout_model`, `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
+Persisted keys include `device`, `images_scale`, `ocr_backend`, `lang`, `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
 
 ---
 
@@ -768,7 +768,7 @@ Venv package requirements for Vision Helpers are also summarized in the [domain 
 pip install docling rapidocr-paddle numpy pillow onnxruntime
 ```
 
-**First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
+**First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional hidden `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
 
 **Self-check (shipped):** [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are not blocked but not part of curated extras, and probed via host subprocess per §15):
 
