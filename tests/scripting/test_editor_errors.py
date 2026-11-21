@@ -195,3 +195,28 @@ def test_editor_error_markers_syntax_past_end_of_code_returns_empty():
     msg = "Code parsing failed on line 5 due to: SyntaxError: bad"
     code = "x = 1\ny = 2\n"
     assert editor_error_markers(msg, code=code) == []
+
+
+def test_editor_error_markers_point_at_innermost_cell_frame():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def f(x):\n    return x / 0\n\nresult = f(2)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    markers = editor_error_markers(str(exc_info.value), exc_info.value.user_traceback, code)
+    assert len(markers) == 1
+    assert markers[0]["line"] == 2
+
+
+def test_editor_error_markers_skip_earlier_cell_frames():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor("def helper(v):\n    x = 0\n    return 1 / v\n")
+    cell_b = "y = 1\nresult = helper(0)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(cell_b)
+    markers = editor_error_markers(str(exc_info.value), exc_info.value.user_traceback, cell_b)
+    assert len(markers) == 1
+    assert markers[0]["line"] == 2

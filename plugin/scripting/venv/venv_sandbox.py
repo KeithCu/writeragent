@@ -45,6 +45,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     InterpreterError,
     LocalPythonExecutor,
     SANDBOX_POLICY_CONTEXT,
+    USER_CODE_FILE,
     finalize_thread_pool_timeout,
     get_file_os_proxy,
     print_outputs_from_state,
@@ -93,6 +94,7 @@ from plugin.scripting.sandbox import (
 install_alias_authorizer()
 
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
+_INIT_SCRIPT_FILE = "<init script>"
 
 
 @dataclass
@@ -834,7 +836,7 @@ def _ensure_init_executed(
     if spent is not None:
         return spent
     inject_auto_imports(init_executor, script)
-    result = _run_on_executor(init_executor, script, result_optional=True)
+    result = _run_on_executor(init_executor, script, result_optional=True, filename=_INIT_SCRIPT_FILE)
     if result.get("status") != "ok":
         SESSIONS.abort_init(init_session_id)
         return result
@@ -1119,13 +1121,22 @@ def _fail_cell(
     code: str | None = None,
     stdout: str = "",
     include_traceback: bool = False,
+    user_traceback: str = "",
 ) -> dict[str, Any]:
-    """Restore the pre-cell ``result``, close figures, and return an error dict."""
+    """Restore the pre-cell ``result``, close figures, and return an error dict.
+
+    *user_traceback* holds only the user's frames, never a host path, so
+    ``compute_service`` may forward it; *include_traceback* is for local
+    diagnostics only.
+    """
     _restore_prior_result(executor, prior_result)
     _close_open_figures()
-    return error_result(
+    out = error_result(
         code, message, stdout=stdout, with_traceback=include_traceback
     )
+    if user_traceback:
+        out["user_traceback"] = user_traceback
+    return out
 
 
 def cell_rebound_result(code: str, prior: Any, current: Any) -> bool:
@@ -1144,6 +1155,7 @@ def _run_on_executor(
     *,
     force: ForceBinary = "auto",
     result_optional: bool = False,
+    filename: str = USER_CODE_FILE,
 ) -> dict[str, Any]:
     # Keep ``result`` in the namespace. Egress uses it when this cell stored
     # the name. Popping it after every cell would make ``result * 2`` in a
@@ -1158,7 +1170,7 @@ def _run_on_executor(
     try:
         token = bind_named_scripts_executor(executor)
         try:
-            code_output = executor(code)
+            code_output = executor(code, filename=filename)
         finally:
             # Reset with the token from bind. A leftover ContextVar is the
             # previous cell's executor on this thread.
@@ -1216,21 +1228,20 @@ def _run_on_executor(
             str(e),
             code="EXECUTION_TIMEOUT",
             stdout=print_outputs_from_state(executor.state),
+            user_traceback=e.user_traceback,
         )
     except InterpreterError as e:
         hinted_message, hint = _with_fix_hint(str(e))
-        failed = _fail_cell(
+        user_tb = e.user_traceback
+        if user_tb and hint:
+            user_tb = f"{user_tb}\nHint: {hint}"
+        return _fail_cell(
             executor,
             prior_result,
             hinted_message,
             stdout=print_outputs_from_state(executor.state),
+            user_traceback=user_tb,
         )
-        # user_traceback holds only the user's frames, never a host path, so
-        # compute_service may forward it; the internal-fault arms below keep the
-        # host traceback for local diagnostics only.
-        if e.user_traceback:
-            failed["user_traceback"] = f"{e.user_traceback}\nHint: {hint}" if hint else e.user_traceback
-        return failed
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
         # the cell's prints are already in _print_outputs; pass them as

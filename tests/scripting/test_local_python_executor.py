@@ -2894,6 +2894,74 @@ def test_process_callables_allowed_when_os_true():
             "def outer():\n    def inner():\n        return 1 / 0\n    return inner()\n\nresult = outer()",
             id="nested_def",
         ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    err = e\nraise err",
+            id="raise_err_same_frame",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    raise e",
+            id="raise_e_in_handler",
+        ),
+        pytest.param(
+            "def f():\n    return 1/0\ntry:\n    f()\nexcept ZeroDivisionError as e:\n    err = e\ntry:\n    raise err\nexcept ZeroDivisionError:\n    pass\nraise err",
+            id="raise_twice",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    raise e from None",
+            id="raise_from_none",
+        ),
+        pytest.param(
+            "f = lambda x: 1/x\nresult = f(0)",
+            id="lambda",
+        ),
+        pytest.param(
+            "result = sorted([1, 0], key=lambda v: 1/v)",
+            id="lambda_callback",
+        ),
+        pytest.param(
+            "f = lambda a: (lambda b: 1/b)(a)\nresult = f(0)",
+            id="lambda_in_lambda",
+        ),
+        pytest.param(
+            "f = lambda x: (\n    1/x)\nresult = f(0)",
+            id="multiline_lambda",
+        ),
+        pytest.param(
+            "def g(x):\n    return 1/x\nf = lambda v: g(v)\nresult = f(0)",
+            id="lambda_calls_def",
+        ),
+        pytest.param(
+            "result = sum(1/x for x in [1, 0])",
+            id="genexp",
+        ),
+        pytest.param(
+            "g = (1/x for x in [0])\nresult = list(g)",
+            id="genexp_consumed_later",
+        ),
+        pytest.param(
+            "def f(xs):\n    return sum(1/x for x in xs)\nresult = f([0])",
+            id="genexp_in_def",
+        ),
+        pytest.param(
+            "result = [1/x for x in [1, 0]]",
+            id="listcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "def f(xs):\n    return [1/x for x in xs]\nresult = f([0])",
+            id="listcomp_in_def",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "result = {1/x for x in [0]}",
+            id="setcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "result = {x: 1/x for x in [0]}",
+            id="dictcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
     ],
 )
 def test_user_traceback_frames_match_cpython(code: str) -> None:
@@ -2942,14 +3010,54 @@ def test_user_traceback_collapses_recursion() -> None:
     assert len(tb.splitlines()) <= 12
 
 
-def test_user_traceback_uses_defining_source() -> None:
+def test_user_traceback_labels_init_and_earlier_cell_frames() -> None:
     executor = LocalPythonExecutor(additional_authorized_imports=[])
-    executor("# init comment\ndef helper(v):\n    return 1 / v\n")
+    executor("# init comment\ndef helper(v):\n    return 1 / v\n", filename="<init script>")
+    executor("def cellfn(v):\n    return helper(v)\n")
     with pytest.raises(InterpreterError) as exc_info:
-        executor("result = helper(0)")
-    tb = exc_info.value.user_traceback
-    assert '  File "<sandbox>", line 3, in helper\n    return 1 / v' in tb
-    assert '  File "<sandbox>", line 1, in <module>\n    result = helper(0)' in tb
+        executor("result = cellfn(0)")
+    expected = (
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 1, in <module>\n'
+        "    result = cellfn(0)\n"
+        '  File "<earlier cell>", line 2, in cellfn\n'
+        "    return helper(v)\n"
+        '  File "<init script>", line 3, in helper\n'
+        "    return 1 / v\n"
+        "ZeroDivisionError: division by zero"
+    )
+    assert exc_info.value.user_traceback == expected
+
+
+def test_user_traceback_rerun_of_same_code_stays_sandbox() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def g():\n    return 1/0\nresult = g()"
+    with pytest.raises(InterpreterError):
+        executor(code)
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    assert '  File "<sandbox>", line 2, in g' in exc_info.value.user_traceback
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGALRM timeout path is Unix-only; the thread-pool fallback may win the race and carry no frames",
+)
+def test_timeout_user_traceback_names_running_line() -> None:
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    code = "def spin():\n    while True:\n        pass\n\nspin()"
+    with pytest.raises(ExecutionTimeoutError) as exc_info:
+        executor(code)
+    lines = exc_info.value.user_traceback.splitlines()
+    file_lines = [line for line in lines if line.startswith("  File ")]
+    assert file_lines[0] == '  File "<sandbox>", line 5, in <module>'
+    assert file_lines[-1] in {
+        '  File "<sandbox>", line 2, in spin',
+        '  File "<sandbox>", line 3, in spin',
+    }
+    assert lines[-1].startswith("ExecutionTimeoutError: Code execution exceeded")
 
 
 def test_user_traceback_empty_for_parse_error() -> None:

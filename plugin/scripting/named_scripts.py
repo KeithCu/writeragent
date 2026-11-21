@@ -274,7 +274,7 @@ def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
     return value
 
 
-def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
+def _eval_library(executor: Any, source: str, ident: str, filename: str) -> SimpleNamespace:
     # Weight: the vendored executor loads ~70 modules; the host imports this module through document_scripts at start-up.
     from plugin.contrib.smolagents.local_python_executor import evaluate_python_code
 
@@ -290,6 +290,7 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
             authorized_imports=executor.authorized_imports,
             max_print_outputs_length=executor.max_print_outputs_length,
             timeout_seconds=executor.timeout_seconds,
+            filename=filename,
         )
     skip = {"__name__", "_print_outputs", "_operations_count"}
     ns = SimpleNamespace()
@@ -335,7 +336,9 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     # host_get_named_python_script already rejects a body over _NAMED_SCRIPT_MAX_BYTES.
     body_hash = payload["hash"]
     ident = python_identifier_from_script_name(name)
-    ns = _eval_library(executor, code, ident)
+    # Traceback file name, as the cell reaches the library.
+    attr = "scripts" if origin == SCRIPT_ORIGIN_USER else "doc"
+    ns = _eval_library(executor, code, ident, f"<wa.{attr}.{ident}>")
     cache[key] = (body_hash, ns)
     checked.add(key)
     return ns
