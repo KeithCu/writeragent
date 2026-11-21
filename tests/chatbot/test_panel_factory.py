@@ -461,7 +461,9 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch.object(
+    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch(
+        "plugin.chatbot.panel_factory.apply_deck_icons"
+    ) as deck_icons, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
     ), patch(
         "plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel
@@ -470,6 +472,7 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     ):
         result = el.getRealInterface()
     init.assert_called_once_with(el.ctx)
+    deck_icons.assert_called_once_with(el.ctx)
     assert result is panel
 
 
@@ -1186,6 +1189,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
         patch("plugin.chatbot.panel_factory.wire_chatpanel_controls", side_effect=fake_wire),
@@ -1452,6 +1456,7 @@ def test_get_real_interface_second_queued_create_keeps_first_panel():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=run_twice),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
         patch("plugin.chatbot.panel_factory.wire_chatpanel_controls") as mock_wire,

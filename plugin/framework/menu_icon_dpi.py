@@ -461,6 +461,10 @@ def apply_deck_icons(ctx: Any) -> None:
     (``sfx2/source/sidebar/ResourceManager.cxx`` ``ReadDeckList``). A same-value
     ``setPropertyValue`` still leaves pending changes, so we compare before writing.
     Using ``vnd.sun.star.extension://`` keeps any versioned cache path out of the profile.
+
+    Call on the main thread (the panel's ``_create_panel`` hop): off main
+    ``resolve_package_extension_id`` falls back to the WriterAgent id, which is a
+    broken URL in LibrePy and persists in the profile.
     """
     if sys.platform == "darwin":
         return
@@ -468,6 +472,7 @@ def apply_deck_icons(ctx: Any) -> None:
         extension_id = resolve_package_extension_id(ctx)
         smgr = get_service_manager(ctx)
         if smgr is None:
+            log.debug("apply_deck_icons: ServiceManager unavailable")
             return
         prov = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         access = prov.createInstanceWithArguments(

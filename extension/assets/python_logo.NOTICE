@@ -9,11 +9,11 @@ suitability for / implementation in Python:
 https://www.python.org/psf/trademarks/
 https://www.python.org/community/logos/
 
-Regenerate 24×24 PNG (sidebar deck icon; LibreOffice's deck slot is its 24 px lc_ icon size):
+Regenerate 24×24 PNG (sidebar deck icon on macOS, 24-point slot):
   rsvg-convert -w 96 -h 96 --background-color=none python_logo.svg -o /tmp/py96.png
   magick /tmp/py96.png -resize 24x24 -filter Lanczos PNG32:python_24.png
 
-Regenerate 32×32 PNG (menubar icon):
+Regenerate 32×32 PNG (menubar icon; sidebar deck icon off macOS via apply_deck_icons):
   rsvg-convert -w 64 -h 64 --background-color=none python_logo.svg -o /tmp/py64.png
   magick /tmp/py64.png -resize 32x32 -filter Lanczos PNG32:python_32.png
 
