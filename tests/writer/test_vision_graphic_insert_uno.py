@@ -115,3 +115,61 @@ def test_vision_html_insert_after_each_graphic_preserves_intervening_text(ctx, d
     assert idx_before < idx_ocr_one < idx_between < idx_ocr_two < idx_after, (
         f"expected strict document order, got {body!r}"
     )
+
+
+def _paragraphs_with_graphics(text):
+    """Return (paragraph_string, has_frame_portion) in document order."""
+    rows = []
+    enum = text.createEnumeration()
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        has_frame = False
+        try:
+            portions = para.createEnumeration()
+            while portions.hasMoreElements():
+                portion = portions.nextElement()
+                if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
+                    has_frame = True
+                    break
+        except Exception:
+            pass
+        string = para.getString() if hasattr(para, "getString") else ""
+        rows.append((string, has_frame))
+    return rows
+
+
+@native_test
+@with_native_doc("writer")
+def test_as_char_ocr_insert_after_graphic_keeps_following_text(ctx, doc):
+    """As-char insert (insert_image_at_locator) must not split following text or add an empty para above the image."""
+    from plugin.doc.visual_helpers import anchor_type_index, safe_get_property
+
+    assert os.path.isfile(_logo_path), f"fixture image missing: {_logo_path}"
+    text = doc.getText()
+    text.setString("")
+    cursor = text.createTextCursor()
+    text.insertString(cursor, "HEAD", False)
+
+    graphic = insert_image_at_locator(ctx, doc, _logo_path, width_mm=15, height_mm=15)
+    assert graphic is not None, "failed to insert as-char fixture image"
+    assert anchor_type_index(safe_get_property(graphic, "AnchorType", None)) == 1, "expected AS_CHARACTER"
+    graphic.setName("ocr-aschar")
+
+    cursor.gotoEnd(False)
+    text.insertString(cursor, "TAIL", False)
+
+    insert_cursor = prepare_vision_writer_insert(doc, ctx, image_name="ocr-aschar")
+    insert_html_at_cursor(doc, ctx, insert_cursor, "<p>OCR_HERE</p>", apply_styles=False)
+
+    body = text.getString()
+    assert "HEAD" in body and "TAIL" in body and "OCR_HERE" in body, body
+    # goRight(1) on an already-after-graphic cursor splits TAIL into T / AIL.
+    assert "TAIL" in body, f"following text was split: {body!r}"
+    assert body.find("HEAD") < body.find("OCR_HERE") < body.find("TAIL"), f"expected HEAD, OCR, TAIL order in {body!r}"
+    assert any(name == "ocr-aschar" for name, _unused in list_graphic_objects(doc))
+
+    paras = _paragraphs_with_graphics(text)
+    graphic_paras = [string for string, has_frame in paras if has_frame]
+    assert graphic_paras, f"graphic paragraph disappeared: {paras!r} body={body!r}"
+    # A break *before* the graphic would move HEAD into the preceding paragraph.
+    assert any("HEAD" in string for string in graphic_paras), f"empty or split paragraph before the as-char graphic: {paras!r} body={body!r}"

@@ -17,6 +17,7 @@ from typing import Any
 
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
+    LOAD_MODELS_HELPER,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
@@ -178,6 +179,8 @@ class DoclingPipelineParams:
     full_page_ocr: bool
     document_timeout: float
     artifacts_path: str
+    rapidocr_model_size: str        # "tiny" | "small" | "medium"; Docling validates
+    rapidocr_detect_orientation: bool
 
     @classmethod
     def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
@@ -209,6 +212,8 @@ class DoclingPipelineParams:
             full_page_ocr=full_page_ocr,
             document_timeout=float(params.get("document_timeout") or 0),
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
+            rapidocr_model_size=str(params.get("rapidocr_model_size") or "small").strip().lower() or "small",
+            rapidocr_detect_orientation=vision_bool(params.get("rapidocr_detect_orientation", False)),
         )
 
 
@@ -228,6 +233,9 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     if row.rapidocr_engine:
         kwargs["backend"] = row.rapidocr_engine
         kwargs["text_score"] = norm.text_score
+        # RapidOcrOptions-only fields; other OcrOptions classes forbid extra fields.
+        kwargs["model_size"] = norm.rapidocr_model_size
+        kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
     return getattr(pipeline_options_mod, row.options_class)(**kwargs)
 
 
@@ -522,6 +530,11 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
         )
+    # RapidOCR has no PP-OCRv6 checkpoint at the chosen rapidocr_model_size for this language (tiny has no
+    # Japanese model). Docling raises docling.exceptions.RapidOcrModelSizeNotSupportedError, a RuntimeError,
+    # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.
+    if type(exc).__name__ == "RapidOcrModelSizeNotSupportedError":
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)
@@ -591,3 +604,21 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         metrics=metrics,
         warnings=warnings,
     )
+
+
+def load_models(params: dict[str, Any]) -> dict[str, Any]:
+    """Eagerly load Docling pipeline models into the cached converter for *params*.
+
+    ``DocumentConverter`` is lazy; ``initialize_pipeline`` (docling
+    ``document_converter.py:675``) loads the layout, table, and OCR models
+    into the cached converter so the next OCR call reuses them.
+    """
+    try:
+        fmt = detect_vision_input_format(None, params)
+        norm = DoclingPipelineParams.from_params(params, input_format=fmt)
+        converter = _get_docling_converter(norm)
+        input_format_enum = importlib.import_module("docling.datamodel.base_models").InputFormat
+        converter.initialize_pipeline(input_format_enum.PDF if fmt == "pdf" else input_format_enum.IMAGE)
+    except Exception as exc:
+        return _docling_error(exc, LOAD_MODELS_HELPER)
+    return ok_result(LOAD_MODELS_HELPER)

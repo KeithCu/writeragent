@@ -512,3 +512,24 @@ def test_password_field_marks_keyring_locked_when_locked(fake_keystore):
     assert tok_spec["value"] == ""
     assert tok_spec.get("keyring_locked") is True
 
+
+def test_field_specs_config_values_maps_select_caption_to_option_value():
+    from plugin.chatbot.settings_fields import field_specs_config_values
+
+    specs = [
+        {
+            "name": "layout_model",
+            "config_key": "vision.layout_model",
+            "options": [
+                {"value": "heron", "label": "Heron (default)"},
+                {"value": "egret_large", "label": "Egret large"},
+            ],
+        },
+        {"name": "images_scale", "config_key": "vision.images_scale"},
+    ]
+    mapped = field_specs_config_values(
+        {"layout_model": "Heron (default)", "images_scale": 2.0, "unknown": "ignored"},
+        specs,
+    )
+    assert mapped == {"vision.layout_model": "heron", "vision.images_scale": 2.0}
+

@@ -33,3 +33,7 @@ Settings tabs and saved fields come from `iter_settings_tab_modules` / `iter_set
 
 Both SettingsDialog (`scripts/manifest_registry.py`) and standalone `config_dialog` XDLs (`scripts/manifest_xdl.py`) share the same positioning keys (`inline`, `x`, `width`, `label_x`, `label_width`) and the helper-to-tooltip rule (`field_hover_text` in `scripts/manifest_common.py`: an explicit `tooltip` string wins, otherwise `helper` becomes `dlg:help-text` on both the control and its label).
 
+### Standalone `config_dialog` Preview Area
+
+A standalone `config_dialog` can declare `preview: {height: <int>}` paired with `run` in `buttons` (`validate_modules` enforces that both appear together and `height` is a positive integer). `generate_standalone_config_dialog` adds `preview.height` to the window height and emits page-0 controls (`preview_area`, `sb_preview`, `lbl_preview_status`, and `btn_run`). At runtime, callers pass `preview_job` to `ModuleConfigDialog.show(..., preview_job=...)` to handle Run clicks, status updates, and resize-aware scrolling.
+

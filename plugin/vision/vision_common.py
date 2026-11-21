@@ -15,6 +15,9 @@ HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
 IMPLEMENTED_HELPERS = HELPER_NAMES
 
+# Loads the Docling models for a params set; not an OCR helper.
+LOAD_MODELS_HELPER = "load_models"
+
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})
 DEFAULT_OCR_BACKEND = "rapidocr"
@@ -30,7 +33,7 @@ VISION_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 _PDF_MAGIC = b"%PDF"
 
 # Config keys merged from Settings → vision.* before template param overrides.
-VISION_CONFIG_KEYS = ("ocr_backend", "lang", "device", "images_scale", "text_score", "force_full_page_ocr", "table_mode", "do_cell_matching", "create_orphan_clusters", "layout_model", "do_formula_enrichment", "do_code_enrichment", "document_timeout", "artifacts_path", "insert_mode")
+VISION_CONFIG_KEYS = ("ocr_backend", "lang", "device", "images_scale", "text_score", "force_full_page_ocr", "table_mode", "do_cell_matching", "create_orphan_clusters", "layout_model", "do_formula_enrichment", "do_code_enrichment", "document_timeout", "artifacts_path", "insert_mode", "rapidocr_model_size", "rapidocr_detect_orientation")
 
 VISION_INSERT_MODES = frozenset({"html", "structured"})
 DEFAULT_VISION_INSERT_MODE = "html"

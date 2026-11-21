@@ -12,8 +12,8 @@ config_dialog:
   height: 130
   moveable: true
   resizeable: true
-  modeless: true
-  buttons: [apply, ok, close]
+  buttons: [run, apply, ok, close]
+  preview: {height: 200}
 
 actions:
   open_settings:
@@ -186,4 +186,29 @@ config:
     page: advanced
     label: Code block enrichment
     helper: Specialized OCR for code/terminal screenshots.
+
+  rapidocr_model_size:
+    type: string
+    default: small
+    widget: select
+    page: advanced
+    label: RapidOCR model size
+    width: 52
+    # Shares row 4 with rapidocr_detect_orientation.
+    inline: true
+    helper: RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny is fastest and has no Japanese model; medium is the most accurate.
+    options:
+      - {value: tiny, label: Tiny}
+      - {value: small, label: Small (default)}
+      - {value: medium, label: Medium}
+
+  rapidocr_detect_orientation:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: advanced
+    label: Fix rotated text (RapidOCR)
+    x: 188
+    width: 150
+    helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines, not Docling auto.
 

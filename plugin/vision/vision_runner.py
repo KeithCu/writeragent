@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from dataclasses import dataclass, field
 
@@ -41,6 +41,13 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     return {"params": merge_vision_params(ctx, raw_params)}
 
 
+def no_image_selected_error() -> ToolExecutionError:
+    return ToolExecutionError(
+        _("Select an embedded image (or a range containing images), then Run again."),
+        code="NO_IMAGE_SELECTED",
+    )
+
+
 def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     """Export the currently selected embedded graphic as raw PNG bytes."""
     try:
@@ -52,7 +59,7 @@ def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
             code="IMAGE_EXPORT_FAILED",
         ) from exc
     if not png_bytes:
-        raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+        raise no_image_selected_error()
     return png_bytes
 
 
@@ -108,11 +115,21 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
     return "en"
 
 
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, cancel: SendCancellation | None = None) -> dict[str, Any]:
+def run_trusted_vision(
+    ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None = None,
+    cancel: SendCancellation | None = None,
+    on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv.
 
     *cancel* aborts the venv OCR mid-run. Callers pass it explicitly: *ctx* is
     the UNO component context, which never carries the tool's stop flag.
+    *on_exported*, if given, runs on the calling thread after the export and
+    size check with the exact params dict the OCR call sends and the PNG bytes.
     """
     name = _validate_helper(helper)
     params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
@@ -141,6 +158,8 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
+    if on_exported is not None:
+        on_exported(spec["params"], png_bytes)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
     return run_vision(ctx, spec, png_bytes, context=context, cancel=cancel)
 
@@ -254,7 +273,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
         pairs = graphic_objects_in_selection(doc)
         if not pairs:
-            raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+            raise no_image_selected_error()
         return [name for name, _unused in pairs]
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)

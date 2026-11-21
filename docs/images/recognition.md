@@ -154,7 +154,9 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 
 At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors hidden key `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
 
-Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py).
+Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py); live preview job: [`vision_preview.py`](../../plugin/vision/vision_preview.py).
+
+The **Run** button previews the first selected image in the active document using the dialog's unsaved values (without saving to disk). It runs `extract_structure` with the dialog's `insert_mode`, renders page 1 of a hidden Writer document (`5 mm` margins, `1600 px` wide via [`page_png.py`](../../plugin/writer/page_png.py)), and displays it in the scrollable preview pane. For Calc `structured` mode, the preview shows the layout HTML rather than the cell grid. Status progresses through `Running…` → `Loading models…` → `Recognizing text…` → `Rendering preview…` → `Done: N characters.`. Closing the dialog (Close, OK, or window X) cancels an in-flight preview. Because LibreOffice UNO exposes no mouse-wheel listener for AWT controls, scrolling uses the vertical scrollbar (drag, arrows, page click, or keys when focused).
 
 ### 2.6 Optional follow-on UX (not Phase 1)
 
@@ -447,9 +449,11 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
+| `rapidocr_model_size` | `"small"` | `"tiny"` \| `"small"` \| `"medium"`. Applies to `rapidocr*` backends and PP-OCRv6 languages only (other languages ignore it). `tiny` with Japanese returns `INVALID_PARAM` |
+| `rapidocr_detect_orientation` | `false` | Re-read a region at 90°, 180°, and 270° when fewer than half its lines read confidently. Applies to `rapidocr*` backends only |
 | `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.145 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
 
-`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`.
+`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size` and `rapidocr_detect_orientation` apply to `rapidocr*` backends only (not `auto`, which builds its own `RapidOcrOptions`), and both are part of the converter cache key.
 
 WriterAgent requires Docling ≥ 2.145 (released 2026-10-29). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.145"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.145.
 
@@ -493,6 +497,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Goal | Params / install |
 |------|------------------|
 | Default (Docling + RapidOCR ONNX) | defaults — `pip install "docling>=2.145" onnxruntime css-inline` |
+| Sideways scans / speed vs accuracy (RapidOCR) | `rapidocr_detect_orientation=true` / `rapidocr_model_size=tiny\|medium` |
 | RapidOCR with OpenVINO / Paddle / PyTorch | `ocr_backend=rapidocr_openvino` / `rapidocr_paddle` / `rapidocr_torch` + matching engine package |
 | EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (`tesseract` on `PATH`) |
 | Apple macOS Vision / NVIDIA Nemotron | `ocr_backend=ocrmac` (`pip install ocrmac`, macOS) or `ocr_backend=nemotron` (`pip install nemotron-ocr`, Linux CUDA) |
@@ -513,9 +518,10 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Config schema + tabs | [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml) (`settings_tab: false`, `config_dialog`) |
 | Generated XDL | `VisionSettingsDialog.xdl` via `make manifest` / [`manifest_xdl.py`](../../scripts/manifest_xdl.py) |
 | Menu entry | [`extension/Addons.xcu`](../../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../../plugin/main.py) |
-| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
+| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)`, `_PreviewPane` + Run job |
+| Preview job | [`vision_preview.py`](../../plugin/vision/vision_preview.py) — `load_models` warm-up + `extract_structure` + hidden Writer page 1 render |
 
-Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
+Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size` and `rapidocr_detect_orientation` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run. Before OCR, `run_vision_preview` sends `LOAD_MODELS_HELPER` (`"load_models"`) with the exact OCR params; `vision_docling.load_models` calls `converter.initialize_pipeline(...)` on the single-entry `_converter_cache` so the subsequent OCR call reuses the loaded models.
 
 ---
 
@@ -770,6 +776,12 @@ Venv package requirements for Vision Helpers are also summarized in the [domain 
 
 ```bash
 pip install "docling>=2.145" onnxruntime css-inline
+```
+
+**RapidOCR notes:** Docling uses PP-OCRv6 models for about 52 languages (where `rapidocr_model_size` applies); for other languages it selects PP-OCRv5 (`onnxruntime`, `openvino`, `paddle`) or PP-OCRv4 (`torch`), logs a warning, and ignores `rapidocr_model_size`. For CUDA, install `onnxruntime-gpu` instead of `onnxruntime` (never both), and `paddlepaddle-gpu` for `rapidocr_paddle`. On Windows, `device=auto` requests DirectML; `num_threads` is forwarded to `onnxruntime`, `openvino`, and `paddle`. `rapidocr` 3.9.2 depends on `opencv-python`. For offline use, prefetch models with:
+
+```bash
+docling-tools models download rapidocr --rapidocr-backend-lang onnxruntime:iso:en [--rapidocr-model-size medium] -o <artifacts_path>
 ```
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional hidden `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.

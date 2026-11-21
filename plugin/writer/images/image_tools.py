@@ -32,7 +32,8 @@ from plugin.calc.calc_utils import anchor_shape_at_cell, selection_top_left_cell
 from plugin.doc import visual_helpers
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx
 
 log = logging.getLogger(__name__)
@@ -90,6 +91,21 @@ def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
     except Exception as ex:
         log.debug("_graphic_from_provider failed: %s", ex)
         return None
+
+
+def graphic_from_bytes(ctx: Any, data: bytes) -> Any:
+    """Decode raw image bytes into an XGraphic via GraphicProvider."""
+    smgr = ctx.ServiceManager
+    stream = smgr.createInstanceWithArgumentsAndContext(
+        "com.sun.star.io.SequenceInputStream",
+        (uno.ByteSequence(data),),
+        ctx,
+    )
+    gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+    graphic = gp.queryGraphic((PropertyValue(Name="InputStream", Value=stream),)) if gp is not None else None
+    if graphic is None:
+        raise ToolExecutionError(_("Could not decode the preview image."), code="VISION_ERROR")
+    return graphic
 
 
 def graphic_pixel_size_from_path(ctx: Any, image_path: str) -> tuple[int | None, int | None]:

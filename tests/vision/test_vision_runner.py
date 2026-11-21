@@ -560,3 +560,34 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
     assert len(result["individual_results"]) == 1
     assert result["individual_results"][0]["full_text"] == "text1"
 
+
+def test_run_trusted_vision_calls_on_exported_with_sent_params():
+    from plugin.vision.vision_runner import run_trusted_vision
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    events = []
+
+    def hook(params, data):
+        events.append(("hook", dict(params), data))
+
+    def fake_run_vision(_ctx, spec, png_bytes, **kwargs):
+        events.append(("run_vision", dict(spec["params"]), png_bytes))
+        return {"status": "ok", "helper": spec["helper"]}
+
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", return_value={"image_name": "Img1", "lang": "fr"}),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png-data"),
+        patch("plugin.vision.vision_runner.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision),
+    ):
+        run_trusted_vision(ctx, doc, helper="extract_structure", on_exported=hook)
+
+    assert len(events) == 2
+    assert events[0][0] == "hook"
+    assert events[1][0] == "run_vision"
+    assert events[0][1]["lang"] == "fr"
+    assert "image_name" not in events[0][1]
+    assert events[0][2] == b"png-data"
+
