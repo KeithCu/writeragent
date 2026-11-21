@@ -13,7 +13,7 @@ import uno
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.logging import log
-from plugin.framework.menu_icon_dpi import load_menu_graphic
+from plugin.framework.menu_icon_dpi import STOCK_ACTION_ICONS, load_menu_graphic
 from plugin.framework.queue_executor import Policy, main
 from plugin.framework.thread_guard import background
 from plugin.framework.uno_context import (
@@ -24,9 +24,11 @@ from plugin.framework.uno_context import (
 
 _DISPATCH_PROTOCOL = f"{EXTENSION_ID_WRITERAGENT}:"
 
-# LO document modules that have their own ImageManager
+# LO document modules whose menubars show WriterAgent commands (Addons.xcu Context); each has its own ImageManager.
 _IMAGE_MANAGER_MODULES = (
     "com.sun.star.text.TextDocument",
+    "com.sun.star.text.WebDocument",
+    "com.sun.star.text.GlobalDocument",
     "com.sun.star.sheet.SpreadsheetDocument",
     "com.sun.star.presentation.PresentationDocument",
     "com.sun.star.drawing.DrawingDocument",
@@ -183,16 +185,18 @@ class MenuIcons:
         return (tuple(sorted((url, prefix) for url, (_mod, prefix) in icon_cmds.items())), px)
 
     def _collect_icon_commands(self) -> dict[str, tuple[str, str]]:
-        """Collect all command URLs that declare icons in their manifest.
+        """Collect command URLs and their icons: the stock icons in ``STOCK_ACTION_ICONS`` plus PNG prefixes declared in module manifests (a module may override its prefix through ``get_menu_icon``).
 
-        Returns {command_url: (module_name, icon_prefix)} for the current state.
+        Returns ``{command_url: (module_name, icon)}``, where ``icon`` is a stock URL or a PNG prefix.
         """
+        result: dict[str, tuple[str, str]] = {
+            f"{_DISPATCH_PROTOCOL}{action}": (action.split(".", 1)[0], icon)
+            for action, icon in STOCK_ACTION_ICONS.items()
+        }
         try:
             from plugin._manifest import MODULES
         except ImportError:
-            return {}
-
-        result: dict[str, tuple[str, str]] = {}
+            return result
 
         from plugin.app import get_menu_icon
 
@@ -254,7 +258,7 @@ class MenuIcons:
                     key_graphics[key] = graphic
                 else:
                     apply_failed = True
-                    log.warning("Icon graphic is None for assets/%s (module %s)", prefix, mod_name)
+                    log.warning("Icon graphic is None for %s (module %s)", prefix, mod_name)
 
             if not key_graphics:
                 return
