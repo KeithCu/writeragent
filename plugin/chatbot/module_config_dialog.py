@@ -68,7 +68,14 @@ PreviewJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], No
 
 
 class _PreviewPane:
-    """Clipped image container + vertical scrollbar inside a config dialog."""
+    """Clipped image container + vertical scrollbar inside a config dialog.
+
+    Built manually instead of using native dialog scrolling: ``ScrollableDialog::SetScrollTop``
+    moves children the wrong way without clipping (``scrollabledialog.cxx``), and toggling
+    ``VScroll`` on a live control recreates the peer (``unocontrol.cxx:502``). Mouse-wheel
+    scrolling is absent because UNO exposes no wheel listener and VCL ``ScrollBar`` has no
+    ``Command`` handler.
+    """
 
     _dlg: Any
     _container: Any
@@ -113,9 +120,10 @@ class _PreviewPane:
             ctrl = get_optional(dlg, name)
             if ctrl is not None:
                 self._base[name] = ctrl.getPosSize()
-        area_ctrl = get_optional(dlg, "preview_area")
-        if area_ctrl is not None:
-            area_ctrl.setVisible(False)
+        # preview_area exists only to carry the XDL rect; removing it prevents tab switches
+        # (Model.Step changes) from re-showing it on top of our container.
+        if "preview_area" in self._base:
+            dlg.getModel().removeByName("preview_area")
         self._aspect = 0.0
         self.relayout()
         container.setVisible(True)
@@ -143,13 +151,19 @@ class _PreviewPane:
         img_h = max(1, round(w * self._aspect))
         bar = self._bar
         if bar is not None:
+            # Preserve scroll position as a fraction of the scrollable range; the raw bar value
+            # becomes stale once the image is rescaled. Set max and visible size before value
+            # so the peer clamps against the new range, then read back the clamped value.
             old_range = max(0, bar.getMaximum() - bar.getVisibleSize())
             frac = (bar.getValue() / old_range) if old_range > 0 else 0.0
             new_range = max(0, img_h - h)
             top = min(new_range, max(0, round(frac * new_range)))
-            bar.setValues(top, h, img_h)
+            bar.setMaximum(img_h)
+            bar.setVisibleSize(h)
+            bar.setValue(top)
             bar.setLineIncrement(_SCROLL_LINE_PX)
             bar.setBlockIncrement(max(1, h - _SCROLL_LINE_PX))
+            top = int(bar.getValue())
         else:
             top = 0
         self._image.setPosSize(0, -top, w, img_h, _POSSIZE)
@@ -299,6 +313,7 @@ class ModuleConfigDialog:
 
                 class _ResizeListener(BaseWindowListener):
                     def on_window_resized(self, rEvent: Any) -> None:
+                        # Only move child peers; writing dialog model Width/Height here causes a resize loop.
                         if owner._pane is not None:
                             owner._pane.relayout()
 
@@ -319,6 +334,7 @@ class ModuleConfigDialog:
             dlg.addTopWindowListener(self._top_listener)
             dlg.setVisible(True)
         except Exception:
+            self._stop_preview()
             self._dlg = None
             best_effort(dlg.dispose, "Failed to dispose module config dialog")
             raise

@@ -53,6 +53,12 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
 
         pane.show(PreviewImage(graphic_from_bytes(ctx, _PNG_1X1), 800, 1100, "ok"))
 
+        bar = pane._bar
+        old_range = bar.getMaximum() - bar.getVisibleSize()
+        assert old_range > 0
+        bar.setValue(old_range)
+        frac = bar.getValue() / old_range
+
         dlg_sz = real_dlg.getPosSize()
         real_dlg.setPosSize(0, 0, dlg_sz.Width + 200, dlg_sz.Height + 150, 12)  # PosSize.SIZE = 12
         pane.relayout()
@@ -70,7 +76,9 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
         assert img_after.Width == c_after.Width
         expected_h = round(c_after.Width * 1100 / 800)
         assert img_after.Height == expected_h
-        assert pane._bar.getMaximum() == expected_h
+        assert bar.getMaximum() == expected_h
+        assert img_after.Y == -bar.getValue()
+        assert abs(bar.getValue() - frac * (expected_h - c_after.Height)) <= 1
 
         pane.scroll_to(100)
         assert pane._image.getPosSize().Y == -100
