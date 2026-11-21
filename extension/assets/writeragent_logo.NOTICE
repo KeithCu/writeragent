@@ -10,3 +10,7 @@ Deck icon is a 24×24 PNG rather than SVG; see docs/framework/uno-utilities.md.
 Regenerate 24×24 PNG (sidebar deck icon):
   rsvg-convert -w 24 -h 24 --background-color=none writeragent_logo.svg -o /tmp/wa24.png
   magick /tmp/wa24.png PNG32:logo_24.png
+
+Regenerate 94×84 PNG (Extension Manager icon, 47:42 aspect ratio for DrawRow):
+  rsvg-convert -w 84 -h 84 --background-color=none writeragent_logo.svg -o /tmp/wa84.png
+  magick /tmp/wa84.png -background none -gravity center -extent 94x84 PNG32:extension_icon.png

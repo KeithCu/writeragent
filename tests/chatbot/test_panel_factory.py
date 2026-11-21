@@ -1033,14 +1033,15 @@ import contextlib
 
 
 @contextlib.contextmanager
-def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None):
+def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None, ext_url=""):
     from unittest.mock import MagicMock, patch
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
         stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
-        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=""))
-        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"))
+        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=ext_url))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.get_extension_url", return_value=ext_url))
+        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_filename", return_value="python_16.png"))
         ctor = stack.enter_context(
             send_patch if send_patch is not None else patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
         )
@@ -1071,6 +1072,25 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
     el._apply_sidebar_mode.assert_called_once()
+
+
+def test_wire_buttons_settings_and_search_use_stock_icons() -> None:
+    from unittest.mock import MagicMock
+
+    from plugin.framework.menu_icon_dpi import STOCK_ICON_SEARCH, STOCK_ICON_SETTINGS
+
+    el, controls, _send, _stop = _wire_buttons_setup(chat_mode_selector=MagicMock())
+    for btn_id in ("btn_settings", "btn_python", "btn_search"):
+        ctrl = MagicMock()
+        ctrl.getModel.return_value = MagicMock()
+        controls[btn_id] = ctrl
+
+    with _wire_buttons_patches(send_listener=MagicMock(), ext_url="file:///ext"):
+        el._wire_buttons(controls, MagicMock(), "chat", None)
+
+    assert controls["btn_settings"].getModel.return_value.ImageURL == STOCK_ICON_SETTINGS
+    assert controls["btn_search"].getModel.return_value.ImageURL == STOCK_ICON_SEARCH
+    assert controls["btn_python"].getModel.return_value.ImageURL == "file:///ext/assets/python_16.png"
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):

@@ -2,11 +2,12 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One-shot menu-icon pixel-size probe for LibreOffice ImageManager.
+"""One-shot menu-icon pixel-size probe and graphic loader for LibreOffice.
 
-Pick shipped menu-icon pixel sizes from display scale.
+Pick shipped menu-icon pixel sizes (16/24/32/40) from display scale using
+LibreOffice's DPI buckets. Generic actions use LibreOffice stock icons
+(``private:graphicrepository/...``); brand marks stay PNG.
 
-HiDPI (~2×) wants the large assets (26/32). Little/1× screens want 16.
 Probes in order: VCL DPI, font, toolbar config, then env scale.
 Only VCL DPI is a strong reading; other probes remain weak until VCL DPI is available.
 Probe miss defaults to 32 px.
@@ -20,30 +21,46 @@ import os
 import sys
 from typing import Any
 
+import uno
+
 from plugin.framework.constants import get_plugin_dir
+from plugin.framework.uno_context import create_property_value, get_extension_url, get_service_manager
 
 log = logging.getLogger("writeragent.menu_icon_dpi")
 
 # 96 DPI in device pixels per meter (LO DeviceInfo convention).
 _PPM_96DPI = 96.0 / 0.0254  # 3780.0
 
-# Base 1× asset size; HiDPI prefers the largest shipped asset.
+# Base 1× asset size; HiDPI probe miss defaults to 32 px.
 _ONE_X_PX = 16
 _HIDPI_PX = 32
 
-# Shipped menu-icon suffixes we can select (MCP status has 16 + 26).
-_AVAILABLE_PX = (16, 26, 32)
+# Stock LibreOffice icons are kept as stock images by Image::Image(XGraphic)
+# (vcl/source/image/Image.cxx) and reloaded at the drawing HiDPI scale and
+# active dark/light icon theme by ImplImage::getBitmapForHiDPI
+# (vcl/source/image/ImplImage.cxx). Brand marks stay PNG.
+_STOCK_URL_PREFIX = "private:graphicrepository/"
+STOCK_ICON_SETTINGS = _STOCK_URL_PREFIX + "cmd/sc_optionstreedialog.png"
+STOCK_ICON_SEARCH = _STOCK_URL_PREFIX + "cmd/sc_recsearch.png"
+STOCK_ICON_MATH = _STOCK_URL_PREFIX + "cmd/sc_insertmath.png"
+
+# Shipped menu-icon suffixes we can select.
+_AVAILABLE_PX = (16, 24, 32, 40)
+# LibreOffice CountDPIScaleFactor thresholds: DPI > n picks that bucket's size.
+_DPI_BUCKETS = ((216, 40), (168, 32), (120, 24))
 
 
 class _State:
     px: int | None
     logged_strong: bool
     filename_cache: dict[tuple[str, int], str]
+    graphic_cache: dict[tuple[str, str], Any]
 
     def __init__(self) -> None:
         self.px = None
         self.logged_strong = False
         self.filename_cache = {}
+        self.graphic_cache = {}
 
 
 _state = _State()
@@ -54,6 +71,7 @@ def reset_menu_icon_dpi_cache() -> None:
     _state.px = None
     _state.logged_strong = False
     _state.filename_cache = {}
+    _state.graphic_cache = {}
 
 
 def _ppm_scale(win: Any) -> float | None:
@@ -216,22 +234,21 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
     return None
 
 
-def _nearest_available(px: int) -> int:
-    # On a tie, prefer the larger asset (HiDPI gets 26/32).
-    return min(_AVAILABLE_PX, key=lambda a: (abs(a - px), -a))
+def menu_icon_px_for_scale(scale: float) -> int:
+    """Map DPI scale to shipped pixel size using LibreOffice's DPI buckets.
 
-
-def interpolate_menu_icon_px(scale: float, *, one_x: int = _ONE_X_PX) -> int:
-    """Map DPI scale to shipped pixel size.
-
-    At scale~1 → 16. At scale~2 → 32 (HiDPI highres). Mid scales snap to 26.
-    ``chosen ~= one_x * scale``, then snap to available assets.
+    Matches ``CountDPIScaleFactor`` (vcl/source/window/window.cxx):
+    DPI > 216 → 40 (250%), > 168 → 32 (200%), > 120 → 24 (150%), else 16 (100%).
+    Rounding is needed because ``PixelPerMeterX`` is integer-truncated
+    (vcl/source/outdev/outdev.cxx ``GetCommonDeviceInfo``).
     """
     if scale <= 0:
-        scale = 1.0
-    target = one_x * scale
-    target = max(float(_AVAILABLE_PX[0]), min(float(_AVAILABLE_PX[-1]), target))
-    return _nearest_available(int(round(target)))
+        return _ONE_X_PX
+    dpi = round(scale * 96)
+    for threshold, px in _DPI_BUCKETS:
+        if dpi > threshold:
+            return px
+    return _ONE_X_PX
 
 
 def _toolbar_scale(ctx: Any) -> float | None:
@@ -242,7 +259,7 @@ def _toolbar_scale(ctx: Any) -> float | None:
 
 
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
-    """One-shot: return 16 on macOS, else probe, interpolate, and cache (miss prefers HiDPI)."""
+    """One-shot: return 16 on macOS, else probe, bucket, and cache (miss prefers HiDPI)."""
     if _state.px is not None:
         return _state.px
 
@@ -280,7 +297,7 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
         log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _HIDPI_PX)
         return _HIDPI_PX
 
-    px = interpolate_menu_icon_px(float(scale))
+    px = menu_icon_px_for_scale(float(scale))
     # Only PixelPerMeterX is cached. Font, toolbar, and env stay uncached and retry.
     if source == "vcl_dpi":
         _state.px = px
@@ -303,9 +320,9 @@ def image_type_for_pixel_size(px: int) -> int:
     return int(ImageType.SIZE_DEFAULT)
 
 
-def menu_icon_asset_url(ext_url: str, icon_filename: str) -> str:
-    """Return GraphicProvider URL for a menu icon shipped in OXT assets/."""
-    return "%s/assets/%s" % (ext_url.rstrip("/"), icon_filename)
+def menu_icon_asset_url(ext_url: str, icon: str) -> str:
+    """Return GraphicProvider/ImageURL for *icon* (stock URL as is, else OXT assets/)."""
+    return icon if icon.startswith(_STOCK_URL_PREFIX) else "%s/assets/%s" % (ext_url.rstrip("/"), icon)
 
 
 def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
@@ -360,6 +377,42 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
     return res
 
 
-def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> str:
-    """Return ``assets/{prefix}_{px}.png`` for button ``ImageURL`` paths."""
-    return "assets/" + menu_icon_filename(prefix, px, ctx)
+def load_menu_graphic(ctx: Any, icon: str) -> Any:
+    """Load a stock URL or extension asset PNG as XGraphic.
+
+    Stock URLs (``private:graphicrepository/...``) go straight to ``queryGraphic``.
+    Asset filenames try the ``vnd.sun.star.extension://`` URL first, then local
+    disk paths; the vnd URL throws when the OXT is not installed (e.g.
+    ``testing_runner``'s fresh profile), so disk fallback keeps tests working.
+    """
+    try:
+        ext_url = get_extension_url(ctx) or ""
+        cache_key = (ext_url, icon)
+        cached = _state.graphic_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        if icon.startswith(_STOCK_URL_PREFIX):
+            urls = [icon]
+        else:
+            urls = [menu_icon_asset_url(ext_url, icon)] if ext_url else []
+            for path in menu_icon_filesystem_paths(icon):
+                if os.path.isfile(path):
+                    urls.append(uno.systemPathToFileUrl(path))
+
+        smgr = get_service_manager(ctx)
+        if smgr is None:
+            return None
+        gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        for url in urls:
+            try:
+                graphic = gp.queryGraphic((create_property_value("URL", url),))
+                if graphic is not None:
+                    _state.graphic_cache[cache_key] = graphic
+                    return graphic
+            except Exception:
+                log.debug("load_menu_graphic URL failed for %s (%s)", icon, url, exc_info=True)
+        return None
+    except Exception:
+        log.debug("load_menu_graphic failed for %s", icon, exc_info=True)
+        return None

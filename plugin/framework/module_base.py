@@ -89,7 +89,7 @@ class ModuleBase(ABC):
         """Return dynamic icon name prefix for an action, or None for default.
 
         Override in subclass to provide state-dependent menu icons.
-        Return an icon prefix like "running", "stopped", "starting".
+        Return an icon prefix like "running", "stopped".
         The framework will load ``assets/{prefix}_16.png`` from the OXT.
         Return None to keep the icon declared in module.yaml.
         """

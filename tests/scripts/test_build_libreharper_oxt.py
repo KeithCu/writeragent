@@ -73,10 +73,10 @@ def _setup_temp_project(tmp_path: Path) -> Path:
     base = tmp_path / "project"
     shutil.copytree(PROJECT_ROOT / "extension-harper", base / "extension-harper")
 
-    # Only logo.jpg is needed from assets
-    logo_dst = base / "extension" / "assets" / "logo.jpg"
-    logo_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(PROJECT_ROOT / "extension" / "assets" / "logo.jpg", logo_dst)
+    # Only extension_icon.png is needed from assets
+    icon_dst = base / "extension" / "assets" / "extension_icon.png"
+    icon_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(PROJECT_ROOT / "extension" / "assets" / "extension_icon.png", icon_dst)
 
     # Minimal vendor directory with only json_repair
     v_dst = base / "vendor" / "json_repair" / "__init__.py"
@@ -202,8 +202,7 @@ def test_assemble_and_zip_libreharper_bundle(tmp_path: Path) -> None:
             assert forbidden not in namelist, f"forbidden path in zip: {forbidden}"
 
         assert "plugin/framework/service.py" not in namelist
-        assert "assets/logo.jpg" in namelist
-        assert "assets/icon_64.png" not in namelist
+        assert [n for n in namelist if n.startswith("assets/")] == ["assets/extension_icon.png"]
 
         # Verify stub init contents
         assert zf.read("plugin/writer/__init__.py").decode("utf-8") == LIBREHARPER_WRITER_INIT

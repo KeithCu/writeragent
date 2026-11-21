@@ -1,11 +1,17 @@
 import logging
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from PIL import Image
 
 from plugin.framework import menu_icon_dpi as m
 from plugin.framework.menu_icon_dpi import (
-    interpolate_menu_icon_px,
+    _AVAILABLE_PX,
+    STOCK_ICON_SEARCH,
+    load_menu_graphic,
+    menu_icon_filesystem_paths,
+    menu_icon_px_for_scale,
     reset_menu_icon_dpi_cache,
 )
 from tests.harness.strip_bundle import skip_if_release_build
@@ -24,16 +30,20 @@ def test_candidate_windows_skips_desktop_create_on_no_vcl():
 
 
 @pytest.mark.parametrize(
-    "value, expected",
+    "dpi, expected",
     [
-        pytest.param(1.0, 16, id="test_one_x_keeps_16"),
-        pytest.param(2.0, 32, id="test_hidpi_prefers_32"),
-        pytest.param(1.5, 26, id="test_mid_scale_snaps_to_26"),
-        pytest.param(3.0, 32, id="test_ultra_hidpi_caps_at_32"),
+        pytest.param(96, 16, id="test_96_dpi_16"),
+        pytest.param(120, 16, id="test_120_dpi_16"),
+        pytest.param(121, 24, id="test_121_dpi_24"),
+        pytest.param(168, 24, id="test_168_dpi_24"),
+        pytest.param(169, 32, id="test_169_dpi_32"),
+        pytest.param(216, 32, id="test_216_dpi_32"),
+        pytest.param(217, 40, id="test_217_dpi_40"),
     ],
 )
-def test_one_x_keeps_16(value, expected):
-    assert interpolate_menu_icon_px(value) == expected
+def test_menu_icon_px_matches_libreoffice_dpi_buckets(dpi, expected):
+    scale = int(dpi * 1000 / 25.4) / 3780.0
+    assert menu_icon_px_for_scale(scale) == expected
 
 def test_failed_probe_defaults_to_hidpi_large(monkeypatch):
     reset_menu_icon_dpi_cache()
@@ -53,8 +63,8 @@ def test_probe_env_scale_gdk(monkeypatch):
 
 def test_menu_icon_filename_picks_nearest_shipped(monkeypatch, tmp_path):
     m.reset_menu_icon_dpi_cache()
-    # Only 16 + 26 for MCP-style prefixes
-    for px in (16, 26):
+    # Only 16 + 24 for MCP-style prefixes
+    for px in (16, 24):
         (tmp_path / ("running_%s.png" % px)).write_bytes(b"x")
 
     monkeypatch.setattr(
@@ -62,8 +72,7 @@ def test_menu_icon_filename_picks_nearest_shipped(monkeypatch, tmp_path):
         lambda name: [str(tmp_path / name)],
     )
     assert m.menu_icon_filename("running", px=16) == "running_16.png"
-    assert m.menu_icon_filename("running", px=32) == "running_26.png"
-    assert m.menu_icon_asset_rel("running", px=16) == "assets/running_16.png"
+    assert m.menu_icon_filename("running", px=32) == "running_24.png"
 
 
 def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path):
@@ -210,8 +219,9 @@ def test_macos_ignores_every_dpi_scale(monkeypatch, scale):
     "scale, expected",
     [
         (1.0, 16),
-        (1.323, 26),
+        (1.323, 24),
         (2.0, 32),
+        (2.5, 40),
         (None, 32),
     ],
 )
@@ -223,3 +233,86 @@ def test_non_mac_platforms_keep_dpi_probe(monkeypatch, platform, scale, expected
     monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
     monkeypatch.setattr(m, "probe_env_scale", lambda: None)
     assert m.resolve_menu_icon_pixel_size() == expected
+
+
+def test_load_menu_graphic_caches_hits_not_misses():
+    reset_menu_icon_dpi_cache()
+    graphic = object()
+    gp = MagicMock()
+    gp.queryGraphic.side_effect = [graphic, None, graphic]
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = gp
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+
+    with (
+        patch("plugin.framework.menu_icon_dpi.get_extension_url", return_value="vnd.sun.star.extension://test"),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths", return_value=[]),
+    ):
+        assert load_menu_graphic(ctx, "python_16.png") is graphic
+        assert gp.queryGraphic.call_count == 1
+        assert load_menu_graphic(ctx, "python_16.png") is graphic
+        assert gp.queryGraphic.call_count == 1
+
+        # Misses are not cached; subsequent call retries queryGraphic.
+        assert load_menu_graphic(ctx, "missing.png") is None
+        assert gp.queryGraphic.call_count == 2
+        assert load_menu_graphic(ctx, "missing.png") is graphic
+        assert gp.queryGraphic.call_count == 3
+
+        reset_menu_icon_dpi_cache()
+        assert gp.queryGraphic.call_count == 3
+
+
+def test_load_menu_graphic_queries_stock_url_directly():
+    reset_menu_icon_dpi_cache()
+    graphic = object()
+    gp = MagicMock()
+    gp.queryGraphic.return_value = graphic
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = gp
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+
+    with (
+        patch("plugin.framework.menu_icon_dpi.get_extension_url", return_value="vnd.sun.star.extension://test"),
+        patch("os.path.isfile", side_effect=AssertionError("stock icon must not check disk")),
+    ):
+        result = load_menu_graphic(ctx, STOCK_ICON_SEARCH)
+
+    assert result is graphic
+    gp.queryGraphic.assert_called_once()
+    pv = gp.queryGraphic.call_args[0][0][0]
+    assert pv.Name == "URL"
+    assert pv.Value == STOCK_ICON_SEARCH
+
+
+def test_load_menu_graphic_falls_back_to_disk_when_package_url_throws(tmp_path):
+    reset_menu_icon_dpi_cache()
+    png = tmp_path / "python_16.png"
+    png.write_bytes(b"png")
+    graphic = object()
+    gp = MagicMock()
+    gp.queryGraphic.side_effect = [RuntimeError("vnd not installed"), graphic]
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = gp
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+
+    with (
+        patch("plugin.framework.menu_icon_dpi.get_extension_url", return_value="vnd.sun.star.extension://test"),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths", return_value=[str(png)]),
+    ):
+        result = load_menu_graphic(ctx, "python_16.png")
+
+    assert result is graphic
+    assert gp.queryGraphic.call_count == 2
+
+
+@pytest.mark.parametrize("prefix", ["python", "python_cell", "running", "stopped"])
+def test_menu_icon_assets_ship_every_ladder_size(prefix):
+    for px in _AVAILABLE_PX:
+        paths = [p for p in menu_icon_filesystem_paths(f"{prefix}_{px}.png") if os.path.isfile(p)]
+        assert paths, f"Missing asset {prefix}_{px}.png"
+        with Image.open(paths[0]) as im:
+            assert im.size == (px, px)
