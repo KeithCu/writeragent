@@ -69,7 +69,7 @@ Future trusted-helper domains (Geospatial, Audio, optional `prophet`) will each 
 
 | Domain | Settings → Python **Test** group | Entry doc |
 |--------|----------------------------------|-----------|
-| **Vision** | **Vision Libraries** — OCR required: Docling (`docling`, `rapidocr`, `css_inline`) **or** Paddle (`paddleocr`, `paddle`, `css_inline`); optional: `paddleocr`/`paddle` fallback, `ultralytics`, `skimage` | [../images/recognition.md](../images/recognition.md) |
+| **Vision** | **Vision Libraries** — OCR required: Docling (`docling`, `rapidocr`, `onnxruntime`, `css_inline`) **or** Paddle (`paddleocr`, `paddle`, `css_inline`); optional: `paddleocr`/`paddle` fallback, `easyocr`/`openvino`/`nemotron_ocr`/`ocrmac`/`tesseract` (listed when present), `ultralytics`, `skimage` | [../images/recognition.md](../images/recognition.md) |
 | **Embeddings** | **Embeddings Libraries** (`envwrap`, `sentence_transformers`, `sqlite_vec`, `langgraph`, `langchain_core`, `langchain_text_splitters`) | [../embeddings.md](../embeddings.md#embeddings-venv-packages) |
 | **Visualization** | **Visualization Libraries** (`matplotlib`, `seaborn`) | [Visualization § Phase A–C](#visualization) |
 | **Symbolic Math (SymPy)** | **Computer Algebra** (`sympy`) | [Symbolic Math §3](#symbolic-math) |

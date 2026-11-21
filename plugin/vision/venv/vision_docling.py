@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
+import re
+import shutil
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -27,11 +30,101 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
+_DOCLING_INSTALL_CMD = "pip install docling onnxruntime css-inline"
+
+# A token that looks like a BCP-47 tag (en, en-US, en_US, zh-Hant-TW, chi_sim) gets Docling's
+# "iso:" prefix; Docling >= 2.127 maps iso: tags per engine (docling/utils/ocr_language.py
+# OcrLanguageResolver.canonicalize_ocr_language). Anything else (japan, latin, chinese_cht,
+# script/Cyrillic) is an engine-native code and passes through unchanged.
+_BCP47_LIKE = re.compile(r"[A-Za-z]{2,3}([-_][A-Za-z0-9]{1,8})*")
+
+
+def docling_ocr_langs(raw: Any) -> tuple[str, ...]:
+    """Split a comma list, strip, drop empties/duplicates (order kept), add iso: to BCP-47-looking tokens; empty -> ("iso:en",)."""
+    if raw is None:
+        return ("iso:en",)
+    parts = [str(item).strip() for item in raw] if isinstance(raw, (list, tuple)) else [p.strip() for p in str(raw).split(",")]
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in parts:
+        if not tok:
+            continue
+        if not tok.startswith("iso:") and _BCP47_LIKE.fullmatch(tok):
+            tok = f"iso:{tok}"
+        if tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return tuple(out) if out else ("iso:en",)
 
 
 class OcrBackendError(ValueError):
     """Raised when the requested OCR backend is not available or unknown."""
+
+
+@dataclass(frozen=True, slots=True)
+class OcrBackend:
+    """One ocr_backend id: the Docling OcrOptions class it builds and what must be installed for it."""
+
+    options_class: str  # attribute of docling.datamodel.pipeline_options
+    modules: tuple[str, ...] = ()  # top-level modules that must be importable in the venv
+    executable: str = ""  # program that must be on PATH (Tesseract CLI)
+    install_hint: str = ""
+    rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
+
+
+def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
+    return OcrBackend(
+        "RapidOcrOptions",
+        ("rapidocr", module),
+        install_hint=f"pip install rapidocr {pip_name}",
+        rapidocr_engine=engine,
+    )
+
+
+# Kept in sync with _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py
+# (host diagnostics cannot import this venv-side module because LibrePy builds may omit plugin.vision).
+OCR_BACKENDS: dict[str, OcrBackend] = {
+    "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
+    "rapidocr_onnx": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
+    "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
+    "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
+    "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
+    "easyocr": OcrBackend("EasyOcrOptions", ("easyocr",), install_hint="pip install easyocr"),
+    "tesseract": OcrBackend(
+        "TesseractCliOcrOptions",
+        executable="tesseract",
+        install_hint=(
+            "Install the Tesseract OCR program with its eng and osd language data from your system's package "
+            "manager (Windows: the UB Mannheim installer) and put tesseract on PATH."
+        ),
+    ),
+    "nemotron": OcrBackend(
+        "NemotronOcrOptions",
+        ("nemotron_ocr",),
+        install_hint=(
+            "pip install nemotron-ocr (Docling runs Nemotron OCR only on Linux x86_64 with an NVIDIA CUDA GPU)."
+        ),
+    ),
+    "ocrmac": OcrBackend("OcrMacOptions", ("ocrmac",), install_hint="pip install ocrmac (macOS only)."),
+    "auto": OcrBackend("OcrAutoOptions"),
+}
+
+
+def _installed_ocr_backend(name: str) -> OcrBackend:
+    """Return the registry row for *name*; raise OcrBackendError when unknown or when its modules/program are missing."""
+    row = OCR_BACKENDS.get(name)
+    if row is None:
+        raise OcrBackendError(
+            f"Unknown ocr_backend {name!r}; expected one of: {', '.join(sorted(OCR_BACKENDS))}"
+        )
+    missing = [m for m in row.modules if importlib.util.find_spec(m) is None]
+    if row.executable and shutil.which(row.executable) is None:
+        missing.append(row.executable)
+    if missing:
+        raise OcrBackendError(
+            f"OCR backend {name!r} needs {', '.join(missing)}, which is not installed for the Python venv. {row.install_hint}"
+        )
+    return row
 
 
 class LayoutModelError(RuntimeError):
@@ -46,7 +139,7 @@ class DoclingApiMismatchError(LayoutModelError):
 class DoclingPipelineParams:
     """Normalized pipeline parameters parsed once for cache key and options application."""
     backend: str
-    lang: str
+    lang: tuple[str, ...]
     input_format: str
     images_scale: float
     device: str
@@ -77,7 +170,7 @@ class DoclingPipelineParams:
             full_page_ocr = vision_bool(params.get("force_full_page_ocr", True))
         return cls(
             backend=resolve_ocr_backend(params),
-            lang=str(params.get("lang") or "en").strip() or "en",
+            lang=docling_ocr_langs(params.get("lang")),
             input_format=input_format,
             images_scale=float(params.get("images_scale") or 1.0),
             device=str(params.get("device") or "").strip(),
@@ -101,38 +194,19 @@ _converter_cache: dict[DoclingPipelineParams, Any] = {}
 
 def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     """Build Docling OcrOptions for the requested backend, raising OcrBackendError on failure."""
-    backend = norm.backend
+    row = _installed_ocr_backend(norm.backend)
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
-    if backend == "auto":
-        return None
-    if backend == "surya":
-        try:
-            return importlib.import_module("docling_surya").SuryaOcrOptions(lang=[norm.lang])
-        except ImportError as exc:
-            raise OcrBackendError(
-                "Surya OCR backend is not installed. pip install docling-surya surya-ocr — or choose another ocr_backend."
-            ) from exc
-
-    spec = {
-        "rapidocr": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
-        "rapidocr_paddle": ("RapidOcrOptions", "paddle", f"OCR backend {backend!r} is not available"),
-        "rapidocr_onnx": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
-        "rapidocr_openvino": ("RapidOcrOptions", "openvino", f"OCR backend {backend!r} is not available"),
-        "rapidocr_torch": ("RapidOcrOptions", "torch", f"OCR backend {backend!r} is not available"),
-        "easyocr": ("EasyOcrOptions", None, "EasyOCR backend is not available"),
-        "tesseract": ("TesseractOcrOptions", None, "Tesseract backend is not available"),
-    }.get(backend)
-    if spec is None:
-        raise OcrBackendError(f"Unknown ocr_backend {backend!r}")
-    cls_name, rapid_engine, unavailable = spec
-    kwargs: dict[str, Any] = {"lang": [norm.lang]}
-    if rapid_engine is not None:
-        kwargs["backend"] = rapid_engine
+    kwargs: dict[str, Any] = {"lang": list(norm.lang)}
+    if row.rapidocr_engine:
+        kwargs["backend"] = row.rapidocr_engine
         kwargs["text_score"] = norm.text_score
     try:
-        return getattr(pipeline_options_mod, cls_name)(**kwargs)
-    except (ImportError, AttributeError) as exc:
-        raise OcrBackendError(f"{unavailable}: {exc}") from exc
+        opts_cls = getattr(pipeline_options_mod, row.options_class)
+    except AttributeError as exc:
+        raise OcrBackendError(
+            f"Installed Docling has no {row.options_class}; upgrade docling for ocr_backend {norm.backend!r}"
+        ) from exc
+    return opts_cls(**kwargs)
 
 
 def _is_object_detection_layout(layout_opts: Any) -> bool:
@@ -212,13 +286,17 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
     pipeline_options.do_formula_enrichment = norm.do_formula_enrichment
     pipeline_options.do_code_enrichment = norm.do_code_enrichment
 
-    if norm.device or norm.num_threads > 0:
-        acc = getattr(pipeline_options, "accelerator_options", None)
-        if acc is not None:
-            if norm.device:
-                acc.device = norm.device
-            if norm.num_threads > 0:
-                acc.num_threads = norm.num_threads
+    acc_kwargs: dict[str, Any] = {}
+    if norm.device:
+        acc_kwargs["device"] = norm.device
+    if norm.num_threads > 0:
+        acc_kwargs["num_threads"] = norm.num_threads
+    if acc_kwargs:
+        # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
+        # so a bad device raises ValueError (INVALID_PARAM).
+        pipeline_options.accelerator_options = importlib.import_module(
+            "docling.datamodel.pipeline_options"
+        ).AcceleratorOptions(**acc_kwargs)
 
     table_opts = pipeline_options.table_structure_options
     if norm.table_mode == "fast":
@@ -265,10 +343,7 @@ def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
         do_table_structure=True,
         allow_external_plugins=True,
     )
-    if ocr_options is not None:
-        pipeline_options.ocr_options = ocr_options
-    if norm.backend == "surya":
-        setattr(pipeline_options, "ocr_model", "suryaocr")
+    pipeline_options.ocr_options = ocr_options
     _apply_pipeline_params(pipeline_options, norm)
     _apply_ocr_mode(pipeline_options, norm)
     return pipeline_options
@@ -493,6 +568,16 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
         return error_result("DOCLING_API_MISMATCH", str(exc), helper=helper)
     if isinstance(exc, LayoutModelError):
         return error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
+    # Docling >= 2.127 raises docling.exceptions.OcrLanguageNotSupportedError (a RuntimeError) when the engine
+    # has no model for a requested language; its message lists the supported iso: tags. Matched by name so
+    # this module never imports Docling just to map an error; getattr keeps pyright happy on Exception.
+    if type(exc).__name__ == "OcrLanguageNotSupportedError":
+        return error_result(
+            "OCR_LANGUAGE_UNSUPPORTED",
+            str(exc),
+            helper=helper,
+            details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
+        )
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)

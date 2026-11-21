@@ -29,11 +29,13 @@ from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_py
 log = logging.getLogger(__name__)
 
 # Vision stack (docs/images/recognition.md §7–§13): heavy trusted-helper dependencies; probed outside the AST sandbox and not part of the curated extras.
-# Primary OCR: docling + rapidocr-paddle. Fallback: paddleocr + paddle.
+# Primary OCR: docling + rapidocr + onnxruntime. Fallback: paddleocr + paddle.
+# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program) are listed when present and never counted as Missing.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
-_VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage")
+_OCR_ENGINE_KEYS = ("easyocr", "openvino", "nemotron_ocr", "ocrmac", "tesseract")
+_VISION_PACKAGE_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage") + _OCR_ENGINE_KEYS
 # Primary Docling OCR keys shown under Missing (OCR) when the stack is not ready.
-_VISION_OCR_PRIMARY_KEYS = ("docling", "rapidocr", "css_inline")
+_VISION_OCR_PRIMARY_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline")
 # Always optional in Test output (never required Missing once OCR readiness is decided).
 _VISION_OPTIONAL_KEYS = ("paddleocr", "paddle", "ultralytics", "skimage")
 _AUDIO_PACKAGE_KEYS = (
@@ -77,7 +79,7 @@ def _audio_linux_portaudio_hint() -> str:
 
 
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
-_NON_PIP_PROBE_KEYS = frozenset({"input_device"})
+_NON_PIP_PROBE_KEYS = frozenset({"input_device", "tesseract"})
 # Probe import/key name → PyPI package name for the global install footer.
 _PROBE_KEY_TO_PIP: dict[str, str] = {
     "sklearn": "scikit-learn",
@@ -88,7 +90,6 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "pandas_ta": "pandas-ta",
     "pypfopt": "pyportfolioopt",
     "PyQt6.QtWebEngineWidgets": "PyQt6-WebEngine",
-    "rapidocr": "rapidocr-paddle",
     "css_inline": "css-inline",
     "language_tool_python": "language-tool-python",
     "python_docx": "python-docx",
@@ -178,26 +179,29 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
 
-_RAPIDOCR_PROBE_BODY = """\
-try:
-    import rapidocr
-    out["rapidocr"] = "present"
-except BaseException:
+# find_spec / which only, so the probe does not pay torch or CUDA start-up for optional engines.
+# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py.
+_OCR_ENGINE_PROBE_BODY = """\
+import importlib.util
+import shutil
+for key in ("easyocr", "openvino", "nemotron_ocr", "ocrmac"):
     try:
-        import rapidocr_onnxruntime
-        out["rapidocr"] = "present"
+        out[key] = "present" if importlib.util.find_spec(key) is not None else None
     except BaseException:
-        out["rapidocr"] = None
+        out[key] = None
+out["tesseract"] = "present" if shutil.which("tesseract") else None
 """
 
 _VISION_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("docling", "docling.document_converter", record_error=True),
-    _RAPIDOCR_PROBE_BODY,
+    _import_try_block("rapidocr", "rapidocr"),
+    _import_try_block("onnxruntime", "onnxruntime"),
     _import_try_block("paddleocr", "paddleocr"),
     _import_try_block("paddle", "paddle"),
     _import_try_block("ultralytics", "ultralytics"),
     _import_try_block("skimage", "skimage"),
     _import_try_block("css_inline", "css_inline"),
+    _OCR_ENGINE_PROBE_BODY,
 )
 
 # Vector Search stack: probed outside the AST sandbox (WriterAgent embeddings only).
@@ -451,11 +455,15 @@ except ImportError:
 
 
 def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
-    return probe.get("docling") == "present" and probe.get("rapidocr") == "present"
+    return (
+        probe.get("docling") == "present"
+        and probe.get("rapidocr") == "present"
+        and probe.get("onnxruntime") == "present"
+    )
 
 
 def _vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
-    """True when an OCR backend and css-inline are both present. The backend is Docling with rapidocr (rapidocr is Docling's default OCR backend, so docling alone is not ready) or paddleocr with paddle. The Settings Test and the grouped diagnostics view use this so they never report OCR ready while the backend is missing."""
+    """True when an OCR backend and css-inline are both present. The backend is Docling with rapidocr and onnxruntime (the default OCR backend, so docling alone is not ready) or paddleocr with paddle. The Settings Test and the grouped diagnostics view use this so they never report OCR ready while the backend is missing."""
     ocr_backend = _docling_ocr_ready(probe) or (
         probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
     )
@@ -508,7 +516,7 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
         engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
         lines.append(f"OCR: ready ({engine})")
         if not _docling_ocr_ready(packages):
-            for key in ("docling", "rapidocr"):
+            for key in ("docling", "rapidocr", "onnxruntime"):
                 if packages.get(key) != "present":
                     optional_missing.append(key)
         if optional_missing:
@@ -608,11 +616,6 @@ def _format_install_footer(missing_probe_keys: list[str]) -> list[str]:
         pip_names.append(pip_name)
     if not pip_names:
         return []
-
-    # Docling's RapidOCR path imports onnxruntime; it is not a probe key,
-    # so seen_pip cannot already contain it.
-    if any(key in missing_probe_keys for key in ("docling", "rapidocr")):
-        pip_names.append("onnxruntime")
 
     pkg_args = " ".join(pip_names)
     lines = [

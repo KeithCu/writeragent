@@ -180,7 +180,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `python_auto_spill` | `bool` | `true` |  | Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells. |
 | `xl_static_rewrite` | `bool` | `false` |  | On Edit Python in Cell save, lift static xl("A1:…") onto =PY data args and rewrite to data / data[i] / .to_pandas(). |
 | `python_allow_network` | `boolean` | `false` |  | When checked, Python may open network connections (socket, requests, http, urllib, ssl, and the other network imports). When unchecked, those imports are blocked. |
-| `python_allow_files` | `boolean` | `false` |  | When checked, Python may read and write files anywhere (open, io, pathlib, shutil, tempfile, sqlite3, glob, and os file calls such as listdir and stat). When unchecked, those reads and writes are blocked. In-memory buffers (io.BytesIO, io.StringIO) stay available. |
+| `python_allow_files` | `boolean` | `false` |  | When checked, Python may read and write files anywhere (open, io, pathlib, shutil, tempfile, sqlite3, glob, and os file calls such as listdir and stat). When unchecked, those reads and writes are blocked; in-memory buffers (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, wa.document.save, wa.document.export, which are MCP and Python-script reachable, not offered to the sidebar chat model) stay available. |
 | `python_allow_os` | `boolean` | `false` |  | When checked, Python gets the real os module and may run other programs (subprocess, multiprocessing, pty, os.system). Includes file read and write. When unchecked, process spawning is blocked. |
 | `python_extra_modules` | `string` | `""` |  | Comma-separated extra modules Python may import (each name also allows name.*). Overrides the sandbox blocklist, including the file, network, and process lists (os, socket, subprocess). |
 | `python_editor` | `string` | `"codemirror"` |  | Editor window for Edit Python in Cell, Run Python Script, the init script and LaTeX. Options: codemirror (CodeMirror), monaco (Monaco) |
@@ -192,10 +192,14 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `images_scale` | `float` | `1.0` | `0.5`–`3.0` | Upscale before OCR/layout. Try 2.0 for small screenshots. |
-| `worker_timeout_sec` | `int` | `300` | `30`–`600` | Host subprocess limit for Vision Helpers (first model download). |
-| `artifacts_path` | `string` | `""` |  | Optional folder from docling-tools models download (offline use). |
-| `text_score` | `float` | `0.5` | `0.0`–`1.0` | RapidOCR minimum text score. 0.0 is a real threshold (not the default). Raise to reduce garbage text. |
-| `force_full_page_ocr` | `boolean` | `true` |  | Recommended for embedded graphics exported from LibreOffice. |
+| `document_timeout` | `float` | `0` | `0`–`600` | Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off. |
+| `ocr_backend` | `string` | `"rapidocr"` |  | OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be installed in the Python venv; Settings → Python → Test lists the installed ones. Options: rapidocr (RapidOCR (ONNX, default)), rapidocr_openvino (RapidOCR (OpenVINO)), rapidocr_paddle (RapidOCR (PaddlePaddle)), rapidocr_torch (RapidOCR (PyTorch)), easyocr (EasyOCR), tesseract (Tesseract (command line)), ocrmac (Apple Vision (macOS)), nemotron (NVIDIA Nemotron OCR (Linux, CUDA)), auto (Docling auto) |
+| `lang` | `string` | `""` |  | Language codes such as en, de or zh-TW, comma separated. Empty uses the language of the image or of LibreOffice. |
+| `device` | `string` | `"auto"` |  | Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU always works. Options: auto (Auto), cpu (CPU), cuda (CUDA), mps (MPS) |
+| `text_score` | `float` | `0.5` | `0.0`–`1.0` | Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text. |
+| `worker_timeout_sec` | `int` | `300` | `30`–`600` | Internal. Host time limit for one Vision helper call, including Docling import and first model download. |
+| `artifacts_path` | `string` | `""` |  | Internal. Optional folder from docling-tools models download (offline use). |
+| `force_full_page_ocr` | `boolean` | `true` |  | Internal. OCR the whole image, not only detected text regions. PDFs ignore this setting. |
 | `table_mode` | `string` | `"accurate"` |  | Table extraction mode Options: accurate (Accurate (default)), fast (Fast) |
 | `do_cell_matching` | `boolean` | `true` |  | Align detected table cells with content (extract_structure). |
 | `create_orphan_clusters` | `boolean` | `true` |  | Group unassigned text into clusters for messy layouts. |
@@ -203,4 +207,3 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `layout_model` | `string` | `"heron"` |  | Layout model Options: heron (Heron (default)), egret_large (Egret large (slower, complex docs)) |
 | `do_formula_enrichment` | `boolean` | `false` |  | Opt-in. Downloads extra VLM models on first use; slower. |
 | `do_code_enrichment` | `boolean` | `false` |  | Specialized OCR for code/terminal screenshots. |
-| `document_timeout` | `float` | `0` | `0`–`600` | Per-conversion timeout inside Docling. 0 = no limit. |

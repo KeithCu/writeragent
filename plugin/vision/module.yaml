@@ -47,6 +47,51 @@ config:
     width: 52
     helper: Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off.
 
+  ocr_backend:
+    type: string
+    default: rapidocr
+    widget: select
+    page: general
+    label: OCR engine
+    helper: OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be installed in the Python venv; Settings → Python → Test lists the installed ones.
+    options:
+      - {value: rapidocr, label: "RapidOCR (ONNX, default)"}
+      - {value: rapidocr_openvino, label: "RapidOCR (OpenVINO)"}
+      - {value: rapidocr_paddle, label: "RapidOCR (PaddlePaddle)"}
+      - {value: rapidocr_torch, label: "RapidOCR (PyTorch)"}
+      - {value: easyocr, label: EasyOCR}
+      - {value: tesseract, label: "Tesseract (command line)"}
+      - {value: ocrmac, label: "Apple Vision (macOS)"}
+      - {value: nemotron, label: "NVIDIA Nemotron OCR (Linux, CUDA)"}
+      - {value: auto, label: Docling auto}
+
+  lang:
+    type: string
+    default: ""
+    widget: text
+    page: general
+    label: OCR language
+    width: 50
+    inline: true
+    helper: Language codes such as en, de or zh-TW, comma separated. Empty uses the language of the image or of LibreOffice.
+
+  device:
+    type: string
+    default: auto
+    widget: select
+    page: general
+    label: Device
+    label_x: 188
+    label_width: 100
+    x: 290
+    width: 52
+    helper: Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU always works.
+    options:
+      - {value: auto, label: Auto}
+      - {value: cpu, label: CPU}
+      - {value: cuda, label: CUDA}
+      - {value: mps, label: MPS}
+
   text_score:
     type: float
     default: 0.5
