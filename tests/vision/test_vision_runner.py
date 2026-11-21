@@ -606,3 +606,19 @@ def test_run_and_insert_vision_for_selection_forwards_on_exported():
 
     assert mock_run.call_args.kwargs["on_exported"] is hook
 
+
+def test_run_and_insert_all_empty_reports_not_inserted():
+    ctx = MagicMock()
+    doc = MagicMock()
+    empty_res = {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": []}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", return_value=empty_res),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "ok"
+    assert result["inserted"] is False
+

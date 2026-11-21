@@ -315,3 +315,102 @@ def test_run_vision_insert_total_error_never_inserts():
             run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
 
     mock_insert.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "ocr_result",
+    [
+        {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": []},
+        {"status": "ok", "helper": "extract_structure", "html": "", "full_text": ""},
+    ],
+)
+def test_preview_empty_ocr_reports_no_text_without_rendering(ocr_result):
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_preview.run_trusted_vision", return_value=ocr_result),
+        patch("plugin.vision.vision_preview.render_preview_page") as mock_render,
+    ):
+        outcome = run_vision_preview(ctx, {}, cancel, lambda _t: None)
+
+    assert outcome == "No text detected."
+    mock_render.assert_not_called()
+
+
+def test_run_vision_insert_empty_ocr_inserts_nothing():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    no_text = {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=True),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={"status": "ok", "images_processed": 1, "full_text": "", "individual_results": [no_text]},
+        ),
+        patch("plugin.writer.html_import.insert_html_at_cursor") as mock_html_insert,
+        patch("plugin.vision.vision_egress.prepare_vision_writer_insert") as mock_prepare,
+        patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete,
+    ):
+        status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
+
+    assert status == "No text detected."
+    mock_prepare.assert_not_called()
+    mock_html_insert.assert_not_called()
+    mock_delete.assert_not_called()
+
+
+def test_run_vision_insert_reports_image_kept_for_review():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]},
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_kept_for_review"),
+    ):
+        status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
+
+    assert status == "Inserted: 3 characters. Image kept because Agent edit review is recording changes."
+
+
+def test_run_vision_insert_counts_only_images_with_text():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+    res2 = {"status": "ok", "helper": "extract_structure", "html": "<p></p>", "full_text": "", "tables": [], "image_name": "Img2"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={"status": "ok", "images_processed": 2, "full_text": "abc", "individual_results": [res1, res2]},
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=["inserted", "empty"]),
+    ):
+        status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
+
+    assert status == "Inserted: 3 characters."

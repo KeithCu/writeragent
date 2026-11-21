@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
@@ -15,6 +15,13 @@ from plugin.framework.i18n import _
 from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after_insert, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
+
+# Outcomes of insert_vision_result:
+# - "inserted": content was inserted (and any requested image delete ran).
+# - "empty": OCR found nothing and the document was not touched.
+# - "image_kept_for_review": content was inserted, but the requested image delete
+#   was skipped because Agent edit review is recording changes.
+VisionInsertOutcome = Literal["inserted", "empty", "image_kept_for_review"]
 
 
 def is_vision_result(value: Any) -> bool:
@@ -310,7 +317,7 @@ def _writer_review_recording_enabled() -> bool:
     return bool(review_recording_enabled())
 
 
-def _ocr_found_content(result: dict[str, Any]) -> bool:
+def ocr_found_content(result: dict[str, Any]) -> bool:
     """False when OCR ran but found no text or tables; Docling still returns skeleton HTML then."""
     if "full_text" not in result:
         return True
@@ -329,7 +336,9 @@ def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
     delete_graphic(doc, target)
 
 
-def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
+def insert_vision_result_into_writer(
+    ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None
+) -> VisionInsertOutcome:
     """Insert formatted vision HTML immediately after the selected graphic anchor."""
     from plugin.writer.html_import import insert_html_at_cursor
 
@@ -339,11 +348,10 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     image_name = str((params or {}).get("image_name") or "").strip() or None
-    # An empty OCR result must never cost the user the image.
-    delete_image = resolve_delete_image_after_insert(ctx, params) and _ocr_found_content(result)
-    if delete_image and _writer_review_recording_enabled():
-        # dispose is not a redline, so reject could not restore the image.
-        delete_image = False
+    delete_requested = resolve_delete_image_after_insert(ctx, params)
+    # removeTextContent disposes the frame (SwXFrame::dispose -> DelLayoutFormat / DeleteAttributes), which is not a redline, so reject could not restore the image.
+    keep_for_review = delete_requested and _writer_review_recording_enabled()
+    delete_image = delete_requested and not keep_for_review
 
     def _apply_insert() -> None:
         # One Ctrl+Z for insert plus optional image delete. A failed delete or
@@ -360,15 +368,20 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
     from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
     run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
+    return "image_kept_for_review" if keep_for_review else "inserted"
 
 
-def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
+def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> VisionInsertOutcome:
     """Insert vision output into Writer or Calc."""
     from plugin.framework.doc_type import is_calc, is_writer
 
+    # Docling returns skeleton HTML for a blank image; inserting it only adds an empty paragraph or cell,
+    # and the image-delete below must never run for an empty result.
+    if not ocr_found_content(result):
+        return "empty"
+
     if is_writer(doc):
-        insert_vision_result_into_writer(ctx, doc, result, params=params)
-        return
+        return insert_vision_result_into_writer(ctx, doc, result, params=params)
 
     from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
 
@@ -377,7 +390,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     image_name = str((params or {}).get("image_name") or "").strip() or None
 
     if is_calc(doc):
-        delete_image = resolve_delete_image_after_insert(ctx, params) and _ocr_found_content(result)
+        delete_image = resolve_delete_image_after_insert(ctx, params)
         if insert_mode == "structured" and helper == "extract_structure":
             with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
                 try:
@@ -397,21 +410,21 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                     insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
                 if delete_image:
                     _delete_inserted_image(doc, image_name)
-            return
+            return "inserted"
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
             if delete_image:
                 _delete_inserted_image(doc, image_name)
-        return
+        return "inserted"
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 
 
-def insert_vision_item(ctx: Any, doc: Any, result: dict[str, Any], params: dict[str, Any] | None = None) -> None:
+def insert_vision_item(ctx: Any, doc: Any, result: dict[str, Any], params: dict[str, Any] | None = None) -> VisionInsertOutcome:
     """Insert one OCR result item, passing its ``image_name`` so a collapsed selection never replaces text."""
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
         insert_params["image_name"] = img_name
-    insert_vision_result(ctx, doc, result, params=insert_params)
+    return insert_vision_result(ctx, doc, result, params=insert_params)
