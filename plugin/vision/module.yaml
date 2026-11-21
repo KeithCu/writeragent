@@ -100,7 +100,7 @@ config:
     page: general
     width: 50
     label: OCR confidence threshold
-    helper: Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text.
+    helper: Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines ignore it). Raise it to drop garbage text; 0.0 keeps all text.
 
   # Read by client._resolve_vision_timeout_sec; configured in writeragent.json only.
   worker_timeout_sec:
@@ -218,4 +218,16 @@ config:
     x: 188
     width: 150
     helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines.
+
+  ocrmac_recognition:
+    type: string
+    default: accurate
+    widget: select
+    page: advanced
+    label: Apple Vision recognition
+    width: 52
+    helper: Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer languages.
+    options:
+      - {value: accurate, label: Accurate (default)}
+      - {value: fast, label: Fast}
 

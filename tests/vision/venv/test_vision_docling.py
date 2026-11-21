@@ -11,6 +11,7 @@ import importlib
 import importlib.metadata
 import logging
 import shutil
+import sys
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -744,29 +745,34 @@ def test_settings_ocr_backend_options_are_registry_ids():
 
 
 @pytest.mark.parametrize(
-    ("backend_id", "expected_kind", "expected_rapid_backend"),
+    ("backend_id", "expected_kind", "expected_rapid_backend", "threshold_field"),
     [
-        ("rapidocr", "rapidocr", "onnxruntime"),
-        ("rapidocr_openvino", "rapidocr", "openvino"),
-        ("rapidocr_paddle", "rapidocr", "paddle"),
-        ("rapidocr_torch", "rapidocr", "torch"),
-        ("easyocr", "easyocr", None),
-        ("tesseract", "tesseract", None),
-        ("nemotron", "nemotron-ocr", None),
-        ("ocrmac", "ocrmac", None),
+        ("rapidocr", "rapidocr", "onnxruntime", "text_score"),
+        ("rapidocr_openvino", "rapidocr", "openvino", "text_score"),
+        ("rapidocr_paddle", "rapidocr", "paddle", "text_score"),
+        ("rapidocr_torch", "rapidocr", "torch", "text_score"),
+        ("easyocr", "easyocr", None, "confidence_threshold"),
+        ("tesseract", "tesseract", None, None),
+        ("nemotron", "nemotron-ocr", None, None),
+        ("ocrmac", "ocrmac", None, None),
     ],
 )
-def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
+def test_resolve_ocr_options_real_docling_builds_each_backend(
+    backend_id, expected_kind, expected_rapid_backend, threshold_field
+):
     _require_supported_docling()
     norm = docling_mod.DoclingPipelineParams.from_params(
         {
             "ocr_backend": backend_id,
             "lang": "en",
+            "text_score": 0.3,
             "rapidocr_model_size": "medium",
             "rapidocr_detect_orientation": True,
+            "ocrmac_recognition": "fast",
         }
     )
     with (
+        patch.object(sys, "platform", "darwin"),
         patch("importlib.util.find_spec", return_value=object()),
         patch("shutil.which", return_value="/usr/bin/tesseract"),
     ):
@@ -774,12 +780,122 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
 
     assert opts.kind == expected_kind
     assert opts.lang == ["iso:en-Latn"]
+    if threshold_field is not None:
+        assert getattr(opts, threshold_field) == 0.3
     if backend_id == "tesseract":
         assert opts.tesseract_cmd == "/usr/bin/tesseract"
+    if backend_id == "ocrmac":
+        assert opts.recognition == "fast"
     if expected_rapid_backend is not None:
         assert opts.backend == expected_rapid_backend
         assert opts.model_size == "medium"
         assert opts.detect_orientation is True
+
+
+def test_resolve_ocr_options_easyocr_gets_text_score_as_confidence_threshold():
+    fake_mod = SimpleNamespace(
+        OcrMode=SimpleNamespace(FULL_PAGE="full", DEFAULT="default"),
+        EasyOcrOptions=dict,
+    )
+    norm = docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "easyocr", "text_score": 0.3})
+    with (
+        patch.dict(sys.modules, {"docling.datamodel.pipeline_options": fake_mod}),
+        patch("importlib.util.find_spec", return_value=object()),
+    ):
+        opts = docling_mod._resolve_ocr_options(norm)
+
+    assert opts["confidence_threshold"] == 0.3
+    for forbidden in ("text_score", "backend", "model_size"):
+        assert forbidden not in opts
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_installed_ocr_backend_ocrmac_needs_macos(monkeypatch, platform):
+    monkeypatch.setattr(sys, "platform", platform)
+    with (
+        patch("importlib.util.find_spec", return_value=object()),
+        pytest.raises(docling_mod.OcrBackendError, match=r"does not run on this system.*macOS"),
+    ):
+        docling_mod._installed_ocr_backend("ocrmac")
+
+
+def test_installed_ocr_backend_ocrmac_on_darwin(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    with patch("importlib.util.find_spec", return_value=object()):
+        row, program = docling_mod._installed_ocr_backend("ocrmac")
+    assert row == docling_mod.OCR_BACKENDS["ocrmac"]
+    assert program == ""
+
+
+def test_resolve_ocr_options_ocrmac_gets_recognition(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    fake_mod = SimpleNamespace(
+        OcrMode=SimpleNamespace(FULL_PAGE="full", DEFAULT="default"),
+        OcrMacOptions=dict,
+    )
+    norm = docling_mod.DoclingPipelineParams.from_params(
+        {"ocr_backend": "ocrmac", "ocrmac_recognition": "fast", "text_score": 0.3}
+    )
+    with (
+        patch.dict(sys.modules, {"docling.datamodel.pipeline_options": fake_mod}),
+        patch("importlib.util.find_spec", return_value=object()),
+    ):
+        opts = docling_mod._resolve_ocr_options(norm)
+
+    assert opts["recognition"] == "fast"
+    for forbidden in ("text_score", "confidence_threshold", "backend", "model_size"):
+        assert forbidden not in opts
+
+
+def test_from_params_ocrmac_recognition():
+    default = docling_mod.DoclingPipelineParams.from_params({})
+    assert default.ocrmac_recognition == "accurate"
+
+    custom = docling_mod.DoclingPipelineParams.from_params({"ocrmac_recognition": " Fast "})
+    assert custom.ocrmac_recognition == "fast"
+    assert custom != default
+
+    yaml_path = Path(__file__).resolve().parents[3] / "plugin" / "vision" / "module.yaml"
+    cfg = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))["config"]["ocrmac_recognition"]
+    for opt in cfg["options"]:
+        parsed = docling_mod.DoclingPipelineParams.from_params({"ocrmac_recognition": opt["value"]})
+        assert parsed.ocrmac_recognition == opt["value"]
+
+    res = extract_text(b"png", {"ocrmac_recognition": "bogus"})
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_easyocr_reads_text():
+    _require_supported_docling()
+    pytest.importorskip("easyocr")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "easyocr", "lang": "en"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "ok"
+    assert "hello" in result["full_text"].lower()
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_easyocr_incompatible_languages_is_invalid_param():
+    _require_supported_docling()
+    pytest.importorskip("easyocr")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "easyocr", "lang": "ja,ko"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_extract_text_real_docling_rejects_bad_device():
@@ -961,12 +1077,56 @@ def test_installed_ocr_backend_finds_tesseract_outside_path():
     assert program == "/opt/homebrew/bin/tesseract"
 
 
-def test_tesseract_program_not_running_maps_to_backend_unavailable():
-    err = RuntimeError("Tesseract is not available, aborting: too many values to unpack (expected 2) Install tesseract …")
+def _make_ocrmac_broken_import_error() -> ImportError:
+    try:
+        try:
+            raise ModuleNotFoundError("No module named 'Vision'")
+        except ImportError:
+            raise ImportError(
+                "ocrmac is not correctly installed. Please install it via `pip install ocrmac` to use this OCR engine."
+            )
+    except ImportError as exc:
+        return exc
+
+
+def _make_ocrmac_no_languages_error() -> RuntimeError:
+    try:
+        try:
+            raise AttributeError("VNRecognizeTextRequest")
+        except AttributeError as cause:
+            raise RuntimeError("Apple Vision did not report any recognition language. Check macOS permissions.") from cause
+    except RuntimeError as exc:
+        return exc
+
+
+@pytest.mark.parametrize(
+    ("backend_id", "err", "expected_fragments"),
+    [
+        (
+            "tesseract",
+            RuntimeError("Tesseract is not available, aborting: too many values to unpack (expected 2) Install tesseract …"),
+            ("Install the Tesseract OCR program",),
+        ),
+        (
+            "ocrmac",
+            _make_ocrmac_broken_import_error(),
+            ("'Vision'", "pip install ocrmac"),
+        ),
+        (
+            "ocrmac",
+            _make_ocrmac_no_languages_error(),
+            ("did not report any recognition language", "VNRecognizeTextRequest"),
+        ),
+    ],
+    ids=["tesseract", "ocrmac-broken-import", "ocrmac-no-languages"],
+)
+def test_engine_startup_failure_maps_to_backend_unavailable(backend_id, err, expected_fragments):
     with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
-        res = extract_text(b"png", {"ocr_backend": "tesseract"})
+        res = extract_text(b"png", {"ocr_backend": backend_id})
     assert res["status"] == "error"
     assert res["code"] == "OCR_BACKEND_UNAVAILABLE"
+    for fragment in expected_fragments:
+        assert fragment in res["message"]
 
 
 @pytest.mark.timeout(300)

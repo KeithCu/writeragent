@@ -196,7 +196,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `ocr_backend` | `string` | `"rapidocr"` |  | OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be installed in the Python venv; Settings → Python → Test lists the installed ones. Options: rapidocr (RapidOCR (ONNX, default)), rapidocr_openvino (RapidOCR (OpenVINO)), rapidocr_paddle (RapidOCR (PaddlePaddle)), rapidocr_torch (RapidOCR (PyTorch)), easyocr (EasyOCR), tesseract (Tesseract (command line)), ocrmac (Apple Vision (macOS)), nemotron (NVIDIA Nemotron OCR (Linux, CUDA)) |
 | `lang` | `string` | `""` |  | Language codes such as en, de or zh-TW, comma separated (Docling engines; the Paddle engine uses only a single PP-OCR code). Empty uses the language of the image or of LibreOffice. |
 | `device` | `string` | `"auto"` |  | Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU always works. Options: auto (Auto), cpu (CPU), cuda (CUDA), mps (MPS) |
-| `text_score` | `float` | `0.5` | `0.0`–`1.0` | Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text. |
+| `text_score` | `float` | `0.5` | `0.0`–`1.0` | Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines ignore it). Raise it to drop garbage text; 0.0 keeps all text. |
 | `worker_timeout_sec` | `int` | `300` | `30`–`600` | Internal. Host time limit for one Vision helper call, including Docling import and first model download. |
 | `artifacts_path` | `string` | `""` |  | Internal. Optional folder from docling-tools models download (offline use). |
 | `force_full_page_ocr` | `boolean` | `true` |  | Internal. OCR the whole image, not only detected text regions. PDFs ignore this setting. |
@@ -204,8 +204,10 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `do_cell_matching` | `boolean` | `true` |  | Align detected table cells with content (extract_structure). |
 | `create_orphan_clusters` | `boolean` | `true` |  | Group unassigned text into clusters for messy layouts. |
 | `insert_mode` | `string` | `"html"` |  | html = Docling HTML import (default). structured = bbox column layout in Writer; native Calc cells for extract_structure tables. Options: html (Standard HTML), structured (Structured (layout / cell grid)) |
+| `delete_image_after_insert` | `boolean` | `false` |  | Remove the source image from the document after OCR inserts its content. |
 | `layout_model` | `string` | `"heron"` |  | Layout model Options: heron (Heron (default)), egret_large (Egret large (slower, complex docs)) |
 | `do_formula_enrichment` | `boolean` | `false` |  | Opt-in. Downloads extra VLM models on first use; slower. |
 | `do_code_enrichment` | `boolean` | `false` |  | Specialized OCR for code/terminal screenshots. |
 | `rapidocr_model_size` | `string` | `"small"` |  | RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny is fastest and has no Japanese model; medium is the most accurate. Options: tiny (Tiny), small (Small (default)), medium (Medium) |
 | `rapidocr_detect_orientation` | `boolean` | `false` |  | Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines. |
+| `ocrmac_recognition` | `string` | `"accurate"` |  | Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer languages. Options: accurate (Accurate (default)), fast (Fast) |
