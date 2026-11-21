@@ -25,6 +25,7 @@ from plugin.scripting.venv_diagnostics import (
     _AUDIO_PACKAGE_KEYS,
     _AUDIO_PROBE_SCRIPT,
     _DUCKDB_PROBE_SCRIPT,
+    _NEMOTRON_RUNTIME_ERROR_KEY,
     _NLP_PROBE_SCRIPT,
     _OCR_ENGINE_KEYS,
     _OCR_ENGINE_PROBE_BODY,
@@ -899,3 +900,70 @@ def test_docling_pip_token_matches_vision_docling_floor():
     from plugin.vision.venv.vision_docling import _DOCLING_MIN_VERSION
 
     assert _PROBE_KEY_TO_PIP["docling"] == '"docling>=%d.%d"' % _DOCLING_MIN_VERSION
+
+
+@pytest.mark.parametrize(
+    ("raises", "expected"),
+    [
+        (RuntimeError("Nemotron OCR requires Python 3.12."), "Nemotron OCR requires Python 3.12."),
+        (None, None),
+    ],
+)
+def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, expected):
+    import types
+
+    class _FakeNemotronOcrModel:
+        @classmethod
+        def validate_runtime(cls, _accelerator_options):
+            if raises is not None:
+                raise raises
+
+    accel_mod = types.ModuleType("docling.datamodel.accelerator_options")
+    accel_mod.AcceleratorOptions = lambda: None  # type: ignore[attr-defined]
+    nemotron_mod = types.ModuleType("docling.models.stages.ocr.nemotron_ocr_model")
+    nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
+
+    ns: dict[str, Any] = {"out": {}}
+    with (
+        patch("importlib.util.find_spec", side_effect=lambda name: object() if name == "nemotron_ocr" else None),
+        patch("shutil.which", return_value=None),
+        patch.dict(
+            sys.modules,
+            {
+                "docling.datamodel.accelerator_options": accel_mod,
+                "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
+            },
+        ),
+    ):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+
+    assert ns["out"]["nemotron_ocr"] == "present"
+    assert ns["out"].get(_NEMOTRON_RUNTIME_ERROR_KEY) == expected
+
+
+def test_vision_nemotron_runtime_error_shown_not_missing():
+    report = ProbeReport(
+        version="3.13.0",
+        packages={
+            "docling": "present",
+            "rapidocr": "present",
+            "onnxruntime": "present",
+            "css_inline": "present",
+            "nemotron_ocr": "present",
+            _NEMOTRON_RUNTIME_ERROR_KEY: "Nemotron OCR requires CUDA 13.x, but the current PyTorch runtime reports CUDA '12.8'.",
+        },
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    assert report.collect_missing_keys() == []
+    msg = report.render(include_install_footer=True)
+    vision_line = next(line for line in msg.splitlines() if line.startswith("Vision Libraries:"))
+    assert "nemotron_ocr" in vision_line
+    assert "Nemotron OCR cannot start in this venv: Nemotron OCR requires CUDA 13.x" in msg
+    assert "uv pip install " not in msg

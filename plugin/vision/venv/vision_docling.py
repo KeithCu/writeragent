@@ -127,8 +127,14 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
         "NemotronOcrOptions",
         ("nemotron_ocr",),
         install_hint=(
-            "pip install nemotron-ocr (Docling runs Nemotron OCR only on Linux x86_64 with an NVIDIA CUDA GPU)."
+            "Nemotron OCR runs in a Python venv set up for it: Linux x86_64 with an NVIDIA GPU, a CUDA build "
+            "of PyTorch, and pip install nemotron-ocr (Docling 2.151 also checks for Python 3.12 and CUDA 13). "
+            "Point Settings → Python at that venv and keep Device on Auto or CUDA."
         ),
+        # NemotronOcrModel.validate_runtime (docling/models/stages/ocr/nemotron_ocr_model.py) raises RuntimeError
+        # for the platform, Python, CUDA and device checks; NemotronOcrModel.__init__ re-raises a failed
+        # nemotron_ocr.inference import as "Nemotron OCR is not installed".
+        startup_errors=("Nemotron OCR is not installed", "Nemotron OCR is only supported", "Nemotron OCR requires"),
     ),
     "ocrmac": OcrBackend(
         "OcrMacOptions",
@@ -542,10 +548,12 @@ def export_docling_to_html(document: Any) -> str:
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
     # Docling's engine models raise these from __init__ when pre-flight found the engine but it cannot start:
-    # EasyOcrModel / OcrMacModel re-raise a failed engine import as a new ImportError inside the except block
-    # (the real cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`, and
-    # ocr_mac_model._get_vision_languages raises RuntimeError from the pyobjc error. Reporting them as
-    # OCR_BACKEND_UNAVAILABLE keeps them out of the DOCLING_UNAVAILABLE arm, so no Paddle fallback runs.
+    # EasyOcrModel / OcrMacModel / NemotronOcrModel re-raise a failed engine import as a new ImportError inside
+    # the except block (the real cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`,
+    # ocr_mac_model._get_vision_languages raises RuntimeError from the pyobjc error, and
+    # NemotronOcrModel.validate_runtime raises RuntimeError when the venv's platform, Python, CUDA or device
+    # does not suit Nemotron. Reporting them as OCR_BACKEND_UNAVAILABLE keeps them out of the
+    # DOCLING_UNAVAILABLE arm, so no Paddle fallback runs.
     if isinstance(exc, (ImportError, RuntimeError)):
         backend = next(
             (
@@ -560,7 +568,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             if str(exc).startswith("Apple Vision did not report any recognition language"):
                 detail = f"{exc} ({cause})" if cause is not exc else str(exc)
             else:
-                detail = f"{cause}. {OCR_BACKENDS[backend].install_hint}"
+                detail = f"{str(cause).rstrip('.')}. {OCR_BACKENDS[backend].install_hint}"
             return error_result(
                 "OCR_BACKEND_UNAVAILABLE",
                 f"OCR backend {backend!r} was found but cannot start: {detail}",
