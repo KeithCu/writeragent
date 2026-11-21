@@ -2958,13 +2958,3 @@ def test_user_traceback_empty_for_parse_error() -> None:
         executor("result = (1,")
     assert exc_info.value.user_traceback == ""
 
-
-
-
-
-
-
-
-
-
-

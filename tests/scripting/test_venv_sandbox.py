@@ -2151,3 +2151,9 @@ def test_runtime_error_returns_user_traceback_without_host_paths() -> None:
     assert "traceback" not in res
 
 
+def test_dir_refusal_keeps_fix_hint_in_user_traceback() -> None:
+    res = sandbox_run("print(dir(1))")
+    assert res["status"] == "error"
+    assert "wa.help(name)" in res.get("message", "")
+    assert "wa.help(name)" in res.get("user_traceback", "")
+

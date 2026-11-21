@@ -1363,14 +1363,6 @@ def test_init_and_cell_share_one_timeout_without_killing_worker():
     finally:
         mgr._terminate_worker()
 
-def test_normalize_response_user_traceback_fills_traceback_not_message() -> None:
-    mgr = PythonWorkerManager(sys.executable, {"PATH": "/usr/bin:/bin"})
-    out = mgr._normalize_response(
-        {"status": "error", "message": "m", "user_traceback": "TB", "stdout": ""}
-    )
-    assert out["traceback"] == "TB"
-    assert out["message"] == "m"
-
 
 def test_venv_worker_error_codes_and_context():
     """Verify venv worker returns structured error codes and context on failure."""
@@ -1380,6 +1372,7 @@ def test_venv_worker_error_codes_and_context():
         assert res['status'] == 'error'
         assert res.get('code') == 'VENV_EXEC_ERROR'
         assert 'ZeroDivisionError' in res.get('message', '')
+        assert 'Traceback (most recent call last):' not in res.get('message', '')
         assert 'traceback' in res
         assert 'File "<sandbox>", line 1, in <module>' in res['traceback']
         res_to = mgr.execute(ExecRequest(code='import time\ntime.sleep(5)', timeout_sec=1))
