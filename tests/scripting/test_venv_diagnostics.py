@@ -27,6 +27,7 @@ from plugin.scripting.venv_diagnostics import (
     _DUCKDB_PROBE_SCRIPT,
     _NLP_PROBE_SCRIPT,
     _OCR_ENGINE_KEYS,
+    _OCR_ENGINE_PROBE_BODY,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
     _VECTOR_SEARCH_PROBE_SCRIPT,
@@ -883,6 +884,13 @@ def test_named_probe_uses_group_specific_timeout(name, expected_timeout_attr):
     ):
         diag._run_named_json_probe("/x/python", name)
     assert mock_probe.call_args.args[2] == sentinel
+
+
+def test_ocr_engine_probe_lists_tesseract_in_default_install_folder():
+    ns: dict[str, Any] = {"out": {}}
+    with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+    assert ns["out"]["tesseract"] == "present"
 
 
 def test_docling_pip_token_matches_vision_docling_floor():

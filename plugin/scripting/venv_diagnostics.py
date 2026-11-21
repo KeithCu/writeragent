@@ -16,7 +16,7 @@ import subprocess
 import sys
 from typing import Any, Callable, NamedTuple
 
-from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+from plugin.framework.constants import TESSERACT_PROGRAMS, WORKER_POOL_DIAGNOSTICS
 from plugin.framework.i18n import N_, _
 from plugin.scripting.config_limits import (
     SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 # Vision stack (docs/images/recognition.md §7–§13): heavy trusted-helper dependencies; probed outside the AST sandbox and not part of the curated extras.
 # Primary OCR: docling + rapidocr + onnxruntime. Fallback: paddleocr + paddle.
-# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program) are listed when present and never counted as Missing.
+# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program on PATH or its default install folder) are listed when present and never counted as Missing.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _OCR_ENGINE_KEYS = ("easyocr", "openvino", "nemotron_ocr", "ocrmac", "tesseract")
 _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage") + _OCR_ENGINE_KEYS
@@ -192,7 +192,7 @@ for key in {tuple(k for k in _OCR_ENGINE_KEYS if k != "tesseract")!r}:
         out[key] = "present" if importlib.util.find_spec(key) is not None else None
     except BaseException:
         out[key] = None
-out["tesseract"] = "present" if shutil.which("tesseract") else None
+out["tesseract"] = "present" if any(shutil.which(p) for p in {TESSERACT_PROGRAMS!r}) else None
 """
 
 _VISION_PROBE_SCRIPT = _import_probe_script(
