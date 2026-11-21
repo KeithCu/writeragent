@@ -95,8 +95,8 @@ _MODEL_LRU_KEYS: dict[str, str] = {
 # HiDPI keeps 48 (UnoControlButton does not scale ImageURL) and mid scales use 32.
 # Do not use dialog getPosSize — AppFont before execute would pick tiny icons on HiDPI (see provider_logos.NOTICE).
 _PROVIDER_ICON_PX = (16, 32, 48)
-# menu_icon_dpi returns 16/26/32 (always 16 on macOS); map so ~2× still gets the 48 mark that looked good.
-_MENU_PX_TO_PROVIDER = {16: 16, 26: 32, 32: 48}
+# menu_icon_dpi returns 16/24/32/40 (always 16 on macOS); map so ~2× still gets the 48 mark that looked good.
+_MENU_PX_TO_PROVIDER = {16: 16, 24: 32, 32: 48, 40: 48}
 
 
 def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) -> str:

@@ -1160,7 +1160,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         ext_url = get_extension_url(self.ctx)
 
-        from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
+        from plugin.framework.menu_icon_dpi import (
+            STOCK_ICON_SEARCH,
+            STOCK_ICON_SETTINGS,
+            menu_icon_asset_url,
+            menu_icon_filename,
+        )
 
         third_kind = header_third_button_kind(model)
         third_btn: list[tuple[str, Any, Any, Any, Any]] = []
@@ -1170,7 +1175,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     "btn_latex",
                     ActionHandlerButtonListener("scripting.edit_python_cell"),
                     _("Edit Python in Cell..."),
-                    menu_icon_asset_rel("python_cell", ctx=self.ctx),
+                    menu_icon_filename("python_cell", ctx=self.ctx),
                     "",
                 )
             ]
@@ -1185,14 +1190,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 latex_ctrl.setVisible(False)
 
         header_buttons: list[tuple[str, Any, Any, Any, Any]] = [
-            ("btn_settings", SettingsButtonListener(), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
-            ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog"), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
+            ("btn_settings", SettingsButtonListener(), _("Settings"), STOCK_ICON_SETTINGS, ""),
+            ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog"), _("Run Python Script..."), menu_icon_filename("python", ctx=self.ctx), ""),
             *third_btn,
-            ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog"), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
+            ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog"), _("Search Nearby Files..."), STOCK_ICON_SEARCH, ""),
             # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
         ]
-        for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in header_buttons:
+        for btn_id, listener_obj, tooltip_text, icon, label_text in header_buttons:
             btn_ctrl = controls.get(btn_id)
             if btn_ctrl:
                 btn_m = btn_ctrl.getModel()
@@ -1200,8 +1205,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     btn_m.HelpText = tooltip_text
                     if label_text is not None:
                         btn_m.Label = label_text
-                    if icon_rel_path and ext_url:
-                        btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel_path
+                    if icon and ext_url:
+                        btn_m.ImageURL = menu_icon_asset_url(ext_url, icon)
                 btn_ctrl.addActionListener(listener_obj)
 
         send_listener = None

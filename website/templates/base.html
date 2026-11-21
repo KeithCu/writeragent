@@ -6,7 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}WriterAgent{% endblock %} — AI in LibreOffice</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
-    <link rel="icon" href="{{ url_for('static', filename='images/icon.png') }}" type="image/png">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon-32.png') }}" type="image/png" sizes="32x32">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon-48.png') }}" type="image/png" sizes="48x48">
+    <link rel="icon" href="{{ url_for('static', filename='images/writeragent_logo.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
     {% block head %}{% endblock %}
 </head>
 
@@ -14,7 +17,7 @@
     <header class="site-header">
         <div class="wrap">
             <a href="{{ url_for('index') }}" class="logo">
-                <img src="{{ url_for('static', filename='images/icon.png') }}" alt="" width="32" height="32"
+                <img src="{{ url_for('static', filename='images/writeragent_logo.svg') }}" alt="" width="32" height="32"
                     class="logo-img">
                 <span class="logo-text">WriterAgent</span>
             </a>

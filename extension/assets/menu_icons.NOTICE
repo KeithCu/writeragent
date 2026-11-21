@@ -1,0 +1,28 @@
+Menu & status icons (running_*, stopped_*, python_cell_*)
+===========================================================
+Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
+
+Regenerate python_cell_24.png and python_cell_40.png:
+  # N=24: lo=13, sw=2, h=5, end=21.5
+  rsvg-convert -w 52 -h 52 --background-color=none python_logo.svg -o /tmp/pl24.png
+  magick /tmp/pl24.png -filter Lanczos -resize 13x13 /tmp/pl24_s.png
+  magick -size 24x24 xc:none -fill white -stroke '#107C41' -strokewidth 2 \
+    -draw "roundrectangle 1.5,1.5 21.5,21.5 2,2" /tmp/pl24_s.png -gravity center -composite \
+    -gravity northwest -fill '#107C41' -stroke none -draw "rectangle 18,18 23,23" PNG32:python_cell_24.png
+
+  # N=40: lo=22, sw=2, h=8, end=37.5
+  rsvg-convert -w 88 -h 88 --background-color=none python_logo.svg -o /tmp/pl40.png
+  magick /tmp/pl40.png -filter Lanczos -resize 22x22 /tmp/pl40_s.png
+  magick -size 40x40 xc:none -fill white -stroke '#107C41' -strokewidth 2 \
+    -draw "roundrectangle 1.5,1.5 37.5,37.5 2,2" /tmp/pl40_s.png -gravity center -composite \
+    -gravity northwest -fill '#107C41' -stroke none -draw "rectangle 31,31 39,39" PNG32:python_cell_40.png
+
+Regenerate stopped_24/32/40.png:
+  magick -size 24x24 xc:none -fill '#D32F2F' -draw "rectangle 4,4 18,18" PNG32:stopped_24.png
+  magick -size 32x32 xc:none -fill '#D32F2F' -draw "rectangle 6,6 25,25" PNG32:stopped_32.png
+  magick -size 40x40 xc:none -fill '#D32F2F' -draw "rectangle 7,7 31,31" PNG32:stopped_40.png
+
+Regenerate running_24/32/40.png:
+  magick -size 24x24 xc:none -fill '#4CAF50' -draw "polygon 5,2 5,22 20,12" PNG32:running_24.png
+  magick -size 32x32 xc:none -fill '#4CAF50' -draw "polygon 7,3 7,29 27,16" PNG32:running_32.png
+  magick -size 40x40 xc:none -fill '#4CAF50' -draw "polygon 8,4 8,36 33,20" PNG32:running_40.png

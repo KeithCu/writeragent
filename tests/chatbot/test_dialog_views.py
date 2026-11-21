@@ -649,9 +649,13 @@ class TestProviderButtonIcons:
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_16.png")
         with patch(
-            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=26
+            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=24
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_32.png")
+        with patch(
+            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=40
+        ):
+            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
 
     def test_apply_sets_image_url_from_extension_assets(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon

@@ -32,14 +32,11 @@ from plugin.framework.main_shared import (
 def _isolate_main_menu_state():
     """Isolate menu_status / menu_icons across tests (bootstrap state: tests/conftest.py)."""
     prev_listeners = list(main.menu_status.listeners)
-    prev_graphics = dict(main.menu_icons._loaded_icon_graphics)
     prev_stamp = main.menu_icons._icon_apply_stamp
     try:
         yield
     finally:
         main.menu_status.listeners[:] = prev_listeners
-        main.menu_icons._loaded_icon_graphics.clear()
-        main.menu_icons._loaded_icon_graphics.update(prev_graphics)
         main.menu_icons._icon_apply_stamp = prev_stamp
 
 
@@ -778,16 +775,16 @@ def test_icon_apply_signature_and_icons_unchanged():
     assert (main.menu_icons._icon_apply_signature(cmds, 24) == stamp) is False
 
 
-def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
-    """_update_menu_icons_impl caches loaded graphics and skips reload when stamp matches."""
+def test_menu_icons_apply_skips_reload_on_same_stamp(monkeypatch):
+    """MenuIcons.apply skips reload when stamp matches and reloads on prefix change."""
     loader_calls: list[tuple[str, int]] = []
     fake_graphic = MagicMock()
 
-    def mock_loader(module_name: str, filename: str, ctx: Any) -> Any:
+    def mock_loader(ctx: Any, filename: str) -> Any:
         loader_calls.append((filename, 16))
         return fake_graphic
 
-    monkeypatch.setattr(main.menu_icons, "_load_icon_graphic", mock_loader)
+    monkeypatch.setattr("plugin.menu_state.load_menu_graphic", mock_loader)
 
     mock_img_mgr = MagicMock()
     mock_img_mgr.hasImage.return_value = False
@@ -807,7 +804,6 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.menu_icon_filename", lambda prefix, px, ctx=None: f"{prefix}_{px}.png")
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
 
-    main.menu_icons._loaded_icon_graphics.clear()
     main.menu_icons._icon_apply_stamp = None
 
     # First call: loads graphic and sets stamp
@@ -845,21 +841,6 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
         # _update_menu_icons_impl should retrieve sentinel_ctx from get_ctx() and not call uno.getComponentContext()
         main.menu_icons.apply()
         uno.getComponentContext.assert_not_called()
-
-
-def test_load_icon_graphic_uses_service_manager_attribute():
-    """_load_icon_graphic accesses ctx.ServiceManager without calling getServiceManager()."""
-    fake_sm = MagicMock()
-    fake_sm.createInstanceWithContext.return_value = None
-
-    ctx = MagicMock()
-    ctx.ServiceManager = fake_sm
-
-    result = main.menu_icons._load_icon_graphic("test_mod", "test_file.png", ctx)
-    assert result is None
-    ctx.getServiceManager.assert_not_called()
-    fake_sm.createInstanceWithContext.assert_called_once()
-
 
 
 # --- Bug 9 tests: MainBootstrapJob exception handling ---

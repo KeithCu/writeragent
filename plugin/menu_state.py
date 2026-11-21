@@ -13,12 +13,11 @@ import uno
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.logging import log
-from plugin.framework.menu_icon_dpi import menu_icon_asset_url
+from plugin.framework.menu_icon_dpi import load_menu_graphic
 from plugin.framework.queue_executor import Policy, main
 from plugin.framework.thread_guard import background
 from plugin.framework.uno_context import (
     get_ctx,
-    get_extension_url,
     get_service_manager,
     uno_same,
 )
@@ -172,11 +171,9 @@ class MenuStatusPublisher:
 class MenuIcons:
     """Manages LibreOffice XImageManager icon updates for WriterAgent toolbar/menu actions."""
 
-    _loaded_icon_graphics: dict[tuple[str, int], Any]
     _icon_apply_stamp: tuple[tuple[tuple[str, str], ...], int] | None
 
     def __init__(self) -> None:
-        self._loaded_icon_graphics = {}
         self._icon_apply_stamp = None
 
     @staticmethod
@@ -208,31 +205,6 @@ class MenuIcons:
                 dynamic = get_menu_icon("%s.%s" % (mod_name, action_name))
                 result[cmd_url] = (mod_name, dynamic or default_icon)
         return result
-
-    def _load_icon_graphic(self, module_name: str, icon_filename: str, ctx: Any) -> Any:
-        """Load a PNG icon from OXT assets/ as XGraphic."""
-        try:
-            from com.sun.star.beans import PropertyValue
-
-            ctx_any = cast("Any", ctx)
-            smgr = get_service_manager(ctx_any)
-            if smgr is None:
-                log.warning("_load_icon_graphic: get_service_manager returned None for %s/%s", module_name, icon_filename)
-                return None
-            gp = cast("Any", smgr).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
-            ext_url = get_extension_url(ctx_any)
-            if not ext_url:
-                return None
-            pv = PropertyValue()
-            pv.Name = "URL"
-            pv.Value = menu_icon_asset_url(ext_url, icon_filename)
-            graphic = gp.queryGraphic((pv,))
-            if graphic is None:
-                log.warning("_load_icon_graphic: GraphicProvider returned None for %s (%s)", pv.Value, module_name)
-            return graphic
-        except Exception as e:  # UNO boundary: GraphicProvider.queryGraphic
-            log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
-            return None
 
     def apply(self) -> None:
         """Push current-state icons into every module's ImageManager (UNO main thread)."""
@@ -277,13 +249,7 @@ class MenuIcons:
             key_graphics = {}
             for key in key_cmds:
                 mod_name, prefix = key
-                cache_key = (prefix, icon_px)
-                graphic = self._loaded_icon_graphics.get(cache_key)
-                if graphic is None:
-                    filename = menu_icon_filename(prefix, icon_px, ctx)
-                    graphic = self._load_icon_graphic(mod_name, filename, ctx)
-                    if graphic is not None:
-                        self._loaded_icon_graphics[cache_key] = graphic
+                graphic = load_menu_graphic(ctx, menu_icon_filename(prefix, icon_px, ctx))
                 if graphic is not None:
                     key_graphics[key] = graphic
                 else:

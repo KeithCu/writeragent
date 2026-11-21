@@ -1,4 +1,4 @@
-Python logo (python_logo.svg → python_24.png, python_32.png)
+Python logo (python_logo.svg → python_24/32/40.png)
 ===========================================================
 Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
 
@@ -16,3 +16,7 @@ Regenerate 24×24 PNG (sidebar deck icon; LibreOffice's deck slot is its 24 px l
 Regenerate 32×32 PNG (menubar icon):
   rsvg-convert -w 64 -h 64 --background-color=none python_logo.svg -o /tmp/py64.png
   magick /tmp/py64.png -resize 32x32 -filter Lanczos PNG32:python_32.png
+
+Regenerate 40×40 PNG (250% DPI ladder):
+  rsvg-convert -w 160 -h 160 --background-color=none python_logo.svg -o /tmp/py160.png
+  magick /tmp/py160.png -filter Lanczos -resize 40x40 PNG32:python_40.png

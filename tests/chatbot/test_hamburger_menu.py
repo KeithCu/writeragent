@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, create_autospec, patch
 import pytest
 
 from plugin.chatbot.hamburger_menu import show_hamburger_menu
+from plugin.framework.menu_icon_dpi import STOCK_ICON_MATH, STOCK_ICON_SETTINGS
 from plugin.notebook.cell_registry import NotebookDocState, new_code_cell_entry
 
 
@@ -92,22 +93,20 @@ class TestHamburgerMenu:
         dispatch.assert_called_once_with(action)
         invoke.assert_not_called()
 
-    def test_plain_writer_hamburger_has_gear_icon_and_no_notebook_items(self, popup_menu):
+    def test_plain_writer_hamburger_has_stock_settings_icon_and_no_notebook_items(self, popup_menu):
         ctx, popup, button_ctrl = popup_menu
         graphic = MagicMock()
 
         with (
             _doc_flags(writer=True),
-            patch("plugin.librepy.sidebar_menus.load_menu_graphic", return_value=graphic) as load_g,
+            patch("plugin.chatbot.hamburger_menu.load_menu_graphic", return_value=graphic) as load_g,
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
-        assert any(
-            isinstance(c.args[-1], str)
-            and c.args[-1].startswith("gear_")
-            and c.args[-1].endswith(".png")
-            for c in load_g.call_args_list
-        )
+        icons = [c.args[-1] for c in load_g.call_args_list]
+        assert STOCK_ICON_SETTINGS in icons
+        assert STOCK_ICON_MATH in icons
+        assert any(isinstance(i, str) and i.startswith("python_") and i.endswith(".png") for i in icons)
         labels = [c.args[1] for c in popup.insertItem.call_args_list]
         assert not any("Jupyter" in str(label) for label in labels)
         # Plain Writer (no WriterAgentNotebookJson): specialized notebook chrome stays off.

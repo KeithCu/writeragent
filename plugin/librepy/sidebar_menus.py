@@ -17,6 +17,13 @@ from plugin.framework.doc_type import is_calc, is_writer
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
+from plugin.framework.menu_icon_dpi import (
+    STOCK_ICON_MATH,
+    STOCK_ICON_SETTINGS,
+    load_menu_graphic,
+    menu_icon_asset_url,
+    menu_icon_filename,
+)
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener
 
@@ -28,13 +35,13 @@ HEADER_BUTTON_IDS = ("btn_hdr_settings", "btn_python", "btn_latex", "btn_hamburg
 
 def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
     # Labels at call time so gettext sees the current locale.
-    # Icon field is a menu_icon_filename *prefix* (resolved at build time), or None.
+    # Icon field is what load_menu_graphic loads: a DPI-picked asset name or a LibreOffice stock URL; None for no icon.
     return (
-        (_("Run Python Script..."), "scripting.run_python_dialog", "python", "always"),
-        (_("Edit Python in Cell..."), "scripting.edit_python_cell", "python_cell", "calc"),
-        (_("Insert LaTeX Math..."), "writer.insert_latex_dialog", "latex", "writer"),
+        (_("Run Python Script..."), "scripting.run_python_dialog", menu_icon_filename("python"), "always"),
+        (_("Edit Python in Cell..."), "scripting.edit_python_cell", menu_icon_filename("python_cell"), "calc"),
+        (_("Insert LaTeX Math..."), "writer.insert_latex_dialog", STOCK_ICON_MATH, "writer"),
         (_("Text Analytics..."), "textanalytics.open_dialog", None, "writer"),
-        (_("Settings"), "main.settings", "gear", "always"),
+        (_("Settings"), "main.settings", STOCK_ICON_SETTINGS, "always"),
         (_("Vision OCR Settings..."), "vision.open_settings", None, "always"),
         (_("Reset Python Session"), "scripting.reset_python_session", None, "always"),
         (_("Run All"), "notebook.run_all", None, "notebook"),
@@ -42,59 +49,6 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
         (_("Stop"), "notebook.stop", None, "notebook"),
         (_("Report bug..."), "main.report_bug", None, "always"),
     )
-
-_graphic_cache: dict[tuple[str, str], Any] = {}
-
-
-def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
-    """Load a PNG icon from extension assets/ as XGraphic."""
-    try:
-        from com.sun.star.beans import PropertyValue
-        from plugin.framework.menu_icon_dpi import menu_icon_asset_url, menu_icon_filesystem_paths
-        from plugin.framework.uno_context import get_extension_url
-
-        clean_name = icon_filename.replace("assets/", "").lstrip("/")
-        ext_url = get_extension_url(ctx) or ""
-        cache_key = (ext_url, clean_name)
-        cached = _graphic_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        smgr = ctx.getServiceManager()
-        gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
-
-        def _from_url(url: str) -> Any:
-            pv = PropertyValue()
-            pv.Name = "URL"
-            pv.Value = url
-            return gp.queryGraphic((pv,))
-
-        # Package URL is a vnd.sun.star.extension:// fallback when the OXT is
-        # not installed (testing_runner uses a fresh user profile). queryGraphic
-        # then throws; keep going so the filesystem paths below can load the PNG.
-        if ext_url:
-            try:
-                graphic = _from_url(menu_icon_asset_url(ext_url, clean_name))
-                if graphic is not None:
-                    _graphic_cache[cache_key] = graphic
-                    return graphic
-            except Exception:
-                log.debug("load_menu_graphic package URL failed for %s", icon_filename, exc_info=True)
-
-        import os
-        import uno
-
-        for path in menu_icon_filesystem_paths(clean_name):
-            if os.path.isfile(path):
-                graphic = _from_url(uno.systemPathToFileUrl(path))
-                if graphic is not None:
-                    _graphic_cache[cache_key] = graphic
-                    return graphic
-
-        return None
-    except Exception:
-        log.debug("load_menu_graphic failed for %s", icon_filename, exc_info=True)
-        return None
 
 
 def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None, *, command: str) -> None:
@@ -141,12 +95,7 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, doc: An
         if get_action_handler(action) is None:
             log.warning("LibrePy hamburger action %s has no registered handler; skipping", action)
             continue
-        filename = None
-        if icon:
-            from plugin.framework.menu_icon_dpi import menu_icon_filename
-
-            filename = menu_icon_filename(icon)
-        out.append((label, action, filename))
+        out.append((label, action, icon))
     return out
 
 
@@ -264,22 +213,21 @@ def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], 
     from plugin.framework.uno_context import get_extension_url
 
     ext_url = get_extension_url(ctx)
-    from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
     latex_btn: tuple[str, str, str | None, str | None, BaseActionListener]
     if calc_doc:
-        latex_btn = ("btn_latex", _("Edit Python in Cell..."), menu_icon_asset_rel("python_cell", ctx=ctx), "", _DispatchActionListener("scripting.edit_python_cell", frame))
+        latex_btn = ("btn_latex", _("Edit Python in Cell..."), menu_icon_filename("python_cell", ctx=ctx), "", _DispatchActionListener("scripting.edit_python_cell", frame))
     else:
         # Keep √x glyph (not an emoji asset); only PNG buttons use the DPI resolver.
         latex_btn = ("btn_latex", _("Insert LaTeX Math..."), None, "√x", _DispatchActionListener("writer.insert_latex_dialog", frame))
 
     specs: list[tuple[str, str, str | None, str | None, BaseActionListener]] = [
-        ("btn_hdr_settings", _("Settings"), menu_icon_asset_rel("gear", ctx=ctx), "", _DispatchActionListener("main.settings", frame)),
-        ("btn_python", _("Run Python Script..."), menu_icon_asset_rel("python", ctx=ctx), "", _DispatchActionListener("scripting.run_python_dialog", frame)),
+        ("btn_hdr_settings", _("Settings"), STOCK_ICON_SETTINGS, "", _DispatchActionListener("main.settings", frame)),
+        ("btn_python", _("Run Python Script..."), menu_icon_filename("python", ctx=ctx), "", _DispatchActionListener("scripting.run_python_dialog", frame)),
         latex_btn,
         ("btn_hamburger", _("More actions..."), None, None, _HamburgerListener(ctx, frame)),
     ]
-    for btn_id, tooltip, icon_rel, label_text, listener in specs:
+    for btn_id, tooltip, icon, label_text, listener in specs:
         btn_ctrl = controls.get(btn_id)
         if not btn_ctrl:
             continue
@@ -289,8 +237,8 @@ def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], 
                 btn_m.HelpText = tooltip
                 if label_text is not None:
                     btn_m.Label = label_text
-                if icon_rel and ext_url:
-                    btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel
+                if icon and ext_url:
+                    btn_m.ImageURL = menu_icon_asset_url(ext_url, icon)
             btn_ctrl.addActionListener(listener)
         except Exception:
             log.exception("Header button %s wiring error", btn_id)

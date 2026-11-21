@@ -352,7 +352,7 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 - `get_extension_url` → `PackageInformationProvider.getPackageLocation(id)` or `vnd.sun.star.extension://<id>`.
 - Dialogs: `base + "/Dialogs/" + name + ".xdl"` (file URL when the OXT is unpacked; vnd URL as fallback).
-- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile). `resolve_menu_icon_pixel_size` returns 16 on macOS without probing; VCL on Mac draws URL-loaded images at bitmap size in points, so the 26/32 and 48 assets overflow (issue 3710). Sidebar deck icons are static 24 px PNGs in `Sidebar.xcu` because VCL draws URL bitmaps at bitmap size and the deck slot is 24 px (`sfx2/source/sidebar/Tools.cxx` `GetImage`, `vcl/source/image/Image.cxx` `Draw`). Deck icons stay PNG: an SVG IconURL is turned into a bitmap at the screen DPI (`vectorgraphicdata.cxx` `convertPrimitive2DSequenceToBitmap`, macOS DPI from `AquaSalGraphics::initResolution`), so it is about 27–33 px on a Mac and gains no HiDPI sharpness (`ImplImage::getBitmapForHiDPI` covers stock and metafile images only). `assets/writeragent_logo.svg` is the source for `logo_24.png`.
+- Icons (`menu_icon_dpi.py`): `load_menu_graphic` is the one loader — a stock URL (`private:graphicrepository/...`) goes straight to `queryGraphic`; an asset filename tries the vnd URL (`menu_icon_asset_url`), then `systemPathToFileUrl` on disk (vnd `queryGraphic` throws in a fresh test-runner profile). Settings, Search, and LaTeX use stock icons (`Image::Image(XGraphic)` in `vcl/source/image/Image.cxx` keeps the stock origin, and `ImplImage::getBitmapForHiDPI` in `vcl/source/image/ImplImage.cxx` reloads them at the drawing scale and active dark/light icon theme); brand marks (`python`, `python_cell`, `running`, `stopped`) stay PNG. The PNG ladder is `16/24/32/40` picked by LibreOffice's `CountDPIScaleFactor` DPI buckets (`vcl/source/window/window.cxx`); `resolve_menu_icon_pixel_size` returns 16 on macOS without probing because VCL on Mac draws URL-loaded images at bitmap size in points and CoreGraphics applies the Retina backing scale (issue 3710). The MCP status icon in the menubar has a 16 px ImageManager ceiling (`implts_checkAndScaleGraphic` in `framework/source/uiconfiguration/imagemanagerimpl.cxx`, `FillMenuImages` → `GetImageForCommand` default `ImageType::Small` in `framework/source/uielement/menubarmanager.cxx` / `include/vcl/commandinfoprovider.hxx`), so it is smaller than LibreOffice's own icons at ≥150% on Windows/Qt; this is accepted. `Addons.xcu` keeps its 32 px PNGs (rescaled to 16 × the scale bucket by `AddonsOptions::ScaleImage` in `framework/source/fwe/classes/addonsoptions.cxx`). The Extension Manager icon (`assets/extension_icon.png`) is 94×84 (47:42) so `dp_gui_extlistbox.cxx` `DrawRow` scales it without distortion. Sidebar deck icons are static 24 px PNGs in `Sidebar.xcu` because VCL draws URL bitmaps at bitmap size and the deck slot is 24 px (`sfx2/source/sidebar/Tools.cxx` `GetImage`, `vcl/source/image/Image.cxx` `Draw`). Deck icons stay PNG: an SVG IconURL is turned into a bitmap at the screen DPI (`vectorgraphicdata.cxx` `convertPrimitive2DSequenceToBitmap`, macOS DPI from `AquaSalGraphics::initResolution`), so it is about 27–33 px on a Mac and gains no HiDPI sharpness (`ImplImage::getBitmapForHiDPI` covers stock and metafile images only). `assets/writeragent_logo.svg` is the source for `logo_24.png` and `extension_icon.png`.
 
 **Dispatch (menu / protocol handler)**
 
@@ -468,7 +468,6 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 **Desktop / GraphicProvider duplication (lower value)**
 
 - Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
-- `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
 - `create_property_value` (`uno_context.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
 **Notebook markdown images**
@@ -518,7 +517,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### P3 — optional / low value
 
 9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` moved to `vcl_pumping` (re-exported by `uno_context`), and takes the panel's Ask field explicitly.
-10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
+10. GraphicProvider icon load → **Landed.** `load_menu_graphic` (`menu_icon_dpi.py`) is the single loader with stock-URL and disk fallback.
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
 12. Notebook `file://` strip fallback → **Landed.** `plugin/notebook/writer_importer.py` (`_file_url_to_local_path`) now falls back to `plugin/scripting/sandbox.py` (`path_from_file_url`). Tests: `tests/notebook/test_writer_importer.py`.
 13. `DocumentService.doc_key` → `get_runtime_uid` (or uid-or-url like MCP). **Landed.** Tree / proximity / FTS caches key on `uid:` / `url:`; modify and unload emit `document:cache_invalidated`. Tests: `tests/writer/test_document_helpers.py`, `tests/writer/test_tree.py`, `tests/writer/test_tree_uno.py`.
@@ -543,7 +542,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | HTTP `url_utils` + `path_to_file_url` | `tests/framework/test_url_utils.py` |
 | `uno_context` getters | `tests/framework/test_uno_context.py` |
 | listeners | `tests/framework/test_uno_listeners.py` |
-| menu icons and DPI | `tests/framework/test_menu_icon_dpi.py` |
+| menu icons and DPI | `tests/framework/test_menu_icon_dpi.py`, `tests/framework/test_menu_icon_dpi_uno.py` |
 | type guards | `tests/doc/test_doc_type.py` |
 | text helpers | `tests/doc/test_text_helpers.py`, `tests/doc/test_linebreak.py` |
 | udprops | `tests/doc/test_udprops.py` |
@@ -558,4 +557,3 @@ Any P1 unify should extend the **matching** `test_*.py` for the module that beco
 - `[eng S few]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
 - `[eng S few]` Make `plugin/framework/config.py` (`_resolve_config_path_from_ctx`) and `plugin/writer/images/image_tools.py` (`add_image_to_gallery`) use the shared `path_settings_from_ctx` locator (`plugin/doc/document_research.py` and `plugin/draw/designs.py` already use it). (§ 4. Ranked future-work recommendations)
 - `[eng S few]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)
-- `[eng S few]` Unify the GraphicProvider icon load between `main.py` and `librepy/sidebar_menus.py`, keeping LibrePy's filesystem fallback. (§ 4. Ranked future-work recommendations)

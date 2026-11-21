@@ -217,7 +217,10 @@ def should_exclude(path, with_tests=False):
         or path_norm.startswith("build/generated/locales/")
     ) and (path_norm.endswith(".po") or path_norm.endswith(".pot")):
         return True
-    # Logo sources and attribution notes under assets/ are dev-only; the OXT ships only the PNGs that menus and sidebar decks load.
+    # SVG sources, attribution notes, and the README-only logo.jpg are dev-only;
+    # the OXT ships the PNGs that menus, decks, and the Extension Manager load.
+    if path_norm == "extension/assets/logo.jpg":
+        return True
     if path_norm.startswith("extension/assets/") and path_norm.endswith((".svg", ".NOTICE")):
         return True
 

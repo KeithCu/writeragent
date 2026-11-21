@@ -30,3 +30,7 @@ If you have `Sonnet46Spreadsheet.png` and `Sonnet46ArchDiagram.jpg` in the repo 
 ```bash
 cp ../Sonnet46Spreadsheet.png ../Sonnet46ArchDiagram.jpg static/images/
 ```
+
+## Logo & favicons
+
+`static/images/writeragent_logo.svg` is copied from `extension/assets/writeragent_logo.svg`; `favicon-32.png`, `favicon-48.png`, and `apple-touch-icon.png` are rendered from it via `rsvg-convert` and `magick`.

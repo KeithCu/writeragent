@@ -848,7 +848,7 @@ and does not conflict.
 
 #### 5. Icons — copy directly
 
-The six icon files live in WriterAgent [`extension/assets/`](../extension/assets/) (`running_16.png` / `stopped_16.png` / `starting_16.png` and 26px variants). **MCP Server Status** declares `icon: stopped` in [`plugin/mcp_server/module.yaml`](../plugin/mcp_server/module.yaml); Toggle MCP Server is text-only. Hand-maintained [`extension/Addons.xcu`](../extension/Addons.xcu) reserves the Status menu slot (`ImageIdentifier`) and ships a default `Images` node (`%origin%/assets/stopped_16.png`). At runtime `_update_menu_icons` loads `assets/{prefix}_16.png` via GraphicProvider (`PropertyValue.Name = "URL"`) and inserts/replaces the command image in each document module's ImageManager — the same pattern as nelson-mcp.
+The running and stopped icon files live in WriterAgent [`extension/assets/`](../extension/assets/) (`running_{16,24,32,40}.png` and `stopped_{16,24,32,40}.png`). **MCP Server Status** declares `icon: stopped` in [`plugin/mcp_server/module.yaml`](../plugin/mcp_server/module.yaml); Toggle MCP Server is text-only. Hand-maintained [`extension/Addons.xcu`](../extension/Addons.xcu) reserves the Status menu slot (`ImageIdentifier`) and ships a default `Images` node (`%origin%/assets/stopped_16.png`). At runtime `MenuIcons.apply` ([`plugin/menu_state.py`](../plugin/menu_state.py)) loads `menu_icon_filename(prefix)` through `load_menu_graphic` and inserts/replaces the command image in each document module's ImageManager (which caps the menubar at 16 px).
 
 ---
 

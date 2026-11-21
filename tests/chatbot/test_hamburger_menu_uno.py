@@ -17,9 +17,22 @@ def test_popup_menu_image_and_command(ctx):
     assert popup.getCommand(1) == "org.extension.writeragent:scripting.run_python_dialog"
 
     # Verify graphic loading and 3-arg setItemImage for all menu icons
-    from plugin.librepy.sidebar_menus import load_menu_graphic
+    from plugin.framework.menu_icon_dpi import (
+        STOCK_ICON_MATH,
+        STOCK_ICON_SEARCH,
+        STOCK_ICON_SETTINGS,
+        load_menu_graphic,
+    )
 
-    for icon in ("python_32.png", "python_cell_32.png", "search_32.png", "latex_32.png", "gear_32.png", "running_16.png", "stopped_16.png"):
+    for icon in (
+        "python_32.png",
+        "python_cell_32.png",
+        STOCK_ICON_SEARCH,
+        STOCK_ICON_MATH,
+        STOCK_ICON_SETTINGS,
+        "running_16.png",
+        "stopped_16.png",
+    ):
         g = load_menu_graphic(ctx, icon)
         assert g is not None, f"Failed to load graphic for {icon}"
-    popup.setItemImage(1, g, False)
+        popup.setItemImage(1, g, False)

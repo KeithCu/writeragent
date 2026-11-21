@@ -46,6 +46,11 @@ def test_logo_dev_sources_excluded_from_oxt(svg_path, notice_path, png_path):
 def test_editor_assets_svg_not_excluded_from_oxt():
     assert should_exclude("plugin/contrib/scripting/assets/editor/x.svg") is False
 
+
+def test_readme_logo_excluded_extension_icon_ships():
+    assert should_exclude("extension/assets/logo.jpg") is True
+    assert should_exclude("extension/assets/extension_icon.png") is False
+
 def test_provider_logo_pngs_ship_notice_excluded():
     assert should_exclude("extension/assets/provider_logos.NOTICE") is True
     for stem in ("openrouter", "together", "huggingface", "nvidia"):
