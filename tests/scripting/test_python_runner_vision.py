@@ -239,6 +239,7 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
         "full_text": "one",
         "images_processed": 1,
         "inserted": True,
+        "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>mock</p>", "full_text": "one", "image_name": "OnlyImg"}],
     }
     code = get_vision_script_templates()["extract_text"]
 
@@ -421,5 +422,30 @@ def test_execute_and_insert_vision_does_not_read_results_key():
     mock_insert.assert_not_called()
     assert outcome["ok"] is True
     assert "2 images" in outcome["status_ok_text"]
+
+
+def test_rps_finish_vision_all_empty_reports_not_inserted():
+    from plugin.scripting.python_runner import _finish_vision_execution
+
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    response = {
+        "vision_selection_result": {
+            "status": "ok",
+            "images_processed": 1,
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+            ],
+        }
+    }
+    with patch("plugin.scripting.python_runner.is_draw", return_value=False):
+        out = _finish_vision_execution(prepared, response)
+    assert out["ok"] is True
+    assert "not inserted" in out["status_ok_text"].lower()
 
 

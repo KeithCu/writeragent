@@ -21,7 +21,12 @@ from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import LOAD_MODELS_HELPER, detect_vision_input_format
-from plugin.vision.vision_egress import insert_vision_item, vision_html_from_result
+from plugin.vision.vision_egress import (
+    VisionInsertOutcome,
+    insert_vision_item,
+    ocr_found_content,
+    vision_html_from_result,
+)
 from plugin.vision.vision_runner import (
     no_image_selected_error,
     run_and_insert_vision_for_selection,
@@ -80,7 +85,7 @@ def run_vision_preview(
     values: dict[str, Any],
     cancel: SendCancellation,
     report: Callable[[str], None],
-) -> PreviewImage:
+) -> PreviewImage | str:
     """Run OCR on the active document's first selected image and render page 1 for preview."""
     doc, image_name = main.call(_preview_target, ctx)
 
@@ -92,6 +97,8 @@ def run_vision_preview(
         cancel=cancel,
         on_exported=_make_load_models_hook(ctx, cancel, report),
     )
+    if not ocr_found_content(result):
+        return _("No text detected.")
     html = vision_html_from_result(result)  # raises ToolExecutionError for error/empty results
     report(_("Rendering preview…"))
     summary = _("Done: {count} characters.").format(count=len(str(result.get("full_text") or "")))
@@ -132,15 +139,16 @@ def run_vision_insert(
         raise SendCancelled("Vision run cancelled")
 
     indiv_results = result.get("individual_results") or []
+    outcomes: list[VisionInsertOutcome] = []
     if indiv_results:
         report(_("Inserting…"))
         for indiv_res in indiv_results:
-            def _insert_one(res: dict[str, Any] = indiv_res) -> None:
+            def _insert_one(res: dict[str, Any] = indiv_res) -> VisionInsertOutcome:
                 if is_cancelled(cancel):
                     raise SendCancelled("Vision run cancelled")
-                insert_vision_item(ctx, doc, res, values)
+                return insert_vision_item(ctx, doc, res, values)
 
-            main.call(_insert_one)
+            outcomes.append(main.call(_insert_one))
 
     if result.get("status") == "error":
         raise ToolExecutionError(
@@ -148,10 +156,16 @@ def run_vision_insert(
             code=str(result.get("code") or "VISION_ERROR"),
         )
 
-    count = int(result.get("images_processed") or len(indiv_results) or 0)
-    if count > 1:
-        return _("Inserted {count} images.").format(count=count)
-    return _("Inserted: {count} characters.").format(count=len(str(result.get("full_text") or "")))
+    inserted = [o for o in outcomes if o != "empty"]
+    if not inserted:
+        return _("No text detected.")
+    if len(inserted) > 1:
+        summary = _("Inserted {count} images.").format(count=len(inserted))
+    else:
+        summary = _("Inserted: {count} characters.").format(count=len(str(result.get("full_text") or "")))
+    if "image_kept_for_review" in inserted:
+        summary += " " + _("Image kept because Agent edit review is recording changes.")
+    return summary
 
 
 @main_thread_only

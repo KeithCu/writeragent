@@ -65,7 +65,7 @@ class PreviewImage(NamedTuple):
     summary: str  # final status text
 
 
-PreviewJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], None]], PreviewImage]
+PreviewJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], None]], PreviewImage | str]
 RunJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], None]], str]
 
 

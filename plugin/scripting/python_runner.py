@@ -410,11 +410,11 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
 
+    outcomes = []
     if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])
-        for indiv_res in indiv_results:
-            insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params)
+        outcomes = [insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params) for indiv_res in indiv_results]
 
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
@@ -424,7 +424,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
     helper_name = prepared.helper_name
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
-    inserted = not is_draw(prepared.doc)
+    inserted = any(o != "empty" for o in outcomes)
     if count > 1:
         if inserted:
             status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(

@@ -173,6 +173,7 @@ class VisionBatch:
     insert_into_document: bool = True
     results: list[dict[str, Any]] = field(default_factory=list)
     failures: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    inserted_count: int = 0
     stopped_early: bool = False
     cancelled: bool = False
 
@@ -182,7 +183,7 @@ class VisionBatch:
             if self.results:
                 err_out["images_processed"] = len(self.results)
                 err_out["image_names"] = list(self.target_names[: len(self.results)])
-                err_out["inserted"] = bool(self.insert_into_document and self.results)
+                err_out["inserted"] = self.inserted_count > 0
                 err_out["partial"] = True
                 err_out["individual_results"] = list(self.results)
             return err_out
@@ -195,7 +196,7 @@ class VisionBatch:
             failed["image_names"] = [str(r.get("image_name")) for r in self.results]
             failed["failed_image"] = first_name
             failed["failed_images"] = failed_names
-            failed["inserted"] = bool(self.insert_into_document and self.results)
+            failed["inserted"] = self.inserted_count > 0
             failed["partial"] = bool(self.results)
             failed["individual_results"] = list(self.results)
             if len(self.target_names) > 1:
@@ -219,7 +220,7 @@ class VisionBatch:
             if isinstance(single_metrics, dict):
                 metrics.update(single_metrics)
 
-        inserted = bool(self.insert_into_document)
+        inserted = self.inserted_count > 0
         if self.stopped_early:
             image_names = list(self.target_names[: len(self.results)])
             message = _("Stopped after {count} of {total} images.").format(count=len(self.results), total=len(self.target_names))
@@ -311,12 +312,13 @@ def run_and_insert_vision_for_selection(
                 continue
 
             if insert_into_document:
-                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
+                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> str:
                     from plugin.vision.vision_egress import insert_vision_result
 
-                    insert_vision_result(ctx, doc, res, params=per_insert)
+                    return insert_vision_result(ctx, doc, res, params=per_insert)
 
-                main.call(_insert, bound_scope=None)
+                if main.call(_insert, bound_scope=None) != "empty":
+                    batch.inserted_count += 1
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}
