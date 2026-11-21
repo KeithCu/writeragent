@@ -236,7 +236,7 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
                 ("vision", "Vision Libraries", ("docling", "rapidocr", "onnxruntime", "css_inline", "numpy"), ()),
             ],
             True,
-            ("numpy", "scipy", "docling", "rapidocr", "css-inline", "onnxruntime"),
+            ("numpy", "scipy", '"docling>=2.127"', "rapidocr", "css-inline", "onnxruntime"),
             (),
             id="multiple_groups_single_deduplicated_footer",
         ),
