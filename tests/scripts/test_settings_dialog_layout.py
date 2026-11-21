@@ -90,6 +90,24 @@ def test_vision_standalone_controls_within_bounds() -> None:
     _assert_controls_fit_and_do_not_overlap(root, check_overlap=True)
 
 
+def test_vision_standalone_ok_is_plain_push_button() -> None:
+    """Modeless Vision OK must not use button-type=ok (that skips the save listener)."""
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    root = ET.fromstring(generate_standalone_config_dialog(vision))
+    buttons = {
+        el.get(f"{{{_DLG_NS}}}id"): el
+        for el in root.findall(".//dlg:button", {"dlg": _DLG_NS})
+    }
+    ok_btn = buttons["btn_ok"]
+    close_btn = buttons["btn_close"]
+    assert ok_btn.get(f"{{{_DLG_NS}}}button-type") is None
+    assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
+    assert close_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
+
+
 def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
     """OK is default+ok and Cancel is cancel without default so Escape/Cancel returns false from execute() and nothing is written."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
@@ -388,7 +406,7 @@ def test_vision_standalone_dialog_fields_agreement() -> None:
     extras = xdl_ids - spec_names
     for extra in extras:
         is_known_extra = (
-            extra in ("VisionSettingsDialog", "__module__", "btn_apply", "btn_ok", "btn_close")
+            extra in ("VisionSettingsDialog", "__module__", "btn_run", "btn_apply", "btn_ok", "btn_close", "preview_area", "sb_preview", "lbl_preview_status")
             or extra.startswith("label_")
             or extra.startswith("btn_tab_")
         )
@@ -548,6 +566,39 @@ def test_standalone_inline_fields_share_row_and_helper_is_tooltip() -> None:
     assert by_id["a"].get(f"{{{_DLG_NS}}}help-text") == "Tip A"
     assert by_id["label_a"].get(f"{{{_DLG_NS}}}help-text") == "Tip A"
     assert by_id["c"].get(f"{{{_DLG_NS}}}help-text") == "Tip C"
+
+
+def test_standalone_preview_adds_height_and_page0_controls() -> None:
+    """preview: {height} grows the window and emits page-0 preview controls in order."""
+    from manifest_xdl import generate_standalone_config_dialog
+
+    base_mod = {
+        "name": "prev",
+        "title": "Preview",
+        "config_dialog": {"id": "PrevDialog", "width": 350, "height": 130, "buttons": ["run", "apply", "ok", "close"], "preview": {"height": 200}},
+        "config": {"x": {"type": "int", "widget": "number", "label": "X"}},
+    }
+    root = ET.fromstring(generate_standalone_config_dialog(base_mod))
+    assert root.get(f"{{{_DLG_NS}}}height") == str(130 + 200)
+    by_id = {ctrl_id: el for el in root.iter() if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))}
+    for cid in ("btn_run", "sb_preview", "preview_area", "lbl_preview_status"):
+        assert cid in by_id
+        assert by_id[cid].get(f"{{{_DLG_NS}}}page") is None
+
+    area_bottom = int(by_id["preview_area"].get(f"{{{_DLG_NS}}}top")) + int(by_id["preview_area"].get(f"{{{_DLG_NS}}}height"))
+    status_top = int(by_id["lbl_preview_status"].get(f"{{{_DLG_NS}}}top"))
+    footer_top = int(by_id["btn_run"].get(f"{{{_DLG_NS}}}top"))
+    assert area_bottom < status_top < footer_top
+
+    no_preview = {
+        "name": "plain",
+        "title": "Plain",
+        "config_dialog": {"id": "PlainDialog", "width": 350, "height": 130},
+        "config": {"x": {"type": "int", "widget": "number", "label": "X"}},
+    }
+    plain_ids = {ctrl_id for el in ET.fromstring(generate_standalone_config_dialog(no_preview)).iter() if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))}
+    for cid in ("btn_run", "sb_preview", "preview_area", "lbl_preview_status"):
+        assert cid not in plain_ids
 
 
 

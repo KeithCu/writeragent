@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -319,13 +319,14 @@ def test_prepare_vision_writer_insert_non_disposal_error_stays_vision_error(exc_
     assert exc.value.code == "VISION_ERROR"
 
 
-def test_prepare_vision_writer_insert_reports_removed_named_graphic_without_scanning():
-    from plugin.vision.vision_egress import prepare_vision_writer_insert
-
+def _prepare_ctx():
+    """Minimal Writer doc/controller/ctx for prepare_vision_writer_insert tests."""
     anchor = MagicMock()
     text = MagicMock()
-    anchor_cursor = MagicMock()
-    text.createTextCursorByRange.return_value = anchor_cursor
+    cursor = MagicMock()
+    cursor.getStart.return_value = "insert-start"
+    cursor.isCollapsed.return_value = False
+    text.createTextCursorByRange.return_value = cursor
     anchor.getText.return_value = text
 
     graphic = MagicMock()
@@ -333,31 +334,121 @@ def test_prepare_vision_writer_insert_reports_removed_named_graphic_without_scan
     graphic.getName.return_value = "Image1"
 
     view_cursor = MagicMock()
-    window = MagicMock()
     frame = MagicMock()
-    frame.getContainerWindow.return_value = window
+    frame.getContainerWindow.return_value = MagicMock()
     dispatcher = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
     controller = MagicMock()
     controller.getFrame.return_value = frame
     controller.getViewCursor.return_value = view_cursor
-    anchor_cursor.getStart.return_value = "insert-start"
-
     doc = MagicMock()
     doc.getCurrentController.return_value = controller
-    doc.getGraphicObjects.return_value.hasByName.return_value = False
     ctx = MagicMock()
     ctx.ServiceManager = smgr
+    return doc, ctx, graphic, cursor, text
 
+
+def test_prepare_vision_writer_insert_reports_removed_named_graphic_without_scanning():
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc, ctx, graphic, _cursor, _text = _prepare_ctx()
+    doc.getGraphicObjects.return_value.hasByName.return_value = False
+
+    # Resolve succeeds (first lookup), then the graphic is gone (presence check).
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
-        "plugin.doc.visual_helpers.list_graphic_objects"
-    ) as mock_list, patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=[graphic, None]
+    ) as mock_get:
         with pytest.raises(ToolExecutionError) as exc:
             prepare_vision_writer_insert(doc, ctx, image_name="Image1")
 
     assert exc.value.code == "VISION_ERROR"
-    mock_list.assert_not_called()
+    assert "removed while preparing" in str(exc.value)
+    assert mock_get.call_count == 2
+
+
+def test_prepare_vision_writer_insert_accepts_draw_page_only_graphic():
+    """As-char / SdrGrafObj images are not in getGraphicObjects(); hasByName is a false negative."""
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc, ctx, graphic, cursor, text = _prepare_ctx()
+    doc.getGraphicObjects.return_value.hasByName.return_value = False
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic
+    ):
+        out = prepare_vision_writer_insert(doc, ctx, image_name="Image1")
+
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def _as_char_graphic(graphic):
+    """AnchorType AS_CHARACTER (IDL index 1) for the step-over probe."""
+    graphic.getPropertyValue.side_effect = lambda name: 1 if name == "AnchorType" else MagicMock()
+    return graphic
+
+
+def _probe_range(*, portion_type: str, content: object):
+    probe = MagicMock()
+    probe.goRight.return_value = True
+    # Frame / graphic characters have no text; ordinary text must be non-empty
+    # so the production gate does not treat a MagicMock getString as a hit.
+    probe.getString.return_value = "" if portion_type == "Frame" else "T"
+    probe.getPropertyValue.side_effect = lambda name: {
+        "TextPortionType": portion_type,
+        "TextContent": content,
+    }.get(name, MagicMock())
+    probe.createContentEnumeration.side_effect = Exception("no enum")
+    return probe
+
+
+def test_prepare_vision_writer_insert_steps_over_collapsed_as_char_anchor():
+    """A collapsed as-char anchor that sits on the graphic must step over it."""
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc, ctx, graphic, cursor, text = _prepare_ctx()
+    cursor.isCollapsed.return_value = True
+    cursor.getText.return_value = text
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+    _as_char_graphic(graphic)
+    probe = _probe_range(portion_type="Frame", content=graphic)
+    text.createTextCursorByRange.side_effect = [cursor, probe]
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic
+    ):
+        prepare_vision_writer_insert(doc, ctx, image_name="Image1")
+
+    # First goRight steps over the graphic; the second is the post-break move.
+    assert cursor.goRight.call_args_list[0] == call(1, False)
+    assert cursor.goRight.call_count == 2
+    cursor.collapseToEnd.assert_not_called()
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def test_prepare_vision_writer_insert_does_not_step_over_following_text():
+    """A collapsed as-char anchor already after the graphic must not skip the next character."""
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    doc, ctx, graphic, cursor, text = _prepare_ctx()
+    cursor.isCollapsed.return_value = True
+    cursor.getText.return_value = text
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+    _as_char_graphic(graphic)
+    # goRight(1, True) would select ordinary text, not the graphic.
+    probe = _probe_range(portion_type="Text", content=None)
+    text.createTextCursorByRange.side_effect = [cursor, probe]
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic
+    ):
+        prepare_vision_writer_insert(doc, ctx, image_name="Image1")
+
+    cursor.collapseToEnd.assert_not_called()
+    # Only the post-paragraph-break goRight.
+    assert cursor.goRight.call_args_list == [call(1, False)]
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
 @patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
@@ -373,11 +464,14 @@ def test_insert_vision_result_into_writer_detects_removed_image_without_scanning
     doc.getGraphicObjects.return_value.hasByName.return_value = False
     result = {"status": "ok", "helper": "extract_text", "html": "<p>line</p>"}
 
-    with patch("plugin.doc.visual_helpers.list_graphic_objects") as mock_list:
+    with patch("plugin.doc.visual_helpers.list_graphic_objects") as mock_list, patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None
+    ):
         with pytest.raises(ToolExecutionError) as exc:
             insert_vision_result_into_writer(ctx, doc, result, params={"image_name": "Photo1"})
 
     assert exc.value.code == "VISION_ERROR"
+    assert "removed during OCR insert" in str(exc.value)
     mock_list.assert_not_called()
 
 

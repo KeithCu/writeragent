@@ -197,3 +197,33 @@ def test_default_range_index_frame_has_no_header():
 
     df_empty = pd.DataFrame(columns=pd.RangeIndex(0, 2))
     assert to_wire(df_empty) == []
+
+
+def test_dense_plot_svg_falls_back_to_png():
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")
+    import matplotlib.pyplot as plt
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.to_wire import figure_to_image_payload, plot_image_payload
+
+    rng = np.random.default_rng(0)
+    fig_dense, ax_dense = plt.subplots()
+    try:
+        ax_dense.scatter(rng.normal(size=20_000), rng.normal(size=20_000), s=1)
+        dense_payload = plot_image_payload(fig_dense)
+        assert dense_payload["format"] == "png"
+        assert dense_payload["data"].startswith(b"\x89PNG")
+        svg_payload = figure_to_image_payload(fig_dense)
+        assert len(dense_payload["data"]) < len(svg_payload["data"])
+
+        wire_dense = to_wire({"plot": fig_dense})
+        assert wire_dense["plot"]["format"] == "png"
+    finally:
+        plt.close(fig_dense)
+
+    fig_small, ax_small = plt.subplots()
+    try:
+        ax_small.plot([1, 2, 3], [1, 4, 9])
+        assert plot_image_payload(fig_small)["format"] == "svg"
+    finally:
+        plt.close(fig_small)

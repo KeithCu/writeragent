@@ -62,6 +62,9 @@ if TYPE_CHECKING:
     class _XWindowListenerParent:
         pass
 
+    class _XAdjustmentListenerParent:
+        pass
+
     class _XDocumentEventListenerParent:
         pass
 
@@ -102,6 +105,7 @@ else:
         from com.sun.star.lang import XEventListener as _XEventListenerParent
         from com.sun.star.awt import (
             XActionListener as _XActionListenerParent,
+            XAdjustmentListener as _XAdjustmentListenerParent,
             XItemListener as _XItemListenerParent,
             XTextListener as _XTextListenerParent,
             XKeyListener as _XKeyListenerParent,
@@ -130,6 +134,7 @@ else:
         _XKeyListenerParent = type("_DummyKeyListener", (), {})
         _XKeyHandlerParent = type("_DummyKeyHandler", (), {})
         _XWindowListenerParent = type("_DummyWindowListener", (), {})
+        _XAdjustmentListenerParent = type("_DummyAdjustmentListener", (), {})
         _XDocumentEventListenerParent = type("_DummyDocumentEventListener", (), {})
         _XActivationEventListenerParent = type("_DummyActivationListener", (), {})
         _XContainerListenerParent = type("_DummyContainerListener", (), {})
@@ -378,6 +383,15 @@ class BaseWindowListener(BaseListener, _XWindowListenerParent):
         pass
 
     def on_window_hidden(self, rEvent: Any) -> None:
+        pass
+
+
+class BaseAdjustmentListener(BaseListener, _XAdjustmentListenerParent):
+    @_catch_and_log
+    def adjustmentValueChanged(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_adjustment_value_changed(e)
+
+    def on_adjustment_value_changed(self, e: Any) -> None:
         pass
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import importlib.metadata
 import logging
 import shutil
 from io import BytesIO
@@ -22,20 +23,13 @@ from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv.vision_docling import export_docling_to_html, extract_structure, extract_text
 
 
-def _require_installed_od_docling() -> None:
-    """Skip unless a real Docling install uses the ≥2.118 OD layout path.
-
-    Does not mock layout types. Does not exercise the removable
-    LayoutModelConfig / legacy LayoutOptions branch.
-    """
+def _require_supported_docling() -> None:
+    """Skip unless Docling is installed and meets _DOCLING_MIN_VERSION."""
     pytest.importorskip("docling.document_converter")
-    pipeline_mod = pytest.importorskip("docling.datamodel.pipeline_options")
-    default_opts = pipeline_mod.PdfPipelineOptions()
-    if not docling_mod._is_object_detection_layout(default_opts.layout_options):
-        pytest.skip(
-            "installed Docling still defaults to legacy LayoutOptions; "
-            "not testing that removable LayoutModelConfig branch"
-        )
+    try:
+        docling_mod._check_docling_version()
+    except docling_mod.DoclingApiMismatchError as exc:
+        pytest.skip(str(exc))
 
 
 @pytest.fixture(autouse=True)
@@ -172,7 +166,7 @@ def test_extract_text_docling_missing():
 
     assert result["status"] == "error"
     assert result["code"] == "DOCLING_UNAVAILABLE"
-    assert "pip install docling" in result["message"]
+    assert docling_mod._DOCLING_INSTALL_CMD in result["message"]
 
 
 def test_extract_text_unknown_ocr_backend():
@@ -234,12 +228,12 @@ def test_apply_pipeline_params_maps_flat_keys():
 
 
 def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
-    """Requires installed Docling ≥2.118; skips otherwise. No importlib mock.
+    """Requires a supported installed Docling; skips otherwise. No importlib mock.
 
     Catches issue 587 on a real install: OD layout model_spec must expose
     get_engine_config after WriterAgent builds pipeline options.
     """
-    _require_installed_od_docling()
+    _require_supported_docling()
     opts = docling_mod._build_pipeline_options(
         docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "rapidocr", "layout_model": "heron"}),
     )
@@ -296,7 +290,7 @@ def test_extract_text_real_docling_tiny_png():
     layout_model=heron. Must not fail with get_engine_config / LayoutModelConfig
     (issue 587). First model download can be slow; image stays tiny.
     """
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
@@ -322,7 +316,7 @@ def test_extract_structure_real_docling_pdf_magic():
     """Vector PDF bytes must use the PDF backend (not IMAGE OCR)."""
     from pathlib import Path
 
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
@@ -353,35 +347,12 @@ def test_extract_structure_real_docling_pdf_magic():
     assert joined.count("ASSETS:") <= 1
 
 
-def test_apply_pipeline_params_refuses_layout_config_without_get_engine_config():
-    class BadSpec:
-        pass
-
-    class OdOpts:
-        kind = "layout_object_detection"
-        model_spec = BadSpec()
-
-    pipeline = MagicMock()
-    pipeline.layout_options = OdOpts()
-    pipeline.table_structure_options = MagicMock()
-    pipeline.accelerator_options = MagicMock()
-    with patch.object(docling_mod, "_resolve_od_layout_model_spec", return_value=BadSpec()):
-        with pytest.raises(docling_mod.LayoutModelError, match="get_engine_config"):
-            docling_mod._apply_pipeline_params(
-                pipeline, docling_mod.DoclingPipelineParams.from_params({"layout_model": "heron"})
-            )
-
-
 def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
-    class OdOpts:
-        kind = "layout_object_detection"
-        model_spec = object()
-
     pipeline = MagicMock()
-    pipeline.layout_options = OdOpts()
+    pipeline.layout_options = MagicMock()
     pipeline.table_structure_options = MagicMock()
     pipeline.accelerator_options = MagicMock()
-    with patch.object(docling_mod, "_resolve_od_layout_model_spec", side_effect=RuntimeError("spec unavailable")):
+    with patch.object(docling_mod, "_resolve_layout_model_spec", side_effect=RuntimeError("spec unavailable")):
         with pytest.raises(RuntimeError, match="spec unavailable"):
             docling_mod._apply_pipeline_params(
                 pipeline, docling_mod.DoclingPipelineParams.from_params({})
@@ -431,9 +402,11 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
             return converter_mod
         raise ImportError(name)
 
-    with patch.object(
-        docling_mod, "_build_pipeline_options", side_effect=fake_build
-    ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
+    with (
+        patch.object(docling_mod, "_check_docling_version"),
+        patch.object(docling_mod, "_build_pipeline_options", side_effect=fake_build),
+        patch.object(docling_mod.importlib, "import_module", side_effect=fake_import),
+    ):
         first = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.5}))
         again = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.5}))
         second = docling_mod._get_docling_converter(docling_mod.DoclingPipelineParams.from_params({"text_score": 0.0}))
@@ -651,6 +624,50 @@ def test_extract_text_docling_returned_no_document(result):
     mock_html.assert_not_called()
 
 
+def test_load_models_then_extract_reuses_one_converter():
+    docling_mod._converter_cache.clear()
+    base_models = MagicMock()
+    base_models.InputFormat.IMAGE = "IMAGE"
+    created = []
+
+    def fake_converter(**kwargs):
+        conv = MagicMock()
+        conv.convert.return_value = MagicMock(document=MagicMock())
+        created.append(conv)
+        return conv
+
+    converter_mod = MagicMock()
+    converter_mod.DocumentConverter.side_effect = fake_converter
+    converter_mod.ImageFormatOption.side_effect = lambda **kw: kw
+
+    def fake_import(name):
+        if name == "docling.datamodel.base_models":
+            return base_models
+        if name == "docling.document_converter":
+            return converter_mod
+        raise ImportError(name)
+
+    with (
+        patch.object(docling_mod, "_build_pipeline_options", return_value=MagicMock()),
+        patch.object(docling_mod.importlib, "import_module", side_effect=fake_import),
+    ):
+        loaded = docling_mod.load_models({"layout_model": "heron"})
+        docling_mod._convert_image_bytes(b"\x89PNG\r\n\x1a\n", {"layout_model": "heron"})
+
+    assert loaded == {"status": "ok", "helper": "load_models"}
+    assert len(created) == 1
+    created[0].initialize_pipeline.assert_called_once_with("IMAGE")
+    created[0].convert.assert_called_once()
+
+
+def test_load_models_maps_import_error():
+    docling_mod._converter_cache.clear()
+    with patch.object(docling_mod, "_get_docling_converter", side_effect=ImportError("No module named 'docling'")):
+        out = docling_mod.load_models({})
+    assert out["status"] == "error"
+    assert out["code"] == "DOCLING_UNAVAILABLE"
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -741,7 +758,7 @@ def test_settings_ocr_backend_options_are_registry_ids():
     ],
 )
 def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expected_kind, expected_rapid_backend):
-    _require_installed_od_docling()
+    _require_supported_docling()
     norm = docling_mod.DoclingPipelineParams.from_params(
         {
             "ocr_backend": backend_id,
@@ -767,7 +784,7 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
 
 
 def test_extract_text_real_docling_rejects_bad_device():
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
     res = extract_text(_tiny_hello_ocr_png(), {"device": "bogus"})
@@ -777,7 +794,7 @@ def test_extract_text_real_docling_rejects_bad_device():
 
 @pytest.mark.timeout(300)
 def test_extract_text_real_docling_non_latin_lang():
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
@@ -794,7 +811,7 @@ def test_extract_text_real_docling_non_latin_lang():
 
 @pytest.mark.timeout(300)
 def test_extract_text_real_tesseract_cli():
-    _require_installed_od_docling()
+    _require_supported_docling()
     if not shutil.which("tesseract"):
         pytest.skip("tesseract CLI not on PATH")
     pytest.importorskip("PIL.Image")
@@ -807,6 +824,59 @@ def test_extract_text_real_tesseract_cli():
     if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
         pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
     assert result["status"] == "ok"
+
+
+_DOCLING_BELOW = "%d.%d.0" % (docling_mod._DOCLING_MIN_VERSION[0], docling_mod._DOCLING_MIN_VERSION[1] - 1)
+_DOCLING_FLOOR = "%d.%d.0" % docling_mod._DOCLING_MIN_VERSION
+
+
+@pytest.mark.parametrize(
+    ("dists", "should_raise"),
+    [
+        ({"docling": _DOCLING_BELOW, "docling-slim": _DOCLING_BELOW}, True),
+        ({"docling-slim": _DOCLING_BELOW}, True),
+        ({"docling": _DOCLING_FLOOR}, False),
+        ({"docling": "2.151.1", "docling-slim": "2.151.1"}, False),
+        ({}, False),
+    ],
+)
+def test_check_docling_version(dists, should_raise):
+    def fake_version(name: str) -> str:
+        if name in dists:
+            return dists[name]
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    with patch.object(docling_mod.importlib.metadata, "version", side_effect=fake_version):
+        if should_raise:
+            with pytest.raises(docling_mod.DoclingApiMismatchError) as exc_info:
+                docling_mod._check_docling_version()
+            assert _DOCLING_BELOW in str(exc_info.value)
+            assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in str(exc_info.value)
+        else:
+            docling_mod._check_docling_version()
+
+
+def test_extract_text_old_docling_reports_upgrade():
+    def fake_version(name: str) -> str:
+        if name == "docling":
+            return _DOCLING_BELOW
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    with patch.object(docling_mod.importlib.metadata, "version", side_effect=fake_version):
+        result = extract_text(b"png", {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "DOCLING_API_MISMATCH"
+    assert _DOCLING_BELOW in result["message"]
+    assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in result["message"]
+
+
+def test_resolve_layout_model_spec_real_docling():
+    _require_supported_docling()
+    for key in docling_mod._LAYOUT_KEYS:
+        assert docling_mod._resolve_layout_model_spec(key).name == f"layout_{key}"
+    for fallback_key in ("egret", "v2", "nope"):
+        assert docling_mod._resolve_layout_model_spec(fallback_key).name == "layout_heron"
 
 
 def test_from_params_rapidocr_options():
@@ -838,7 +908,7 @@ def test_rapidocr_model_size_not_supported_maps_to_invalid_param():
 
 
 def test_extract_text_real_docling_tiny_japanese_is_invalid_param():
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
@@ -854,7 +924,7 @@ def test_extract_text_real_docling_tiny_japanese_is_invalid_param():
 
 @pytest.mark.timeout(300)
 def test_extract_text_real_docling_detect_orientation_reads_rotated_page():
-    _require_installed_od_docling()
+    _require_supported_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
     pytest.importorskip("onnxruntime")
@@ -902,7 +972,7 @@ def test_tesseract_program_not_running_maps_to_backend_unavailable():
 
 @pytest.mark.timeout(300)
 def test_extract_text_real_tesseract_cli_off_path(tmp_path, monkeypatch):
-    _require_installed_od_docling()
+    _require_supported_docling()
     real = shutil.which("tesseract")
     if not real:
         pytest.skip("tesseract CLI not installed")

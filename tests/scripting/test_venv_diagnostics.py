@@ -237,7 +237,7 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
                 ("vision", "Vision Libraries", ("docling", "rapidocr", "onnxruntime", "css_inline", "numpy"), ()),
             ],
             True,
-            ("numpy", "scipy", "docling", "rapidocr", "css-inline", "onnxruntime"),
+            ("numpy", "scipy", '"docling>=2.145"', "rapidocr", "css-inline", "onnxruntime"),
             (),
             id="multiple_groups_single_deduplicated_footer",
         ),
@@ -891,3 +891,11 @@ def test_ocr_engine_probe_lists_tesseract_in_default_install_folder():
     with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
         exec(_OCR_ENGINE_PROBE_BODY, ns)
     assert ns["out"]["tesseract"] == "present"
+
+
+def test_docling_pip_token_matches_vision_docling_floor():
+    """Host diagnostics cannot import vision_docling at runtime, so pin the shared floor in tests."""
+    from plugin.scripting.venv_diagnostics import _PROBE_KEY_TO_PIP
+    from plugin.vision.venv.vision_docling import _DOCLING_MIN_VERSION
+
+    assert _PROBE_KEY_TO_PIP["docling"] == '"docling>=%d.%d"' % _DOCLING_MIN_VERSION

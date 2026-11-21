@@ -129,9 +129,7 @@ def test_extract_text_docling_unavailable_no_fallback(mock_convert):
 
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
-    mock_convert.side_effect = AttributeError(
-        "'LayoutModelConfig' object has no attribute 'get_engine_config'"
-    )
+    mock_convert.side_effect = docling_mod.DoclingApiMismatchError("Docling too old")
 
     with patch("plugin.vision.venv.vision_paddle.decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
@@ -408,3 +406,17 @@ def test_apply_structured_insert_html_skips_html_mode():
     result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
     out = apply_structured_insert_html(result, {"insert_mode": "html"})
     assert out is result
+
+
+def test_run_vision_routes_load_models():
+    with patch("plugin.vision.venv.vision_docling.load_models", return_value={"status": "ok", "helper": "load_models"}) as mock_load:
+        out = run_vision({"helper": "load_models", "params": {"layout_model": "heron"}}, None, {})
+    assert out == {"status": "ok", "helper": "load_models"}
+    mock_load.assert_called_once_with({"layout_model": "heron"})
+
+
+def test_load_models_paddle_engine_skips_docling():
+    with patch("plugin.vision.venv.vision_docling.load_models") as mock_load:
+        out = run_vision({"helper": "load_models", "params": {"engine": "paddle"}}, None, {})
+    assert out == {"status": "ok", "helper": "load_models"}
+    mock_load.assert_not_called()
