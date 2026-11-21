@@ -458,13 +458,15 @@ This caches **execution output** on the host — separate from the worker [**cod
 
 Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads, built by `payload_codec.pack_multi_data_envelope`). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
 
+On Collabora Online the JSON `data` field carries one argument directly or several as a JSON array. Because Calc sends a range as a nested grid (`[[…]]`) and a single cell or literal as a bare value, `calc_range._is_json_argument_list` treats any non-empty JSON list containing a bare value or a nested grid as one input per item, while a list of flat rows stays a single range.
+
 | Layer | Module |
 |-------|--------|
 | Arg split / convert | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) — rectangular grids + `pack_calc_data_for_wire` |
 | Add-in execution | [`function.py`](../../plugin/calc/python/function.py) |
 | Range value type | [`calc_range.py`](../../plugin/scripting/calc_range.py) — `CalcRange`, `materialize_inputs` |
 | Wire codec | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) |
-| Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_function_multi.py`](../../tests/calc/python/test_function_multi.py) |
+| Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_online_py_json_contract.py`](../../tests/compute_service/test_online_py_json_contract.py) |
 
 User-facing varargs examples: [core §9 — Multi-Range Support](../enabling_numpy_in_libreoffice.md#multi-range-support-varargs).
 

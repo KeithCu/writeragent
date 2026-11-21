@@ -119,7 +119,7 @@ class TestOnlinePyJsonContract:
         body = {
             "id": "py-test-1",
             "code": "result = float(np.sum(data))",
-            "data": [1, 2, 3],
+            "data": [[1, 2, 3]],
             "mode": "isolated",
         }
         raw_body = json.dumps(body, allow_nan=False).encode("utf-8")
@@ -143,6 +143,42 @@ class TestOnlinePyJsonContract:
         )
         assert out["status"] == "ok"
         assert out["result"] == [2, True, 1, 4]
+
+    @pytest.mark.parametrize(
+        "data, code, expected",
+        [
+            pytest.param(
+                [5, [[1, 2]]],
+                "result = [len(ranges), ranges[0].values[0][0], list(ranges[1].shape)]",
+                [2, 5, [1, 2]],
+                id="scalar_then_row_range",
+            ),
+            pytest.param(
+                [5, 6],
+                "result = [len(ranges), float(data[0]) + float(data[1])]",
+                [2, 11.0],
+                id="two_scalars",
+            ),
+            pytest.param(
+                [[[1, 2, 3]], [[4, 5, 6]]],
+                "import numpy as np\nresult = [len(ranges), float(np.sum(ranges[1]))]",
+                [2, 15.0],
+                id="two_row_ranges",
+            ),
+            pytest.param(
+                [[1], [2], [3]],
+                "result = [len(ranges), list(data.shape)]",
+                [1, [3, 1]],
+                id="column_range",
+            ),
+        ],
+    )
+    def test_each_formula_argument_is_its_own_input(
+        self, data: Any, code: str, expected: Any
+    ) -> None:
+        out = _execute_code(code, data=data)
+        assert out["status"] == "ok"
+        assert out["result"] == expected
 
     def test_ndarray_egress_is_lists(self) -> None:
         import numpy as np

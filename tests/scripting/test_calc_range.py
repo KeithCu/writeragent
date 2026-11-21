@@ -90,17 +90,24 @@ def test_materialize_inner_grid_uses_split_grid_decoder():
     assert CalcRange(mixed_wire).values == CalcRange(mixed_grid).values
 
 
-def test_materialize_json_list_of_grids_as_multi_inputs():
-    # Online =PY multi-range JSON without multi_data envelope.
-    wire = [[[1, 2]], [[3], [4]]]
+@pytest.mark.parametrize(
+    "wire, expected",
+    [
+        pytest.param([5, [[1, 2]]], [((1, 1), [[5]]), ((1, 2), [[1, 2]])], id="scalar_then_row_range"),
+        pytest.param([[[1, 2]], 5], [((1, 2), [[1, 2]]), ((1, 1), [[5]])], id="row_range_then_scalar"),
+        pytest.param([5, 6], [((1, 1), [[5]]), ((1, 1), [[6]])], id="two_scalars"),
+        pytest.param(["a", [[1]]], [((1, 1), [["a"]]), ((1, 1), [[1]])], id="text_then_range"),
+        pytest.param([[[1, 2, 3]], [[4, 5, 6]]], [((1, 3), [[1, 2, 3]]), ((1, 3), [[4, 5, 6]])], id="two_row_ranges"),
+        pytest.param([[[1, 2]], [[3], [4]]], [((1, 2), [[1, 2]]), ((2, 1), [[3], [4]])], id="row_and_column_ranges"),
+        pytest.param([[1], [2], [3]], [((3, 1), [[1], [2], [3]])], id="column_range"),
+        pytest.param([[1, 2, 3]], [((1, 3), [[1, 2, 3]])], id="row_range"),
+        pytest.param([[1, 2], [3, 4]], [((2, 2), [[1, 2], [3, 4]])], id="block"),
+        pytest.param([[[1, 2], [3, 4]]], [((2, 2), [[1, 2], [3, 4]])], id="one_grid_in_list"),
+    ],
+)
+def test_materialize_inputs_one_input_per_formula_argument(wire, expected):
     inputs = materialize_inputs(wire)
-    assert len(inputs) == 2
-    assert inputs[0].values == [[1, 2]]
-    assert inputs[1].values == [[3], [4]]
-    # Ordinary 2D block stays one range.
-    single = materialize_inputs([[1, 2], [3, 4]])
-    assert len(single) == 1
-    assert single[0].shape == (2, 2)
+    assert [(r.shape, r.values) for r in inputs] == expected
 
 
 def test_dataframe_egress_includes_header_row():
@@ -571,22 +578,6 @@ def test_materialize_calc_range_shape_assertion():
     bad_env["shape"] = [3, 2]
     with pytest.raises(AssertionError):
         materialize_calc_range(bad_env)
-
-
-def test_json_list_of_grids_single_item():
-    """A list holding a single 2D grid is detected as a list of grids and roundtrips."""
-    from plugin.scripting.calc_range import _is_json_list_of_grids, materialize_inputs
-
-    single_grid_list = [[[1, 2], [3, 4]]]
-    assert _is_json_list_of_grids(single_grid_list) is True
-
-    # materialize_inputs unpacks each grid to a CalcRange
-    ranges = materialize_inputs(single_grid_list)
-    assert len(ranges) == 1
-    assert ranges[0].values == [[1, 2], [3, 4]]
-
-    # A normal 2D grid is not a list of grids
-    assert _is_json_list_of_grids([[1, 2], [3, 4]]) is False
 
 
 def test_result_to_calc_grid_total_egress():

@@ -580,7 +580,7 @@ class TestHttpBlobForward:
 class TestFormulaPoolWire:
     def test_json_forward_does_not_host_pack(self) -> None:
         # 40×30 = 1200 cells (above compute pickle min_cells=1000) but under
-        # DEAL_MAX_SHAPE_DIM so materialize_inputs' list-of-grids pre still holds.
+        # DEAL_MAX_SHAPE_DIM so materialize_inputs' argument-list pre still holds.
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
