@@ -145,7 +145,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Launch | Role |
 |--------|------|
 | **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json`. `worker_timeout_sec`, `artifacts_path`, and `force_full_page_ocr` are `writeragent.json`-only. |
-| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or, when Docling is not installed, PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract`) are listed when present and never counted as Missing; paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
+| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or, when Docling is not installed, PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` via `which` on `PATH` and its default install folders) are listed when present and never counted as Missing; paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
@@ -497,9 +497,11 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Default (Docling + RapidOCR ONNX) | defaults — `pip install docling onnxruntime css-inline` |
 | Sideways scans / speed vs accuracy (RapidOCR) | `rapidocr_detect_orientation=true` / `rapidocr_model_size=tiny\|medium` |
 | RapidOCR with OpenVINO / Paddle / PyTorch | `ocr_backend=rapidocr_openvino` / `rapidocr_paddle` / `rapidocr_torch` + matching engine package |
-| EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (`tesseract` on `PATH`) |
+| EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (Tesseract on `PATH`, or in `C:\Program Files\Tesseract-OCR`, `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`) |
 | Apple macOS Vision / NVIDIA Nemotron | `ocr_backend=ocrmac` (`pip install ocrmac`, macOS) or `ocr_backend=nemotron` (`pip install nemotron-ocr`, Linux CUDA) |
 | Lightweight Paddle-only | `engine=paddle`; `pip install paddleocr paddlepaddle` |
+
+**Tesseract CLI notes:** Docling runs one OSD subprocess and one OCR subprocess per OCR region, so full-page OCR (the image default) is the cheap mode. Each `lang` needs its `traineddata`, and `osd` avoids per-region OSD errors. The tessdata dir is not configurable because Docling lists languages from Tesseract's default dir (`tesseract_ocr_cli_model.py:_set_languages`).
 
 ### 7.7 Other packages (mention only)
 
@@ -682,7 +684,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
-| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing (message carries the install line); no Paddle fallback |
+| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing (message carries the install line) or the Tesseract program found does not start; no Paddle fallback |
 | `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine has no model for the requested language (`details` has `language`, `engine`) |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |
@@ -787,7 +789,7 @@ docling-tools models download rapidocr --rapidocr-backend-lang onnxruntime:iso:e
 | Probe | Report |
 |-------|--------|
 | `import docling`, `import rapidocr`, `import onnxruntime`, `css_inline` | OCR required (Docling primary); Missing (OCR) when stack not ready |
-| `find_spec` / `which` for `easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` | optional OCR engines; listed when present and never counted as Missing |
+| `find_spec` / `which` (PATH + default install folders) for `easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` | optional OCR engines; listed when present and never counted as Missing |
 | `import paddleocr`, `import paddle` | optional fallback (or OCR ready when Paddle-only); never required Missing when Docling works |
 | `import ultralytics` | Optional (not installed) until Phase 4 |
 | Optional `import skimage` | Optional (not installed) |

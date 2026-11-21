@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import logging
 import shutil
@@ -757,6 +758,8 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
 
     assert opts.kind == expected_kind
     assert opts.lang == ["iso:en-Latn"]
+    if backend_id == "tesseract":
+        assert opts.tesseract_cmd == "/usr/bin/tesseract"
     if expected_rapid_backend is not None:
         assert opts.backend == expected_rapid_backend
         assert opts.model_size == "medium"
@@ -880,3 +883,43 @@ def test_extract_text_real_docling_detect_orientation_reads_rotated_page():
 
     assert result["status"] == "ok"
     assert "ZQXPHOENIX" in result["full_text"]
+
+
+def test_installed_ocr_backend_finds_tesseract_outside_path():
+    with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
+        row, program = docling_mod._installed_ocr_backend("tesseract")
+    assert row == docling_mod.OCR_BACKENDS["tesseract"]
+    assert program == "/opt/homebrew/bin/tesseract"
+
+
+def test_tesseract_program_not_running_maps_to_backend_unavailable():
+    err = RuntimeError("Tesseract is not available, aborting: too many values to unpack (expected 2) Install tesseract …")
+    with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
+        res = extract_text(b"png", {"ocr_backend": "tesseract"})
+    assert res["status"] == "error"
+    assert res["code"] == "OCR_BACKEND_UNAVAILABLE"
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_tesseract_cli_off_path(tmp_path, monkeypatch):
+    _require_installed_od_docling()
+    real = shutil.which("tesseract")
+    if not real:
+        pytest.skip("tesseract CLI not installed")
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("css_inline")
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setitem(
+        docling_mod.OCR_BACKENDS,
+        "tesseract",
+        dataclasses.replace(docling_mod.OCR_BACKENDS["tesseract"], programs=("tesseract", real)),
+    )
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "tesseract", "lang": "en"},
+    )
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+    assert result["status"] == "ok"
+    assert "hello" in result["full_text"].lower()

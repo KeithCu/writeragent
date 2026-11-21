@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
+from plugin.framework.constants import TESSERACT_PROGRAMS
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
     bbox_to_xywh,
@@ -67,7 +68,7 @@ class OcrBackend:
 
     options_class: str  # attribute of docling.datamodel.pipeline_options
     modules: tuple[str, ...] = ()  # top-level modules that must be importable in the venv
-    executable: str = ""  # program that must be on PATH (Tesseract CLI)
+    programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
     install_hint: str = ""
     rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
 
@@ -92,10 +93,11 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
     "easyocr": OcrBackend("EasyOcrOptions", ("easyocr",), install_hint="pip install easyocr"),
     "tesseract": OcrBackend(
         "TesseractCliOcrOptions",
-        executable="tesseract",
+        programs=TESSERACT_PROGRAMS,
         install_hint=(
-            "Install the Tesseract OCR program with its eng and osd language data from your system's package "
-            "manager (Windows: the UB Mannheim installer) and put tesseract on PATH."
+            "Install the Tesseract OCR program with its eng and osd language data (Linux: your package manager; "
+            "macOS: Homebrew or MacPorts; Windows: the UB Mannheim installer). WriterAgent looks for tesseract "
+            "on PATH and in its default install folder."
         ),
     ),
     "nemotron": OcrBackend(
@@ -110,21 +112,22 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
 }
 
 
-def _installed_ocr_backend(name: str) -> OcrBackend:
-    """Return the registry row for *name*; raise OcrBackendError when unknown or when its modules/program are missing."""
+def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
+    """Return (row, program) for *name*; raise OcrBackendError when unknown or when its modules/program are missing."""
     row = OCR_BACKENDS.get(name)
     if row is None:
         raise OcrBackendError(
             f"Unknown ocr_backend {name!r}; expected one of: {', '.join(sorted(OCR_BACKENDS))}"
         )
     missing = [m for m in row.modules if importlib.util.find_spec(m) is None]
-    if row.executable and shutil.which(row.executable) is None:
-        missing.append(row.executable)
+    program = next((found for found in map(shutil.which, row.programs) if found), "")
+    if row.programs and not program:
+        missing.append(row.programs[0])
     if missing:
         raise OcrBackendError(
             f"OCR backend {name!r} needs {', '.join(missing)}, which is not installed for the Python venv. {row.install_hint}"
         )
-    return row
+    return row, program
 
 
 class LayoutModelError(RuntimeError):
@@ -198,7 +201,7 @@ _converter_cache: dict[DoclingPipelineParams, Any] = {}
 
 def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     """Build Docling OcrOptions for the requested backend, raising OcrBackendError on failure."""
-    row = _installed_ocr_backend(norm.backend)
+    row, program = _installed_ocr_backend(norm.backend)
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
     kwargs: dict[str, Any] = {"lang": list(norm.lang)}
     if row.rapidocr_engine:
@@ -207,6 +210,9 @@ def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
         # RapidOcrOptions-only fields; other OcrOptions classes forbid extra fields.
         kwargs["model_size"] = norm.rapidocr_model_size
         kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
+    if program:
+        # Absolute path, so Docling's --version/--list-langs/OCR subprocesses do not depend on the worker's PATH.
+        kwargs["tesseract_cmd"] = program
     try:
         opts_cls = getattr(pipeline_options_mod, row.options_class)
     except AttributeError as exc:
@@ -586,6 +592,10 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
         )
+    # Docling's TesseractOcrCliModel.__init__ (models/stages/ocr/tesseract_ocr_cli_model.py) wraps a failed
+    # `tesseract --version` / `--list-langs` in this RuntimeError: the program was found but does not run.
+    if isinstance(exc, RuntimeError) and str(exc).startswith("Tesseract is not available"):
+        return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
     # RapidOCR has no PP-OCRv6 checkpoint at the chosen rapidocr_model_size for this language (tiny has no
     # Japanese model). Docling raises docling.exceptions.RapidOcrModelSizeNotSupportedError, a RuntimeError,
     # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.

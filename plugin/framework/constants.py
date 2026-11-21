@@ -90,6 +90,19 @@ WORKER_POOL_EMBEDDINGS = "embeddings"
 # Settings → Python probes. A timeout must not kill the formula worker.
 WORKER_POOL_DIAGNOSTICS = "diagnostics"
 
+# Where the Tesseract OCR program is looked for, in order. "tesseract" is looked up on PATH; the
+# absolute paths are the default install folders that a GUI-started LibreOffice usually lacks on
+# PATH: the UB Mannheim installer on Windows does not edit PATH, and macOS apps started from Finder
+# get only /usr/bin:/bin:/usr/sbin:/sbin, which misses Homebrew (/opt/homebrew, /usr/local) and
+# MacPorts (/opt/local). Used by the vision worker and by Settings → Python → Test.
+TESSERACT_PROGRAMS: tuple[str, ...] = (
+    "tesseract",
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    "/opt/homebrew/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/opt/local/bin/tesseract",
+)
+
 
 # Model capabilities bitmasks (compatible with OnlyOfficeAI values)
 class ModelCapability(IntFlag):
