@@ -44,6 +44,17 @@ STOCK_ICON_SETTINGS = _STOCK_URL_PREFIX + "cmd/sc_optionstreedialog.png"
 STOCK_ICON_SEARCH = _STOCK_URL_PREFIX + "cmd/sc_recsearch.png"
 STOCK_ICON_MATH = _STOCK_URL_PREFIX + "cmd/sc_insertmath.png"
 
+# Actions shown in the menubar and in the sidebar hamburger/header that use a
+# LibreOffice stock icon. Addons.xcu cannot name a stock icon
+# (AddonsOptions_Impl::ReadImageFromURL in framework/source/fwe/classes/addonsoptions.cxx
+# opens it through UCB and returns a plain bitmap), so MenuIcons.apply writes these
+# into the module ImageManagers, which MenuBarManager::FillMenuImages reads first.
+STOCK_ACTION_ICONS: dict[str, str] = {
+    "main.settings": STOCK_ICON_SETTINGS,
+    "embeddings.search_dialog": STOCK_ICON_SEARCH,
+    "writer.insert_latex_dialog": STOCK_ICON_MATH,
+}
+
 # Shipped menu-icon suffixes we can select.
 _AVAILABLE_PX = (16, 24, 32, 40)
 # LibreOffice CountDPIScaleFactor thresholds: DPI > n picks that bucket's size.
@@ -364,7 +375,12 @@ def pick_shipped_icon(prefix: str, wanted_px: int, candidates: tuple[int, ...], 
 
 
 def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> str:
-    """Return ``{prefix}_{px}.png``, falling back to nearest shipped size."""
+    """Return ``{prefix}_{px}.png``, falling back to the nearest shipped size.
+
+    A stock URL comes back unchanged so ``MenuIcons`` can mix stock icons and PNG prefixes.
+    """
+    if prefix.startswith(_STOCK_URL_PREFIX):
+        return prefix
     if px is None:
         px = resolve_menu_icon_pixel_size(ctx)
     cache_key = (prefix, px)

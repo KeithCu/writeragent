@@ -1073,10 +1073,46 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     el._apply_sidebar_mode.assert_called_once()
 
 
-def test_wire_buttons_settings_and_search_use_stock_icons() -> None:
-    from unittest.mock import MagicMock
+def test_settings_and_search_icons_match_menubar_hamburger_and_header() -> None:
+    from unittest.mock import MagicMock, patch
 
-    from plugin.framework.menu_icon_dpi import STOCK_ICON_SEARCH, STOCK_ICON_SETTINGS
+    from plugin.chatbot.hamburger_menu import show_hamburger_menu
+    from plugin.framework.menu_icon_dpi import STOCK_ICON_MATH, STOCK_ICON_SEARCH, STOCK_ICON_SETTINGS
+    from plugin.menu_state import MenuIcons
+
+    def _fake_graphic(_ctx: object, icon: str) -> MagicMock:
+        graphic = MagicMock()
+        graphic.source = icon
+        return graphic
+
+    img_mgr = MagicMock()
+    img_mgr.hasImage.return_value = False
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value.getUIConfigurationManager.return_value.getImageManager.return_value = img_mgr
+    with (
+        patch("plugin.menu_state.get_ctx", return_value=MagicMock()),
+        patch("plugin.menu_state.get_service_manager", return_value=smgr),
+        patch("plugin.menu_state.load_menu_graphic", side_effect=_fake_graphic),
+        patch("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=16),
+        patch("plugin.framework.appearance.get_style_window", return_value=None),
+        patch("plugin.app.get_menu_icon", return_value=None),
+    ):
+        MenuIcons().apply()
+    menubar = {c.args[1][0]: c.args[2][0].source for c in img_mgr.insertImages.call_args_list if c.args[0] == 0}
+
+    popup = MagicMock()
+    popup.execute.return_value = 0
+    hb_ctx = MagicMock()
+    hb_ctx.getServiceManager.return_value.createInstanceWithContext.return_value = popup
+    with (
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+        patch("plugin.chatbot.hamburger_menu.load_menu_graphic", side_effect=_fake_graphic),
+    ):
+        show_hamburger_menu(hb_ctx, MagicMock(), MagicMock())
+    id_to_cmd = {c.args[0]: c.args[1] for c in popup.setCommand.call_args_list}
+    hamburger = {id_to_cmd[c.args[0]]: c.args[1].source for c in popup.setItemImage.call_args_list}
 
     el, controls, _send, _stop = _wire_buttons_setup(chat_mode_selector=MagicMock())
     for btn_id in ("btn_settings", "btn_python", "btn_search"):
@@ -1087,8 +1123,13 @@ def test_wire_buttons_settings_and_search_use_stock_icons() -> None:
     with _wire_buttons_patches(send_listener=MagicMock(), ext_url="file:///ext"):
         el._wire_buttons(controls, MagicMock(), "chat", None)
 
-    assert controls["btn_settings"].getModel.return_value.ImageURL == STOCK_ICON_SETTINGS
-    assert controls["btn_search"].getModel.return_value.ImageURL == STOCK_ICON_SEARCH
+    settings_cmd = "org.extension.writeragent:main.settings"
+    search_cmd = "org.extension.writeragent:embeddings.search_dialog"
+    latex_cmd = "org.extension.writeragent:writer.insert_latex_dialog"
+
+    assert menubar[settings_cmd] == hamburger[settings_cmd] == controls["btn_settings"].getModel.return_value.ImageURL == STOCK_ICON_SETTINGS
+    assert menubar[search_cmd] == hamburger[search_cmd] == controls["btn_search"].getModel.return_value.ImageURL == STOCK_ICON_SEARCH
+    assert menubar[latex_cmd] == hamburger[latex_cmd] == STOCK_ICON_MATH
     assert controls["btn_python"].getModel.return_value.ImageURL == "file:///ext/assets/python_16.png"
 
 
