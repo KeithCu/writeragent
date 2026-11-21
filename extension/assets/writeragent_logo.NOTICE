@@ -5,9 +5,7 @@ Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclu
 Source: simplified from logo.jpg, the WriterAgent project logo, under the same
 terms as logo.jpg.
 
-Deck icon is a PNG because an SVG IconURL is turned into a bitmap at the screen
-DPI (vcl/source/gdi/vectorgraphicdata.cxx convertPrimitive2DSequenceToBitmap)
-and overflows the 24-point slot on macOS.
+Deck icon is a 24×24 PNG rather than SVG; see docs/framework/uno-utilities.md.
 
 Regenerate 24×24 PNG (sidebar deck icon):
   rsvg-convert -w 24 -h 24 --background-color=none writeragent_logo.svg -o /tmp/wa24.png

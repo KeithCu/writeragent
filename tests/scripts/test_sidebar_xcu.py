@@ -39,7 +39,8 @@ _SIDEBAR_XCUS = [
 
 def _deck_icon_urls(xcu_path: Path) -> list[tuple[str, str]]:
     root = ET.parse(xcu_path).getroot()
-    deck_list = next(n for n in root.iter("node") if n.get(_OOR_NAME) == "DeckList")
+    deck_list = next((n for n in root.iter("node") if n.get(_OOR_NAME) == "DeckList"), None)
+    assert deck_list is not None, f"No DeckList in {xcu_path}"
     urls: list[tuple[str, str]] = []
     for deck in deck_list.findall("node"):
         deck_name = deck.get(_OOR_NAME) or ""

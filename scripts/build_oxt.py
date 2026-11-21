@@ -218,7 +218,7 @@ def should_exclude(path, with_tests=False):
     ) and (path_norm.endswith(".po") or path_norm.endswith(".pot")):
         return True
     # Logo sources and attribution notes under assets/ are dev-only; the OXT ships only the PNGs that menus and sidebar decks load.
-    if "assets/" in path_norm and path_norm.endswith((".svg", ".NOTICE")):
+    if path_norm.startswith("extension/assets/") and path_norm.endswith((".svg", ".NOTICE")):
         return True
 
     parts = [p for p in path_norm.split("/") if p]
