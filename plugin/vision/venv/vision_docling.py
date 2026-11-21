@@ -31,7 +31,8 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-_DOCLING_MIN_VERSION: tuple[int, int] = (2, 127)
+# Floor 2.145: iso: language tags arrived in 2.127, RapidOCR model_size in 2.133, and detect_orientation in 2.145.
+_DOCLING_MIN_VERSION: tuple[int, int] = (2, 145)
 _DOCLING_REQUIREMENT = "docling>=%d.%d" % _DOCLING_MIN_VERSION
 # Double quotes stop the shell reading ">" as a redirect (cmd.exe and POSIX shells alike).
 _DOCLING_INSTALL_CMD = f'pip install "{_DOCLING_REQUIREMENT}" onnxruntime css-inline'
@@ -511,7 +512,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
         return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
     if isinstance(exc, DoclingApiMismatchError):
         return error_result("DOCLING_API_MISMATCH", str(exc), helper=helper)
-    # Docling >= 2.127 raises docling.exceptions.OcrLanguageNotSupportedError (a RuntimeError) when the engine
+    # Docling raises docling.exceptions.OcrLanguageNotSupportedError (a RuntimeError) when the engine
     # has no model for a requested language; its message lists the supported iso: tags. Matched by name so
     # this module never imports Docling just to map an error; getattr keeps pyright happy on Exception.
     if type(exc).__name__ == "OcrLanguageNotSupportedError":

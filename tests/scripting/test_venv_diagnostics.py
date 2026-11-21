@@ -236,7 +236,7 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
                 ("vision", "Vision Libraries", ("docling", "rapidocr", "onnxruntime", "css_inline", "numpy"), ()),
             ],
             True,
-            ("numpy", "scipy", '"docling>=2.127"', "rapidocr", "css-inline", "onnxruntime"),
+            ("numpy", "scipy", '"docling>=2.145"', "rapidocr", "css-inline", "onnxruntime"),
             (),
             id="multiple_groups_single_deduplicated_footer",
         ),
@@ -883,3 +883,11 @@ def test_named_probe_uses_group_specific_timeout(name, expected_timeout_attr):
     ):
         diag._run_named_json_probe("/x/python", name)
     assert mock_probe.call_args.args[2] == sentinel
+
+
+def test_docling_pip_token_matches_vision_docling_floor():
+    """Host diagnostics cannot import vision_docling at runtime, so pin the shared floor in tests."""
+    from plugin.scripting.venv_diagnostics import _PROBE_KEY_TO_PIP
+    from plugin.vision.venv.vision_docling import _DOCLING_MIN_VERSION
+
+    assert _PROBE_KEY_TO_PIP["docling"] == '"docling>=%d.%d"' % _DOCLING_MIN_VERSION

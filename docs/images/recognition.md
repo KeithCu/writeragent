@@ -102,7 +102,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path
-2. In that venv: pip install "docling>=2.127" onnxruntime css-inline
+2. In that venv: pip install "docling>=2.145" onnxruntime css-inline
    (Paddle-only fallback: pip install paddleocr paddlepaddle numpy — set params engine=paddle)
    (ultralytics not required until Phase 4 helpers)
 3. Open a Writer document
@@ -116,7 +116,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path (same venv as analysis helpers)
-2. pip install "docling>=2.127" onnxruntime css-inline
+2. pip install "docling>=2.145" onnxruntime css-inline
 3. Open a Calc document with a cell-anchored embedded image
 4. Click the image so it is selected (export source)
 5. WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text → Run
@@ -413,14 +413,14 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 
 | # | Library | Install | Role |
 |---|---------|---------|------|
-| **1** | **Docling** | `pip install "docling>=2.127" onnxruntime css-inline` | **Default** OCR, layout, tables — `engine=docling` |
+| **1** | **Docling** | `pip install "docling>=2.145" onnxruntime css-inline` | **Default** OCR, layout, tables — `engine=docling` |
 | **2** | **PaddleOCR** | `pip install paddleocr paddlepaddle numpy` | Lightweight fallback — `engine=paddle` |
 | **3** | **Ultralytics** | `pip install ultralytics` | YOLO detection — **Phase 4+** helpers only |
 
 Primary install (Docling default):
 
 ```bash
-pip install "docling>=2.127" onnxruntime css-inline
+pip install "docling>=2.145" onnxruntime css-inline
 ```
 
 Paddle-only fallback:
@@ -432,7 +432,7 @@ pip install paddleocr paddlepaddle numpy
 Full stack:
 
 ```bash
-pip install "docling>=2.127" onnxruntime css-inline paddleocr paddlepaddle ultralytics
+pip install "docling>=2.145" onnxruntime css-inline paddleocr paddlepaddle ultralytics
 ```
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
@@ -447,11 +447,11 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
-| `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.127 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
+| `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.145 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
 
 `text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`.
 
-WriterAgent requires Docling ≥ 2.127 (released 2026-09-14). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.127"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.127.
+WriterAgent requires Docling ≥ 2.145 (released 2026-10-29). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.145"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.145.
 
 Success payloads may include `metrics.engine`, `metrics.ocr_backend`, and `metrics.input_format` (`image` or `pdf`) for provenance.
 
@@ -492,7 +492,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 
 | Goal | Params / install |
 |------|------------------|
-| Default (Docling + RapidOCR ONNX) | defaults — `pip install "docling>=2.127" onnxruntime css-inline` |
+| Default (Docling + RapidOCR ONNX) | defaults — `pip install "docling>=2.145" onnxruntime css-inline` |
 | RapidOCR with OpenVINO / Paddle / PyTorch | `ocr_backend=rapidocr_openvino` / `rapidocr_paddle` / `rapidocr_torch` + matching engine package |
 | EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (`tesseract` on `PATH`) |
 | Apple macOS Vision / NVIDIA Nemotron | `ocr_backend=ocrmac` (`pip install ocrmac`, macOS) or `ocr_backend=nemotron` (`pip install nemotron-ocr`, Linux CUDA) |
@@ -678,7 +678,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `NO_OUTPUT_ANCHOR` | Calc: selected graphic has no resolvable cell **Anchor** |
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
-| `DOCLING_API_MISMATCH` | Installed Docling older than 2.127; message names the version and the upgrade command (Paddle fallback applies) |
+| `DOCLING_API_MISMATCH` | Installed Docling older than 2.145; message names the version and the upgrade command (Paddle fallback applies) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
 | `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing (message carries the install line); no Paddle fallback |
 | `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine has no model for the requested language (`details` has `language`, `engine`) |
@@ -769,7 +769,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 Venv package requirements for Vision Helpers are also summarized in the [domain package groups table](../scripting/numpy-domains.md#planned-domain-package-groups). Trusted-code pattern (host stub → venv module): [../enabling_numpy_in_libreoffice.md §5](../enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ```bash
-pip install "docling>=2.127" onnxruntime css-inline
+pip install "docling>=2.145" onnxruntime css-inline
 ```
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional hidden `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.

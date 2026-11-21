@@ -93,7 +93,7 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "css_inline": "css-inline",
     # Quoted so the shell does not read > as a redirect; kept in sync with _DOCLING_MIN_VERSION
     # in plugin/vision/venv/vision_docling.py (host diagnostics cannot import that venv module).
-    "docling": '"docling>=2.127"',
+    "docling": '"docling>=2.145"',
     "language_tool_python": "language-tool-python",
     "python_docx": "python-docx",
     "sentence_transformers": "sentence-transformers",

@@ -23,7 +23,7 @@ from plugin.vision.venv.vision_docling import export_docling_to_html, extract_st
 
 
 def _require_supported_docling() -> None:
-    """Skip unless Docling is installed and >= 2.127."""
+    """Skip unless Docling is installed and meets _DOCLING_MIN_VERSION."""
     pytest.importorskip("docling.document_converter")
     try:
         docling_mod._check_docling_version()
@@ -165,7 +165,7 @@ def test_extract_text_docling_missing():
 
     assert result["status"] == "error"
     assert result["code"] == "DOCLING_UNAVAILABLE"
-    assert 'pip install "docling>=2.127"' in result["message"]
+    assert docling_mod._DOCLING_INSTALL_CMD in result["message"]
 
 
 def test_extract_text_unknown_ocr_backend():
@@ -227,7 +227,7 @@ def test_apply_pipeline_params_maps_flat_keys():
 
 
 def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
-    """Requires installed Docling ≥2.127; skips otherwise. No importlib mock.
+    """Requires a supported installed Docling; skips otherwise. No importlib mock.
 
     Catches issue 587 on a real install: OD layout model_spec must expose
     get_engine_config after WriterAgent builds pipeline options.
@@ -770,12 +770,16 @@ def test_extract_text_real_tesseract_cli():
     assert result["status"] == "ok"
 
 
+_DOCLING_BELOW = "%d.%d.0" % (docling_mod._DOCLING_MIN_VERSION[0], docling_mod._DOCLING_MIN_VERSION[1] - 1)
+_DOCLING_FLOOR = "%d.%d.0" % docling_mod._DOCLING_MIN_VERSION
+
+
 @pytest.mark.parametrize(
     ("dists", "should_raise"),
     [
-        ({"docling": "2.126.0", "docling-slim": "2.126.0"}, True),
-        ({"docling-slim": "2.126.0"}, True),
-        ({"docling": "2.127.0"}, False),
+        ({"docling": _DOCLING_BELOW, "docling-slim": _DOCLING_BELOW}, True),
+        ({"docling-slim": _DOCLING_BELOW}, True),
+        ({"docling": _DOCLING_FLOOR}, False),
         ({"docling": "2.151.1", "docling-slim": "2.151.1"}, False),
         ({}, False),
     ],
@@ -790,8 +794,8 @@ def test_check_docling_version(dists, should_raise):
         if should_raise:
             with pytest.raises(docling_mod.DoclingApiMismatchError) as exc_info:
                 docling_mod._check_docling_version()
-            assert "2.126.0" in str(exc_info.value)
-            assert 'pip install -U "docling>=2.127"' in str(exc_info.value)
+            assert _DOCLING_BELOW in str(exc_info.value)
+            assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in str(exc_info.value)
         else:
             docling_mod._check_docling_version()
 
@@ -799,7 +803,7 @@ def test_check_docling_version(dists, should_raise):
 def test_extract_text_old_docling_reports_upgrade():
     def fake_version(name: str) -> str:
         if name == "docling":
-            return "2.126.0"
+            return _DOCLING_BELOW
         raise importlib.metadata.PackageNotFoundError(name)
 
     with patch.object(docling_mod.importlib.metadata, "version", side_effect=fake_version):
@@ -807,8 +811,8 @@ def test_extract_text_old_docling_reports_upgrade():
 
     assert result["status"] == "error"
     assert result["code"] == "DOCLING_API_MISMATCH"
-    assert "2.126.0" in result["message"]
-    assert 'pip install -U "docling>=2.127"' in result["message"]
+    assert _DOCLING_BELOW in result["message"]
+    assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in result["message"]
 
 
 def test_resolve_layout_model_spec_real_docling():
