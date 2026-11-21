@@ -301,7 +301,7 @@ Match coolwsd (`coolwsd.xml`):
 
 coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). When `KIT_HOST_ALLOWLIST` is set in coolwsd's environment, the compute URL host must match that allowlist (an empty or unset list allows every host; a Docker DNS name is rejected once the list is non-empty).
 
-The Collabora kit sends `application/json` (the peel path) and always specifies `mode: "isolated"`. It does not send `init_script` or `session_id` (though the compute service accepts both). Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora Online writes the cell string `Image generated (plot insert not supported yet)`. The compute image does not insert picture shapes into the document.
+The Collabora kit sends `application/json` (the peel path) and always specifies `mode: "isolated"`. It does not send `init_script` or `session_id` (though the compute service accepts both). Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora draws the plots in the formula cell and writes `Image inserted` or `Images inserted` when `result` is null. A plot SVG over 1 MiB is sent as PNG. Which figures are sent: see `docs/scripting/numpy-domains.md` ('Which figures become pictures'). The compute image does not insert picture shapes into the document.
 
 ---
 

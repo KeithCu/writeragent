@@ -175,7 +175,8 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
     closed = {"n": 0}
 
     class _Fig:
-        pass
+        def get_children(self):
+            return [None, None]
 
     class _Plt:
         def get_fignums(self):
@@ -190,10 +191,10 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
 
     monkeypatch.setattr(oi, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
 
-    def boom(fig, *, fmt="svg"):
+    def boom(fig):
         raise RuntimeError("bad figure")
 
-    monkeypatch.setattr(vs, "figure_to_image_payload", boom)
+    monkeypatch.setattr(vs, "plot_image_payload", boom)
     # Capture skips work until pyplot is imported; don't depend on test order.
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", _Plt())
     with pytest.raises(RuntimeError, match="bad figure"):

@@ -69,7 +69,7 @@ from plugin.scripting.named_scripts import (
     bind_named_scripts_executor,
     reset_named_scripts_executor,
 )
-from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
+from plugin.scripting.venv.to_wire import plot_image_payload, to_wire
 from plugin.scripting.venv import optional_import
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
@@ -640,8 +640,24 @@ def serialize_result(
         raise
 
 
-def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] | None, str]:
-    """Return (image payload from open pyplot figures, optional stdout note)."""
+def _figure_is_blank(fig: Any) -> bool:
+    """True when nothing is drawn on *fig*: FigureBase.get_children() lists only its background patch."""
+    return len(fig.get_children()) == 1
+
+
+def _figures_payload(figs: list[Any]) -> dict[str, Any]:
+    """One image per figure, in order: a single image envelope, or a multi_data envelope of them."""
+    items = [plot_image_payload(fig) for fig in figs]
+    return items[0] if len(items) == 1 else pack_multi_data_envelope(items)
+
+
+def _capture_open_figures_payload() -> tuple[dict[str, Any] | None, str]:
+    """Return (image payload from open pyplot figures, optional stdout note).
+
+    A blank figure is left out while another open figure has a drawing. Without
+    this, Anaconda's ``fig = plt.figure()`` before ``sns.catplot(...)``, which
+    makes its own figure, adds an empty picture.
+    """
     # No figure can be open before something imported pyplot; importing it
     # here would cost the multi-second font cache load on non-plot cells.
     if "matplotlib.pyplot" not in sys.modules:
@@ -653,16 +669,11 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     if not fignums:
         return None, ""
 
-    note = ""
     try:
         figs = [plt_mod.figure(num) for num in fignums]
-        if len(figs) > 1:
-            items = [figure_to_image_payload(fig, fmt=fmt) for fig in figs]
-            payload = pack_multi_data_envelope(items)
-            note = f"Captured {len(figs)} open figures.\n"
-        else:
-            payload = figure_to_image_payload(figs[0], fmt=fmt)
-        return payload, note
+        figs = [fig for fig in figs if not _figure_is_blank(fig)] or figs
+        note = f"Captured {len(figs)} open figures.\n" if len(figs) > 1 else ""
+        return _figures_payload(figs), note
     finally:
         # Close even when rendering raises or figure(num) fails; a figure left
         # open would be what the next cell returns. A close failure must not
@@ -945,14 +956,40 @@ def _is_non_value_result(obj: Any) -> bool:
     )
 
 
+def _returned_figures(obj: Any) -> list[Any]:
+    """The figures a cell returned by name, in its order, or [] when it named none.
+
+    A Figure with a drawing stands for itself, even after plt.close. A seaborn PairGrid,
+    FacetGrid, JointGrid or ClusterGrid is not a matplotlib artist and stands for its
+    ``.figure``. A list or tuple counts only when every item is one of those. An artist
+    (Line2D, Text, Axes) or a blank figure names no figure, so _is_mpl_artist_result then
+    captures every open figure.
+    """
+    fig_mod = sys.modules.get("matplotlib.figure")
+    if fig_mod is None:
+        return []
+    # matplotlib.figure imports matplotlib.artist.
+    artist = sys.modules["matplotlib.artist"].Artist
+    figs: list[Any] = []
+    for item in obj if isinstance(obj, (list, tuple)) else (obj,):
+        fig = item if isinstance(item, artist) else getattr(item, "figure", None)
+        if not isinstance(fig, fig_mod.Figure) or _figure_is_blank(fig):
+            return []
+        figs.append(fig)
+    return figs
+
+
 def _is_mpl_artist_result(obj: Any) -> bool:
-    """True for a pyplot artist or the list ``plt.plot`` returns."""
+    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns)."""
     artist_mod = sys.modules.get("matplotlib.artist")
     if artist_mod is None:
         return False
     artist = artist_mod.Artist
     if isinstance(obj, artist):
         return True
+    # matplotlib imports numpy, so numpy is loaded whenever matplotlib.artist is.
+    if isinstance(obj, sys.modules["numpy"].ndarray):
+        return obj.dtype == object and obj.size > 0 and all(isinstance(item, artist) for item in obj.flat)
     return isinstance(obj, (list, tuple)) and bool(obj) and all(isinstance(item, artist) for item in obj)
 
 
@@ -975,13 +1012,13 @@ def _serialize_cell_result(
     force: ForceBinary = "auto",
     log_failure: bool = True,
 ) -> tuple[Any, str]:
-    """Serialize *result*, swapping in open matplotlib figures when that is the output.
+    """Serialize *result*, swapping in matplotlib figures when that is the output.
 
-    A helper-only init script evaluates to the function, and plt.plot()
-    evaluates to Line2D artists. Capture open figures before the pickle
-    check rejects those objects, or the figures stay open and the next
-    script returns that SVG. A class statement is the same kind of
-    non-value as a function statement.
+    A helper-only init script evaluates to a function or class; those non-values are
+    nulled so they can cross the pickle boundary. A returned figure or seaborn grid, or a
+    list of them, becomes those images in that order, and every other open figure is closed
+    without being shown. An artist (plt.plot's lines, plt.title's Text, an Axes or an Axes
+    array) or a blank figure shows every open figure that has a drawing.
 
     A non-image value, including result = 42, is replaced when a figure is still open. That replacement stays.
     """
@@ -989,7 +1026,11 @@ def _serialize_cell_result(
         result = None
 
     extra_stdout = ""
-    if _is_mpl_artist_result(result):
+    figures = _returned_figures(result)
+    if figures:
+        serialized = _figures_payload(figures)
+        _close_open_figures()
+    elif _is_mpl_artist_result(result):
         captured, note = _capture_open_figures_payload()
         if captured is None:
             serialized = serialize_result(result, force=force, log_failure=log_failure)
