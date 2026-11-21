@@ -266,7 +266,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Role |
 |------|------|
-| [`plugin/contrib/smolagents/local_python_executor.py`](../../plugin/contrib/smolagents/local_python_executor.py) | Restricted executor (`send_tools` takes a dict; no `Tool` import) |
+| [`plugin/contrib/smolagents/local_python_executor.py`](../../plugin/contrib/smolagents/local_python_executor.py) | Restricted executor (`send_tools` takes a dict; no `Tool` import; local patch: `InterpreterError.user_traceback` (user frames for `=PY()` errors)) |
 | [`plugin/contrib/smolagents/utils.py`](../../plugin/contrib/smolagents/utils.py) | `BASE_BUILTIN_MODULES`, helpers |
 | [`plugin/contrib/smolagents/__init__.py`](../../plugin/contrib/smolagents/__init__.py) | Package |
 

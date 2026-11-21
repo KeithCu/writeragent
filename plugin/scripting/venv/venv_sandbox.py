@@ -1214,12 +1214,18 @@ def _run_on_executor(
             stdout=print_outputs_from_state(executor.state),
         )
     except InterpreterError as e:
-        return _fail_cell(
+        failed = _fail_cell(
             executor,
             prior_result,
             _with_fix_hint(str(e)),
             stdout=print_outputs_from_state(executor.state),
         )
+        # user_traceback holds only the user's frames, never a host path, so
+        # compute_service may forward it; the internal-fault arms below keep the
+        # host traceback for local diagnostics only.
+        if e.user_traceback:
+            failed["user_traceback"] = e.user_traceback
+        return failed
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
         # the cell's prints are already in _print_outputs; pass them as

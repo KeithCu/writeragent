@@ -41,6 +41,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
+from itertools import groupby
 from types import BuiltinFunctionType, FunctionType, ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -59,7 +60,10 @@ class InterpreterError(ValueError):
     operations.
     """
 
-    pass
+    # WriterAgent local patch (2026-11): the user's frames of a runtime failure in
+    # CPython traceback layout, with "<sandbox>" as the only file name. Set by
+    # evaluate_python_code; empty when the code never ran (parse or policy errors).
+    user_traceback: str = ""
 
 
 ERRORS = {
@@ -87,6 +91,49 @@ _PRINT_OUTPUTS_KEY = object()
 _ACTIVE_EXCEPTIONS_KEY = object()
 _CLASS_CELL_KEY = object()
 _WRAPPED_TOOLS_KEY = object()
+
+# WriterAgent local patch (2026-11): user-code frames for InterpreterError.user_traceback.
+# _FRAME_KEY holds the running frame as (name, source). Each user-function call stores
+# a new tuple, so identity separates two calls of one function (recursion).
+_FRAME_KEY = object()
+# Exception __dict__ key for [(frame, stmt)], innermost first. Written through __dict__
+# so an exception class that refuses setattr (a frozen dataclass) still records.
+_USER_FRAMES_ATTR = "_writeragent_user_frames"
+_USER_TRACEBACK_FILE = "<sandbox>"
+
+
+def _note_user_frame(exc: Exception, frame: tuple[str, str] | None, stmt: ast.stmt) -> None:
+    """Record the innermost statement of *frame* that *exc* is passing through.
+
+    A frame keeps only its first (innermost) statement. Raising the same object
+    again from another frame appends, as CPython does for ``raise err``. *frame*
+    is None when evaluate_ast runs outside evaluate_python_code.
+    """
+    if frame is None:
+        return
+    frames = exc.__dict__.setdefault(_USER_FRAMES_ATTR, [])
+    if not frames or frames[-1][0] is not frame:
+        frames.append((frame, stmt))
+
+
+def _format_user_traceback(exc: Exception) -> str:
+    """CPython-style traceback of the user frames recorded on *exc*, outermost first.
+
+    Consecutive entries at one line of one function (recursion) print three times,
+    then "[Previous line repeated N more times]", as CPython prints them.
+    """
+    lines = ["Traceback (most recent call last):"]
+    for ((name, source), stmt), group in groupby(reversed(exc.__dict__.get(_USER_FRAMES_ATTR, []))):
+        count = sum(1 for _entry in group)
+        segment = ast.get_source_segment(source, stmt)
+        entry = f'  File "{_USER_TRACEBACK_FILE}", line {stmt.lineno}, in {name}'
+        if segment:
+            entry += f"\n    {segment.splitlines()[0].strip()}"
+        lines.extend([entry] * min(count, 3))
+        if count > 3:
+            lines.append(f"  [Previous line repeated {count - 3} more times]")
+    lines.append(f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
+    return "\n".join(lines)
 
 # Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
 abandoned_timeout: bool = False
@@ -1025,6 +1072,8 @@ def create_function(
         raise InterpreterError("Decorators are not supported in the sandbox")
 
     source_code = ast.unparse(func_def)
+    # WriterAgent local patch (2026-11): source of the defining frame, for user_traceback lines.
+    defining_source = state.get(_FRAME_KEY, ("", ""))[1]
     sig = _build_signature(func_def.args, state, static_tools, custom_tools, authorized_imports)
 
     def new_func(*args: Any, **kwargs: Any) -> Any:
@@ -1032,6 +1081,7 @@ def create_function(
         bound.apply_defaults()
         func_state = state.copy()
         func_state.update(bound.arguments)
+        func_state[_FRAME_KEY] = (func_def.name, defining_source)
         if class_cell is not None:
             func_state[_CLASS_CELL_KEY] = class_cell
 
@@ -2556,7 +2606,14 @@ def evaluate_ast(
     handler = _HANDLERS.get(type(expression))
     if handler is None:
         raise InterpreterError(f"{expression.__class__.__name__} is not supported.")
-    return handler(expression, state, static_tools, custom_tools, authorized_imports)
+    try:
+        return handler(expression, state, static_tools, custom_tools, authorized_imports)
+    except Exception as exc:
+        # WriterAgent local patch (2026-11): record the statement for user_traceback.
+        # Return/break/continue signals are BaseException and pass untouched.
+        if isinstance(expression, ast.stmt):
+            _note_user_frame(exc, state.get(_FRAME_KEY), expression)
+        raise
 
 
 class FinalAnswerException(BaseException):
@@ -2620,6 +2677,8 @@ def evaluate_python_code(
     print_container = PrintContainer(max_length=max_print_outputs_length)
     state[_PRINT_OUTPUTS_KEY] = print_container
     state[_ACTIVE_EXCEPTIONS_KEY] = []
+    # WriterAgent local patch (2026-11): top-level frame for user_traceback.
+    state[_FRAME_KEY] = ("<module>", code)
 
     static_tools["print"] = _sandboxed_print
 
@@ -2675,9 +2734,12 @@ def evaluate_python_code(
                     raise
                 # Uncaught NameError is labeled InterpreterError in the message so Calc maps #VALUE! not #NAME?.
                 exc_type_name = "InterpreterError" if isinstance(e, NameError) else type(e).__name__
-                raise InterpreterError(
+                error = InterpreterError(
                     f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"
                 )
+                # WriterAgent local patch (2026-11): attach user frames for wire/UI traceback.
+                error.user_traceback = _format_user_traceback(e)
+                raise error
         finally:
             _finalize_logs()
             if stack and stack[-1] is print_container:

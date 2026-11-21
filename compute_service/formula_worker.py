@@ -148,8 +148,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             res["id"] = req_id
         return json_forward_envelope(res, req_id=req_id, session_reset=bool(req.get("expect_namespace")) and created, namespace_created=created)
     except Exception as exc:
-        # Traceback included server paths on the kit wire. Eval errors from
-        # json_egress are only status/error/stdout; this path must match.
+        # A worker fault carries no traceback: format_exc would put server paths on
+        # the kit wire. Only json_egress forwards the sandbox's user-frame traceback.
         return json_forward_envelope(
             error_dict(ec.WORKER_EXECUTION_ERROR, str(exc), req_id=req_id, stdout=""),
             req_id=req_id,

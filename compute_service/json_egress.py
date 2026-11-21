@@ -145,11 +145,15 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
 
 
 def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map venv_sandbox payload → §8 HTTP response {status, result|error, stdout?, images?}."""
+    """Map venv_sandbox payload → §8 HTTP response {status, result|error, stdout?, images?, traceback?}."""
     status = payload.get("status")
     if status != "ok":
         err = payload.get("error") or payload.get("message") or "execution failed"
-        return {"status": "error", "error": str(err), "stdout": payload.get("stdout") or ""}
+        out_err: dict[str, Any] = {"status": "error", "error": str(err), "stdout": payload.get("stdout") or ""}
+        # The sandbox's traceback key holds host paths and is never forwarded.
+        if user_tb := payload.get("user_traceback"):
+            out_err["traceback"] = user_tb
+        return out_err
 
     result = payload.get("result")
     images: list[dict[str, Any]] = []

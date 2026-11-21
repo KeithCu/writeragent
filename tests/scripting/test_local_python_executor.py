@@ -2855,6 +2855,111 @@ def test_process_callables_allowed_when_os_true():
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "def f(x):\n    return x / 0\n\nresult = f(2)",
+            id="nested",
+        ),
+        pytest.param(
+            "def inner(items):\n    total = 0\n    for i in items:\n        total += 10 / i\n    return total\n\nresult = inner([2, 1, 0])",
+            id="loop_in_callee",
+        ),
+        pytest.param(
+            "class Box:\n    def fail(self, n):\n        return 1 / n\n\nresult = Box().fail(0)",
+            id="method",
+        ),
+        pytest.param(
+            "def k(x):\n    return 1 / x\n\nresult = sorted([1, 0], key=k)",
+            id="library_callback",
+        ),
+        pytest.param(
+            "def f():\n    return 1 / 0\n\ntry:\n    f()\nexcept ZeroDivisionError:\n    raise",
+            id="bare_reraise",
+        ),
+        pytest.param(
+            "def f():\n    return 1 / 0\n\ndef g(err):\n    raise err\n\ntry:\n    f()\nexcept ZeroDivisionError as saved:\n    g(saved)",
+            id="raise_stored_elsewhere",
+        ),
+        pytest.param(
+            "def f(a, b):\n    return a + b\n\nresult = f(1)",
+            id="bad_call",
+        ),
+        pytest.param(
+            "def check():\n    return 1 / 0\n\nif check():\n    result = 1",
+            id="if_header",
+        ),
+        pytest.param(
+            "def outer():\n    def inner():\n        return 1 / 0\n    return inner()\n\nresult = outer()",
+            id="nested_def",
+        ),
+    ],
+)
+def test_user_traceback_frames_match_cpython(code: str) -> None:
+    import traceback as stdlib_tb
+
+    with pytest.raises(Exception) as cp_exc:
+        exec(compile(code, "<sandbox>", "exec"), {})
+    cp_lines = "".join(stdlib_tb.format_exception(cp_exc.type, cp_exc.value, cp_exc.tb)).splitlines()
+    cp_frames = [line for line in cp_lines if line.startswith('  File "<sandbox>"')]
+    cp_type = cp_lines[-1].split(":", 1)[0]
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    with pytest.raises(InterpreterError) as sb_exc:
+        executor(code)
+    sb_lines = sb_exc.value.user_traceback.splitlines()
+    sb_frames = [line for line in sb_lines if line.startswith('  File "<sandbox>"')]
+    sb_type = sb_lines[-1].split(":", 1)[0]
+
+    assert sb_frames == cp_frames
+    assert sb_type == cp_type
+
+
+def test_user_traceback_text_for_nested_call() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def f(x):\n    return x / 0\n\nresult = f(2)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    expected = (
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 4, in <module>\n'
+        "    result = f(2)\n"
+        '  File "<sandbox>", line 2, in f\n'
+        "    return x / 0\n"
+        "ZeroDivisionError: division by zero"
+    )
+    assert exc_info.value.user_traceback == expected
+
+
+def test_user_traceback_collapses_recursion() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def rec(n):\n    return rec(n + 1)\n\nresult = rec(0)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    tb = exc_info.value.user_traceback
+    assert "[Previous line repeated " in tb
+    assert len(tb.splitlines()) <= 12
+
+
+def test_user_traceback_uses_defining_source() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor("# init comment\ndef helper(v):\n    return 1 / v\n")
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("result = helper(0)")
+    tb = exc_info.value.user_traceback
+    assert '  File "<sandbox>", line 3, in helper\n    return 1 / v' in tb
+    assert '  File "<sandbox>", line 1, in <module>\n    result = helper(0)' in tb
+
+
+def test_user_traceback_empty_for_parse_error() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("result = (1,")
+    assert exc_info.value.user_traceback == ""
+
+
+
 
 
 
