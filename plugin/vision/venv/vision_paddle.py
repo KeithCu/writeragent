@@ -36,6 +36,66 @@ _paddle_ocr_lang: str | None = None
 _pp_structure_engine: Any = None
 _pp_structure_lang: str | None = None
 
+# BCP-47 tags whose PP-OCR code (paddleocr/_utils/langs.py, _pipelines/ocr.py _get_ocr_model_names) is not the
+# primary subtag. Keys are lowercase; a tag is matched on its longest listed prefix (zh-hant-tw -> zh-hant).
+# None marks a tag whose primary subtag is a PP-OCR code for a different language: PP-OCR "ka" is Kannada, so
+# Georgian (ka-GE, ka-Geor) has no Paddle model. Bare "ka" still means PP-OCR Kannada.
+_PADDLE_LANG_ALIASES: dict[str, str | None] = {
+    "zh": "ch",
+    "zh-hans": "ch",
+    "zh-cn": "ch",
+    "zh-sg": "ch",
+    "zh-hant": "chinese_cht",
+    "zh-tw": "chinese_cht",
+    "zh-hk": "chinese_cht",
+    "zh-mo": "chinese_cht",
+    "ja": "japan",
+    "ko": "korean",
+    "nb": "no",
+    "nn": "no",
+    "sr": "rs_cyrillic",
+    "sr-cyrl": "rs_cyrillic",
+    "sr-latn": "rs_latin",
+    "fil": "tl",
+    "ce": "che",
+    "av": "ava",
+    "kn": "ka",
+    "ka-ge": None,
+    "ka-geor": None,
+}
+# PaddleOCR 3.x PaddleOCR.__init__ and PPStructureV3.__init__ raise ValueError with this prefix when no model
+# serves the requested lang (paddleocr/_pipelines/ocr.py, pp_structurev3.py; same text in 3.0 and 3.7).
+_PADDLE_NO_MODEL_PREFIX = "No models are available for"
+
+
+def paddle_lang_code(raw: Any) -> str | None:
+    """PP-OCR ``lang`` code for the Settings value, or None when Paddle has no model for it.
+
+    Uses the first non-empty comma entry, drops an ``iso:`` prefix, and ignores case. Empty means ``en``.
+    Only ``-`` separates BCP-47 subtags, because PP-OCR's own codes contain ``_`` (rs_latin, chinese_cht).
+    Listed aliases win; otherwise the region and other subtags are dropped (en-US -> en), so PP-OCR codes
+    pass through unchanged.
+    """
+    entry = next((part.strip() for part in str(raw or "").split(",") if part.strip()), "")
+    tag = entry.lower().removeprefix("iso:").strip()
+    if not tag:
+        return "en"
+    subtags = tag.split("-")
+    for count in range(len(subtags), 0, -1):
+        prefix = "-".join(subtags[:count])
+        if prefix in _PADDLE_LANG_ALIASES:
+            return _PADDLE_LANG_ALIASES[prefix]
+    return subtags[0]
+
+
+def _language_unsupported(requested: str, helper: str) -> dict[str, Any]:
+    return error_result(
+        "OCR_LANGUAGE_UNSUPPORTED",
+        f"PaddleOCR has no model for the OCR language {requested!r}. Choose another language in Settings, or a Docling engine.",
+        helper=helper,
+        details={"language": requested, "engine": "paddle"},
+    )
+
 
 def _get_paddle_ocr(lang: str) -> Any:
     """Lazy-init one PaddleOCR instance per worker process (module singleton)."""
@@ -276,8 +336,11 @@ def _decode_image(image: Any, params: dict[str, Any]) -> Any:
 
 
 def _engine_or_error(factory: Any, params: dict[str, Any], helper: str, fail_log: str) -> tuple[Any, dict[str, Any] | None]:
-    """Constructor failures become error_result. Leaving them unhandled aborts the vision call."""
-    lang = str(params.get("lang") or "en").strip() or "en"
+    """Map Settings ``lang`` to a PP-OCR code and turn constructor failures into error_result."""
+    requested = str(params.get("lang") or "").strip()
+    lang = paddle_lang_code(requested)
+    if lang is None:
+        return None, _language_unsupported(requested, helper)
     try:
         return factory(lang), None
     except ImportError:
@@ -287,6 +350,8 @@ def _engine_or_error(factory: Any, params: dict[str, Any], helper: str, fail_log
             helper=helper,
         )
     except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith(_PADDLE_NO_MODEL_PREFIX):
+            return None, _language_unsupported(requested or lang, helper)
         log.exception(fail_log)
         return None, error_result("VISION_ERROR", str(exc), helper=helper)
 

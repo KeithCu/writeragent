@@ -301,7 +301,7 @@ return png_bytes
 ### 4.5 PaddleOCR in `vision.py`
 
 - **Lazy-init** one `PaddleOCR` instance per warm worker process (module-level singleton; reset on worker respawn).
-- Phase 1 **`params`:** optional `lang` (string, default `"en"`).
+- **`params.lang` mapping** (`paddle_lang_code` in `vision_paddle.py`, default `"en"` when empty): takes the first non-empty comma entry, strips any `iso:` prefix, and ignores case. Only `-` separates BCP-47 subtags (`_` is preserved for PP-OCR codes such as `rs_latin` and `chinese_cht`). Known aliases map to PP-OCR codes (`zh`/`zh-Hans`/`zh-CN`/`zh-SG` → `ch`, `zh-Hant`/`zh-TW`/`zh-HK`/`zh-MO` → `chinese_cht`, `ja` → `japan`, `ko` → `korean`, `nb`/`nn` → `no`, `sr`/`sr-Cyrl` → `rs_cyrillic`, `sr-Latn` → `rs_latin`, `fil` → `tl`, `ce` → `che`, `av` → `ava`, `kn` → `ka`); bare `ka` passes through as PP-OCR Kannada while `ka-GE`/`ka-Geor` (Georgian) is unsupported; other tags drop their region (`en-US` → `en`). `latin`, `cyrillic`, `arabic`, and `devanagari` pass through for 2.x and are rejected by 3.x as `OCR_LANGUAGE_UNSUPPORTED`. When PaddleOCR raises `ValueError("No models are available for...")` (or `ka-GE`/`ka-Geor` is given), `vision_paddle.py` returns `OCR_LANGUAGE_UNSUPPORTED`.
 - Use current PaddleOCR 3.x Python API. Construct `PaddleOCR(use_angle_cls=True, lang=...)` and `PPStructureV3(...)` without `show_log` (3.x / PaddleX rejects it; 2.x defaults it off). Call 3.x `predict(image)` — `ocr(image, cls=True)` forwards `cls` into keyword-only `predict` and raises `TypeError`. 2.x still uses `ocr(image, cls=True)`.
 - **3.x Result parsing** ([`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py)): `ocr` / `predict` returns a Result whose `.json` is `{"res": {rec_texts, rec_scores, rec_polys}}`, not the 2.x `[[box, (text, score)], ...]` line list. PPStructureV3 pages are the same wrapper with `parsing_res_list` (`block_label`, `block_content`, `block_bbox`) and `table_res_list[].pred_html`. Both 3.x and 2.x shapes parse. Missing `PPStructureV3` is `PADDLEOCR_UNAVAILABLE`.
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
@@ -450,7 +450,7 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
 | `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"` |
-| `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. |
+| `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. The Paddle engine uses the first code, mapped to a PP-OCR code (§4.5). The LO locale default keeps its region (`zh-TW`). |
 | `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
@@ -701,7 +701,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `DOCLING_API_MISMATCH` | Installed Docling older than 2.145; message names the version and the upgrade command (Paddle fallback applies) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
 | `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing or wrong platform (message carries the install line), or the engine was found but cannot start (Tesseract program does not run, EasyOCR/ocrmac dependency does not import, Apple Vision lists no languages); no Paddle fallback |
-| `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine has no model for the requested language (`details` has `language`, `engine`) |
+| `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine or PaddleOCR has no model for the requested language (`details` has `language`, `engine`) |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |
 

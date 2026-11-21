@@ -179,7 +179,7 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
     result = run_trusted_vision(ctx, doc, helper="extract_text", params={})
 
     assert result["full_text"] == "hi"
-    assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr"
+    assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr-FR"
 
 
 def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
@@ -374,15 +374,15 @@ def test_resolve_locale_runtime_exception_graphic_falls_back_to_ui_locale():
     graphic.getPropertyValue.side_effect = RuntimeException("unexpected error")
     with patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
         res = _resolve_locale_language(MagicMock(), graphic)
-    assert res == "en"
+    assert res == "en-US"
 
 
 def test_named_image_locale_ignores_other_selection():
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
-    graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr") if prop == "CharLocale" else None
-    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+    graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr", Country="FR", Variant="") if prop == "CharLocale" else None
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
             patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
@@ -392,7 +392,7 @@ def test_named_image_locale_ignores_other_selection():
         run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
 
     mock_get_obj.assert_called_once_with(doc, "Photo1")
-    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "fr"
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "fr-FR"
 
 
 def test_named_image_without_char_locale_uses_ui_locale_not_selection():
@@ -400,7 +400,7 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
     doc = MagicMock()
     graphic = MagicMock()
     graphic.getPropertyValue.return_value = None
-    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
             patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
@@ -411,7 +411,24 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
         run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
 
     mock_get_obj.assert_called_once_with(doc, "Photo1")
-    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "en"
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "en-US"
+
+
+@pytest.mark.parametrize(
+    ("char_locale", "lo_locale", "expected"),
+    [
+        (SimpleNamespace(Language="zh", Country="TW", Variant=""), "en_US", "zh-TW"),
+        (SimpleNamespace(Language="ja", Country="", Variant=""), "en_US", "ja"),
+        (None, "zh_TW", "zh-TW"),
+        (None, "ja", "ja"),
+    ],
+)
+def test_resolve_locale_keeps_region(char_locale, lo_locale, expected):
+    graphic = None if char_locale is None else MagicMock()
+    if graphic is not None:
+        graphic.getPropertyValue.return_value = char_locale
+    with patch("plugin.framework.i18n.get_lo_locale", return_value=lo_locale):
+        assert _resolve_locale_language(MagicMock(), graphic) == expected
 
 
 def test_run_trusted_vision_rejects_oversized_image_before_rpc():
