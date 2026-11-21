@@ -153,3 +153,30 @@ class TestOnlinePyJsonContract:
         out = _execute_code("import subprocess\nresult = subprocess")
         assert out["status"] == "error"
         assert "error" in out
+
+    @pytest.mark.parametrize(
+        "code, expected",
+        [
+            pytest.param(
+                "import datetime as dt\nimport pandas as pd\npd.DataFrame({'when': [dt.datetime(2026, 1, 2, 3, 4), dt.datetime(2026, 1, 3)], 'n': [1, 2]})",
+                [["when", "n"], ["2026-01-02T03:04:00", 1], ["2026-01-03T00:00:00", 2]],
+                id="dataframe_datetime",
+            ),
+            pytest.param(
+                "import pandas as pd\npd.Series([1.5, 2.5], name='x')",
+                [["x"], [1.5], [2.5]],
+                id="named_series",
+            ),
+            pytest.param(
+                "import pandas as pd\npd.DataFrame({'a': []})",
+                [["a"]],
+                id="empty_frame",
+            ),
+        ],
+    )
+    def test_pandas_result_is_kit_grid(self, code: str, expected: list[list[Any]]) -> None:
+        pytest.importorskip("pandas")
+        out = _execute_code(code)
+        assert out["status"] == "ok"
+        assert out["result"] == expected
+        json.dumps(out, allow_nan=False)

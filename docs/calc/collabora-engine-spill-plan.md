@@ -321,7 +321,7 @@ The following items are deliberately separated from this engine spill implementa
 1. **1D List Column vs. Row Alignment (`anyjson.cxx`):**
    * *Status:* Follow-up task in `scaddins/source/pythoncompute/anyjson.cxx`.
    * *Scope:* Update `promoteFlatNumeric` and `elemsToAny` so that 1D JSON lists serialize into an $N \times 1$ sequence of sequences (column vector) instead of a $1 \times N$ row vector. This will achieve parity with Microsoft Excel `=PY()` and LibrePy.
-2. **DataFrame Headers:** LibrePy handles DataFrame header row formatting in `result_to_calc_grid`. Collabora Online passes the raw JSON grid provided by the compute container.
+2. **DataFrame Headers:** the compute service sends a DataFrame as its header row plus body, the same grid LibrePy spills (`result_to_calc_grid`). Neither product formats the header row.
 3. **In-Cell Short Python Error Messages (F6):** Formatting exceptions as human-readable cell strings is tracked under checklist item F6.
 4. **Cell Images (F3):** Image insertion from Python objects is handled in a separate rendering path.
 5. **Immediate Recalc of `ONLOAD_LENIENT`:** Off-screen cells evaluate on paint or during explicit full-document recalculation; this volatile behavior is preserved.
@@ -348,4 +348,3 @@ The following items are deliberately separated from this engine spill implementa
 - `[feature M few]` Make `=PY()` and `=PYTHON()` count as array-intent in the Collabora engine (`rpnIntendsArrayResult`) so the cell becomes a dynamic-array master and spills, resizes, shrinks and collapses to a scalar. (§ 7. Proposed Engine Modifications)
 - `[eng M few]` Add CppUnit tests for spill: basic 2x2, `#SPILL!` collision and resolution, scalar collapse, `#BUSY!` stability, `=@PY`, CSE, `=SUM(PY())` and ODS/XLSX roundtrips. (§ 9. Verification & Test Plan)
 - `[fidelity S few]` Serialize 1D JSON lists as a column vector in `anyjson.cxx` (`promoteFlatNumeric`, `elemsToAny`) to match Excel and LibrePy. (§ 10. Out of Scope & Future Work)
-- `[fidelity S few]` Format DataFrame header rows for results delivered by the Collabora compute container, which today passes the raw JSON grid. (§ 10. Out of Scope & Future Work)

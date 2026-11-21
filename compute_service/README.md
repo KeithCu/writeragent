@@ -11,6 +11,8 @@ Multipart is the long-term preferred kit↔compute shape. See
 
 ## Quick start
 
+Collabora Online admins: [collabora-quickstart.md](collabora-quickstart.md).
+
 ```bash
 ./compute_service/start.sh
 # or
@@ -122,6 +124,12 @@ request shapes, why multipart exists, and the plan to retire peel.
   }
   ```
   *(If Matplotlib plots are generated, they are returned in `images: [{"format": "svg", "data_b64": "..."}]` by default — see [`to_wire.py`](../plugin/scripting/venv/to_wire.py). [`json_egress.py`](json_egress.py) falls back to `png` only when a payload omits `format`.)*
+
+- **Result shapes the kit shows**:
+  - `result` is a scalar, a list, or a list of rows.
+  - A DataFrame or named Series arrives as rows with the header row first, the same grid desktop `=PY()` spills.
+  - Dates, datetimes, Timestamps and `datetime64` arrive as ISO 8601 text (a time zone is dropped and the wall time kept). Times are `HH:MM:SS`, durations a fraction of a day, and `NaT` is null. The text stays text in Calc; real Calc dates need a Core type hint and are not done.
+  - A dict result stays a JSON object, which the kit shows as `#VALUE!`.
 
 - **Evaluation Error Response (`200 OK`)**:
   Evaluation errors (e.g. `SyntaxError`, `ZeroDivisionError`, unauthorized imports) return `200 OK` with `status: "error"` so HTTP transport is distinguished from evaluated code errors:
@@ -299,7 +307,7 @@ Match coolwsd (`coolwsd.xml`):
 </python_compute>
 ```
 
-coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). When `KIT_HOST_ALLOWLIST` is set in coolwsd's environment, the compute URL host must match that allowlist (an empty or unset list allows every host; a Docker DNS name is rejected once the list is non-empty).
+coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). coolwsd checks the compute URL host against `net.lok_allow` and the allowed WOPI hosts whenever that section exists, as it does in the shipped `coolwsd.xml`; list the service host there (see [collabora-quickstart.md](collabora-quickstart.md)).
 
 The Collabora kit sends `application/json` (the peel path) and always specifies `mode: "isolated"`. It does not send `init_script` or `session_id` (though the compute service accepts both). Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora Online writes the cell string `Image generated (plot insert not supported yet)`. The compute image does not insert picture shapes into the document.
 
