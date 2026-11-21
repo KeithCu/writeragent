@@ -341,6 +341,7 @@ def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
     pipeline_options = pdf_opts_cls(
         do_ocr=True,
         do_table_structure=True,
+        # Kept so user-installed Docling OCR plugins still load; no ocr_backend row uses one.
         allow_external_plugins=True,
     )
     pipeline_options.ocr_options = ocr_options

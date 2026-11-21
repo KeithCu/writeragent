@@ -290,7 +290,7 @@ def test_probe_report_install_footer_structure(
             id="docling_ready",
         ),
         pytest.param(
-            {"docling": "present", "rapidocr": None, "css_inline": "present", "paddleocr": "present", "paddle": "present"},
+            {"docling": None, "rapidocr": None, "css_inline": "present", "paddleocr": "present", "paddle": "present"},
             "Paddle",
             False,
             (),
@@ -309,6 +309,20 @@ def test_probe_report_install_footer_structure(
             True,
             ("onnxruntime",),
             id="docling_without_onnxruntime_not_ready",
+        ),
+        pytest.param(
+            {
+                "docling": "present",
+                "rapidocr": "present",
+                "onnxruntime": None,
+                "css_inline": "present",
+                "paddleocr": "present",
+                "paddle": "present",
+            },
+            None,
+            True,
+            ("onnxruntime",),
+            id="docling_paddle_without_onnxruntime_not_ready",
         ),
         pytest.param(
             {},

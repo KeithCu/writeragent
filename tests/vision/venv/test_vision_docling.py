@@ -661,6 +661,7 @@ def test_extract_text_docling_returned_no_document(result):
         ("chinese_cht", ("chinese_cht",)),
         ("script/Cyrillic", ("script/Cyrillic",)),
         ("iso:zh-Hant", ("iso:zh-Hant",)),
+        (["en", " de "], ("iso:en", "iso:de")),
         (None, ("iso:en",)),
         ("", ("iso:en",)),
         (",,", ("iso:en",)),
@@ -668,6 +669,9 @@ def test_extract_text_docling_returned_no_document(result):
 )
 def test_docling_ocr_langs(raw, expected):
     assert docling_mod.docling_ocr_langs(raw) == expected
+
+
+def test_from_params_ru_gets_iso_prefix():
     assert docling_mod.DoclingPipelineParams.from_params({"lang": "ru"}).lang == ("iso:ru",)
 
 
@@ -752,6 +756,8 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(backend_id, expect
 
 def test_extract_text_real_docling_rejects_bad_device():
     _require_installed_od_docling()
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
     res = extract_text(_tiny_hello_ocr_png(), {"device": "bogus"})
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"

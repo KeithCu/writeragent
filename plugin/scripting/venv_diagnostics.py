@@ -181,10 +181,10 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
 
 # find_spec / which only, so the probe does not pay torch or CUDA start-up for optional engines.
 # Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py.
-_OCR_ENGINE_PROBE_BODY = """\
+_OCR_ENGINE_PROBE_BODY = f"""\
 import importlib.util
 import shutil
-for key in ("easyocr", "openvino", "nemotron_ocr", "ocrmac"):
+for key in {tuple(k for k in _OCR_ENGINE_KEYS if k != "tesseract")!r}:
     try:
         out[key] = "present" if importlib.util.find_spec(key) is not None else None
     except BaseException:
@@ -463,10 +463,19 @@ def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
 
 
 def _vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
-    """True when an OCR backend and css-inline are both present. The backend is Docling with rapidocr and onnxruntime (the default OCR backend, so docling alone is not ready) or paddleocr with paddle. The Settings Test and the grouped diagnostics view use this so they never report OCR ready while the backend is missing."""
-    ocr_backend = _docling_ocr_ready(probe) or (
-        probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
-    )
+    """True when an OCR backend and css-inline are both present.
+
+    When docling is installed, readiness requires _docling_ocr_ready (rapidocr + onnxruntime):
+    missing onnxruntime raises OCR_BACKEND_UNAVAILABLE without falling back to Paddle.
+    Paddle (paddleocr + paddle) counts as ready only when docling is absent, matching the
+    DOCLING_UNAVAILABLE fallback gate in vision.py.
+    """
+    if probe.get("docling") == "present":
+        ocr_backend = _docling_ocr_ready(probe)
+    else:
+        ocr_backend = (
+            probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
+        )
     return ocr_backend and probe.get("css_inline") == "present"
 
 

@@ -73,7 +73,7 @@ config:
     label: OCR language
     width: 50
     inline: true
-    helper: Language codes such as en, de or zh-TW, comma separated. Empty uses the language of the image or of LibreOffice.
+    helper: Language codes such as en, de or zh-TW, comma separated (Docling engines; the Paddle engine uses only a single PP-OCR code). Empty uses the language of the image or of LibreOffice.
 
   device:
     type: string
