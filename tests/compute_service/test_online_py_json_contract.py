@@ -245,3 +245,14 @@ class TestOnlinePyJsonContract:
         assert out["status"] == "ok"
         assert out["result"] == expected
         json.dumps(out, allow_nan=False)
+
+    def test_timeout_traceback_on_wire(self) -> None:
+        env = _handle_request(
+            {"code": "def spin():\n    while True:\n        pass\n\nspin()", "timeout_sec": 1}
+        )
+        out = json.loads(env["result_json"])
+        assert out["status"] == "error"
+        tb = out.get("traceback", "")
+        assert "in spin" in tb
+        assert ".py" not in tb
+        assert "/plugin/" not in tb

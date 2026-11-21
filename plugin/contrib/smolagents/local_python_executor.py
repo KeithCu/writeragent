@@ -93,40 +93,55 @@ _CLASS_CELL_KEY = object()
 _WRAPPED_TOOLS_KEY = object()
 
 # WriterAgent local patch (2026-11): user-code frames for InterpreterError.user_traceback.
-# _FRAME_KEY holds the running frame as (name, source). Each user-function call stores
-# a new tuple, so identity separates two calls of one function (recursion).
+# _FRAME_KEY holds the running frame as (name, source, filename); each user-function
+# call stores a new tuple, so identity separates recursive calls.
 _FRAME_KEY = object()
-# Exception __dict__ key for [(frame, stmt)], innermost first. Written through __dict__
+# Exception __dict__ key for [(frame, node)], innermost first. Written through __dict__
 # so an exception class that refuses setattr (a frozen dataclass) still records.
 _USER_FRAMES_ATTR = "_writeragent_user_frames"
-_USER_TRACEBACK_FILE = "<sandbox>"
+USER_CODE_FILE = "<sandbox>"
+_EARLIER_CELL_FILE = "<earlier cell>"
 
 
-def _note_user_frame(exc: Exception, frame: tuple[str, str] | None, stmt: ast.stmt) -> None:
-    """Record the innermost statement of *frame* that *exc* is passing through.
+def _child_frame(parent: tuple[str, str, str] | None, name: str) -> tuple[str, str, str] | None:
+    return None if parent is None else (name, parent[1], parent[2])
 
-    A frame keeps only its first (innermost) statement. Raising the same object
-    again from another frame appends, as CPython does for ``raise err``. *frame*
+
+def _note_user_frame(
+    exc: BaseException,
+    frame: tuple[str, str, str] | None,
+    node: ast.stmt | ast.expr,
+    *,
+    explicit_raise: bool = False,
+) -> None:
+    """Record the innermost node of *frame* that *exc* is passing through.
+
+    An explicit ``raise X`` appends even in the same frame, as CPython adds the
+    raise line; propagation and bare ``raise`` keep one entry per frame. *frame*
     is None when evaluate_ast runs outside evaluate_python_code.
     """
     if frame is None:
         return
     frames = exc.__dict__.setdefault(_USER_FRAMES_ATTR, [])
-    if not frames or frames[-1][0] is not frame:
-        frames.append((frame, stmt))
+    if explicit_raise or not frames or frames[-1][0] is not frame:
+        frames.append((frame, node))
 
 
-def _format_user_traceback(exc: Exception) -> str:
+def _format_user_traceback(exc: BaseException, code: str) -> str:
     """CPython-style traceback of the user frames recorded on *exc*, outermost first.
 
     Consecutive entries at one line of one function (recursion) print three times,
     then "[Previous line repeated N more times]", as CPython prints them.
     """
+    raw = exc.__dict__.get(_USER_FRAMES_ATTR)
+    if not raw:
+        return ""
     lines = ["Traceback (most recent call last):"]
-    for ((name, source), stmt), group in groupby(reversed(exc.__dict__.get(_USER_FRAMES_ATTR, []))):
+    for ((name, source, filename), node), group in groupby(reversed(raw)):
         count = sum(1 for _entry in group)
-        segment = ast.get_source_segment(source, stmt)
-        entry = f'  File "{_USER_TRACEBACK_FILE}", line {stmt.lineno}, in {name}'
+        display_file = _EARLIER_CELL_FILE if filename == USER_CODE_FILE and source != code else filename
+        segment = ast.get_source_segment(source, node)
+        entry = f'  File "{display_file}", line {node.lineno}, in {name}'
         if segment:
             entry += f"\n    {segment.splitlines()[0].strip()}"
         lines.extend([entry] * min(count, 3))
@@ -812,7 +827,11 @@ class ReturnException(InterpreterSignal):
 class ExecutionTimeoutError(BaseException):
     """Exception raised when code execution exceeds the maximum allowed time."""
 
-    pass
+    # WriterAgent local patch (2026-11): user frames where time ran out; set by evaluate_python_code.
+    user_traceback: str = ""
+
+
+_TRACED_ERRORS = (Exception, ExecutionTimeoutError)
 
 
 
@@ -1010,19 +1029,25 @@ def evaluate_lambda(
     sig = _build_signature(
         lambda_expression.args, state, static_tools, custom_tools, authorized_imports
     )
+    # WriterAgent local patch (2026-11): capture defining frame at creation (module state is shared across cells).
+    parent = state.get(_FRAME_KEY)
 
     def lambda_func(*values: Any, **kwargs: Any) -> Any:
         bound = sig.bind(*values, **kwargs)
         bound.apply_defaults()
         new_state = state.copy()
         new_state.update(bound.arguments)
-        return evaluate_ast(
-            lambda_expression.body,
-            new_state,
-            static_tools,
-            custom_tools,
-            authorized_imports,
-        )
+        try:
+            return evaluate_ast(
+                lambda_expression.body,
+                new_state,
+                static_tools,
+                custom_tools,
+                authorized_imports,
+            )
+        except _TRACED_ERRORS as exc:
+            _note_user_frame(exc, _child_frame(parent, "<lambda>"), lambda_expression.body)
+            raise
 
     lambda_func.__signature__ = sig
     return lambda_func
@@ -1072,8 +1097,8 @@ def create_function(
         raise InterpreterError("Decorators are not supported in the sandbox")
 
     source_code = ast.unparse(func_def)
-    # WriterAgent local patch (2026-11): source of the defining frame, for user_traceback lines.
-    defining_source = state.get(_FRAME_KEY, ("", ""))[1]
+    # WriterAgent local patch (2026-11): defining frame (source and filename) for user_traceback lines.
+    parent = state.get(_FRAME_KEY)
     sig = _build_signature(func_def.args, state, static_tools, custom_tools, authorized_imports)
 
     def new_func(*args: Any, **kwargs: Any) -> Any:
@@ -1081,7 +1106,7 @@ def create_function(
         bound.apply_defaults()
         func_state = state.copy()
         func_state.update(bound.arguments)
-        func_state[_FRAME_KEY] = (func_def.name, defining_source)
+        func_state[_FRAME_KEY] = _child_frame(parent, func_def.name)
         if class_cell is not None:
             func_state[_CLASS_CELL_KEY] = class_cell
 
@@ -2000,6 +2025,9 @@ def evaluate_raise(
     else:
         cause = None
     if exc is not None:
+        # WriterAgent local patch (2026-11): explicit `raise X` records the raise line even in the same frame.
+        if raise_node.exc is not None and isinstance(exc, BaseException):
+            _note_user_frame(exc, state.get(_FRAME_KEY), raise_node, explicit_raise=True)
         if cause is not None:
             raise exc from cause
         else:
@@ -2343,9 +2371,12 @@ def evaluate_generatorexp(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Generator[Any]:
+    # WriterAgent local patch (2026-11): record <genexpr> frame on error.
+    # List, set and dict comprehensions add no frame, as CPython 3.12+ inlines them (PEP 709).
+    parent = state.get(_FRAME_KEY)
     # Nested ``for`` clauses must use _evaluate_comprehensions (same as list/set/dict comp).
     # The old loop over genexp.generators at the same level broke inner targets like ``v``.
-    return _evaluate_comprehensions(
+    items = _evaluate_comprehensions(
         genexp.generators,
         lambda comp_state: evaluate_ast(genexp.elt, comp_state, static_tools, custom_tools, authorized_imports),
         state,
@@ -2353,6 +2384,15 @@ def evaluate_generatorexp(
         custom_tools,
         authorized_imports,
     )
+
+    def framed() -> Generator[Any]:
+        try:
+            yield from items
+        except _TRACED_ERRORS as exc:
+            _note_user_frame(exc, _child_frame(parent, "<genexpr>"), genexp.elt)
+            raise
+
+    return framed()
 
 
 def evaluate_delete(
@@ -2586,31 +2626,32 @@ def evaluate_ast(
             The list of modules the code may import; default is the small safe set;
             a bare "*" entry is ignored; package wildcards use the "name.*" form.
     """
-    ops = state.get(_OPS_KEY)
-    if ops is None:
-        ops = _Ops()
-        state[_OPS_KEY] = ops
-    if ops.count >= MAX_OPERATIONS:
-        raise InterpreterError(
-            f"Reached the max number of operations of {MAX_OPERATIONS}. Maybe there is an infinite loop somewhere in the code, or you're just asking too many calculations."
-        )
-    if (ops.count & 255) == 0 and ops.deadline is not None and time.monotonic() >= ops.deadline:
-        sec = ops.timeout_seconds
-        msg = (
-            f"Code execution exceeded the maximum execution time of {sec} seconds"
-            if sec is not None
-            else "Code execution exceeded the maximum execution time"
-        )
-        raise ExecutionTimeoutError(msg)
-    ops.count += 1
-    handler = _HANDLERS.get(type(expression))
-    if handler is None:
-        raise InterpreterError(f"{expression.__class__.__name__} is not supported.")
     try:
+        ops = state.get(_OPS_KEY)
+        if ops is None:
+            ops = _Ops()
+            state[_OPS_KEY] = ops
+        if ops.count >= MAX_OPERATIONS:
+            raise InterpreterError(
+                f"Reached the max number of operations of {MAX_OPERATIONS}. Maybe there is an infinite loop somewhere in the code, or you're just asking too many calculations."
+            )
+        if (ops.count & 255) == 0 and ops.deadline is not None and time.monotonic() >= ops.deadline:
+            sec = ops.timeout_seconds
+            msg = (
+                f"Code execution exceeded the maximum execution time of {sec} seconds"
+                if sec is not None
+                else "Code execution exceeded the maximum execution time"
+            )
+            raise ExecutionTimeoutError(msg)
+        ops.count += 1
+        handler = _HANDLERS.get(type(expression))
+        if handler is None:
+            raise InterpreterError(f"{expression.__class__.__name__} is not supported.")
         return handler(expression, state, static_tools, custom_tools, authorized_imports)
-    except Exception as exc:
-        # WriterAgent local patch (2026-11): record the statement for user_traceback.
-        # Return/break/continue signals are BaseException and pass untouched.
+    except _TRACED_ERRORS as exc:
+        # WriterAgent local patch (2026-11): record the statement for user_traceback,
+        # including a timeout or ops-limit raised as the statement is entered;
+        # Return/Break/Continue signals pass untouched.
         if isinstance(expression, ast.stmt):
             _note_user_frame(exc, state.get(_FRAME_KEY), expression)
         raise
@@ -2635,6 +2676,7 @@ def evaluate_python_code(
     authorized_imports: list[str] = BASE_BUILTIN_MODULES,
     max_print_outputs_length: int = DEFAULT_MAX_LEN_OUTPUT,
     timeout_seconds: int | None = MAX_EXECUTION_TIME_SECONDS,
+    filename: str = USER_CODE_FILE,
 ):
     """
     Evaluate a python expression using the content of the variables stored in a state and only evaluating a given set
@@ -2657,6 +2699,8 @@ def evaluate_python_code(
             The print outputs are captured in state[_PRINT_OUTPUTS_KEY] (use print_outputs_from_state).
         timeout_seconds (`int`, *optional*, defaults to `MAX_EXECUTION_TIME_SECONDS`):
             Maximum time in seconds allowed for code execution. Set to `None` to disable timeout.
+        filename (`str`, *optional*, defaults to `USER_CODE_FILE`):
+            Label printed on ``File "..."`` lines in ``user_traceback`` for frames defined by *code*.
     """
     # WriterAgent (2026-05): hot cache for ast.parse + static sandbox policy on unchanged code.
     # Fresh executor state every call; does not cache execution results (see sandbox_cache.py).
@@ -2678,7 +2722,7 @@ def evaluate_python_code(
     state[_PRINT_OUTPUTS_KEY] = print_container
     state[_ACTIVE_EXCEPTIONS_KEY] = []
     # WriterAgent local patch (2026-11): top-level frame for user_traceback.
-    state[_FRAME_KEY] = ("<module>", code)
+    state[_FRAME_KEY] = ("<module>", code, filename)
 
     static_tools["print"] = _sandboxed_print
 
@@ -2738,7 +2782,7 @@ def evaluate_python_code(
                     f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"
                 )
                 # WriterAgent local patch (2026-11): attach user frames for wire/UI traceback.
-                error.user_traceback = _format_user_traceback(e)
+                error.user_traceback = _format_user_traceback(e, code)
                 raise error
         finally:
             _finalize_logs()
@@ -2751,8 +2795,10 @@ def evaluate_python_code(
 
     try:
         return _execute_code()
-    except ExecutionTimeoutError:
+    except ExecutionTimeoutError as e:
         finalize_thread_pool_timeout()
+        # WriterAgent local patch (2026-11): attach user frames for wire/UI traceback.
+        e.user_traceback = _format_user_traceback(e, code)
         raise
 
 
@@ -2821,7 +2867,7 @@ class LocalPythonExecutor(PythonExecutor):
         self.timeout_seconds = timeout_seconds
         self._sandbox_policy: SandboxPolicy | None = None
 
-    def __call__(self, code_action: str) -> CodeOutput:
+    def __call__(self, code_action: str, filename: str = USER_CODE_FILE) -> CodeOutput:
         output, is_final_answer = evaluate_python_code(
             code_action,
             static_tools=self.static_tools,
@@ -2830,6 +2876,7 @@ class LocalPythonExecutor(PythonExecutor):
             authorized_imports=self.authorized_imports,
             max_print_outputs_length=self.max_print_outputs_length,
             timeout_seconds=self.timeout_seconds,
+            filename=filename,
         )
         logs = print_outputs_from_state(self.state)
         self.logs = logs

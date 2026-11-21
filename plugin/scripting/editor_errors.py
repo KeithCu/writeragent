@@ -66,17 +66,19 @@ def editor_error_markers(message: str, traceback_text: str = "", code: str = "")
     if m_syntax:
         line = int(m_syntax.group(1))
     else:
-        m_exec = re.search(r"Code execution failed at line '(.*)' due to:", combined, re.DOTALL)
-        if m_exec:
-            segment = m_exec.group(1)
-            if segment and segment != "None" and code:
-                idx = code.find(segment)
-                if idx != -1:
-                    line = code[:idx].count("\n") + 1
+        # The last <sandbox> entry is the innermost frame of this code; init-script,
+        # named-library and earlier-cell frames carry their own file names.
+        sandbox_matches = list(re.finditer(r'File "<sandbox>", line (\d+)', combined))
+        if sandbox_matches:
+            line = int(sandbox_matches[-1].group(1))
         else:
-            sandbox_matches = list(re.finditer(r'File "<sandbox>", line (\d+)', combined))
-            if sandbox_matches:
-                line = int(sandbox_matches[-1].group(1))
+            m_exec = re.search(r"Code execution failed at line '(.*)' due to:", combined, re.DOTALL)
+            if m_exec:
+                segment = m_exec.group(1)
+                if segment and segment != "None" and code:
+                    idx = code.find(segment)
+                    if idx != -1:
+                        line = code[:idx].count("\n") + 1
 
     if line is None or line < 1 or (code and line > code.count("\n") + 1):
         return []

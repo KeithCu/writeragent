@@ -47,7 +47,7 @@
 ## 5. Python features
 - **Highlighting and indentation:** `@codemirror/lang-python` (Lezer) gives highlighting, smart indent, bracket matching, folding, and `indentUnit` 4 spaces; Tab indents (`indentWithTab`).
 - **Completion:** reuse jedi through `pywebview.api.get_completions` as a CM6 `autocompletion` source, so both backends behave the same, including the jedi-missing hint.
-- **Error markers:** diagnostics already exist. `plugin/calc/python/diagnostics.py` (`DiagnosticEntry` with `status`, `message`, `traceback`) feeds the sidebar. When the editor opens a cell that has a recent error, or after Run fails, the host sends `markers` (line parsed from the traceback's last `File "<cell>", line N`) in the load/status message. The shell calls `backend.setMarkers` (CM6 `@codemirror/lint` `setDiagnostics`; Monaco `setModelMarkers`). This needs no new settings.
+- **Error markers:** diagnostics already exist. `plugin/calc/python/diagnostics.py` (`DiagnosticEntry` with `status`, `message`, `traceback`) feeds the sidebar. When the editor opens a cell that has a recent error, or after Run fails, the host sends `markers` (line from a parse error, else the innermost `File "<sandbox>", line N` of the traceback, else the failing top-level statement named in the message) in the load/status message. The shell calls `backend.setMarkers` (CM6 `@codemirror/lint` `setDiagnostics`; Monaco `setModelMarkers`). This needs no new settings.
 - **LaTeX mode:** CM6 has `@codemirror/legacy-modes` stex. Include it in the bundle so LaTeX works the same, or keep LaTeX on Monaco for the first version and document that.
 
 ## 6. Tests

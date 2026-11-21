@@ -2157,3 +2157,16 @@ def test_dir_refusal_keeps_fix_hint_in_user_traceback() -> None:
     assert "wa.help(name)" in res.get("message", "")
     assert "wa.help(name)" in res.get("user_traceback", "")
 
+
+def test_init_script_frames_carry_init_label(fresh_sandbox_sessions) -> None:
+    res = sandbox_run(
+        "result = helper(0)",
+        init_script="def helper(v):\n    return 1 / v\n",
+        init_session_id="calc:tb-init:init",
+        init_script_hash="tb-init",
+    )
+    assert res["status"] == "error"
+    tb = res.get("user_traceback", "")
+    assert 'File "<init script>", line 2, in helper' in tb
+    assert 'File "<sandbox>", line 1, in <module>' in tb
+
