@@ -51,6 +51,7 @@ _PREVIEW_ANCHORS = {
     "sb_preview": (1, 0, 0, 1),
     "lbl_preview_status": (0, 1, 1, 0),
     "btn_run": (1, 1, 0, 0),
+    "btn_preview": (1, 1, 0, 0),
     "btn_apply": (1, 1, 0, 0),
     "btn_ok": (1, 1, 0, 0),
     "btn_close": (1, 1, 0, 0),
@@ -65,6 +66,7 @@ class PreviewImage(NamedTuple):
 
 
 PreviewJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], None]], PreviewImage]
+RunJob = Callable[[Any, dict[str, Any], SendCancellation, Callable[[str], None]], str]
 
 
 class _PreviewPane:
@@ -219,10 +221,17 @@ class ModuleConfigDialog:
     _closed: bool
     _specs: list[dict[str, Any]]
 
-    def __init__(self, ctx: Any, module_name: str, preview_job: PreviewJob | None = None) -> None:
+    def __init__(
+        self,
+        ctx: Any,
+        module_name: str,
+        preview_job: PreviewJob | None = None,
+        run_job: RunJob | None = None,
+    ) -> None:
         self._ctx = ctx
         self._module_name = module_name
         self._preview_job: PreviewJob | None = preview_job
+        self._run_job: RunJob | None = run_job
         self._dlg: Any | None = None
         self._closed = False
         self._top_listener: Any | None = None
@@ -233,7 +242,14 @@ class ModuleConfigDialog:
 
     @classmethod
     @main_thread_only
-    def show(cls, ctx: Any, module_name: str, *, preview_job: PreviewJob | None = None) -> ModuleConfigDialog:
+    def show(
+        cls,
+        ctx: Any,
+        module_name: str,
+        *,
+        preview_job: PreviewJob | None = None,
+        run_job: RunJob | None = None,
+    ) -> ModuleConfigDialog:
         # Re-raising a live dialog with toFront preserves unsaved edits instead of destroying it.
         existing = _active_dialogs.get(module_name)
         if existing is not None:
@@ -250,7 +266,7 @@ class ModuleConfigDialog:
                     raise
                 existing.close()
 
-        dialog = cls(ctx, module_name, preview_job=preview_job)
+        dialog = cls(ctx, module_name, preview_job=preview_job, run_job=run_job)
         dialog._open()
         _active_dialogs[module_name] = dialog
         return dialog
@@ -350,7 +366,8 @@ class ModuleConfigDialog:
     def _wire_buttons(self) -> None:
         assert self._dlg is not None
         for name, callback in (
-            ("btn_run", lambda ev: self._start_run()),
+            ("btn_run", lambda ev: self._start_job(self._run_job, "run")),
+            ("btn_preview", lambda ev: self._start_job(self._preview_job, "preview")),
             ("btn_apply", lambda ev: self._apply(close=False)),
             ("btn_ok", lambda ev: self._apply(close=True)),
             ("btn_close", lambda ev: self.close()),
@@ -415,15 +432,19 @@ class ModuleConfigDialog:
         set_control_text(lbl, text)
         best_effort(lambda: setattr(lbl.getModel(), "HelpText", text), "module config: set status tooltip")
 
-    def _start_run(self) -> None:
-        if self._run_cancel is not None or self._preview_job is None:
+    def _set_job_buttons_enabled(self, enabled: bool) -> None:
+        for name in ("btn_run", "btn_preview"):
+            set_control_enabled(get_optional(self._dlg, name), enabled)
+
+    def _start_job(self, job: PreviewJob | RunJob | None, kind: str) -> None:
+        if self._run_cancel is not None or job is None:
             return
         values = self._config_values()
         cancel = SendCancellation()
         self._run_cancel = cancel
-        set_control_enabled(get_optional(self._dlg, "btn_run"), False)
+        self._set_job_buttons_enabled(False)
         self._set_status(_("Running…"))
-        job, ctx = self._preview_job, self._ctx
+        ctx = self._ctx
 
         def report(text: str) -> None:
             main.post(self._on_run_status, cancel, text)
@@ -436,11 +457,14 @@ class ModuleConfigDialog:
             except WriterAgentException as exc:  # ToolExecutionError, DocumentDisposedError
                 outcome = str(exc)
             except Exception as exc:
-                log.exception("Module config preview run failed for %s", self._module_name)
-                outcome = _("Preview failed: {error}").format(error=exc)
-            best_effort(lambda: main.post(self._finish_run, cancel, outcome), "module config: post preview result")
+                log.exception("Module config %s failed for %s", kind, self._module_name)
+                if kind == "preview":
+                    outcome = _("Preview failed: {error}").format(error=exc)
+                else:
+                    outcome = _("Run failed: {error}").format(error=exc)
+            best_effort(lambda: main.post(self._finish_run, cancel, outcome), f"module config: post {kind} result")
 
-        run_in_background(_worker, name=f"{self._module_name}-preview", dedicated=True)  # OCR can block for minutes
+        run_in_background(_worker, name=f"{self._module_name}-{kind}", dedicated=True)  # OCR can block for minutes
 
     def _on_run_status(self, token: SendCancellation, text: str) -> None:
         if self._closed or self._run_cancel is not token:
@@ -451,7 +475,7 @@ class ModuleConfigDialog:
         if self._closed or self._run_cancel is not token:
             return
         self._run_cancel = None
-        set_control_enabled(get_optional(self._dlg, "btn_run"), True)
+        self._set_job_buttons_enabled(True)
         if isinstance(outcome, PreviewImage):
             if self._pane is not None:
                 self._pane.show(outcome)
@@ -462,7 +486,7 @@ class ModuleConfigDialog:
 
 def show_vision_settings_dialog(ctx: Any) -> None:
     """Open Vision / OCR settings (vision module config_dialog)."""
-    # Weight: the preview job pulls vision_runner, html_import and page rendering; import only when the dialog opens.
-    from plugin.vision.vision_preview import run_vision_preview
+    # Weight: the preview/run jobs pull vision_runner, html_import and page rendering; import only when the dialog opens.
+    from plugin.vision.vision_preview import run_vision_insert, run_vision_preview
 
-    ModuleConfigDialog.show(ctx, "vision", preview_job=run_vision_preview)
+    ModuleConfigDialog.show(ctx, "vision", preview_job=run_vision_preview, run_job=run_vision_insert)

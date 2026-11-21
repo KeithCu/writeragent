@@ -262,17 +262,18 @@ def test_validation_config_dialog_invalid_button():
         validate_modules(modules)
 
 
-def test_validation_config_dialog_run_requires_preview():
-    with pytest.raises(ValueError, match="config_dialog: the run button and preview go together"):
-        validate_modules([{"name": "a", "config_dialog": {"buttons": ["run", "ok"]}, "_yaml_path": "a/module.yaml"}])
-    with pytest.raises(ValueError, match="config_dialog: the run button and preview go together"):
+def test_validation_config_dialog_preview_button_requires_preview_pane():
+    with pytest.raises(ValueError, match="config_dialog: the preview button and preview pane go together"):
+        validate_modules([{"name": "a", "config_dialog": {"buttons": ["preview", "ok"]}, "_yaml_path": "a/module.yaml"}])
+    with pytest.raises(ValueError, match="config_dialog: the preview button and preview pane go together"):
         validate_modules([{"name": "a", "config_dialog": {"preview": {"height": 100}}, "_yaml_path": "a/module.yaml"}])
+    validate_modules([{"name": "a", "config_dialog": {"buttons": ["run", "ok"]}, "_yaml_path": "a/module.yaml"}])
 
 
 @pytest.mark.parametrize("bad_height", [0, -10, True, "100", None])
 def test_validation_config_dialog_preview_height_positive(bad_height):
     modules = [
-        {"name": "a", "config_dialog": {"buttons": ["run", "ok"], "preview": {"height": bad_height}}, "_yaml_path": "a/module.yaml"},
+        {"name": "a", "config_dialog": {"buttons": ["preview", "ok"], "preview": {"height": bad_height}}, "_yaml_path": "a/module.yaml"},
     ]
     with pytest.raises(ValueError, match="config_dialog.preview.height: must be a positive integer"):
         validate_modules(modules)
@@ -280,7 +281,7 @@ def test_validation_config_dialog_preview_height_positive(bad_height):
 
 @pytest.mark.parametrize(
     "bad_key",
-    ["__module__", "btn_apply", "btn_ok", "btn_close", "btn_tab_general"],
+    ["__module__", "btn_run", "btn_preview", "btn_apply", "btn_ok", "btn_close", "btn_tab_general"],
 )
 def test_validation_reserved_config_key_name(bad_key):
     modules = [

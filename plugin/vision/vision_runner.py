@@ -250,7 +250,16 @@ class VisionBatch:
         return res_out
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, cancel: SendCancellation | None = None) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(
+    ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None = None,
+    insert_into_document: bool = True,
+    cancel: SendCancellation | None = None,
+    on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -290,7 +299,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel)
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported)
 
             if result.get("status") == "error":
                 if result.get("code") == "USER_STOPPED":

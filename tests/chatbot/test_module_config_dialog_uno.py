@@ -49,6 +49,8 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
         assert pane is not None
         c_before = pane._container.getPosSize()
         sb_before = get_optional(real_dlg, "sb_preview").getPosSize()
+        run_before = get_optional(real_dlg, "btn_run").getPosSize()
+        preview_before = get_optional(real_dlg, "btn_preview").getPosSize()
         close_before = get_optional(real_dlg, "btn_close").getPosSize()
 
         pane.show(PreviewImage(graphic_from_bytes(ctx, _PNG_1X1), 800, 1100, "ok"))
@@ -65,12 +67,18 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
 
         c_after = pane._container.getPosSize()
         sb_after = get_optional(real_dlg, "sb_preview").getPosSize()
+        run_after = get_optional(real_dlg, "btn_run").getPosSize()
+        preview_after = get_optional(real_dlg, "btn_preview").getPosSize()
         close_after = get_optional(real_dlg, "btn_close").getPosSize()
         img_after = pane._image.getPosSize()
 
         assert c_after.Width == c_before.Width + 200
         assert c_after.Height == c_before.Height + 150
         assert sb_after.X == sb_before.X + 200
+        assert run_after.X == run_before.X + 200
+        assert run_after.Y == run_before.Y + 150
+        assert preview_after.X == preview_before.X + 200
+        assert preview_after.Y == preview_before.Y + 150
         assert close_after.X == close_before.X + 200
         assert close_after.Y == close_before.Y + 150
         assert img_after.Width == c_after.Width
