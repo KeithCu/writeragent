@@ -444,7 +444,7 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | Param | Default | Values |
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
-| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_onnx"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"`, `"auto"` |
+| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"` |
 | `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. |
 | `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |

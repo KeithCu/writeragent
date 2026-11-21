@@ -12,7 +12,7 @@ config_dialog:
   height: 130
   moveable: true
   resizeable: true
-  buttons: [run, apply, ok, close]
+  buttons: [run, ok, close]
   preview: {height: 200}
 
 actions:
@@ -63,7 +63,6 @@ config:
       - {value: tesseract, label: "Tesseract (command line)"}
       - {value: ocrmac, label: "Apple Vision (macOS)"}
       - {value: nemotron, label: "NVIDIA Nemotron OCR (Linux, CUDA)"}
-      - {value: auto, label: Docling auto}
 
   lang:
     type: string
@@ -161,6 +160,14 @@ config:
       - {value: html, label: Standard HTML}
       - {value: structured, label: Structured (layout / cell grid)}
 
+  delete_image_after_insert:
+    type: boolean
+    default: false
+    widget: checkbox
+    page: tables
+    label: Delete image after OCR
+    helper: Remove the source image from the document after OCR inserts its content.
+
   layout_model:
     type: string
     default: heron
@@ -210,5 +217,5 @@ config:
     label: Fix rotated text (RapidOCR)
     x: 188
     width: 150
-    helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines, not Docling auto.
+    helper: Re-read a region at 90, 180 and 270 degrees when fewer than half its lines read confidently. Fixes sideways scans; costs time only on poor reads. Applies to the RapidOCR engines.
 

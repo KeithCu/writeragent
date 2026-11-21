@@ -713,9 +713,10 @@ def test_installed_ocr_backend_tesseract_needs_program():
             docling_mod._installed_ocr_backend("tesseract")
 
 
-def test_installed_ocr_backend_rejects_surya():
-    with pytest.raises(docling_mod.OcrBackendError, match="Unknown ocr_backend 'surya'"):
-        docling_mod._installed_ocr_backend("surya")
+@pytest.mark.parametrize("backend", ["surya", "auto", "rapidocr_onnx"])
+def test_installed_ocr_backend_rejects_unknown(backend):
+    with pytest.raises(docling_mod.OcrBackendError, match=f"Unknown ocr_backend {backend!r}"):
+        docling_mod._installed_ocr_backend(backend)
 
 
 def test_ocr_language_unsupported_maps_to_code():
