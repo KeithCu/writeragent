@@ -301,37 +301,25 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     return cursor
 
 
-def _resolve_target_graphic(doc: Any, image_name: str | None) -> Any:
-    """Resolve the target graphic by name, or fall back to the current selection."""
-    from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
-
-    name = str(image_name or "").strip()
-    if name:
-        return get_graphic_object_by_name(doc, name)
-    return selected_graphic_object(doc)
-
-
-def _delete_writer_graphic(graphic: Any) -> None:
-    """Remove an as-char or paragraph-anchored graphic from a Writer document."""
+def _writer_review_recording_enabled() -> bool:
+    """True when WriterAgent edit review recording is available and enabled."""
     try:
-        anchor = graphic.getAnchor()
-        text = anchor.getText()
-        text.removeTextContent(graphic)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        raise ToolExecutionError(_("Could not delete the source image: %s") % exc, code="VISION_ERROR") from exc
+        from plugin.writer.edit_review import review_recording_enabled
+    except ImportError:
+        return False
+    return bool(review_recording_enabled())
 
 
-def _delete_calc_graphic(doc: Any, graphic: Any) -> None:
-    """Remove a GraphicObjectShape from a Calc document."""
-    from plugin.doc.visual_helpers import remove_graphic_from_draw_pages
+def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
+    """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic."""
+    if not image_name:
+        raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
+    from plugin.doc.visual_helpers import delete_graphic, get_graphic_object_by_name
 
-    try:
-        removed = remove_graphic_from_draw_pages(doc, graphic)
-    except ValueError as exc:
-        raise ToolExecutionError(str(exc), code="AMBIGUOUS_NAME") from exc
-    if not removed:
-        raise ToolExecutionError(_("Could not delete the source image."), code="VISION_ERROR")
+    target = get_graphic_object_by_name(doc, image_name)
+    if target is None:
+        raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
+    delete_graphic(doc, target)
 
 
 def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
@@ -345,21 +333,21 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
 
     image_name = str((params or {}).get("image_name") or "").strip() or None
     delete_image = resolve_delete_image_after_insert(ctx, params)
+    if delete_image and _writer_review_recording_enabled():
+        # dispose is not a redline, so reject could not restore the image.
+        delete_image = False
 
     def _apply_insert() -> None:
+        # One Ctrl+Z for insert plus optional image delete. A failed delete or
+        # presence check rolls the insert back, so the image is never lost without its text.
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
-            if delete_image:
-                graphic = _resolve_target_graphic(doc, image_name)
-                cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name, graphic=graphic)
-            else:
-                graphic = None
-                cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
+            cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
             insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
             # Shipped callers always set image_name; the selection-only path was checked pre-insert.
             if image_name and not _writer_graphic_present(doc, image_name):
                 raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
-            if delete_image and graphic is not None:
-                _delete_writer_graphic(graphic)
+            if delete_image:
+                _delete_inserted_image(doc, image_name)
 
     from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
@@ -382,7 +370,6 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
 
     if is_calc(doc):
         delete_image = resolve_delete_image_after_insert(ctx, params)
-        graphic = _resolve_target_graphic(doc, image_name) if delete_image else None
         if insert_mode == "structured" and helper == "extract_structure":
             with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
                 try:
@@ -400,14 +387,14 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                     else:
                         fallback_html = vision_html_from_result(result)
                     insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
-                if delete_image and graphic is not None:
-                    _delete_calc_graphic(doc, graphic)
+                if delete_image:
+                    _delete_inserted_image(doc, image_name)
             return
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
-            if delete_image and graphic is not None:
-                _delete_calc_graphic(doc, graphic)
+            if delete_image:
+                _delete_inserted_image(doc, image_name)
         return
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
