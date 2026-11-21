@@ -1,12 +1,22 @@
 # WriterAgent - Native UNO Test for menu_icon_dpi
+import sys
+
 from plugin.framework.menu_icon_dpi import (
     _AVAILABLE_PX,
+    _DECK_ICONS_32,
+    _DECK_LIST_PATH,
     STOCK_ICON_MATH,
     STOCK_ICON_SEARCH,
     STOCK_ICON_SETTINGS,
+    apply_deck_icons,
     load_menu_graphic,
     menu_icon_asset_url,
     reset_menu_icon_dpi_cache,
+)
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_service_manager,
+    resolve_package_extension_id,
 )
 from plugin.testing_runner import native_test
 
@@ -44,3 +54,27 @@ def test_button_model_keeps_stock_origin_url(ctx):
     btn_model.ImageURL = menu_icon_asset_url("vnd.sun.star.extension://x", STOCK_ICON_SETTINGS)
     assert btn_model.Graphic is not None
     assert btn_model.Graphic.OriginURL == STOCK_ICON_SETTINGS
+
+
+@native_test
+def test_apply_deck_icons_updates_live_deck_list(ctx):
+    """apply_deck_icons stores 32 px vnd URLs in the user-layer DeckList."""
+    if sys.platform == "darwin":
+        return
+    apply_deck_icons(ctx)
+    smgr = get_service_manager(ctx)
+    assert smgr is not None
+    prov = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+    access = prov.createInstanceWithArguments(
+        "com.sun.star.configuration.ConfigurationAccess",
+        (create_property_value("nodepath", _DECK_LIST_PATH),),
+    )
+    ext_id = resolve_package_extension_id(ctx)
+    found = 0
+    for deck, asset in _DECK_ICONS_32.items():
+        if not access.hasByName(deck):
+            continue
+        found += 1
+        expected = f"vnd.sun.star.extension://{ext_id}/assets/{asset}"
+        assert access.getByName(deck).getPropertyValue("IconURL") == expected
+    assert found > 0

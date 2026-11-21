@@ -54,6 +54,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
+from plugin.framework.menu_icon_dpi import apply_deck_icons
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
@@ -493,6 +494,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self._released = False
                     try:
                         _initialize_extension_paths(self.ctx)
+                        apply_deck_icons(self.ctx)
                         root_window = self._getOrCreatePanelRootWindow()
                         log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
                         # Wiring reads self.toolpanel. On failure the except

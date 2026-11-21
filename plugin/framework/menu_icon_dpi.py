@@ -12,6 +12,7 @@ Probes in order: VCL DPI, font, toolbar config, then env scale.
 Only VCL DPI is a strong reading; other probes remain weak until VCL DPI is available.
 Probe miss defaults to 32 px.
 macOS is fixed at 16: VCL pixels are points there and CoreGraphics applies the Retina backing scale itself.
+Also owns the sidebar deck IconURL size (``apply_deck_icons``).
 """
 
 from __future__ import annotations
@@ -24,7 +25,12 @@ from typing import Any
 import uno
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.uno_context import create_property_value, get_extension_url, get_service_manager
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_extension_url,
+    get_service_manager,
+    resolve_package_extension_id,
+)
 
 log = logging.getLogger("writeragent.menu_icon_dpi")
 
@@ -432,3 +438,52 @@ def load_menu_graphic(ctx: Any, icon: str) -> Any:
     except Exception:
         log.debug("load_menu_graphic failed for %s", icon, exc_info=True)
         return None
+
+
+_DECK_LIST_PATH = "/org.openoffice.Office.UI.Sidebar/Content/DeckList"
+# Sidebar deck node name -> 32 px asset written on non-macOS screens.
+_DECK_ICONS_32: dict[str, str] = {
+    "WriterAgentDeck": "writeragent_32.png",
+    "LibrePyDeck": "python_32.png",
+}
+
+
+def apply_deck_icons(ctx: Any) -> None:
+    """Off macOS, store a 32 px IconURL for each installed WriterAgent-family deck in the user configuration.
+
+    VCL draws a URL-loaded deck icon at its bitmap size (``sfx2/source/sidebar/Tools.cxx``
+    ``GetImage``, ``vcl/source/image/Image.cxx`` ``Image(XGraphic)``). The tab slot is
+    24 × the DPI bucket off macOS and 24 points on macOS (``vcl/source/window/window.cxx``
+    ``CountDPIScaleFactor``), so the shipped xcu stays 24 px for macOS and other
+    platforms get 32 px here.
+
+    Each window reads the value once when its sidebar is built
+    (``sfx2/source/sidebar/ResourceManager.cxx`` ``ReadDeckList``). A same-value
+    ``setPropertyValue`` still leaves pending changes, so we compare before writing.
+    Using ``vnd.sun.star.extension://`` keeps any versioned cache path out of the profile.
+    """
+    if sys.platform == "darwin":
+        return
+    try:
+        extension_id = resolve_package_extension_id(ctx)
+        smgr = get_service_manager(ctx)
+        if smgr is None:
+            return
+        prov = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+        access = prov.createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess",
+            (create_property_value("nodepath", _DECK_LIST_PATH),),
+        )
+        changed = False
+        for deck, asset in _DECK_ICONS_32.items():
+            if not access.hasByName(deck):
+                continue
+            url = f"vnd.sun.star.extension://{extension_id}/assets/{asset}"
+            node = access.getByName(deck)
+            if node.getPropertyValue("IconURL") != url:
+                node.setPropertyValue("IconURL", url)
+                changed = True
+        if changed:
+            access.commitChanges()
+    except Exception:
+        log.exception("apply_deck_icons: deck IconURL write failed")

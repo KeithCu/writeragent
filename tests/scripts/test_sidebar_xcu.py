@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Structural tests for Sidebar.xcu deck icon dimensions.
 
-LibreOffice's sidebar deck slot is 24 px and VCL draws URL-loaded bitmaps at
-their own pixel size, so a larger asset overflows the tab bar (issue 3710
-follow-up).
+The shipped Sidebar.xcu files keep 24 px PNGs, which is the macOS 24-point
+slot size; the 32 px non-macOS value is written at runtime and tested in
+``tests/framework/test_menu_icon_dpi.py``.
 """
 
 from __future__ import annotations
