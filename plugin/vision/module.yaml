@@ -12,8 +12,8 @@ config_dialog:
   height: 130
   moveable: true
   resizeable: true
-  modeless: true
-  buttons: [apply, ok, close]
+  buttons: [run, apply, ok, close]
+  preview: {height: 200}
 
 actions:
   open_settings:

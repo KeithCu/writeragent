@@ -359,6 +359,19 @@ def spec_save_key(spec: dict[str, Any], name: str) -> str:
     return str(spec.get("config_key") or name.replace("__", "."))
 
 
+def field_specs_config_values(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Map dialog control values to ``{save_key: stored_value}`` using *field_specs*."""
+    by_name = {f["name"]: f for f in field_specs}
+    values: dict[str, Any] = {}
+    for key, val in result.items():
+        spec = by_name.get(key)
+        if spec is None:
+            continue
+        save_key = spec_save_key(spec, key)
+        values[save_key] = stored_select_value(val, spec.get("options"))
+    return values
+
+
 def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
@@ -367,15 +380,7 @@ def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str,
     and emits ``config:changed`` again, including when every value already
     matched.
     """
-    by_name = {f["name"]: f for f in field_specs}
-    pending: dict[str, Any] = {}
-    for key, val in result.items():
-        spec = by_name.get(key)
-        if spec is None:
-            continue
-        save_key = spec_save_key(spec, key)
-        pending[save_key] = stored_select_value(val, spec.get("options"))
     # One write, and only keys that differ from disk or from an omitted default.
-    pending = changed_config_values(pending, get_config)
+    pending = changed_config_values(field_specs_config_values(result, field_specs), get_config)
     if pending:
         save(pending)

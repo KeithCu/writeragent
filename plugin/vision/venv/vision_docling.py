@@ -13,6 +13,7 @@ from typing import Any
 
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
+    LOAD_MODELS_HELPER,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
@@ -562,3 +563,21 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         metrics=metrics,
         warnings=warnings,
     )
+
+
+def load_models(params: dict[str, Any]) -> dict[str, Any]:
+    """Eagerly load Docling pipeline models into the cached converter for *params*.
+
+    ``DocumentConverter`` is lazy; ``initialize_pipeline`` (docling
+    ``document_converter.py:675``) loads the layout, table, and OCR models
+    into the cached converter so the next OCR call reuses them.
+    """
+    try:
+        fmt = detect_vision_input_format(None, params)
+        norm = DoclingPipelineParams.from_params(params, input_format=fmt)
+        converter = _get_docling_converter(norm)
+        input_format_enum = importlib.import_module("docling.datamodel.base_models").InputFormat
+        converter.initialize_pipeline(input_format_enum.PDF if fmt == "pdf" else input_format_enum.IMAGE)
+    except Exception as exc:
+        return _docling_error(exc, LOAD_MODELS_HELPER)
+    return ok_result(LOAD_MODELS_HELPER)
