@@ -167,3 +167,16 @@ def test_merge_vision_params_reads_ocr_engine_settings():
             "rapidocr_detect_orientation": False,
         }
 
+
+def test_resolve_delete_image_after_insert():
+    from plugin.vision.vision_common import VISION_CONFIG_KEYS, resolve_delete_image_after_insert
+
+    assert "delete_image_after_insert" in VISION_CONFIG_KEYS
+    with patch("plugin.framework.config.get_config", return_value=None):
+        assert resolve_delete_image_after_insert(None, None) is False
+        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": True}) is True
+        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": "false"}) is False
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: True if k == "vision.delete_image_after_insert" else None):
+        assert resolve_delete_image_after_insert(None, None) is True
+        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": False}) is False
+

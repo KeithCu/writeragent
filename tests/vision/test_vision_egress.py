@@ -489,3 +489,114 @@ def test_prepare_vision_writer_insert_named_missing_graphic_is_image_not_found()
     assert exc.value.details == {"image_name": "Gone"}
 
 
+@patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
+@patch("plugin.writer.html_import.insert_html_at_cursor")
+@patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
+def test_writer_delete_image_after_insert_on_removes_graphic(mock_prepare, mock_insert, _review):
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    cursor = MagicMock()
+    mock_prepare.return_value = cursor
+    graphic = MagicMock()
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>"}
+
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
+        insert_vision_result_into_writer(
+            ctx, doc, result, params={"image_name": "Img1", "delete_image_after_insert": True}
+        )
+
+    mock_insert.assert_called_once()
+    graphic.getAnchor.return_value.getText.return_value.removeTextContent.assert_called_once_with(graphic)
+
+
+@patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
+@patch("plugin.writer.html_import.insert_html_at_cursor")
+@patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
+def test_writer_delete_image_after_insert_off_keeps_graphic(mock_prepare, mock_insert, _review):
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    mock_prepare.return_value = MagicMock()
+    graphic = MagicMock()
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value.hasByName.return_value = True
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>"}
+
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
+        insert_vision_result_into_writer(
+            MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False}
+        )
+
+    mock_insert.assert_called_once()
+    graphic.getAnchor.return_value.getText.return_value.removeTextContent.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"status": "error", "code": "VISION_ERROR", "message": "boom"},
+        {"status": "ok", "helper": "extract_structure", "html": "   "},
+    ],
+)
+def test_writer_delete_image_after_insert_error_or_empty_keeps_graphic(result):
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    graphic = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
+        with pytest.raises(ToolExecutionError):
+            insert_vision_result_into_writer(
+                MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True}
+            )
+
+    graphic.getAnchor.return_value.getText.return_value.removeTextContent.assert_not_called()
+
+
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_calc_delete_image_after_insert_on_and_off(mock_calc_html):
+    from plugin.vision.vision_egress import insert_vision_result
+
+    graphic = MagicMock()
+    doc = MagicMock()
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>"}
+
+    with (
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_calc", return_value=True),
+        patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
+        patch("plugin.doc.visual_helpers.remove_graphic_from_draw_pages", return_value=True) as mock_remove,
+    ):
+        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
+        mock_remove.assert_called_once_with(doc, graphic)
+
+        mock_remove.reset_mock()
+        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False})
+        mock_remove.assert_not_called()
+
+
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_calc_delete_image_after_insert_error_or_empty_keeps_graphic(mock_calc_html):
+    from plugin.vision.vision_egress import insert_vision_result
+
+    graphic = MagicMock()
+    doc = MagicMock()
+    for bad in (
+        {"status": "error", "code": "VISION_ERROR", "message": "boom"},
+        {"status": "ok", "helper": "extract_structure", "html": ""},
+    ):
+        with (
+            patch("plugin.framework.doc_type.is_writer", return_value=False),
+            patch("plugin.framework.doc_type.is_calc", return_value=True),
+            patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"),
+            patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
+            patch("plugin.doc.visual_helpers.remove_graphic_from_draw_pages", return_value=True) as mock_remove,
+        ):
+            with pytest.raises(ToolExecutionError):
+                insert_vision_result(MagicMock(), doc, bad, params={"image_name": "Img1", "delete_image_after_insert": True})
+            mock_remove.assert_not_called()
+            mock_calc_html.assert_not_called()
+
+

@@ -322,7 +322,8 @@ def generate_standalone_config_dialog(module):
     visible_keys = [k for k in ("run", "apply", "ok", "close") if k in buttons]
     btn_specs = []
     for idx, key in enumerate(visible_keys):
-        label = _FOOTER_BUTTON_LABELS[key]
+        # When Apply is absent, closing discards unsaved edits, so label it Cancel.
+        label = "Cancel" if key == "close" and "apply" not in buttons else _FOOTER_BUTTON_LABELS[key]
         btn_id = f"btn_{key}"
         left = width - _STANDALONE_MARGIN - (len(visible_keys) - idx) * btn_w - (len(visible_keys) - 1 - idx) * btn_gap
         btn_specs.append((key, btn_id, label, footer_y, left))
