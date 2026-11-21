@@ -11,7 +11,8 @@ _SCRIPTS = _REPO / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from manifest_registry import _settings_hover_text, generate_settings_dialog_tabs  # noqa: E402
+from manifest_common import field_hover_text  # noqa: E402
+from manifest_registry import generate_settings_dialog_tabs  # noqa: E402
 
 _DLG_NS = "http://openoffice.org/2000/dialog"
 
@@ -80,15 +81,13 @@ def test_settings_xdl_controls_within_bounds_and_non_overlapping(tmp_path: Path)
 
 
 def test_vision_standalone_controls_within_bounds() -> None:
-    """Controls past the standalone dialog edge are clipped (e.g. helper lines wider than the Vision window)."""
+    """Controls must fit the window and must not overlap, including fields that share a row."""
     from manifest_xdl import generate_standalone_config_dialog
     from plugin._manifest import MODULES
 
     vision = next(module for module in MODULES if module["name"] == "vision")
     root = ET.fromstring(generate_standalone_config_dialog(vision))
-    # Standalone label_* (height 14 at y+2) intentionally touches/overlaps hlp_* (y+15) by 1px;
-    # keep width/height bounds checked so helper lines cannot overflow the window.
-    _assert_controls_fit_and_do_not_overlap(root, check_overlap=False)
+    _assert_controls_fit_and_do_not_overlap(root, check_overlap=True)
 
 
 def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
@@ -182,7 +181,7 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
             if schema.get("internal") or schema.get("widget") == "separator":
                 continue
             ctrl_id = f"{prefix}__{field_name}"
-            expected = _settings_hover_text(schema)
+            expected = field_hover_text(schema)
             assert tips.get(ctrl_id) == (expected or None), ctrl_id
             label_id = f"label_{ctrl_id}"
             if _settings_keeps_caption_label(schema):
@@ -391,7 +390,6 @@ def test_vision_standalone_dialog_fields_agreement() -> None:
         is_known_extra = (
             extra in ("VisionSettingsDialog", "__module__", "btn_apply", "btn_ok", "btn_close")
             or extra.startswith("label_")
-            or extra.startswith("hlp_")
             or extra.startswith("btn_tab_")
         )
         assert is_known_extra, f"Unexpected extra control {extra} in VisionSettingsDialog.xdl"
@@ -513,6 +511,43 @@ def test_standalone_numeric_field_step_and_bounds(tmp_path: Path) -> None:
     assert stepped.get(f"{{{_DLG_NS}}}value-max") == "100"
     assert stepped.get(f"{{{_DLG_NS}}}value-step") == "5"
     assert stepped.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
+
+
+def test_standalone_inline_fields_share_row_and_helper_is_tooltip() -> None:
+    """Standalone config_dialog fields honor inline/x/width/label_* keys and emit helper as dlg:help-text."""
+    from manifest_xdl import generate_standalone_config_dialog
+
+    synthetic = {
+        "name": "compact",
+        "title": "Compact",
+        "config_dialog": {"id": "CompactDialog", "width": 350, "height": 130},
+        "config": {
+            "a": {"type": "int", "widget": "number", "label": "A", "inline": True, "helper": "Tip A"},
+            "b": {"type": "int", "widget": "number", "label": "B", "label_x": 150, "x": 250, "width": 40},
+            "c": {"type": "boolean", "widget": "checkbox", "label": "C", "helper": "Tip C"},
+        },
+    }
+    root = ET.fromstring(generate_standalone_config_dialog(synthetic))
+    by_id = {
+        ctrl_id: el
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))
+    }
+
+    assert not any(cid.startswith("hlp_") for cid in by_id)
+    a_top = int(by_id["a"].get(f"{{{_DLG_NS}}}top") or 0)
+    b_top = int(by_id["b"].get(f"{{{_DLG_NS}}}top") or 0)
+    c_top = int(by_id["c"].get(f"{{{_DLG_NS}}}top") or 0)
+    assert a_top == b_top
+    assert c_top == a_top + 18
+
+    assert by_id["label_b"].get(f"{{{_DLG_NS}}}left") == "150"
+    assert by_id["b"].get(f"{{{_DLG_NS}}}left") == "250"
+    assert by_id["b"].get(f"{{{_DLG_NS}}}width") == "40"
+
+    assert by_id["a"].get(f"{{{_DLG_NS}}}help-text") == "Tip A"
+    assert by_id["label_a"].get(f"{{{_DLG_NS}}}help-text") == "Tip A"
+    assert by_id["c"].get(f"{{{_DLG_NS}}}help-text") == "Tip C"
 
 
 

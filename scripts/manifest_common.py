@@ -131,6 +131,22 @@ def require_widget(schema, allowed: frozenset[str], *, where: str) -> str:
     return widget
 
 
+def field_hover_text(schema: dict) -> str:
+    """Hover tip (``dlg:help-text``) for one Settings or standalone dialog field.
+
+    An explicit ``tooltip`` string wins. Otherwise the YAML ``helper`` is the
+    tip. Empty when the field has neither, so controls without a helper stay
+    quiet.
+    """
+    tooltip = schema.get("tooltip")
+    if isinstance(tooltip, str) and tooltip.strip():
+        return tooltip.strip()
+    helper = schema.get("helper")
+    if isinstance(helper, str) and helper.strip():
+        return helper.strip()
+    return ""
+
+
 def write_if_changed(path, content, mode="w", encoding="utf-8"):
     """Write content to path only if the file does not exist or the content has changed.
 

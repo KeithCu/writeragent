@@ -16,6 +16,7 @@ from scripts.manifest_common import (
     add_numericfield as _common_add_numericfield,
     add_combobox as _common_add_combobox,
     add_button as _common_add_button,
+    field_hover_text,
     require_widget,
     write_if_changed as _write_if_changed,
 )
@@ -58,22 +59,6 @@ def _settings_add_separator(board, sep_id, y, label=None):
         attrs[_dlg("value")] = label
     ET.SubElement(board, _dlg("fixedline"), attrs)
     return y + _SETTINGS_SEP_GAP_AFTER
-
-
-def _settings_hover_text(schema):
-    """Hover tip (``dlg:help-text``) for one Settings field.
-
-    An explicit ``tooltip`` string wins. Otherwise the YAML ``helper`` is the
-    tip — the same string ``tooltip: true`` used to opt into. Empty when the
-    field has neither, so controls without a helper stay quiet.
-    """
-    tooltip = schema.get("tooltip")
-    if isinstance(tooltip, str) and tooltip.strip():
-        return tooltip.strip()
-    helper = schema.get("helper")
-    if isinstance(helper, str) and helper.strip():
-        return helper.strip()
-    return ""
 
 
 def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_flavor=False):
@@ -215,11 +200,9 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                 else:
                     ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14)
 
-                # Helper text is a hover tip, not a second FixedText row. Standalone
-                # module XDLs still use always-visible hlp_* lines and do not come
-                # through this generator. The label gets the same tip so hovering
-                # the caption works; checkboxes already dropped that label.
-                hover = _settings_hover_text(schema)
+                # Helper text is a hover tip (dlg:help-text) on the control and
+                # its label, not a second row; checkboxes have no separate label.
+                hover = field_hover_text(schema)
                 if hover:
                     if ctrl_el is not None:
                         ctrl_el.set(_dlg("help-text"), hover)

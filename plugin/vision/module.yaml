@@ -9,7 +9,7 @@ config_dialog:
   library: Dialogs
   title: Vision / OCR Settings
   width: 350
-  height: 170
+  height: 130
   moveable: true
   resizeable: true
   modeless: true
@@ -28,25 +28,24 @@ config:
     widget: number
     page: general
     label: Image scale
+    width: 50
+    # Shares row 1 with document_timeout.
+    inline: true
     helper: Upscale before OCR/layout. Try 2.0 for small screenshots.
 
-  worker_timeout_sec:
-    type: int
-    default: 300
-    min: 30
+  document_timeout:
+    type: float
+    default: 0
+    min: 0
     max: 600
     widget: number
     page: general
-    label: Worker timeout (seconds)
-    helper: Host subprocess limit for Vision Helpers (first model download).
-
-  artifacts_path:
-    type: string
-    default: ""
-    widget: text
-    page: general
-    label: Docling artifacts path
-    helper: Optional folder from docling-tools models download (offline use).
+    label: Document timeout (s)
+    label_x: 188
+    label_width: 100
+    x: 290
+    width: 52
+    helper: Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off.
 
   text_score:
     type: float
@@ -54,17 +53,31 @@ config:
     min: 0.0
     max: 1.0
     widget: number
-    page: ocr
+    page: general
+    width: 50
     label: OCR confidence threshold
-    helper: RapidOCR minimum text score. 0.0 is a real threshold (not the default). Raise to reduce garbage text.
+    helper: Minimum RapidOCR confidence for recognized text. Raise it to drop garbage text; 0.0 keeps all text.
+
+  # Read by client._resolve_vision_timeout_sec; configured in writeragent.json only.
+  worker_timeout_sec:
+    type: int
+    default: 300
+    min: 30
+    max: 600
+    internal: true
+    helper: Host time limit for one Vision helper call, including Docling import and first model download.
+
+  artifacts_path:
+    type: string
+    default: ""
+    internal: true
+    helper: Optional folder from docling-tools models download (offline use).
 
   force_full_page_ocr:
     type: boolean
     default: true
-    widget: checkbox
-    page: ocr
-    label: OCR entire image
-    helper: Recommended for embedded graphics exported from LibreOffice.
+    internal: true
+    helper: OCR the whole image, not only detected text regions. PDFs ignore this setting.
 
   table_mode:
     type: string
@@ -128,14 +141,4 @@ config:
     page: advanced
     label: Code block enrichment
     helper: Specialized OCR for code/terminal screenshots.
-
-  document_timeout:
-    type: float
-    default: 0
-    min: 0
-    max: 600
-    widget: number
-    page: advanced
-    label: Docling document timeout (s)
-    helper: Per-conversion timeout inside Docling. 0 = no limit.
 
