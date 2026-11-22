@@ -9,10 +9,11 @@ parameters fed into LlmClient via llm_chat_eval._build_api_config.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import re
 import sys
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from model_configs import DEFAULT_EVAL_STUDENT_MODEL
 
@@ -83,6 +84,7 @@ def native_anthropic_model_id(model: str) -> str:
 def is_gemini_model_id(model: str) -> bool:
     """Check whether a model identifier represents a Google Gemini model."""
     mid = _unwrap_openrouter_id(model)
+    # Exclude google/gemma-* — Gemma uses a different tool-calling/pricing path and stays on OpenRouter.
     if mid.startswith("google/gemini-"):
         return len(mid) > len("google/gemini-")
     if mid.startswith("gemini-"):
@@ -99,6 +101,48 @@ def native_gemini_model_id(model: str) -> str:
     return mid.split(":", 1)[0]
 
 
+@dataclass(frozen=True)
+class NativeRoute:
+    """Routing metadata for a provider whose models can bypass OpenRouter."""
+
+    provider: str
+    label: str
+    base: str
+    matches: Callable[[str], bool]
+    native_id: Callable[[str], str]
+    env_vars: tuple[str, ...]
+
+
+_NATIVE_ROUTES: tuple[NativeRoute, ...] = (
+    NativeRoute(
+        provider="anthropic",
+        label="Anthropic",
+        base=ANTHROPIC_API_BASE,
+        matches=is_anthropic_model_id,
+        native_id=native_anthropic_model_id,
+        env_vars=("EVAL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+    ),
+    NativeRoute(
+        provider="google",
+        label="Gemini",
+        base=GEMINI_API_BASE,
+        matches=is_gemini_model_id,
+        native_id=native_gemini_model_id,
+        env_vars=("EVAL_GEMINI_API_KEY", "GEMINI_API_KEY"),
+    ),
+)
+
+
+def native_route_for(model: str) -> NativeRoute | None:
+    """Return the native provider route for *model*, or None if not natively routed."""
+    if not model:
+        return None
+    for route in _NATIVE_ROUTES:
+        if route.matches(model):
+            return route
+    return None
+
+
 def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, str]:
     """Route an eval LLM call to native Anthropic or Google Gemini when appropriate.
 
@@ -107,35 +151,24 @@ def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, s
     """
     from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
-    if not model:
+    route = native_route_for(model)
+    if route is None:
         return endpoint, api_key, model
 
-    if is_anthropic_model_id(model):
-        target_provider = "anthropic"
-        target_base = ANTHROPIC_API_BASE
-        native_model = native_anthropic_model_id(model)
-        env_key = (
-            os.environ.get("EVAL_ANTHROPIC_API_KEY", "").strip()
-            or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        )
-    elif is_gemini_model_id(model):
-        target_provider = "google"
-        target_base = GEMINI_API_BASE
-        native_model = native_gemini_model_id(model)
-        env_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    else:
-        return endpoint, api_key, model
-
+    env_key = next(
+        (val for name in route.env_vars if (val := os.environ.get(name, "").strip())),
+        "",
+    )
     provider = get_provider_from_endpoint(endpoint)
 
     if provider == "openrouter":
         if env_key:
-            return target_base, env_key, native_model
+            return route.base, env_key, route.native_id(model)
         return endpoint, api_key, model
 
-    if provider == target_provider:
+    if provider == route.provider:
         effective_key = api_key if (api_key and api_key.strip()) else env_key
-        return endpoint, effective_key, native_model
+        return endpoint, effective_key, route.native_id(model)
 
     return endpoint, api_key, model
 
@@ -169,12 +202,10 @@ def require_api_key(api_key: str, endpoint: str) -> None:
         resolve_auth_for_config(cfg)
     except AuthError as exc:
         provider = get_provider_from_endpoint(endpoint)
-        if provider == "anthropic":
-            hint = "Set --api-key / -k or export EVAL_ANTHROPIC_API_KEY, ANTHROPIC_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
-        elif provider == "google":
-            hint = "Set --api-key / -k or export GEMINI_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
-        else:
-            hint = "Set --api-key / -k or export WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
+        route = next((r for r in _NATIVE_ROUTES if r.provider == provider), None)
+        base_vars = ("WRITERAGENT_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+        env_names = (*route.env_vars, *base_vars) if route else base_vars
+        hint = f"Set --api-key / -k or export {', '.join(env_names[:-1])}, or {env_names[-1]}."
         print(
             f"Error: {exc}\n{hint}",
             file=sys.stderr,

@@ -30,6 +30,7 @@ from eval_auth import (  # noqa: E402
 def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("EVAL_GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
@@ -329,6 +330,20 @@ def test_build_eval_api_config_gemini_routes_to_google(monkeypatch: pytest.Monke
     assert get_provider_shim_class(auth["provider"]) is GoogleShim
 
 
+def test_build_eval_api_config_eval_gemini_api_key_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_GEMINI_API_KEY", "eval-gem-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "fallback-gem-key")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert "generativelanguage.googleapis.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "eval-gem-key"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "gemini-2.5-flash"
+
+
 def test_build_eval_api_config_gemini_variants(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "gem-key-123")
     cfg1 = build_eval_api_config(
@@ -421,4 +436,5 @@ def test_require_api_key_google_hint(capsys: pytest.CaptureFixture[str]) -> None
     with pytest.raises(SystemExit):
         require_api_key("", "https://generativelanguage.googleapis.com/v1beta/openai")
     err = capsys.readouterr().err
+    assert "EVAL_GEMINI_API_KEY" in err
     assert "GEMINI_API_KEY" in err
