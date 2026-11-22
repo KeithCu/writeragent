@@ -181,7 +181,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 **Multipart subset** (kit↔compute, not a general MIME stack): named parts only (`meta`, `code`, `init_script`, `data`), any order. Delimiters are `--` + the `Content-Type` boundary, at the start of the body or after a linebreak; the introducing linebreak is not part of the body (CRLF or LF). Preamble and epilogue are ignored. `Content-Transfer-Encoding` may be omitted, `7bit`, `8bit`, or `binary`. `base64` and `quoted-printable` are rejected so the host never decodes a payload. `meta` must not contain `code`, `data`, `data_json`, or `init_script`. The encoder picks a boundary that does not occur in any part body.
 
-**Migration:** coolwsd now sends multipart; peel stays for older kits until it is retired. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No kit date — eventually switch kit to multipart, then delete peel.
+**Migration:** coolwsd now sends multipart; peel stays for older kits until it is retired. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No date — delete peel once older kits are gone.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
@@ -189,7 +189,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 Drops the shared sandbox and init companion for one workbook kernel. Reuses `FormulaPool.reset_session` → worker `action: reset_session` → LibrePy `reset_sandbox_session` (no second reset path).
 
-Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. coolwsd calls it for Reset Python Session and on document close.
+Caller is coolwsd: Reset Python Session and document close (DocumentBroker destroy).
 
 - **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id={id}`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
 - **Request body** (optional; empty body is fine):
@@ -500,7 +500,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
-- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
+- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker once older kits no longer send peel.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode?`, `timeout_ms?`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length). Shared vs isolated is derived from the URL `session_id` query, not client `mode`. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
 - Envelope: `{id, code, session_id (sticky calls only), init_script, timeout_sec, expect_namespace?, data_json: bytes}`. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
