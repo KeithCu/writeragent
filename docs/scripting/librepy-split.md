@@ -1072,7 +1072,7 @@ flowchart LR
 | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py) | Click-to-navigate from sidebar |
 | [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open; the CLI is WriterAgent-only) |
 | [`plugin/scripting/venv/editor_main.py`](../../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
-| [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_24.png` (macOS; `python_32.png` written to the user config elsewhere by `apply_deck_icons`) |
+| [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_24.png` (macOS; `python_32.png` / `python_48.png` written by `apply_deck_icons` from the DPI bucket) |
 | [`extension-core/registry/.../Factories.xcu`](../extension-core/registry/org/openoffice/Office/UI/Factories.xcu) | PythonPanelFactory registration |
 | [`extension/Dialogs/PythonSidebarDialog.xdl`](../../extension/Dialogs/PythonSidebarDialog.xdl) | Sidebar layout |
 

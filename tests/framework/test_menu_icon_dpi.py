@@ -8,7 +8,8 @@ from PIL import Image
 from plugin.framework import menu_icon_dpi as m
 from plugin.framework.menu_icon_dpi import (
     _AVAILABLE_PX,
-    _DECK_ICONS_32,
+    _DECK_ICONS,
+    _DECK_PX_BY_MENU_PX,
     STOCK_ICON_SEARCH,
     apply_deck_icons,
     load_menu_graphic,
@@ -363,12 +364,24 @@ def test_apply_deck_icons_skips_macos(monkeypatch):
     smgr.assert_not_called()
 
 
-def test_apply_deck_icons_writes_32px_urls_once(monkeypatch):
+@pytest.mark.parametrize(
+    "scale, px",
+    [
+        (1.0, 24),
+        (1.25, 24),
+        (1.5, 32),
+        (2.0, 48),
+        (2.5, 48),
+    ],
+)
+def test_apply_deck_icons_writes_bucket_size(monkeypatch, scale, px):
+    reset_menu_icon_dpi_cache()
     monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: scale)
     access = _FakeDeckListAccess(
         {
-            "WriterAgentDeck": "vnd.sun.star.extension://org.extension.librepy/assets/logo_24.png",
-            "LibrePyDeck": "vnd.sun.star.extension://org.extension.librepy/assets/python_24.png",
+            "WriterAgentDeck": "vnd.sun.star.extension://org.extension.librepy/assets/stale.png",
+            "LibrePyDeck": "vnd.sun.star.extension://org.extension.librepy/assets/stale.png",
         }
     )
     smgr = _fake_smgr_for_access(access)
@@ -379,12 +392,10 @@ def test_apply_deck_icons_writes_32px_urls_once(monkeypatch):
         apply_deck_icons(MagicMock())
 
     assert access.commits == 1
-    assert access.getByName("WriterAgentDeck").getPropertyValue("IconURL") == (
-        "vnd.sun.star.extension://org.extension.librepy/assets/writeragent_32.png"
-    )
-    assert access.getByName("LibrePyDeck").getPropertyValue("IconURL") == (
-        "vnd.sun.star.extension://org.extension.librepy/assets/python_32.png"
-    )
+    for deck in ("WriterAgentDeck", "LibrePyDeck"):
+        assert access.getByName(deck).getPropertyValue("IconURL") == (
+            f"vnd.sun.star.extension://org.extension.librepy/assets/{_DECK_ICONS[deck][px]}"
+        )
 
 
 def test_apply_deck_icons_skips_absent_deck_and_unchanged_value(monkeypatch):
@@ -396,6 +407,7 @@ def test_apply_deck_icons_skips_absent_deck_and_unchanged_value(monkeypatch):
     )
     smgr = _fake_smgr_for_access(access)
     with (
+        patch.object(m, "resolve_menu_icon_pixel_size", return_value=24),
         patch.object(m, "get_service_manager", return_value=smgr),
         patch.object(m, "resolve_package_extension_id", return_value="org.extension.librepy"),
     ):
@@ -421,9 +433,18 @@ def test_apply_deck_icons_logs_and_survives_config_failure(monkeypatch, caplog):
     assert any(r.levelno == logging.ERROR for r in caplog.records)
 
 
-@pytest.mark.parametrize("asset", list(_DECK_ICONS_32.values()))
-def test_deck_icon_assets_are_32px(asset):
+@pytest.mark.parametrize(
+    "deck, px, asset",
+    [(deck, px, asset) for deck, assets in _DECK_ICONS.items() for px, asset in assets.items()],
+)
+def test_deck_icon_assets_ship_at_their_size(deck, px, asset):
     paths = [p for p in menu_icon_filesystem_paths(asset) if os.path.isfile(p)]
-    assert paths, f"Missing asset {asset}"
+    assert paths, f"Missing asset {asset} for {deck} at {px} px"
     with Image.open(paths[0]) as im:
-        assert im.size == (32, 32)
+        assert im.size == (px, px)
+
+
+def test_every_menu_bucket_has_a_deck_icon():
+    for px in _AVAILABLE_PX:
+        for assets in _DECK_ICONS.values():
+            assert _DECK_PX_BY_MENU_PX[px] in assets

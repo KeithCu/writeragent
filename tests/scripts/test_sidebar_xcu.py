@@ -5,7 +5,7 @@
 """Structural tests for Sidebar.xcu deck icon dimensions.
 
 The shipped Sidebar.xcu files keep 24 px PNGs, which is the macOS 24-point
-slot size; the 32 px non-macOS value is written at runtime and tested in
+slot size; the 32/48 px values are written at runtime and tested in
 ``tests/framework/test_menu_icon_dpi.py``.
 """
 
@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+
+from plugin.framework.menu_icon_dpi import _DECK_ICONS
 
 _OOR_NS = "http://openoffice.org/2001/registry"
 _OOR_NAME = f"{{{_OOR_NS}}}name"
@@ -70,3 +72,9 @@ def test_sidebar_deck_icons_are_24x24(xcu_path: Path, url_prefix: str) -> None:
         assert asset_path.is_file(), f"{deck_name}: missing asset {asset_path}"
         width, height = _png_size(asset_path)
         assert (width, height) == (24, 24), f"{deck_name}: {asset_path} is {width}x{height}, expected 24x24"
+
+
+@pytest.mark.parametrize(("xcu_path", "url_prefix"), _SIDEBAR_XCUS)
+def test_deck_icon_24px_entry_is_shipped_default(xcu_path: Path, url_prefix: str) -> None:
+    for deck_name, url in _deck_icon_urls(xcu_path):
+        assert url == url_prefix + _DECK_ICONS[deck_name][24]

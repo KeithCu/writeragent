@@ -441,21 +441,28 @@ def load_menu_graphic(ctx: Any, icon: str) -> Any:
 
 
 _DECK_LIST_PATH = "/org.openoffice.Office.UI.Sidebar/Content/DeckList"
-# Sidebar deck node name -> 32 px asset written on non-macOS screens.
-_DECK_ICONS_32: dict[str, str] = {
-    "WriterAgentDeck": "writeragent_32.png",
-    "LibrePyDeck": "python_32.png",
+# LibreOffice draws a stock deck icon on a 24 px canvas × the DPI bucket
+# (24/36/48/60 px at 100/150/200/250 %, ImplImage::getBitmapForHiDPI in
+# vcl/source/image/ImplImage.cxx) but draws a URL-loaded PNG at its bitmap
+# size. The menu-icon size is 16 × the same bucket, so each one maps to the
+# nearest deck PNG we ship.
+_DECK_PX_BY_MENU_PX: dict[int, int] = {16: 24, 24: 32, 32: 48, 40: 48}
+# The 24 px names are the shipped Sidebar.xcu defaults, so at 100 % the profile
+# holds the default URL, which every OXT since the 24 px decks ships.
+_DECK_ICONS: dict[str, dict[int, str]] = {
+    "WriterAgentDeck": {24: "logo_24.png", 32: "writeragent_32.png", 48: "writeragent_48.png"},
+    "LibrePyDeck": {24: "python_24.png", 32: "python_32.png", 48: "python_48.png"},
 }
 
 
 def apply_deck_icons(ctx: Any) -> None:
-    """Off macOS, store a 32 px IconURL for each installed WriterAgent-family deck in the user configuration.
+    """Off macOS, store each installed WriterAgent-family deck's IconURL sized for the DPI bucket (24, 32 or 48 px).
 
     VCL draws a URL-loaded deck icon at its bitmap size (``sfx2/source/sidebar/Tools.cxx``
     ``GetImage``, ``vcl/source/image/Image.cxx`` ``Image(XGraphic)``). The tab slot is
     24 × the DPI bucket off macOS and 24 points on macOS (``vcl/source/window/window.cxx``
     ``CountDPIScaleFactor``), so the shipped xcu stays 24 px for macOS and other
-    platforms get 32 px here.
+    platforms get the bucket's size here.
 
     Each window reads the value once when its sidebar is built
     (``sfx2/source/sidebar/ResourceManager.cxx`` ``ReadDeckList``). A same-value
@@ -469,6 +476,7 @@ def apply_deck_icons(ctx: Any) -> None:
     if sys.platform == "darwin":
         return
     try:
+        deck_px = _DECK_PX_BY_MENU_PX[resolve_menu_icon_pixel_size(ctx)]
         extension_id = resolve_package_extension_id(ctx)
         smgr = get_service_manager(ctx)
         if smgr is None:
@@ -480,10 +488,10 @@ def apply_deck_icons(ctx: Any) -> None:
             (create_property_value("nodepath", _DECK_LIST_PATH),),
         )
         changed = False
-        for deck, asset in _DECK_ICONS_32.items():
+        for deck, assets in _DECK_ICONS.items():
             if not access.hasByName(deck):
                 continue
-            url = f"vnd.sun.star.extension://{extension_id}/assets/{asset}"
+            url = f"vnd.sun.star.extension://{extension_id}/assets/{assets[deck_px]}"
             node = access.getByName(deck)
             if node.getPropertyValue("IconURL") != url:
                 node.setPropertyValue("IconURL", url)
