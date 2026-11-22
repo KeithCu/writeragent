@@ -184,6 +184,19 @@ class SessionStore:
             if key.kind is SessionKind.ISOLATED:
                 self._note_isolated_access_unlocked(key)
 
+    def drop_committed_init(self, init_session_id: str) -> None:
+        """Clear a committed init and its cell companion, as a changed init script does.
+
+        A caller that names *init_session_id* with no script says the document has no
+        init script now. A session that never committed an init keeps its cell executor
+        and DuckDB catalog.
+        """
+        with self._lock:
+            key = SessionKey.parse(init_session_id)
+            rec = self._records.get(key)
+            if rec is not None and rec.init_script_hash is not None:
+                self._clear_init_unlocked(key)
+
     def abort_init(self, init_session_id: str) -> None:
         with self._lock:
             self._clear_init_unlocked(SessionKey.parse(init_session_id))
@@ -820,9 +833,7 @@ def _ensure_init_executed(
     policy: SandboxPolicy,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
-    script = (init_script or "").strip()
-    if not script:
-        return None
+    script = init_script.strip()
 
     script_digest = init_script_hash or ""
     if SESSIONS.init_is_current(init_session_id, script_digest, policy):
@@ -1294,12 +1305,15 @@ def run_sandboxed_code(
     reuse one executor per id (shared kernel / workbook session).
 
     When ``req.init_script`` is set, it runs once in ``req.init_session_id``
-    (typically ``calc:…:init``). Isolated cell runs seed a fresh executor from a
-    copy of that snapshot; shared kernel seeds the workbook session executor once,
-    then reuses it for cell code. A missing ``req.init_script_hash`` is filled from
-    the stripped script text in this process. ``req.timeout_sec`` is already bounded
-    by the sender; ``req.data``, ``req.bindings``, and ``req.sandbox_policy`` supply
-    the cell payload, extra bindings, and sandbox import/capability flags.
+    (typically ``calc:…:init``). When ``req.init_session_id`` is set and
+    ``req.init_script`` is empty or whitespace, a committed init on that id is
+    dropped together with the shared session it seeded. Isolated cell runs seed a
+    fresh executor from a copy of that snapshot; shared kernel seeds the workbook
+    session executor once, then reuses it for cell code. A missing
+    ``req.init_script_hash`` is filled from the stripped script text in this
+    process. ``req.timeout_sec`` is already bounded by the sender; ``req.data``,
+    ``req.bindings``, and ``req.sandbox_policy`` supply the cell payload, extra
+    bindings, and sandbox import/capability flags.
     """
     deadline = time.monotonic() + float(req.timeout_sec)
 
@@ -1350,7 +1364,14 @@ def run_sandboxed_code(
         if req.session_id:
             SESSIONS.drop_if_policy_mismatch(req.session_id, policy)
 
-        if init_sid and (req.init_script or "").strip():
+        if init_sid and not (req.init_script or "").strip():
+            # The caller named an init session but sent no script: the document's init
+            # script was removed or blanked. Drop the old init namespace and the shared
+            # session it seeded, as a changed script does; nothing is seeded below.
+            SESSIONS.drop_committed_init(init_sid)
+            init_sid = None
+
+        if init_sid:
             init_err = _ensure_init_executed(
                 init_sid,
                 req.init_script or "",

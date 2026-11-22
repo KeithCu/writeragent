@@ -2170,3 +2170,22 @@ def test_init_script_frames_carry_init_label(fresh_sandbox_sessions) -> None:
     assert 'File "<init script>", line 2, in helper' in tb
     assert 'File "<sandbox>", line 1, in <module>' in tb
 
+
+def test_named_init_session_without_script_drops_committed_init(fresh_sandbox_sessions) -> None:
+    sid = "calc:init-removed"
+    first = sandbox_run("cell_only = 1\nresult = HELPER", session_id=sid, init_script="HELPER = 1", init_session_id=f"{sid}:init")
+    assert first["status"] == "ok", first
+    second = sandbox_run("result = cell_only", session_id=sid, init_script="", init_session_id=f"{sid}:init")
+    assert second["status"] == "error" and "cell_only" in second["message"], second
+    third = sandbox_run("result = HELPER", session_id=sid, init_session_id=f"{sid}:init")
+    assert third["status"] == "error" and "HELPER" in third["message"], third
+
+
+def test_shared_run_without_init_session_keeps_init_bindings(fresh_sandbox_sessions) -> None:
+    # Run Python Script reuses the Calc workbook's calc:… session and sends no init kwargs.
+    sid = "calc:rps-keeps-init"
+    first = sandbox_run("result = HELPER", session_id=sid, init_script="HELPER = 1", init_session_id=f"{sid}:init")
+    assert first["status"] == "ok", first
+    second = sandbox_run("result = HELPER + 1", session_id=sid)
+    assert second["status"] == "ok" and second["result"] == 2, second
+
