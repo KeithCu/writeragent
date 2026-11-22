@@ -30,6 +30,7 @@ from typing import Any, Iterable, Sequence
 from dataset import ALL_EXAMPLES, to_dspy_examples, to_eval_examples
 from eval_auth import (
     is_anthropic_model_id,
+    is_gemini_model_id,
     require_eval_keys,
     resolve_api_base,
     resolve_api_key,
@@ -72,13 +73,14 @@ def _model_id_for_llm_client(model_id: str) -> str:
 
 
 def _filter_unknown_models(model_ids: Iterable[str]) -> list[str]:
-    """Return ids not present in MODEL_BY_ID and not recognized Anthropic models."""
+    """Return ids not present in MODEL_BY_ID and not recognized Anthropic or Gemini models."""
     return [
         mid
         for mid in model_ids
         if mid not in MODEL_BY_ID
         and resolve_openrouter_catalog_id(mid, set(MODEL_BY_ID)) not in MODEL_BY_ID
         and not is_anthropic_model_id(mid)
+        and not is_gemini_model_id(mid)
     ]
 
 
@@ -100,8 +102,8 @@ def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
-    # Claude ids route by name (EVAL_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY); no catalog price.
-    if allow_unknown or is_anthropic_model_id(model_id):
+    # Claude and Gemini ids route by name (ANTHROPIC_API_KEY / GEMINI_API_KEY); no catalog price.
+    if allow_unknown or is_anthropic_model_id(model_id) or is_gemini_model_id(model_id):
         return ModelConfig(
             openrouter_id=model_id,
             display_name=model_id,
@@ -928,6 +930,8 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if is_anthropic_model_id(model_id):
                         print("  Pricing: n/a (native Anthropic, no catalog row)")
+                    elif is_gemini_model_id(model_id):
+                        print("  Pricing: n/a (native Gemini, no catalog row)")
                     else:
                         print("  Pricing: n/a (--allow-unknown-model)")
                 routed_base, _, _ = route_eval_llm(api_base, api_key, model_id)

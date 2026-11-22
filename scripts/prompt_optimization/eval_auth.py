@@ -18,6 +18,7 @@ from model_configs import DEFAULT_EVAL_STUDENT_MODEL
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
 ANTHROPIC_API_BASE = "https://api.anthropic.com/v1"
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 # Same OpenRouter :nitro routing as the default student (retired grok-4.1-fast 404s).
 OPENROUTER_DEFAULT_JUDGE = DEFAULT_EVAL_STUDENT_MODEL
 
@@ -79,31 +80,62 @@ def native_anthropic_model_id(model: str) -> str:
     return re.sub(r"(?<=\d)\.(?=\d)", "-", mid)
 
 
-def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, str]:
-    """Route an eval LLM call to native Anthropic when appropriate.
+def is_gemini_model_id(model: str) -> bool:
+    """Check whether a model identifier represents a Google Gemini model."""
+    mid = _unwrap_openrouter_id(model)
+    if mid.startswith("google/gemini-"):
+        return len(mid) > len("google/gemini-")
+    if mid.startswith("gemini-"):
+        return len(mid) > len("gemini-")
+    return False
 
-    Each call's model identifier determines whether to dispatch to Anthropic rather than
-    the shared base. An existing non-OpenRouter endpoint base is never rewritten to Anthropic.
+
+def native_gemini_model_id(model: str) -> str:
+    """Convert an OpenRouter or bare Gemini model id to its native Google name."""
+    mid = _unwrap_openrouter_id(model)
+    if mid.startswith("google/"):
+        mid = mid[len("google/") :]
+    # Drop static suffixes like :free or :thinking not supported by native Google.
+    return mid.split(":", 1)[0]
+
+
+def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, str]:
+    """Route an eval LLM call to native Anthropic or Google Gemini when appropriate.
+
+    Each call's model identifier determines whether to dispatch to a native provider rather than
+    the shared base. An existing non-OpenRouter endpoint base is never rewritten.
     """
     from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
-    if not model or not is_anthropic_model_id(model):
+    if not model:
+        return endpoint, api_key, model
+
+    if is_anthropic_model_id(model):
+        target_provider = "anthropic"
+        target_base = ANTHROPIC_API_BASE
+        native_model = native_anthropic_model_id(model)
+        env_key = (
+            os.environ.get("EVAL_ANTHROPIC_API_KEY", "").strip()
+            or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        )
+    elif is_gemini_model_id(model):
+        target_provider = "google"
+        target_base = GEMINI_API_BASE
+        native_model = native_gemini_model_id(model)
+        env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    else:
         return endpoint, api_key, model
 
     provider = get_provider_from_endpoint(endpoint)
-    env_key = (
-        os.environ.get("EVAL_ANTHROPIC_API_KEY", "").strip()
-        or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    )
 
     if provider == "openrouter":
         if env_key:
-            return ANTHROPIC_API_BASE, env_key, native_anthropic_model_id(model)
+            return target_base, env_key, native_model
         return endpoint, api_key, model
 
-    if provider == "anthropic":
+    if provider == target_provider:
         effective_key = api_key if (api_key and api_key.strip()) else env_key
-        return endpoint, effective_key, native_anthropic_model_id(model)
+        return endpoint, effective_key, native_model
 
     return endpoint, api_key, model
 
@@ -136,8 +168,11 @@ def require_api_key(api_key: str, endpoint: str) -> None:
     try:
         resolve_auth_for_config(cfg)
     except AuthError as exc:
-        if get_provider_from_endpoint(endpoint) == "anthropic":
+        provider = get_provider_from_endpoint(endpoint)
+        if provider == "anthropic":
             hint = "Set --api-key / -k or export EVAL_ANTHROPIC_API_KEY, ANTHROPIC_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
+        elif provider == "google":
+            hint = "Set --api-key / -k or export GEMINI_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
         else:
             hint = "Set --api-key / -k or export WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
         print(

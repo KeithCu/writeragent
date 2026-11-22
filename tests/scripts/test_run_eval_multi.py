@@ -91,6 +91,23 @@ def test_filter_unknown_models_accepts_anthropic() -> None:
     assert unknown == ["not-a-model"]
 
 
+def test_model_config_for_gemini_zero_pricing() -> None:
+    cfg = run_eval_multi._model_config_for_id(
+        "google/gemini-2.5-flash", allow_unknown=False
+    )
+    assert cfg.input_cost_per_million == 0.0
+    assert cfg.output_cost_per_million == 0.0
+
+
+def test_filter_unknown_models_accepts_gemini() -> None:
+    unknown = run_eval_multi._filter_unknown_models([
+        "gemini-2.5-flash",
+        "google/gemini-2.5-flash:free",
+        "not-a-model",
+    ])
+    assert unknown == ["not-a-model"]
+
+
 def test_refuse_catalog_sweep_without_models(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         sys, "argv", ["run_eval_multi.py", "--student", "scripted"]
