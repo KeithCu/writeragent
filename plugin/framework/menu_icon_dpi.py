@@ -12,6 +12,7 @@ Probes in order: VCL DPI, font, toolbar config, then env scale.
 Only VCL DPI is a strong reading; other probes remain weak until VCL DPI is available.
 Probe miss defaults to 32 px.
 macOS is fixed at 16: VCL pixels are points there and CoreGraphics applies the Retina backing scale itself.
+Also owns the sidebar deck IconURL size (``apply_deck_icons``).
 """
 
 from __future__ import annotations
@@ -24,7 +25,12 @@ from typing import Any
 import uno
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.uno_context import create_property_value, get_extension_url, get_service_manager
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_extension_url,
+    get_service_manager,
+    resolve_package_extension_id,
+)
 
 log = logging.getLogger("writeragent.menu_icon_dpi")
 
@@ -432,3 +438,65 @@ def load_menu_graphic(ctx: Any, icon: str) -> Any:
     except Exception:
         log.debug("load_menu_graphic failed for %s", icon, exc_info=True)
         return None
+
+
+_DECK_LIST_PATH = "/org.openoffice.Office.UI.Sidebar/Content/DeckList"
+# LibreOffice draws a stock deck icon on a 24 px canvas × the DPI bucket
+# (24/36/48/60 px at 100/150/200/250 %, ImplImage::getBitmapForHiDPI in
+# vcl/source/image/ImplImage.cxx) but draws a URL-loaded PNG at its bitmap
+# size. The menu-icon size is 16 × the same bucket, so each one maps to the
+# nearest deck PNG we ship.
+_DECK_PX_BY_MENU_PX: dict[int, int] = {16: 24, 24: 32, 32: 48, 40: 48}
+# The 24 px names are the shipped Sidebar.xcu defaults, so at 100 % the profile
+# holds the default URL, which every OXT since the 24 px decks ships.
+_DECK_ICONS: dict[str, dict[int, str]] = {
+    "WriterAgentDeck": {24: "logo_24.png", 32: "writeragent_32.png", 48: "writeragent_48.png"},
+    "LibrePyDeck": {24: "python_24.png", 32: "python_32.png", 48: "python_48.png"},
+}
+
+
+def apply_deck_icons(ctx: Any) -> None:
+    """Off macOS, store each installed WriterAgent-family deck's IconURL sized for the DPI bucket (24, 32 or 48 px).
+
+    VCL draws a URL-loaded deck icon at its bitmap size (``sfx2/source/sidebar/Tools.cxx``
+    ``GetImage``, ``vcl/source/image/Image.cxx`` ``Image(XGraphic)``). The tab slot is
+    24 × the DPI bucket off macOS and 24 points on macOS (``vcl/source/window/window.cxx``
+    ``CountDPIScaleFactor``), so the shipped xcu stays 24 px for macOS and other
+    platforms get the bucket's size here.
+
+    Each window reads the value once when its sidebar is built
+    (``sfx2/source/sidebar/ResourceManager.cxx`` ``ReadDeckList``). A same-value
+    ``setPropertyValue`` still leaves pending changes, so we compare before writing.
+    Using ``vnd.sun.star.extension://`` keeps any versioned cache path out of the profile.
+
+    Call on the main thread (the panel's ``_create_panel`` hop): off main
+    ``resolve_package_extension_id`` falls back to the WriterAgent id, which is a
+    broken URL in LibrePy and persists in the profile.
+    """
+    if sys.platform == "darwin":
+        return
+    try:
+        deck_px = _DECK_PX_BY_MENU_PX[resolve_menu_icon_pixel_size(ctx)]
+        extension_id = resolve_package_extension_id(ctx)
+        smgr = get_service_manager(ctx)
+        if smgr is None:
+            log.debug("apply_deck_icons: ServiceManager unavailable")
+            return
+        prov = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+        access = prov.createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess",
+            (create_property_value("nodepath", _DECK_LIST_PATH),),
+        )
+        changed = False
+        for deck, assets in _DECK_ICONS.items():
+            if not access.hasByName(deck):
+                continue
+            url = f"vnd.sun.star.extension://{extension_id}/assets/{assets[deck_px]}"
+            node = access.getByName(deck)
+            if node.getPropertyValue("IconURL") != url:
+                node.setPropertyValue("IconURL", url)
+                changed = True
+        if changed:
+            access.commitChanges()
+    except Exception:
+        log.exception("apply_deck_icons: deck IconURL write failed")

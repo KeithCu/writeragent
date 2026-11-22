@@ -71,6 +71,7 @@ def test_get_real_interface_create_runs_on_hop():
             side_effect=lambda fn, *args, **kwargs: fn(),
         ) as hop,
         patch("plugin.librepy.panel_factory._ensure_paths"),
+        patch("plugin.librepy.panel_factory.apply_deck_icons") as deck_icons,
         patch.object(
             el, "_getOrCreatePanelRootWindow", return_value=root
         ),
@@ -81,6 +82,7 @@ def test_get_real_interface_create_runs_on_hop():
         result = el.getRealInterface()
 
     hop.assert_called_once()
+    deck_icons.assert_called_once_with(el.ctx)
     assert isinstance(result, PythonToolPanel)
     assert result is el.toolpanel
     assert result.Window is root
@@ -116,7 +118,9 @@ def test_get_real_interface_clears_toolpanel_and_retries():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
+    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
+        "plugin.librepy.panel_factory.apply_deck_icons"
+    ), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
     ), patch(
         "plugin.librepy.python_sidebar.PythonSidebarController", side_effect=factory
@@ -141,7 +145,9 @@ def test_get_real_interface_second_create_panel_is_noop():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
+    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
+        "plugin.librepy.panel_factory.apply_deck_icons"
+    ), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
     ), patch(
         "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
@@ -189,6 +195,8 @@ def test_null_create_container_window_raises_and_retries():
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
+        "plugin.librepy.panel_factory.apply_deck_icons"
+    ), patch(
         "plugin.librepy.panel_factory.get_extension_url", return_value="file:///ext"
     ), patch(
         "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
@@ -229,7 +237,9 @@ def test_window_on_disposing_nulls_toolpanel_and_rebuilds():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
+    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
+        "plugin.librepy.panel_factory.apply_deck_icons"
+    ), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
     ), patch(
         "plugin.librepy.python_sidebar.PythonSidebarController", side_effect=[controller1, controller2]

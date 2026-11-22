@@ -15,7 +15,7 @@
                 <prop oor:name="Id" oor:type="xs:string">
                     <value>LibrePyDeck</value>
                 </prop>
-                <!-- Deck icons are 24 px PNGs, not SVG: LibreOffice rasterizes an extension SVG IconURL once at screen DPI (vectorgraphicdata.cxx convertPrimitive2DSequenceToBitmap), so on macOS it becomes about 27-33 px and overflows the 24-point slot, and it gets no HiDPI redraw (ImplImage::getBitmapForHiDPI covers only stock and metafile images); assets/python_logo.svg is the source for python_24.png. -->
+                <!-- Deck icons ship as 24 px PNGs, the macOS size (24-point slot). On other systems the slot grows with the DPI bucket, so plugin/framework/menu_icon_dpi.py apply_deck_icons stores a 24, 32 or 48 px IconURL picked from the DPI bucket in the user configuration when a panel is built. Not SVG: LibreOffice rasterizes an extension SVG IconURL once at screen DPI (vectorgraphicdata.cxx convertPrimitive2DSequenceToBitmap), so on macOS it becomes about 27-33 px, and it gets no HiDPI redraw (ImplImage::getBitmapForHiDPI covers only stock and metafile images); assets/python_logo.svg is the source for python_24.png, python_32.png and python_48.png. -->
                 <prop oor:name="IconURL" oor:type="xs:string">
                     <value>vnd.sun.star.extension://org.extension.librepy/assets/python_24.png</value>
                 </prop>

@@ -8,7 +8,10 @@ from PIL import Image
 from plugin.framework import menu_icon_dpi as m
 from plugin.framework.menu_icon_dpi import (
     _AVAILABLE_PX,
+    _DECK_ICONS,
+    _DECK_PX_BY_MENU_PX,
     STOCK_ICON_SEARCH,
+    apply_deck_icons,
     load_menu_graphic,
     menu_icon_filesystem_paths,
     menu_icon_px_for_scale,
@@ -316,3 +319,132 @@ def test_menu_icon_assets_ship_every_ladder_size(prefix):
         assert paths, f"Missing asset {prefix}_{px}.png"
         with Image.open(paths[0]) as im:
             assert im.size == (px, px)
+
+
+class _FakeConfigNode:
+    def __init__(self, icon_url: str) -> None:
+        self._props = {"IconURL": icon_url}
+
+    def getPropertyValue(self, name: str) -> str:
+        return self._props[name]
+
+    def setPropertyValue(self, name: str, value: str) -> None:
+        self._props[name] = value
+
+
+class _FakeDeckListAccess:
+    def __init__(self, decks: dict[str, str]) -> None:
+        self._nodes = {name: _FakeConfigNode(url) for name, url in decks.items()}
+        self.commits = 0
+        self.accessed: list[str] = []
+
+    def hasByName(self, name: str) -> bool:
+        return name in self._nodes
+
+    def getByName(self, name: str) -> _FakeConfigNode:
+        self.accessed.append(name)
+        return self._nodes[name]
+
+    def commitChanges(self) -> None:
+        self.commits += 1
+
+
+def _fake_smgr_for_access(access: _FakeDeckListAccess) -> MagicMock:
+    prov = MagicMock()
+    prov.createInstanceWithArguments.return_value = access
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = prov
+    return smgr
+
+
+def test_apply_deck_icons_skips_macos(monkeypatch):
+    monkeypatch.setattr("sys.platform", "darwin")
+    with patch.object(m, "get_service_manager") as smgr:
+        apply_deck_icons(MagicMock())
+    smgr.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "scale, px",
+    [
+        (1.0, 24),
+        (1.25, 24),
+        (1.5, 32),
+        (2.0, 48),
+        (2.5, 48),
+    ],
+)
+def test_apply_deck_icons_writes_bucket_size(monkeypatch, scale, px):
+    reset_menu_icon_dpi_cache()
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: scale)
+    access = _FakeDeckListAccess(
+        {
+            "WriterAgentDeck": "vnd.sun.star.extension://org.extension.librepy/assets/stale.png",
+            "LibrePyDeck": "vnd.sun.star.extension://org.extension.librepy/assets/stale.png",
+        }
+    )
+    smgr = _fake_smgr_for_access(access)
+    with (
+        patch.object(m, "get_service_manager", return_value=smgr),
+        patch.object(m, "resolve_package_extension_id", return_value="org.extension.librepy"),
+    ):
+        apply_deck_icons(MagicMock())
+
+    assert access.commits == 1
+    for deck in ("WriterAgentDeck", "LibrePyDeck"):
+        assert access.getByName(deck).getPropertyValue("IconURL") == (
+            f"vnd.sun.star.extension://org.extension.librepy/assets/{_DECK_ICONS[deck][px]}"
+        )
+
+
+def test_apply_deck_icons_skips_absent_deck_and_unchanged_value(monkeypatch):
+    monkeypatch.setattr("sys.platform", "linux")
+    access = _FakeDeckListAccess(
+        {
+            "LibrePyDeck": "vnd.sun.star.extension://org.extension.librepy/assets/python_32.png",
+        }
+    )
+    smgr = _fake_smgr_for_access(access)
+    with (
+        patch.object(m, "resolve_menu_icon_pixel_size", return_value=24),
+        patch.object(m, "get_service_manager", return_value=smgr),
+        patch.object(m, "resolve_package_extension_id", return_value="org.extension.librepy"),
+    ):
+        apply_deck_icons(MagicMock())
+
+    assert access.commits == 0
+    assert "WriterAgentDeck" not in access.accessed
+
+
+def test_apply_deck_icons_logs_and_survives_config_failure(monkeypatch, caplog):
+    monkeypatch.setattr("sys.platform", "linux")
+    prov = MagicMock()
+    prov.createInstanceWithArguments.side_effect = RuntimeError("config locked")
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = prov
+    with (
+        patch.object(m, "get_service_manager", return_value=smgr),
+        patch.object(m, "resolve_package_extension_id", return_value="org.extension.writeragent"),
+        caplog.at_level(logging.ERROR, logger="writeragent.menu_icon_dpi"),
+    ):
+        apply_deck_icons(MagicMock())
+
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "deck, px, asset",
+    [(deck, px, asset) for deck, assets in _DECK_ICONS.items() for px, asset in assets.items()],
+)
+def test_deck_icon_assets_ship_at_their_size(deck, px, asset):
+    paths = [p for p in menu_icon_filesystem_paths(asset) if os.path.isfile(p)]
+    assert paths, f"Missing asset {asset} for {deck} at {px} px"
+    with Image.open(paths[0]) as im:
+        assert im.size == (px, px)
+
+
+def test_every_menu_bucket_has_a_deck_icon():
+    for px in _AVAILABLE_PX:
+        for assets in _DECK_ICONS.values():
+            assert _DECK_PX_BY_MENU_PX[px] in assets

@@ -1,5 +1,5 @@
-Python logo (python_logo.svg → python_24/32/40.png)
-===========================================================
+Python logo (python_logo.svg → python_24/32/40/48.png)
+=============================================================
 Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
 
 Source: https://commons.wikimedia.org/wiki/File:Python-logo-notext.svg
@@ -9,14 +9,18 @@ suitability for / implementation in Python:
 https://www.python.org/psf/trademarks/
 https://www.python.org/community/logos/
 
-Regenerate 24×24 PNG (sidebar deck icon; LibreOffice's deck slot is its 24 px lc_ icon size):
+Regenerate 24×24 PNG (sidebar deck icon on macOS, 24-point slot):
   rsvg-convert -w 96 -h 96 --background-color=none python_logo.svg -o /tmp/py96.png
   magick /tmp/py96.png -resize 24x24 -filter Lanczos PNG32:python_24.png
 
-Regenerate 32×32 PNG (menubar icon):
+Regenerate 32×32 PNG (menubar icon; sidebar deck icon at 150 % via apply_deck_icons):
   rsvg-convert -w 64 -h 64 --background-color=none python_logo.svg -o /tmp/py64.png
   magick /tmp/py64.png -resize 32x32 -filter Lanczos PNG32:python_32.png
 
 Regenerate 40×40 PNG (250% DPI ladder):
   rsvg-convert -w 160 -h 160 --background-color=none python_logo.svg -o /tmp/py160.png
   magick /tmp/py160.png -filter Lanczos -resize 40x40 PNG32:python_40.png
+
+Regenerate 48×48 PNG (sidebar deck icon at 200 % and 250 %):
+  rsvg-convert -w 192 -h 192 --background-color=none python_logo.svg -o /tmp/py192.png
+  magick /tmp/py192.png -filter Lanczos -resize 48x48 PNG32:python_48.png

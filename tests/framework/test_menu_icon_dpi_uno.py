@@ -1,12 +1,24 @@
 # WriterAgent - Native UNO Test for menu_icon_dpi
+import sys
+from unittest.mock import patch
+
+from plugin.framework import menu_icon_dpi as m
 from plugin.framework.menu_icon_dpi import (
     _AVAILABLE_PX,
+    _DECK_ICONS,
+    _DECK_LIST_PATH,
     STOCK_ICON_MATH,
     STOCK_ICON_SEARCH,
     STOCK_ICON_SETTINGS,
+    apply_deck_icons,
     load_menu_graphic,
     menu_icon_asset_url,
     reset_menu_icon_dpi_cache,
+)
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_service_manager,
+    resolve_package_extension_id,
 )
 from plugin.testing_runner import native_test
 
@@ -44,3 +56,29 @@ def test_button_model_keeps_stock_origin_url(ctx):
     btn_model.ImageURL = menu_icon_asset_url("vnd.sun.star.extension://x", STOCK_ICON_SETTINGS)
     assert btn_model.Graphic is not None
     assert btn_model.Graphic.OriginURL == STOCK_ICON_SETTINGS
+
+
+@native_test
+def test_apply_deck_icons_updates_live_deck_list(ctx):
+    """apply_deck_icons stores bucket-sized vnd URLs in the user-layer DeckList."""
+    if sys.platform == "darwin":
+        return
+    smgr = get_service_manager(ctx)
+    assert smgr is not None
+    prov = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+    ext_id = resolve_package_extension_id(ctx)
+    for menu_px, deck_px in ((32, 48), (16, 24)):
+        with patch.object(m, "resolve_menu_icon_pixel_size", return_value=menu_px):
+            apply_deck_icons(ctx)
+        access = prov.createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationAccess",
+            (create_property_value("nodepath", _DECK_LIST_PATH),),
+        )
+        found = 0
+        for deck, assets in _DECK_ICONS.items():
+            if not access.hasByName(deck):
+                continue
+            found += 1
+            expected = f"vnd.sun.star.extension://{ext_id}/assets/{assets[deck_px]}"
+            assert access.getByName(deck).getPropertyValue("IconURL") == expected
+        assert found > 0
