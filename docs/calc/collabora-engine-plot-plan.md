@@ -637,6 +637,21 @@ The following items are intentionally decoupled from this core plot egress imple
 | **Graphic Filter** | In-memory decoding of PNG, SVG, and JPEG graphics | [`vcl/source/filter/graphicfilter.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/vcl/source/filter/graphicfilter.cxx) |
 | **Base64 Codec** | Fast in-memory byte sequence base64 decoding | [`comphelper/source/misc/base64.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/comphelper/source/misc/base64.cxx) |
 
+---
+
+## 12. Hybrid Approach: Excel-Default In-Cell + Optional "Display Over Cells"
+
+Two competing Collabora engine implementations exist:
+* **Gerrit 19662 (`sc: draw =PY() plot images inside the formula cell`):** Paints plots directly inside the formula cell (or merged range) via `ScOutputData::DrawCellImages` like a sparkline, auto-growing an automatic-height row up to $10\text{ cm}$ on first appearance. Because the cell store owns move, copy, and undo, it avoids floating-shape lifecycle complexity (`+1,551` lines), though images live only in memory (not saved to ODS/XLSX).
+* **Gerrit 19313 (`sc: show =PY() plot images as live pictures anchored to the cell`):** Inserts real `SdrGrafObj` drawing objects anchored to the formula cell (`+4,729` lines), which users can select, move, resize, and save to ODS/XLSX.
+
+**Excel compatibility rationale:** Microsoft Excel's `=PY()` defaults to **in-cell** image objects (closer to **19662**, except Excel persists them in `.xlsx` `richData` and does not auto-grow row heights) and only creates a floating, resizable shape when the user explicitly selects **"Display Plot over Cells"** (closer to **19313**).
+
+**Hybrid merge path:**
+1. **Default to in-cell rendering (19662 base):** Land the simpler cell-store model so `=PY()` plots behave like Excel's default without layout collisions or heavy drawing-layer undo/anchor hooks.
+2. **Add persistence & optional pop-out (19313 / Excel parity):** Support persisting in-cell images on save and/or providing a *"Display Plot over Cells"* action that promotes the cell's image to a cell-anchored `SdrGrafObj`.
+3. **LibrePy desktop alignment:** Revisit whether desktop LibrePy should keep its floating-by-default behavior or align with this hybrid model once Collabora upstream direction is settled.
+
 
 ## Open
 
@@ -645,3 +660,4 @@ The following items are intentionally decoupled from this core plot egress imple
 - `[feature M few]` Interactive client-side resizing of formula-generated plots in the browser. (§ 10. Out of Scope & Future Work)
 - `[idea L few]` Interactive web visualizations (Bokeh, Plotly, Altair) in Collabora Online, which needs an iframe rendering sandbox. (§ 10. Out of Scope & Future Work)
 - `[idea M few]` In-cell sparklines as cell formatting rather than floating shapes. (§ 10. Out of Scope & Future Work)
+- `[idea L few]` Hybrid plot merge: default to Excel-style in-cell rendering (Gerrit 19662) with optional *"Display Plot over Cells"* promotion to an anchored `SdrGrafObj` (Gerrit 19313) and persistence; evaluate LibrePy desktop alignment separately. (§ 12. Hybrid Approach)
