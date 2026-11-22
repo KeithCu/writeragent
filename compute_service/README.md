@@ -4,10 +4,7 @@ Standalone HTTP service for Collabora Online / Collabora Office `=PY()` formulas
 coolwsd POSTs to `/v1/execute`; this process runs sandboxed Python and returns
 JSON results. **It does not read `writeragent.json`.**
 
-**Both ingress formats are supported now** (dispatch on `Content-Type`). Peel of
-a single JSON object is **today’s Collabora/kit contract** and is **transitional**.
-Multipart is the long-term preferred kit↔compute shape. See
-[HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
+**Both ingress formats are supported now** (dispatch on `Content-Type`). coolwsd sends `multipart/form-data` (parts `meta`, `code`, `data`, and `init_script` when the document has `PythonInitScript`), with `?session_id=` on the URL for a shared session. Peel of a single JSON object is kept for compatibility and is **transitional**. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 
 ## Quick start
 
@@ -21,8 +18,8 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"{version}"}` (no auth required)
 - `POST /v1/execute[?session_id={id}]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
-  (`init_script` runs **once** per worker. Later cells are seeded from that namespace. Shared uses one key, `{session_id}:init`, so a changed script replaces the snapshot. Isolated keys on a hash of the script, so a changed script is a new key; old isolated snapshots stay until a per-worker LRU of 32 or the `max_tasks` recycle drops them.)
-- `POST /v1/session/reset?session_id={id}` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Caller is coolwsd on DocumentBroker destroy / last view leave (service-side only today; Online still hard-codes `isolated`).
+  (`init_script` runs **once** per worker. Later cells are seeded from that namespace. Shared uses one key, `{session_id}:init`, so a changed script replaces the snapshot. Isolated keys on a hash of the script, so a changed script is a new key; old isolated snapshots stay until a per-worker LRU of 32 or the `max_tasks` recycle drops them. A shared request without a non-empty `init_script` drops a previous `{session_id}:init` and the shared namespace it seeded, so removing `PythonInitScript` recalculates against a clean namespace.)
+- `POST /v1/session/reset?session_id={id}` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. coolwsd calls it for Reset Python Session and when the document closes.
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
 ---
@@ -175,7 +172,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 | `Content-Type` | Body | Host does | Role |
 |----------------|------|-----------|------|
-| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | **Today’s Collabora/kit contract.** Compatibility. The walker/peel exists so we do not deserialize the nested grid. |
+| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | Compatibility (older kits). The walker/peel exists so we do not deserialize the nested grid. |
 | `multipart/form-data` (or other `multipart/*`) | Parts: `meta` (`application/json`: `id?`, `mode?`, `timeout_ms?`), `code` (raw UTF-8), optional `init_script` (raw UTF-8), optional `data` (raw JSON bytes) | Boundary-scan. `json.loads` **meta only** (64 KiB cap). Byte-cap and UTF-8-decode `code` and `init_script`. **Forward `data` bytes untouched** | **Preferred kit↔compute shape.** Control JSON, source, and the grid are separate MIME parts. |
 
 `session_id` stays on the URL (`?session_id=...`) for L7 affinity and selects shared vs isolated — not in the request body (`meta` or the peel object). Reserved namespaces (ending with `:init` or starting with `isolated:`) are rejected with `400 Bad Request`. `mode` in the body is legacy noise and is not validated.
@@ -184,7 +181,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 **Multipart subset** (kit↔compute, not a general MIME stack): named parts only (`meta`, `code`, `init_script`, `data`), any order. Delimiters are `--` + the `Content-Type` boundary, at the start of the body or after a linebreak; the introducing linebreak is not part of the body (CRLF or LF). Preamble and epilogue are ignored. `Content-Transfer-Encoding` may be omitted, `7bit`, `8bit`, or `binary`. `base64` and `quoted-printable` are rejected so the host never decodes a payload. `meta` must not contain `code`, `data`, `data_json`, or `init_script`. The encoder picks a boundary that does not occur in any part body.
 
-**Migration:** support both until Collabora/kit switches to multipart. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No kit date — eventually switch kit to multipart, then delete peel.
+**Migration:** coolwsd now sends multipart; peel stays for older kits until it is retired. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No date — delete peel once older kits are gone.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
@@ -192,7 +189,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 Drops the shared sandbox and init companion for one workbook kernel. Reuses `FormulaPool.reset_session` → worker `action: reset_session` → LibrePy `reset_sandbox_session` (no second reset path).
 
-Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This endpoint lands ahead of Online shared-kernel work; Collabora Online still hard-codes `mode: isolated` and does not call reset yet.
+Caller is coolwsd: Reset Python Session and document close (DocumentBroker destroy).
 
 - **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id={id}`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
 - **Request body** (optional; empty body is fine):
@@ -281,7 +278,7 @@ Each error `code` and its status live in [`error_codes.py`](error_codes.py); `te
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` (`PAYLOAD_TOO_LARGE`), the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "PAYLOAD_TOO_LARGE"\|"RESULT_TOO_LARGE", "error": "..."}` |
 | **`414 URI Too Long`** | Request line exceeds 65536 bytes | Stdlib HTML error page (not JSON) |
 | **`501 Not Implemented`** | `/v1/vision` when this server's `ocr_workers` is 0 (`VISION_SERVICE_DISABLED`), or the OCR backend module is not in this image (`VISION_BACKEND_MISSING`; retry cannot help). A vision pool already built in-process with workers does not make this HTTP 200. | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED"\|"VISION_BACKEND_MISSING", "error": "..."}` |
-| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. coolwsd treats 503 (any non-200) as transient: the cell shows `#VALUE!` and the AddIn retries after its window. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception (`INTERNAL_ERROR`), missing `wsgi.input`, JSON encoding failure (`INTERNAL_ERROR`), worker-side session reset error, a worker that died, rejected a response frame, or returned no frame (`WORKER_CRASHED`, `WORKER_IPC_ERROR`, `EMPTY_RESPONSE`), or a dict-shaped internal fault (`VISION_WORKER_ERROR`, `WORKER_EXECUTION_ERROR`). A `WORKER_EXECUTION_ERROR` wrapped in forwarded `result_json` stays HTTP 200 | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 
 ---
@@ -333,7 +330,7 @@ A `lok_allow` entry is a regex matched against the whole host, so escape dots (`
 
 coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). coolwsd checks the compute URL host against `net.lok_allow` and the allowed WOPI hosts whenever that section exists, as it does in the shipped `coolwsd.xml`; list the service host there (above).
 
-The Collabora kit sends `application/json` (the peel path) and always specifies `mode: "isolated"`. It does not send `init_script` or `session_id` (though the compute service accepts both). Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora draws the plots in the formula cell and writes `Image inserted` or `Images inserted` when `result` is null. A plot SVG over 1 MiB is sent as PNG. Which figures are sent: see `docs/scripting/numpy-domains.md` ('Which figures become pictures'). The compute image does not insert picture shapes into the document.
+coolwsd sends `multipart/form-data` (`meta` with only `id`, `code`, optional `data`, and `init_script` when the document has a non-empty `PythonInitScript`) and puts `?session_id=` on the URL for a shared session; it sends no `mode`. Plots are returned as `images[]` with `format: "svg"` and base64 data, with `result` set to `null`. Collabora draws the plots in the formula cell and writes `Image inserted` or `Images inserted` when `result` is null. A plot SVG over 1 MiB is sent as PNG. Which figures are sent: see `docs/scripting/numpy-domains.md` ('Which figures become pictures'). The compute image does not insert picture shapes into the document.
 
 ---
 
@@ -386,7 +383,7 @@ PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 PYTHON_COMPUTE_PORT=9001 PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 ```
 
-Stateful execution **must** use a per-document `session_id` query parameter (`?session_id={id}`) (not a user id); without it, cells are one-shot isolated. coolwsd should `POST /v1/session/reset?session_id={id}` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
+Stateful execution **must** use a per-document `session_id` query parameter (`?session_id={id}`) (not a user id); without it, cells are one-shot isolated. coolwsd should `POST /v1/session/reset?session_id={id}` on DocumentBroker destroy / last view leave (coolwsd does this on Reset Python Session and document close). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 
 #### Docker Compose with coolwsd
 
@@ -497,13 +494,13 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 LibrePy desktop `=PY()` is a **different product** (Pickle5 + `split_grid`, no HTTP hop). Do not regress that path when changing compute. Desktop detail: [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md).
 
-Kit HTTP is MIME-dispatched — [peel vs multipart](#http-ingress-peel-vs-multipart). Both are live. Peel of one JSON object is **today’s Collabora contract** and **goes away** once kit speaks multipart. Multipart is the preferred wire (control JSON, raw source parts, raw grid; boundary scan, no email parser). Egress does not care which ingress you used.
+Kit HTTP is MIME-dispatched — [peel vs multipart](#http-ingress-peel-vs-multipart). Both are live. coolwsd speaks multipart; peel of one JSON object is compatibility and goes away later. Multipart is the preferred wire (control JSON, raw source parts, raw grid; boundary scan, no email parser). Egress does not care which ingress you used.
 
 The host is a proxy: auth, sticky routing, timeouts, worker lease. One deserialize of `data` happens on the **worker**. Small control fields may be deserialized on the host. The expensive rule is **no host re-serialize** of large ingress or egress.
 
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
-- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
+- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker once older kits no longer send peel.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode?`, `timeout_ms?`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length). Shared vs isolated is derived from the URL `session_id` query, not client `mode`. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
 - Envelope: `{id, code, session_id (sticky calls only), init_script, timeout_sec, expect_namespace?, data_json: bytes}`. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.

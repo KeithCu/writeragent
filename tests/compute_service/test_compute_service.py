@@ -304,11 +304,11 @@ class TestExecuteLocal:
 
     def test_init_script_shared_seeds_session(self) -> None:
         sid = "shared-init-session"
-        r1 = json.loads(_handle_request({"code": "result = HELPER + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
+        r1 = json.loads(_handle_request({"code": "CELL = 1\nresult = HELPER + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
         assert r1["status"] == "ok", r1
         assert r1["result"] == 42
-        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid})["result_json"])
-        assert r2["status"] == "ok"
+        r2 = json.loads(_handle_request({"code": "result = HELPER + CELL + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
+        assert r2["status"] == "ok", r2
         assert r2["result"] == 43
 
     def test_init_script_isolated_seeds_request(self) -> None:
@@ -345,6 +345,15 @@ class TestExecuteLocal:
         assert r1["status"] == "ok" and r1["result"] == 10, r1
         assert r2["status"] == "ok" and r2["result"] == 11, r2
         assert mock_run.call_count == 3
+
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
+    @pytest.mark.parametrize("removed", [None, "  \n\t"], ids=["absent", "blank"])
+    def test_shared_init_removed_drops_old_bindings(self, removed: str | None) -> None:
+        sid = "shared-init-removed"
+        r1 = json.loads(_handle_request({"code": "CELL = 1\nresult = OLD_INIT", "session_id": sid, "init_script": "OLD_INIT = 5"})["result_json"])
+        assert r1["status"] == "ok" and r1["result"] == 5, r1
+        r2 = json.loads(_handle_request({"code": "result = OLD_INIT", "session_id": sid, "init_script": removed})["result_json"])
+        assert r2["status"] == "error" and "OLD_INIT" in r2["error"], r2
 
 
 class TestComputeHttp:
