@@ -814,15 +814,9 @@ def _handle_session_reset(
     if not session_id:
         return _error(start_response, ec.BAD_REQUEST_BODY, "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
 
-    # pool stack loads on first use (see create_wsgi_app)
-    from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
-
-    # Reset leases within the admission deadline, capped at SESSION_RESET_TIMEOUT_SEC.
-    # The floor lets a just-expired clock still return.
-    timeout_sec = min(SESSION_RESET_TIMEOUT_SEC, max(0.01, admission.deadline.left()))
     # Resolved per request (shutdown can replace the pool); after validation so a bad request does not start workers.
     run_reset = get_reset()
-    result_payload = run_reset(session_id, timeout_sec=timeout_sec)
+    result_payload = run_reset(session_id, deadline=admission.deadline)
 
     if isinstance(result_payload, dict) and result_payload.get("status") == "error":
         # Unmapped reset failures are a server fault (500). Mapped codes
@@ -894,9 +888,9 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     Execute (isolated or sticky), session reset and vision share one
     semaphore of ``admission_permits`` (listeners minus two, so ``GET /health``
     always has a listener). Execute and vision wait until the clamped
-    ``timeout_ms`` (the pool default when it is omitted); session reset waits
-    until ``default_timeout_sec``. The pools queue for their own workers past
-    the permit. Header and body reads occupy a listener before the permit.
+    ``timeout_ms`` (the pool default when it is omitted); session reset has no
+    ``timeout_ms`` and waits until ``max_timeout_sec``. The pools queue for their
+    own workers past the permit. Header and body reads occupy a listener before the permit.
     ``semaphore`` overrides the gate in tests.
     """
     permits = semaphore if semaphore is not None else threading.Semaphore(admission_permits(settings))
@@ -932,7 +926,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             "POST",
             _admit_reset,
             partial(_handle_session_reset, get_reset=_get_reset),
-            default_timeout_sec=settings.default_timeout_sec,
+            # Reset carries no timeout_ms, so this is its whole budget, sized to the longest cell it can wait behind.
+            default_timeout_sec=settings.max_timeout_sec,
         ),
         "/v1/vision": _Route(
             "POST",
