@@ -74,8 +74,8 @@ config:
     options:
       - value: "off"
         label: "Off (Static HTTP)"
-      - value: "firefox"
-        label: "Firefox (CDP)"
+      - value: "brave"
+        label: "Brave (CDP)"
       - value: "chromium"
         label: "Chromium (CDP)"
       - value: "chrome"

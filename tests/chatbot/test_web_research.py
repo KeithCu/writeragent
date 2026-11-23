@@ -534,7 +534,7 @@ def test_cdp_launch_failure_releases_the_run(monkeypatch):
             assert wr._begin_shared_cdp(object(), "chrome") == "ws://shared"
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_cdp(object(), "firefox")
+                wr._begin_shared_cdp(object(), "brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
             assert wr._cdp_refcount.runs == 1

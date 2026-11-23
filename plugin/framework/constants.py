@@ -43,6 +43,8 @@ ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
     "com.sun.star.presentation.PresentationDocument",
 )
 
+CDP_BROWSER_TYPES: tuple[str, ...] = ("brave", "chromium", "chrome")
+
 
 def get_plugin_dir() -> str:
     """Returns the absolute path to the plugin/ directory."""
