@@ -1387,8 +1387,10 @@ def test_web_research_rejects_too_small_context_window(deep, resolved_window, ex
     assert "8K" in res["message"]
     if expect_assumed:
         assert "assumed" in res["message"]
-        assert "PARAMETER num_ctx" in res["message"]
-        assert "OLLAMA_CONTEXT_LENGTH" in res["message"]
+        assert "PARAMETER num_ctx 8192" in res["message"]
+        assert "ollama create" in res["message"]
+        assert "Test Connection" in res["message"]
+        assert "OLLAMA_CONTEXT_LENGTH" not in res["message"]
     else:
         assert "assumed" not in res["message"]
     mock_resolve.assert_called_once()

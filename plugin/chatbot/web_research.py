@@ -778,8 +778,9 @@ class WebResearchTool(ToolBase):
                     message = _(
                         "Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is too small for web research "
                         "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
-                        "Raise num_ctx to at least {1} (via PARAMETER num_ctx in a Modelfile or OLLAMA_CONTEXT_LENGTH) and try again."
-                    ).format(label, min_label)
+                        "Raise num_ctx to at least {1} (via PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), "
+                        "then use Test Connection in Settings (or restart LibreOffice) and try again."
+                    ).format(label, min_label, MIN_WEB_RESEARCH_CONTEXT_TOKENS)
                 else:
                     message = _(
                         "Context window ({0} tokens) is too small for web research "
