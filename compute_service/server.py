@@ -888,9 +888,9 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     Execute (isolated or sticky), session reset and vision share one
     semaphore of ``admission_permits`` (listeners minus two, so ``GET /health``
     always has a listener). Execute and vision wait until the clamped
-    ``timeout_ms`` (the pool default when it is omitted); session reset waits
-    until ``default_timeout_sec``. The pools queue for their own workers past
-    the permit. Header and body reads occupy a listener before the permit.
+    ``timeout_ms`` (the pool default when it is omitted); session reset has no
+    ``timeout_ms`` and waits until ``max_timeout_sec``. The pools queue for their
+    own workers past the permit. Header and body reads occupy a listener before the permit.
     ``semaphore`` overrides the gate in tests.
     """
     permits = semaphore if semaphore is not None else threading.Semaphore(admission_permits(settings))

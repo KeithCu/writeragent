@@ -744,6 +744,51 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_reset_gate_and_lease_share_one_deadline(self) -> None:
+        """Gate wait consumes part of the deadline so the worker lease only gets the remainder."""
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        try:
+            sid = "shared-clock-reset"
+            ok = run_cell(pool, code="x = 1\nresult = x", session_id=sid, req_id="sc-1")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions[sid].worker
+
+            seen_lease_timeouts: list[float] = []
+            orig_leased = pool.leased
+
+            def spy_leased(target: Any = None, timeout_sec: float = 5.0) -> Any:
+                seen_lease_timeouts.append(timeout_sec)
+                return orig_leased(target, timeout_sec=timeout_sec)
+
+            setattr(pool, "leased", spy_leased)
+
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            gate_entered = threading.Event()
+
+            def hold_gate() -> None:
+                with pool._session_gate(sid, 30.0):
+                    gate_entered.set()
+                    time.sleep(0.25)
+
+            t = threading.Thread(target=hold_gate)
+            t.start()
+            try:
+                assert gate_entered.wait(timeout=5.0)
+                deadline = Deadline(0.5)
+                res = pool.reset_session(sid, deadline=deadline)
+            finally:
+                t.join(timeout=5.0)
+                pool.release_worker(held)
+
+            assert res.get("code") == "WORKER_POOL_BUSY"
+            assert len(seen_lease_timeouts) == 1
+            assert 0.0 <= seen_lease_timeouts[0] < 0.35
+            with pool._cond:
+                assert sid in pool._sessions
+        finally:
+            pool.shutdown()
+
     def test_three_hundred_shared_sessions_do_not_fail_or_evict(self) -> None:
         """Active shared sessions are uncapped; 300 sessions neither fail nor evict."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0))

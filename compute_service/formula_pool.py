@@ -43,8 +43,9 @@ log = logging.getLogger("compute_service.formula")
 # codes would hide a reset kernel from the next sticky call.
 _UNRUN_RESULT_CODES = frozenset({ec.QUEUE_TIMEOUT, ec.PAYLOAD_TOO_LARGE, ec.WORKER_SPAWN_FAILED, ec.WORKER_PIPE_BROKEN})
 # Budget for the worker-side reset_session action only (a dictionary drop in the child).
-# Kept fixed because a frame sent with under MIN_REQUEST_SEC fails before send, and a short
-# clock would SIGKILL the worker and every session on it on a late reply.
+# Fixed, not the clock's remainder: under MIN_REQUEST_SEC the worker refuses the request
+# before sending, and a short budget above that would SIGKILL the worker, with every
+# session on it, when the reply is late.
 _RESET_ACTION_TIMEOUT_SEC = 5.0
 _SESSION_GATE_BUSY = "Sticky session is busy and request timed out waiting for the session gate."
 
