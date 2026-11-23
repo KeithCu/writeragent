@@ -29,6 +29,7 @@ class _FakeWebSocket:
         self.incoming: queue.Queue[str | Exception] = queue.Queue()
         self._on_send = on_send
         self.closed = False
+        self.close_event = threading.Event()
 
     def send(self, raw: str) -> None:
         msg = json.loads(raw)
@@ -49,6 +50,7 @@ class _FakeWebSocket:
         if not self.closed:
             self.closed = True
             self.incoming.put(ConnectionClosedOK(None, None))
+            self.close_event.set()
 
 
 def test_call_correlates_out_of_order_responses():
@@ -282,10 +284,7 @@ def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monk
         ):
             client1 = begin_firefox_bidi()
             ws1.incoming.put(ConnectionClosedError(None, None))
-            # Wait for the reader thread to mark client1 closed via _fail.
-            deadline = threading.Event()
-            while not client1.closed:
-                deadline.wait(0.01)
+            assert ws1.close_event.wait(2.0)
 
             client2 = begin_firefox_bidi()
             assert client2 is not client1
@@ -331,10 +330,8 @@ def test_reader_skips_undecodable_frame_and_fail_closes_socket():
     try:
         assert client.call("test.ping", {}) == {"ok": True}
         ws.incoming.put(RuntimeError("unexpected reader error"))
-        waiter = threading.Event()
-        while not client.closed:
-            waiter.wait(0.01)
-        assert ws.closed is True
+        assert ws.close_event.wait(2.0)
+        assert client.closed is True
     finally:
         client.close()
 

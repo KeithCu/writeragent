@@ -166,11 +166,11 @@ class FirefoxBidiClient:
             self._closed = True
             pending = list(self._pending.values())
             self._pending.clear()
-        best_effort(self._ws.close, "firefox bidi: ws.close on fail")
         err = RuntimeError(f"Firefox BiDi connection closed: {exc}")
         for fut in pending:
             if not fut.done():
                 fut.set_exception(err)
+        best_effort(self._ws.close, "firefox bidi: ws.close on fail")
 
 
 _CLIENT: FirefoxBidiClient | None = None

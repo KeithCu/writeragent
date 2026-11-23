@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client.errors import format_context_window_label
 from plugin.framework.client.model_fetcher import resolve_context_window
+from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
@@ -356,8 +357,6 @@ def _begin_shared_browser(uno_ctx: Any, browser_type: str) -> BrowserPageDriver:
     with _cdp_refcount.launch_lock:
         _cdp_refcount.run_enter()
         try:
-            from plugin.framework.constants import BIDI_BROWSER_TYPE
-
             if browser_type == BIDI_BROWSER_TYPE:
                 return web_research_firefox.begin_firefox_bidi()
             browser_cdp_tool.get_local_chrome_cdp_url(uno_ctx, browser_type)
@@ -813,7 +812,6 @@ class WebResearchTool(ToolBase):
         max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
-        from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
 
         browser_type = get_config("chatbot.web_research_browser")
         browser_enabled = browser_type == BIDI_BROWSER_TYPE or browser_type in CDP_BROWSER_TYPES
