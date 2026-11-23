@@ -122,16 +122,15 @@ def format_http_error_response(
         return local_model_overflow_message(context_window)
     body = err_body.strip()
     mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
+    label = source or _("AI Provider")
     if mapped is not None:
         base = mapped
     elif not reason_str:
-        label = source or _("AI Provider")
         formatted = _("HTTP Error {0} from {1}: {2}").format(status_num, label, "").rstrip()
         if formatted.endswith((":", "：")):
             formatted = formatted[:-1].rstrip()
         base = formatted
     else:
-        label = source or _("AI Provider")
         base = _("HTTP Error {0} from {1}: {2}").format(status_num, label, reason_str)
     if not body:
         return str(base)

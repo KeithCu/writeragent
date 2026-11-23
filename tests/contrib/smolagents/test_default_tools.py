@@ -415,58 +415,115 @@ def test_web_search_challenge_wait_uses_backoff_and_stop_aborts_it(monkeypatch):
 
 
 def test_web_search_spaces_query_starts(monkeypatch):
-    monkeypatch.setattr(default_tools, "_SEARCH_MIN_GAP_SEC", 0.3)
-    now = [0.0]
-    monkeypatch.setattr(default_tools.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(default_tools, "_SEARCH_MIN_GAP_SEC", 30.0)
+    delays: list[float] = []
 
     def _fake_wait(delay: float, _cancel) -> bool:
-        if delay > 0:
-            now[0] += delay
+        delays.append(delay)
         return True
 
-    starts: list[float] = []
     conn = _keepalive_conn([
         _response(200, _ddg_html("First"), "OK"),
         _response(200, _ddg_html("Second"), "OK"),
     ])
-
-    def _record_request(*_args, **_kwargs):
-        starts.append(now[0])
-
-    conn.request.side_effect = _record_request
     patcher, _created = _patch_https([conn])
 
     with patcher, patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_fake_wait):
         DuckDuckGoSearchTool(cache_max_age_days=30).forward("first query")
         DuckDuckGoSearchTool(cache_max_age_days=30).forward("second query")
 
-    assert len(starts) == 2
-    assert starts[1] - starts[0] >= 0.3
+    assert len(delays) == 2
+    assert delays[0] <= 0.0
+    assert 0.0 < delays[1] <= 30.0
+
+
+def test_web_search_gate_blocks_other_threads_during_challenge_backoff(monkeypatch):
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (1.0,))
+    in_backoff = threading.Event()
+    backoff_release = threading.Event()
+    requests_seen: list[str] = []
+    requests_lock = threading.Lock()
+    wait_calls = 0
+
+    def _fake_wait(delay: float, _cancel) -> bool:
+        nonlocal wait_calls
+        wait_calls += 1
+        if delay > 0 and wait_calls == 2:
+            in_backoff.set()
+            assert backoff_release.wait(timeout=5)
+        return True
+
+    conn = _keepalive_conn([
+        _response(202, b"<html><body>challenge</body></html>", "Accepted"),
+        _response(200, _ddg_html("A Result"), "OK"),
+        _response(200, _ddg_html("B Result"), "OK"),
+    ])
+
+    def _record_request(_method, _path, body=None, _headers=None, **_kwargs):
+        q = dict(urllib.parse.parse_qsl(body.decode("utf-8"))).get("q", "")
+        with requests_lock:
+            requests_seen.append(q)
+
+    conn.request.side_effect = _record_request
+    patcher, _created = _patch_https([conn])
+    results: dict[str, str] = {}
+
+    def _run(name: str, query: str) -> None:
+        results[name] = DuckDuckGoSearchTool(cache_max_age_days=30).forward(query)
+
+    with patcher, patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_fake_wait):
+        t_a = threading.Thread(target=_run, args=("a", "query A"))
+        t_a.start()
+        assert in_backoff.wait(timeout=5)
+        assert requests_seen == ["query A"]
+
+        t_b = threading.Thread(target=_run, args=("b", "query B"))
+        t_b.start()
+        time.sleep(0.05)
+        assert requests_seen == ["query A"]
+
+        backoff_release.set()
+        t_a.join(timeout=5)
+        t_b.join(timeout=5)
+
+    assert requests_seen == ["query A", "query A", "query B"]
+    assert "A Result" in results["a"]
+    assert "B Result" in results["b"]
 
 
 def test_web_search_stop_while_waiting_for_gate_returns_stopped():
     cancel = SendCancellation()
-    cancel.cancel()
+    out: list[str] = []
+
+    def _run() -> None:
+        out.append(DuckDuckGoSearchTool(cache_max_age_days=30, cancel=cancel).forward("AI news"))
+
     default_tools._SEARCH_GATE.acquire()
     try:
         with patch("http.client.HTTPSConnection") as https_conn:
-            result = DuckDuckGoSearchTool(cache_max_age_days=30, cancel=cancel).forward("AI news")
+            t = threading.Thread(target=_run)
+            t.start()
+            time.sleep(0.05)
+            assert t.is_alive()
+            cancel.cancel()
+            t.join(timeout=5)
     finally:
         default_tools._SEARCH_GATE.release()
 
-    assert result == default_tools._SEARCH_STOPPED
+    assert out == [default_tools._SEARCH_STOPPED]
     https_conn.assert_not_called()
 
 
 def test_web_search_cache_key_normalizes_case_and_trailing_punctuation():
     assert _search_cache_key("  AI   News? ", None) == "any|ai news"
+    assert _search_cache_key("AI news ?", None) == "any|ai news"
     assert _search_cache_key('"exact phrase"', None) == 'any|"exact phrase"'
 
 
 def test_web_search_recency_day_and_week_shorten_cache_age():
     seen_ages: list[int] = []
 
-    def _fake_cache_get(_db_path, _kind, _key, max_age_days):
+    def _fake_cache_get(_db_path, _kind, _key, max_age_days, **_kwargs):
         seen_ages.append(max_age_days)
         return None
 
@@ -480,3 +537,31 @@ def test_web_search_recency_day_and_week_shorten_cache_age():
         DuckDuckGoSearchTool(cache_max_age_days=3, cache_path="x", cache_max_mb=1).forward("AI news", recency="week")
 
     assert seen_ages == [1, 7, 30, 30, 3]
+
+
+def test_web_search_recency_day_does_not_refresh_created_at(tmp_path):
+    import sqlite3
+
+    db_file = str(tmp_path / "web_cache.db")
+    html = _ddg_html("Fresh Headline")
+    tool = DuckDuckGoSearchTool(cache_max_age_days=30, cache_path=db_file, cache_max_mb=10)
+    with patch("plugin.contrib.smolagents.default_tools.sync_request", return_value=_http_ok(html)):
+        tool.forward("AI news", recency="day")
+        tool.forward("AI news", recency=None)
+
+    backdated = time.time() - 20 * 3600
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("UPDATE web_cache SET created_at = ? WHERE kind = 'search'", (backdated,))
+        conn.commit()
+
+    with patch("plugin.contrib.smolagents.default_tools.sync_request") as req:
+        assert "Fresh Headline" in tool.forward("AI news", recency="day")
+        assert "Fresh Headline" in tool.forward("AI news", recency=None)
+    req.assert_not_called()
+
+    with sqlite3.connect(db_file) as conn:
+        day_ts = conn.execute("SELECT created_at FROM web_cache WHERE kind = 'search' AND key = 'day|ai news'").fetchone()[0]
+        any_ts = conn.execute("SELECT created_at FROM web_cache WHERE kind = 'search' AND key = 'any|ai news'").fetchone()[0]
+
+    assert day_ts == pytest.approx(backdated)
+    assert any_ts > backdated

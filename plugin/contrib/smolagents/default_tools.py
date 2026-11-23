@@ -114,8 +114,8 @@ def _web_cache_with_connection(db_path: str, fn):
                 raise
 
 
-def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int) -> str | None:
-    """Return cached value for (kind, key), or None. On hit, touch row (update created_at). No-op when SQLite unavailable."""
+def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int, *, touch: bool = True) -> str | None:
+    """Return cached value for (kind, key), or None. On hit, touch row unless touch=False. No-op when SQLite unavailable."""
     if not HAS_SQLITE or not db_path or not key:
         return None
 
@@ -134,11 +134,12 @@ def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int) -> str 
             conn.commit()
             return None
 
-        conn.execute(
-            "UPDATE web_cache SET created_at = ? WHERE kind = ? AND key = ?",
-            (now, kind, key),
-        )
-        conn.commit()
+        if touch:
+            conn.execute(
+                "UPDATE web_cache SET created_at = ? WHERE kind = ? AND key = ?",
+                (now, kind, key),
+            )
+            conn.commit()
         return value
 
     return _web_cache_with_connection(db_path, do_get)
@@ -278,6 +279,7 @@ _SEARCH_READ_TIMEOUT_SEC = 10
 # DDG handshakes succeed in ~0.07 s; a stalled one gets 5 s per attempt instead of waiting the full LLM connect timeout.
 _SEARCH_CONNECT_TIMEOUT_SEC = 5
 SEARCH_ERROR_PREFIX = "Error fetching search results:"
+# Fixed message tells the model that rewording the query will not fix a network or rate-limit failure.
 _SEARCH_UNAVAILABLE = (
     f"{SEARCH_ERROR_PREFIX} the search service is unavailable or is refusing automated queries right now. "
     "This is a network or rate-limit problem, not a problem with the query, so rewording the query will not help. "
@@ -316,10 +318,10 @@ def _norm_recency(value):
 def _search_cache_key(query, recency):
     """Search cache key includes recency and is case- and trailing-punctuation-insensitive.
 
-    Model rewrites of one query share an entry; quotes and operators are kept
-    because DDG treats them as syntax.
+    Model rewrites of one query share an entry; quotes and punctuation
+    operators such as - and site: are kept because DDG treats them as syntax.
     """
-    text = " ".join(str(query).split()).lower().rstrip("?.!")
+    text = " ".join(str(query).split()).lower().rstrip("?.! ")
     return f"{_norm_recency(recency)}|{text}"
 
 
@@ -370,6 +372,7 @@ class DuckDuckGoSearchTool(Tool):
                 try:
                     # Connection errors, 429/503, and Stop are handled by the shared transport;
                     # challenge statuses (202/403) come back as HttpResult and are retried here.
+                    # Shared transport connects directly; system proxies are not used, same as LLM traffic.
                     result = sync_request(
                         _SEARCH_URL,
                         data,
@@ -419,7 +422,15 @@ class DuckDuckGoSearchTool(Tool):
             _RECENCY_MAX_AGE_DAYS.get(recency_token, self._cache_max_age_days),
         )
         if self._cache_path and self._cache_max_mb > 0 and cache_key:
-            cached = _web_cache_get(self._cache_path, "search", cache_key, max_age_days=max_age_days)
+            # Recency-capped entries (day/week) are freshness limits, not LRU; touching
+            # created_at on a hit would let repeat queries keep stale results forever.
+            cached = _web_cache_get(
+                self._cache_path,
+                "search",
+                cache_key,
+                max_age_days=max_age_days,
+                touch=recency_token not in _RECENCY_MAX_AGE_DAYS,
+            )
             if cached is not None:
                 log.debug("web_cache: search hit: %s" % (cache_key[:60] + "..." if len(cache_key) > 60 else cache_key))
                 return cached

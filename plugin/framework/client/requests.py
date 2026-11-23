@@ -120,9 +120,9 @@ def sync_request(
 
     Returns decoded JSON, or raw bytes when ``parse_json`` is false. With
     ``include_meta``, returns ``http_transport.HttpResult`` (status, body, content type).
-    Statuses in ``ok_statuses`` are returned as a normal ``HttpResult`` instead
-    of raising ``NetworkError``. HTTP errors are labelled with the origin
-    rather than "AI Provider".
+    Statuses in ``ok_statuses`` are returned without raising ``NetworkError``;
+    callers passing extra statuses need ``include_meta=True`` to tell them apart.
+    HTTP errors are labelled with the origin rather than "AI Provider".
 
     Redirects follow ``LlmHttpTransport.exchange``.
     A non-numeric or out-of-range port, or an unmatched bracket
