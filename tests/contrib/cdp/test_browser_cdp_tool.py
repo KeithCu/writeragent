@@ -11,11 +11,12 @@ import pytest
 import plugin.contrib.cdp.browser_cdp_tool as browser_cdp_tool
 from plugin.contrib.cdp.browser_cdp_tool import (
     cleanup_local_chrome,
+    find_browser_executable,
     get_local_chrome_cdp_url,
     tool_error,
 )
 from plugin.framework.managed_subprocess import _instances, shutdown_all
-from plugin.chatbot.web_research import VisitWebpageCdpTool
+from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
 
 
 def test_tool_error_formatting():
@@ -59,8 +60,6 @@ def _mock_cdp_spawn(which_side_effect=None):
 def _isolate_home(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    # Match the real 0-arg user_config_dir() so the ~/.config/writeragent fallback runs.
-    monkeypatch.setattr("plugin.framework.config.user_config_dir", lambda: None)
 
 
 @pytest.mark.parametrize(
@@ -167,9 +166,30 @@ def test_visit_webpage_cdp_tool_forward(mock_sleep, mock_browser_cdp):
         json.dumps({"success": True}),
     ]
 
-    tool = VisitWebpageCdpTool(cdp_url="ws://dummy")
+    tool = VisitWebpageBrowserTool(CdpPageDriver())
     result = tool.forward("https://example.com")
 
     assert result == "This is page text content retrieved via CDP."
     methods = [call.args[0] for call in mock_browser_cdp.call_args_list]
     assert methods == ["Target.createTarget", "Page.navigate", "Runtime.evaluate", "Target.closeTarget"]
+
+
+def test_find_browser_executable_expands_win32_paths_only_on_windows(monkeypatch):
+    win_path = r"%ProgramFiles%\Mozilla Firefox\firefox.exe"
+    expanded = r"C:\Program Files\Mozilla Firefox\firefox.exe"
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+
+    def fake_which(cmd, **_kwargs):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    with patch("subprocess.run", side_effect=fake_which):
+        monkeypatch.setattr(browser_cdp_tool.sys, "platform", "linux")
+        with patch("os.path.exists", return_value=True) as mock_exists:
+            assert find_browser_executable(["firefox"], "firefox", (win_path,)) == "firefox"
+            mock_exists.assert_not_called()
+
+        monkeypatch.setattr(browser_cdp_tool.sys, "platform", "win32")
+        monkeypatch.setattr(browser_cdp_tool.os.path, "expandvars", ntpath.expandvars)
+        monkeypatch.setattr(browser_cdp_tool.os.path, "isabs", ntpath.isabs)
+        with patch("os.path.exists", side_effect=lambda p: p == expanded):
+            assert find_browser_executable(["firefox"], "firefox", (win_path,)) == expanded

@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Chrome DevTools Protocol helpers (adapted from Nous Research Hermes Agent, MIT).
 
-CDP uses a client-only ``websockets`` asyncio subset (``connect``, ``WebSocketException``).
+CDP uses a client-only ``websockets`` asyncio subset (``connect``, ``WebSocketException``),
+and the Firefox WebDriver BiDi client uses ``websockets.sync.client``.
 The full PyPI package is vendored then pruned at OXT build time by
-``scripts/prune_vendored_websockets.py`` (legacy/sync/server code removed).
+``scripts/prune_vendored_websockets.py`` (legacy/trio/server code removed).
 """

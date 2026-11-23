@@ -90,6 +90,7 @@ The core chatbot interaction relies heavily on threads to handle streaming LLM r
 *   **`tool_loop.py`:** Manages the ReAct (Reasoning and Acting) loop.
     *   **Threads:** `run_in_background(..., dedicated=True)` for `llm-worker-*`, `llm-worker-final`, and async tools (`tool-async-*`). Those streams can last minutes and must not pin a pool slot.
     *   This architecture allows the UI to stay responsive while the system generates text chunk-by-chunk or waits for API responses.
+*   **`web_research_firefox.py`:** Spawns one dedicated daemon reader thread (`run_in_background(..., name="firefox-bidi-reader", dedicated=True)`) per `FirefoxBidiClient` to read WebDriver BiDi responses and correlate command IDs under `_lock` for concurrent deep-research workers.
 
 ### 5. Utilities, UI Updates, and Monitoring
 

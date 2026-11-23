@@ -198,7 +198,7 @@ def _run_web_search_tool_call_handler(
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=approval_callback,
@@ -294,7 +294,7 @@ def test_visit_handler_leaves_page_store_empty():
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=None,
@@ -369,7 +369,7 @@ def test_web_research_single_url_status_callback(monkeypatch):
         cache_path="",
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=statuses.append,
         append_thinking_callback=None,
         approval_callback=None,
@@ -396,7 +396,7 @@ def test_web_research_single_url_status_callback(monkeypatch):
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):
 
-    from plugin.chatbot.web_research import VisitWebpageCdpTool
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
 
     calls: list[tuple[str, str | None]] = []
     ids = iter(["tab-a", "tab-b"])
@@ -413,8 +413,8 @@ def test_cdp_visit_uses_a_private_target(monkeypatch):
 
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", fake_cdp)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://a.test")
-    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://b.test")
+    assert "body text" in VisitWebpageBrowserTool(CdpPageDriver(), stop_checker=None).forward("https://a.test")
+    assert "body text" in VisitWebpageBrowserTool(CdpPageDriver(), stop_checker=None).forward("https://b.test")
     assert [method for method, _target in calls if method == "Target.getTargets"] == []
     assert [target for method, target in calls if method == "Page.navigate"] == ["tab-a", "tab-b"]
     assert [target for method, target in calls if method == "Target.closeTarget"] == ["tab-a", "tab-b"]
@@ -524,17 +524,17 @@ def test_cdp_launch_failure_releases_the_run(monkeypatch):
     try:
         with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_cdp(object(), "chrome")
+                wr._begin_shared_browser(object(), "chrome")
             # The only run failed to launch. Teardown still runs, and the count is released.
             cleanup.assert_called_once()
         assert wr._cdp_refcount.runs == 0
 
         mode["fail"] = False
         with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
-            assert wr._begin_shared_cdp(object(), "chrome") == "ws://shared"
+            assert isinstance(wr._begin_shared_browser(object(), "chrome"), wr.CdpPageDriver)
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_cdp(object(), "brave")
+                wr._begin_shared_browser(object(), "brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
             assert wr._cdp_refcount.runs == 1
@@ -542,6 +542,26 @@ def test_cdp_launch_failure_releases_the_run(monkeypatch):
             cleanup.assert_called_once()
         assert wr._cdp_refcount.runs == 0
         assert wr._cdp_refcount.closing is False
+    finally:
+        wr._cdp_refcount.reset_for_tests()
+
+
+def test_firefox_begin_dispatches_to_bidi_and_finish_closes_it():
+    from plugin.chatbot import web_research as wr
+
+    wr._cdp_refcount.reset_for_tests()
+    fake_client = MagicMock()
+    try:
+        with (
+            patch("plugin.chatbot.web_research_firefox.begin_firefox_bidi", return_value=fake_client) as mock_begin,
+            patch("plugin.chatbot.web_research_firefox.close_firefox_bidi") as mock_close_bidi,
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as mock_cleanup,
+        ):
+            assert wr._begin_shared_browser(object(), "firefox") is fake_client
+            mock_begin.assert_called_once_with()
+            wr._cdp_refcount.finish()
+            mock_close_bidi.assert_called_once_with()
+            mock_cleanup.assert_called_once_with()
     finally:
         wr._cdp_refcount.reset_for_tests()
 
@@ -982,11 +1002,11 @@ def test_visit_webpage_rejects_non_http_urls(tmp_path):
     assert "Error fetching the webpage" in tool.forward("javascript:alert(1)")
 
 def test_cdp_visit_rejects_non_http_urls():
-    from plugin.chatbot.web_research import VisitWebpageCdpTool
-    tool = VisitWebpageCdpTool("ws://local")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("file:///etc/passwd")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("chrome://version")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("javascript:alert(1)")
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
+    tool = VisitWebpageBrowserTool(CdpPageDriver())
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("file:///etc/passwd")
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("chrome://version")
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("javascript:alert(1)")
 
 def test_visit_webpage_does_not_cache_fetch_errors(tmp_path):
     """Transient fetch failures must not poison the page cache."""
@@ -1130,8 +1150,10 @@ def test_chromium_cdp_enabled():
 
     import plugin.chatbot.web_research as wr
 
+    fake_driver = MagicMock()
+
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
-         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._begin_shared_browser", return_value=fake_driver) as mock_begin, \
          patch.object(wr._cdp_refcount, "finish") as mock_finish, \
          patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
@@ -1142,9 +1164,8 @@ def test_chromium_cdp_enabled():
          mock_begin.assert_called_once_with(ctx.ctx, "chromium")
          mock_finish.assert_called_once()
 
-         # The agent parameters should have cdp_url="ws://mock"
          agent_params = mock_run.call_args.args[3]
-         assert agent_params.cdp_url == "ws://mock"
+         assert agent_params.browser is fake_driver
 
 def test_cdp_connection_leak_early_exception():
     from plugin.chatbot.web_research import WebResearchTool
@@ -1177,7 +1198,7 @@ def test_cdp_connection_leak_early_exception():
     import plugin.chatbot.web_research as wr
 
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
-         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._begin_shared_browser", return_value=MagicMock()) as mock_begin, \
          patch.object(wr._cdp_refcount, "finish") as mock_finish, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
@@ -1301,7 +1322,7 @@ def test_web_agent_tools_read_stored_parts_beyond_old_cap():
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=None,
@@ -1351,7 +1372,7 @@ def test_web_agent_tools_read_stored_parts_beyond_old_cap():
 
 def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
     from plugin.chatbot.web_pages import PAGE_TEXT_MAX_CHARS
-    from plugin.chatbot.web_research import VisitWebpageCdpTool
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
 
     long_value = "A" * 250_000
     responses = iter([
@@ -1363,7 +1384,7 @@ def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", lambda *a, **kw: next(responses))
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
-    out = VisitWebpageCdpTool("ws://dummy").forward("https://example.test/huge")
+    out = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.test/huge")
     assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
     assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out
 
@@ -1414,7 +1435,7 @@ def _execute_web_research_with_window(
         patch("plugin.framework.config.get_api_config", return_value=api_config),
         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
         patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window) as mock_resolve,
-        patch("plugin.chatbot.web_research._begin_shared_cdp") as mock_cdp,
+        patch("plugin.chatbot.web_research._begin_shared_browser") as mock_cdp,
         patch("plugin.chatbot.web_research._run_web_agent", side_effect=_fake_shallow) as mock_shallow,
         patch("plugin.chatbot.web_research._run_deep_web_research", side_effect=_fake_deep) as mock_deep,
     ):
@@ -1498,7 +1519,7 @@ def test_web_research_prompt_overhead_fits_within_minimum_window():
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=None,

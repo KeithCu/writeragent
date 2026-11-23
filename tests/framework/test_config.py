@@ -1312,49 +1312,6 @@ def test_rename_migrates_agy_model_to_agent_backend_model(tmp_path):
         assert written2.get("agent_backend.model") == "grok-4.6"
 
 
-def test_load_migrates_firefox_browser_to_default(tmp_path):
-    from plugin.framework import config_schema as schema
-
-    reset_config_for_tests()
-    cfg_file = tmp_path / "writeragent.json"
-    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)):
-        with open(cfg_file, "w", encoding="utf-8") as f:
-            json.dump({"chatbot.web_research_browser": "firefox"}, f)
-        reset_config_for_tests()
-        assert get_config("chatbot.web_research_browser") == "off"
-        written = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
-        assert "chatbot.web_research_browser" not in written
-
-        # Bundles without the chatbot module (LibrePy / LibreHarper) share writeragent.json
-        # and must migrate without failing on an unknown key.
-        orig = (
-            schema.MODULES,
-            schema.CONFIG_DEFAULTS,
-            schema.CONFIG_SCHEMAS,
-            schema.FLAT_TO_MODULE_KEY,
-            schema.SECRET_CONFIG_KEYS,
-            schema.SECRET_ENTRY_FIELDS,
-        )
-        try:
-            schema.set_manifest_modules([])
-            with open(cfg_file, "w", encoding="utf-8") as f:
-                json.dump({"chatbot.web_research_browser": "firefox", "text_model": "gpt-4o"}, f)
-            reset_config_for_tests()
-            assert get_config("text_model") == "gpt-4o"
-            written2 = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
-            assert "chatbot.web_research_browser" not in written2
-            assert written2.get("text_model") == "gpt-4o"
-        finally:
-            (
-                schema.MODULES,
-                schema.CONFIG_DEFAULTS,
-                schema.CONFIG_SCHEMAS,
-                schema.FLAT_TO_MODULE_KEY,
-                schema.SECRET_CONFIG_KEYS,
-                schema.SECRET_ENTRY_FIELDS,
-            ) = orig
-
-
 def test_bad_save_rolls_back_cache_and_keeps_disk(tmp_path):
     reset_config_for_tests()
     cfg_file = tmp_path / "writeragent.json"

@@ -80,6 +80,8 @@ config:
         label: "Chromium (CDP)"
       - value: "chrome"
         label: "Chrome (CDP)"
+      - value: "firefox"
+        label: "Firefox (WebDriver BiDi)"
 
   web_cache_max_mb:
     type: int

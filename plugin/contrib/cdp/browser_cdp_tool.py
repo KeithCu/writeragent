@@ -101,7 +101,7 @@ def cleanup_local_chrome() -> None:
     managed.unregister()
 
 
-_CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str]] = {
+_CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str, tuple[str, ...]]] = {
     "brave": (
         [
             "brave",
@@ -110,6 +110,11 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str]] = {
             "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
         ],
         "brave",
+        (
+            r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe",
+        ),
     ),
     "chromium": (
         [
@@ -121,6 +126,7 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str]] = {
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
         ],
         "chromium",
+        (),
     ),
     "chrome": (
         [
@@ -132,19 +138,21 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str]] = {
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         ],
         "google-chrome",
+        (),
     ),
 }
 
-_BRAVE_WIN32_PATHS = (
-    r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
-    r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe",
-    r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe",
-)
 
-
-def _find_browser_executable(candidates: list[str], default: str) -> str:
+def find_browser_executable(
+    candidates: list[str],
+    default: str,
+    win32_paths: tuple[str, ...] = (),
+) -> str:
     """Return the first existing absolute path or PATH binary from candidates."""
-    for name in candidates:
+    search = list(candidates)
+    if win32_paths and sys.platform == "win32":
+        search.extend(os.path.expandvars(p) for p in win32_paths)
+    for name in search:
         try:
             if os.path.isabs(name):
                 if os.path.exists(name):
@@ -157,8 +165,37 @@ def _find_browser_executable(candidates: list[str], default: str) -> str:
     return default
 
 
-def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
+def browser_profile_dir(browser_type: str) -> str:
+    """Return and create the dedicated profile dir for a research browser."""
+    # The profile lives under the WriterAgent config dir so it survives LibreOffice profile resets.
+    config_dir = os.path.expanduser("~/.config/writeragent")
+    safe_name = "".join([c if c.isalnum() else "_" for c in browser_type])
+    profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
+    os.makedirs(profile_dir, exist_ok=True)
+    return profile_dir
+
+
+def spawn_local_browser(cmd: list[str], *, label: str) -> None:
+    """Launch a local browser process and register it for quit-time cleanup."""
     global _CHROME_BROWSER
+    # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
+    popen_kw: dict[str, Any] = {}
+    if sys.platform != "win32":
+        popen_kw["start_new_session"] = True
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **popen_kw,
+    )
+    _CHROME_BROWSER = ManagedSubprocess.wrap_existing(
+        proc,
+        label=label,
+        register=True,
+    )
+
+
+def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
     # Try querying existing CDP connection first
     try:
         req = urllib.request.Request("http://127.0.0.1:9222/json")
@@ -172,32 +209,18 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         pass
 
     # Spawn browser non-headlessly if not already running
-    from plugin.framework.config import user_config_dir
-    config_dir = None
-    if ctx is not None:
-        try:
-            config_dir = user_config_dir(getattr(ctx, "ctx", ctx))
-        except Exception:
-            pass
-    if not config_dir:
-        config_dir = os.path.expanduser("~/.config/writeragent")
-    
-    safe_name = "".join([c if c.isalnum() else "_" for c in browser_type])
-    profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
-    os.makedirs(profile_dir, exist_ok=True)
+    profile_dir = browser_profile_dir(browser_type)
 
     if os.path.exists(browser_type) or "/" in browser_type or "\\" in browser_type:
         executable = browser_type
     elif browser_type in _CDP_BROWSER_CANDIDATES:
-        candidates, default_bin = _CDP_BROWSER_CANDIDATES[browser_type]
-        if browser_type == "brave" and sys.platform == "win32":
-            candidates = candidates + [os.path.expandvars(p) for p in _BRAVE_WIN32_PATHS]
-        executable = _find_browser_executable(candidates, default_bin)
+        candidates, default_bin, win32_paths = _CDP_BROWSER_CANDIDATES[browser_type]
+        executable = find_browser_executable(candidates, default_bin, win32_paths)
     else:
         search_names = [browser_type]
         if browser_type.lower() in ["edge", "microsoft-edge"]:
             search_names.extend(["microsoft-edge-stable", "microsoft-edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"])
-        executable = _find_browser_executable(search_names, browser_type)
+        executable = find_browser_executable(search_names, browser_type)
 
     cmd = [
         executable,
@@ -206,23 +229,9 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         "--no-first-run",
         "--no-default-browser-check"
     ]
-        
+
     logger.info("Spawning local browser (%s): %s", browser_type, " ".join(cmd))
-    # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
-    popen_kw: dict[str, Any] = {}
-    if sys.platform != "win32":
-        popen_kw["start_new_session"] = True
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        **popen_kw,
-    )
-    _CHROME_BROWSER = ManagedSubprocess.wrap_existing(
-        proc,
-        label="cdp-browser",
-        register=True,
-    )
+    spawn_local_browser(cmd, label="cdp-browser")
     
     # Wait for browser to listen on port 9222
     deadline = time.time() + 6.0
