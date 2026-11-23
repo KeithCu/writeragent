@@ -605,10 +605,10 @@ class TestFormulaPoolSupervisor:
             worker_before = pool.workers[0]
             pid_before = worker_before.process.pid if worker_before.process else None
 
-            reset_res = pool.reset_session(sid)
+            reset_res = pool.reset_session(sid, deadline=Deadline(15.0))
             assert reset_res.get("status") == "ok"
             # Unknown / already-gone stays idempotent ok (HTTP /v1/session/reset contract).
-            assert pool.reset_session("never-mapped-session").get("status") == "ok"
+            assert pool.reset_session("never-mapped-session", deadline=Deadline(15.0)).get("status") == "ok"
 
             # Execute an isolated task; worker will recycle because tasks_executed (3) >= max_tasks (2) and no active sessions
             r4 = run_cell(pool, code="result = 'fresh'", req_id="sp-4")
@@ -700,7 +700,7 @@ class TestFormulaPoolSupervisor:
             held = pool.lease_specific(worker, timeout_sec=1)
             assert held is worker
             try:
-                res = pool.reset_session(sid, timeout_sec=0.05)
+                res = pool.reset_session(sid, deadline=Deadline(0.05))
                 assert res.get("code") == "WORKER_POOL_BUSY"
                 assert session_worker(pool, sid) is worker
                 with pool._cond:
@@ -711,6 +711,81 @@ class TestFormulaPoolSupervisor:
             assert again.get("status") == "ok"
             assert again.get("result") == 1
             assert again.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
+    def test_reset_after_gate_wait_runs_with_fixed_action_budget(self) -> None:
+        """Reset waiting on the session gate with under MIN_REQUEST_SEC left still resets the worker."""
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        try:
+            sid = "gate-wait-reset"
+            ok = run_cell(pool, code="x = 1\nresult = x", session_id=sid, req_id="gw-1")
+            assert ok.get("status") == "ok"
+
+            gate_entered = threading.Event()
+
+            def hold_gate() -> None:
+                with pool._session_gate(sid, 30.0):
+                    gate_entered.set()
+                    time.sleep(0.4)
+
+            t = threading.Thread(target=hold_gate)
+            t.start()
+            try:
+                assert gate_entered.wait(timeout=5.0)
+                res = pool.reset_session(sid, deadline=Deadline(0.9))
+            finally:
+                t.join(timeout=5.0)
+
+            assert res.get("status") == "ok"
+            with pool._cond:
+                assert sid not in pool._sessions
+            assert pool.workers[0].is_alive()
+        finally:
+            pool.shutdown()
+
+    def test_reset_gate_and_lease_share_one_deadline(self) -> None:
+        """Gate wait consumes part of the deadline so the worker lease only gets the remainder."""
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        try:
+            sid = "shared-clock-reset"
+            ok = run_cell(pool, code="x = 1\nresult = x", session_id=sid, req_id="sc-1")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions[sid].worker
+
+            seen_lease_timeouts: list[float] = []
+            orig_leased = pool.leased
+
+            def spy_leased(target: Any = None, timeout_sec: float = 5.0) -> Any:
+                seen_lease_timeouts.append(timeout_sec)
+                return orig_leased(target, timeout_sec=timeout_sec)
+
+            setattr(pool, "leased", spy_leased)
+
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            gate_entered = threading.Event()
+
+            def hold_gate() -> None:
+                with pool._session_gate(sid, 30.0):
+                    gate_entered.set()
+                    time.sleep(0.25)
+
+            t = threading.Thread(target=hold_gate)
+            t.start()
+            try:
+                assert gate_entered.wait(timeout=5.0)
+                deadline = Deadline(0.5)
+                res = pool.reset_session(sid, deadline=deadline)
+            finally:
+                t.join(timeout=5.0)
+                pool.release_worker(held)
+
+            assert res.get("code") == "WORKER_POOL_BUSY"
+            assert len(seen_lease_timeouts) == 1
+            assert 0.0 <= seen_lease_timeouts[0] < 0.35
+            with pool._cond:
+                assert sid in pool._sessions
         finally:
             pool.shutdown()
 
@@ -756,7 +831,7 @@ class TestFormulaPoolSupervisor:
                 return real_execute(payload, timeout_sec, req_id=req_id)
 
             setattr(worker, "execute", fail_reset)
-            res = pool.reset_session(sid)
+            res = pool.reset_session(sid, deadline=Deadline(15.0))
             assert res.get("status") == "error"
             assert session_worker(pool, sid) is worker
             assert sid in worker_sessions(pool, worker)
@@ -774,7 +849,7 @@ class TestFormulaPoolSupervisor:
             first = run_cell(pool, code="items.append(2)\nresult = list(items)", session_id=sid, init_script=init, req_id="init-1")
             assert first.get("status") == "ok"
             assert first.get("result") == [1, 2]
-            reset = pool.reset_session(sid)
+            reset = pool.reset_session(sid, deadline=Deadline(15.0))
             assert reset.get("status") == "ok"
             second = run_cell(pool, code="result = list(items)", session_id=sid, init_script=init, req_id="init-2")
             assert second.get("status") == "ok"
@@ -1280,7 +1355,7 @@ class TestFormulaPoolSupervisor:
             r1 = run_cell(pool, code="x = 99\nresult = x", session_id=sid)
             assert r1.get("status") == "ok"
 
-            reset_res = pool.reset_session(sid)
+            reset_res = pool.reset_session(sid, deadline=Deadline(15.0))
             assert reset_res.get("status") == "ok"
 
             with pool._cond:
@@ -1306,7 +1381,7 @@ class TestFormulaPoolSupervisor:
             assert not pool._session_locks
 
             # reset_session prunes lock upon completion
-            res_reset = pool.reset_session(sid)
+            res_reset = pool.reset_session(sid, deadline=Deadline(15.0))
             assert res_reset.get("status") == "ok"
             assert not pool._session_locks
 
@@ -1383,7 +1458,7 @@ class TestFormulaPoolSupervisor:
             assert res_exec.get("code") == "WORKER_POOL_BUSY"
             assert res_exec.get("id") == "gate-busy"
 
-            res_reset = pool.reset_session(sid, timeout_sec=0.05)
+            res_reset = pool.reset_session(sid, deadline=Deadline(0.05))
             assert res_reset.get("status") == "error"
             assert res_reset.get("code") == "WORKER_POOL_BUSY"
 
