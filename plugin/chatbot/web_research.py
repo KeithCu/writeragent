@@ -35,6 +35,9 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
+from plugin.framework.client.errors import format_context_window_label
+from plugin.framework.client.model_fetcher import resolve_context_window
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
@@ -42,11 +45,14 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_pages import (
+    MIN_WEB_RESEARCH_CONTEXT_TOKENS,
     PAGE_TEXT_MAX_CHARS,
     FindInPageTool,
     PageStore,
     PagedVisitTool,
     ReadPageTool,
+    effective_context_window,
+    page_budget_chars,
 )
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
@@ -358,6 +364,31 @@ class VisitWebpageCdpTool(Tool):
                     f"visit_webpage: closeTarget failed for {target_id}",
                 )
             _cdp_refcount.visit_leave()
+
+
+def _is_ollama_client(client: Any) -> bool:
+    """True when the client targets an Ollama endpoint (and not an explicit OpenRouter proxy)."""
+    config = client.config
+    if not isinstance(config, dict):
+        return False
+    endpoint = str(config.get("endpoint") or "")
+    if not endpoint:
+        return False
+
+    def _check() -> bool:
+        if is_openrouter_endpoint(endpoint, explicit_is_openrouter=config.get("is_openrouter")):
+            return False
+        return get_provider_from_endpoint(endpoint) == "ollama"
+
+    return best_effort(_check, "web_research: provider") is True
+
+
+def _resolve_web_research_window(client: Any) -> int:
+    """Resolve the sub-agent's effective context window in tokens (once per WebResearchTool.execute)."""
+    return effective_context_window(
+        resolve_context_window(client),
+        is_ollama=_is_ollama_client(client),
+    )
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -743,6 +774,21 @@ class WebResearchTool(ToolBase):
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         try:
+            window_tokens = _resolve_web_research_window(smol_model.api)
+            if window_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS:
+                label = format_context_window_label(window_tokens) or str(window_tokens)
+                return format_error_payload(
+                    ToolExecutionError(
+                        _(
+                            "Context window ({0} tokens) is too small for web research "
+                            "(the research prompt and tools alone use about 2,000 tokens). "
+                            "Raise num_ctx to at least 8192 (or switch to a model with a larger context window) and try again."
+                        ).format(label),
+                        code="WEB_RESEARCH_CONTEXT_TOO_SMALL",
+                    )
+                )
+            pages = PageStore(budget_chars=page_budget_chars(window_tokens))
+
             if cdp_enabled:
                 try:
                     cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
@@ -766,6 +812,7 @@ class WebResearchTool(ToolBase):
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
                 cancel=scope,
+                pages=pages,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(

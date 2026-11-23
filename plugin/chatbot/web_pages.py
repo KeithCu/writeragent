@@ -36,10 +36,21 @@ log = logging.getLogger(__name__)
 PAGE_TEXT_MAX_CHARS = 200_000
 MAX_URLS_PER_VISIT = 5
 _VISIT_WAIT_SEC = 45.0
-# Pages up to this size are returned whole, unchanged from before chunked reading.
-_WHOLE_PAGE_MAX_CHARS = 12_000
+# Per-result character budget: clamp(window_tokens // 2, 2_000, 48_000), roughly one eighth
+# of the context window at ~4 chars/token. Part size is budget // 2.
+MIN_PAGE_BUDGET_CHARS = 2_000
+MAX_PAGE_BUDGET_CHARS = 48_000
+# Unknown-window defaults: Ollama omits num_ctx from /api/show unless set in a Modelfile
+# (treat as its 4,096 default); other endpoints fall back to 24,000 tokens (12k budget / 6k parts).
+OLLAMA_DEFAULT_CONTEXT_TOKENS = 4_096
+FALLBACK_CONTEXT_TOKENS = 24_000
+# System prompt + WEB_RESEARCH_EXAMPLES (~1,370-1,450 rough tokens) plus wire tool schemas
+# (~565 rough tokens) consume ~2,000 tokens before any query or observation; below 4,000 tokens
+# there is too little room left for search, page reading, and an answer.
+MIN_WEB_RESEARCH_CONTEXT_TOKENS = 4_000
+DEFAULT_PAGE_BUDGET_CHARS = FALLBACK_CONTEXT_TOKENS // 2
 # Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
-_PART_CHARS = 6_000
+DEFAULT_PART_CHARS = DEFAULT_PAGE_BUDGET_CHARS // 2
 _MAX_PAGES = 100
 _FIND_MAX_MATCHES = 10
 _FIND_CONTEXT_CHARS = 120
@@ -72,7 +83,30 @@ def is_page_text(text: str) -> bool:
     return bool(body) and not body.startswith(("Error", "Failed"))
 
 
-def split_parts(text: str, size: int = _PART_CHARS) -> tuple[int, ...]:
+def effective_context_window(window_tokens: int | None, *, is_ollama: bool = False) -> int:
+    """Resolve an unknown context window to its provider default (4,096 for Ollama, 24,000 otherwise)."""
+    if window_tokens is not None:
+        return window_tokens
+    return OLLAMA_DEFAULT_CONTEXT_TOKENS if is_ollama else FALLBACK_CONTEXT_TOKENS
+
+
+def page_budget_chars(window_tokens: int | None, *, is_ollama: bool = False) -> int:
+    """Per-tool-result character budget derived from the model's context window."""
+    resolved = effective_context_window(window_tokens, is_ollama=is_ollama)
+    return max(MIN_PAGE_BUDGET_CHARS, min(MAX_PAGE_BUDGET_CHARS, resolved // 2))
+
+
+def _clip_at_newline(text: str, limit: int) -> str:
+    """Return a prefix of `text` of at most `limit` chars, cutting at a newline when non-empty."""
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 1, limit + 1)
+    if cut > 0 and text[:cut].strip():
+        return text[: cut + 1]
+    return text[:limit]
+
+
+def split_parts(text: str, size: int = DEFAULT_PART_CHARS) -> tuple[int, ...]:
     """Return 0-based start offsets splitting text into roughly `size`-char parts at newlines."""
     if not text:
         return (0,)
@@ -120,16 +154,33 @@ class PageStore:
     _lock: threading.Lock
     _pages: dict[str, StoredPage]
     _max_pages: int
+    _budget_chars: int
+    _part_chars: int
 
-    def __init__(self, *, max_pages: int = _MAX_PAGES) -> None:
+    def __init__(
+        self,
+        *,
+        max_pages: int = _MAX_PAGES,
+        budget_chars: int = DEFAULT_PAGE_BUDGET_CHARS,
+    ) -> None:
         self._lock = threading.Lock()
         self._pages = {}
         self._max_pages = max_pages
+        self._budget_chars = budget_chars
+        self._part_chars = max(1, budget_chars // 2)
+
+    @property
+    def budget_chars(self) -> int:
+        return self._budget_chars
+
+    @property
+    def part_chars(self) -> int:
+        return self._part_chars
 
     def put(self, url: str, text: str) -> StoredPage:
         """Store fetched page text under its normalized URL, evicting the oldest past max_pages."""
         key = url_key(url)
-        page = StoredPage(text=text, starts=split_parts(text))
+        page = StoredPage(text=text, starts=split_parts(text, self._part_chars))
         with self._lock:
             if key in self._pages:
                 del self._pages[key]
@@ -159,11 +210,20 @@ def _render_part(url: str, page: StoredPage, number: int) -> str:
     )
 
 
-def _format_page(url: str, page: StoredPage) -> str:
-    """Return the full page for short pages or part 1 with navigation for long ones."""
-    if len(page.text) <= _WHOLE_PAGE_MAX_CHARS:
+def _format_page(url: str, page: StoredPage, whole_limit: int) -> str:
+    """Return the full page when it fits in `whole_limit`, else part 1 (clipped if `whole_limit` < part 1)."""
+    if len(page.text) <= whole_limit:
         return f"URL: {url}\n\n{page.text}"
-    return _render_part(url, page, 1)
+    part1 = page.part(1)
+    if len(part1) <= whole_limit:
+        return _render_part(url, page, 1)
+    body = _clip_at_newline(part1, whole_limit).rstrip("\n")
+    return (
+        f"URL: {url}\n"
+        f"Part 1 of {page.part_count} ({len(page.text)} characters in total; showing first {len(body)}). "
+        "read_page(url, 1) returns full part 1; find_in_page(url, text) shows where a phrase appears.\n\n"
+        f"{body}"
+    )
 
 
 class PagedVisitTool(Tool):
@@ -255,17 +315,18 @@ class PagedVisitTool(Tool):
         pending = [u for u in batch if cached[u] is None]
         texts, stopped = self._fetch_all(pending)
 
+        whole_limit = max(1, self._pages.budget_chars // len(batch))
         blocks: list[str] = []
         for u in batch:
             existing = cached[u]
             if existing is not None:
-                blocks.append(_format_page(u, existing))
+                blocks.append(_format_page(u, existing, whole_limit))
             elif u in texts:
                 text = texts[u]
                 # Only store valid page text so an Error/Failed reply or blank extract stays retryable.
                 if is_page_text(text):
                     page = self._pages.put(u, text)
-                    blocks.append(_format_page(u, page))
+                    blocks.append(_format_page(u, page, whole_limit))
                 else:
                     reason = text.strip() or "no text could be extracted"
                     blocks.append(f"[failed] {u}: {reason}")

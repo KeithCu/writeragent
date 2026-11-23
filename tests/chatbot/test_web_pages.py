@@ -6,12 +6,16 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from plugin.chatbot.web_pages import (
-    _PART_CHARS,
+    DEFAULT_PART_CHARS,
     FindInPageTool,
     PagedVisitTool,
     PageStore,
     ReadPageTool,
+    effective_context_window,
+    page_budget_chars,
     split_parts,
 )
 
@@ -35,7 +39,7 @@ def test_long_page_visit_returns_first_part_and_count():
     assert "Part 1 of " in out
     assert lines[0] in out
     assert lines[-1] not in out
-    assert len(out) < _PART_CHARS + 400
+    assert len(out) < DEFAULT_PART_CHARS + 400
 
 
 def test_short_page_is_returned_unchanged_and_searchable():
@@ -93,7 +97,7 @@ def test_parts_rejoin_to_the_full_page():
     starts = split_parts(text)
     for idx in range(len(starts) - 1):
         chunk = text[starts[idx] : starts[idx + 1]]
-        if chunk != "H" * _PART_CHARS:
+        if chunk != "H" * DEFAULT_PART_CHARS:
             assert chunk.endswith("\n")
 
 
@@ -333,3 +337,119 @@ def test_store_reuses_page_for_same_url():
     assert inner.forward.call_count == 1
     assert "Cached body" in first
     assert "Cached body" in second
+
+
+@pytest.mark.parametrize(
+    "window, is_ollama, expected_window, expected_budget, expected_part",
+    [
+        pytest.param(4_000, False, 4_000, 2_000, 1_000, id="4k"),
+        pytest.param(4_096, True, 4_096, 2_048, 1_024, id="4096"),
+        pytest.param(8_000, False, 8_000, 4_000, 2_000, id="8k"),
+        pytest.param(8_192, True, 8_192, 4_096, 2_048, id="8192"),
+        pytest.param(32_000, False, 32_000, 16_000, 8_000, id="32k"),
+        pytest.param(32_768, False, 32_768, 16_384, 8_192, id="32768"),
+        pytest.param(128_000, False, 128_000, 48_000, 24_000, id="128k"),
+        pytest.param(200_000, False, 200_000, 48_000, 24_000, id="200k"),
+        pytest.param(1_000_000, False, 1_000_000, 48_000, 24_000, id="1M"),
+        pytest.param(1_000, False, 1_000, 2_000, 1_000, id="below-floor-clamped"),
+        pytest.param(None, True, 4_096, 2_048, 1_024, id="unknown-ollama"),
+        pytest.param(None, False, 24_000, 12_000, 6_000, id="unknown-other"),
+    ],
+)
+def test_page_budget_formula_table(window, is_ollama, expected_window, expected_budget, expected_part):
+    assert effective_context_window(window, is_ollama=is_ollama) == expected_window
+    budget = page_budget_chars(window, is_ollama=is_ollama)
+    assert budget == expected_budget
+    store = PageStore(budget_chars=budget)
+    assert store.budget_chars == expected_budget
+    assert store.part_chars == expected_part
+
+
+def test_page_store_splits_according_to_budget():
+    lines = [f"Line {i:04d}: " + ("a" * 80) for i in range(440)]
+    text = "\n".join(lines)
+    assert 39_000 < len(text) < 42_000
+
+    # Large window (128k+ -> 48k budget): 40k page fits whole in one visit call.
+    large_store = PageStore(budget_chars=page_budget_chars(200_000))
+    inner = MagicMock()
+    inner.forward.return_value = text
+    large_out = PagedVisitTool(inner, large_store).forward(["https://scale.test/big"])
+    assert large_out == f"URL: https://scale.test/big\n\n{text}"
+    large_page = large_store.get("https://scale.test/big")
+    assert large_page is not None and large_page.part_count == 2
+
+    # Small window (8k -> 4k budget, 2k parts): same page splits into ~20 parts.
+    small_store = PageStore(budget_chars=page_budget_chars(8_000))
+    small_out = PagedVisitTool(inner, small_store).forward(["https://scale.test/big"])
+    small_page = small_store.get("https://scale.test/big")
+    assert small_page is not None and small_page.part_count >= 20
+    assert f"Part 1 of {small_page.part_count}" in small_out
+    assert len(_strip_part_header(small_out)) <= small_store.part_chars
+
+
+def test_visit_per_url_split_scales_with_batch_size():
+    # 9,000-char page fits in a 12,000 single-URL budget, exceeds 12,000 // 2 = 6,000.
+    medium = "\n".join(f"Row {i:03d}: " + ("m" * 80) for i in range(100))
+    assert 8_500 < len(medium) < 9_500
+    short = "Short page body.\n" * 60
+    assert len(short) < 2_000
+
+    inner = MagicMock()
+    inner.forward.side_effect = lambda u: short if u.endswith("/short") else medium
+    store = PageStore(budget_chars=12_000)
+    visit = PagedVisitTool(inner, store)
+
+    # 1 URL -> whole page (<= 12,000).
+    single = visit.forward(["https://batch.test/1"])
+    assert single == f"URL: https://batch.test/1\n\n{medium}"
+
+    # 2 URLs -> per-URL budget 6,000: 9,000-char pages return Part 1 of 2, not whole.
+    two = visit.forward(["https://batch.test/1", "https://batch.test/2"])
+    two_blocks = two.split("\n\nURL: ")
+    assert len(two_blocks) == 2
+    for block in two_blocks:
+        assert "Part 1 of 2" in block
+        assert len(_strip_part_header(block)) <= 6_000
+
+    # 5 URLs -> per-URL budget 2,400: short fits whole, medium is clipped to <= 2,400 with read_page(url, 1) hint.
+    five = visit.forward([
+        "https://batch.test/short",
+        "https://batch.test/a",
+        "https://batch.test/b",
+        "https://batch.test/c",
+        "https://batch.test/d",
+    ])
+    five_blocks = five.split("\n\nURL: ")
+    assert len(five_blocks) == 5
+    assert "Part 1 of " not in five_blocks[0]
+    assert short in five_blocks[0]
+    total_body_chars = len(_strip_part_header(five_blocks[0]))
+    for block in five_blocks[1:]:
+        assert "Part 1 of 2" in block
+        assert "read_page(url, 1)" in block
+        body = _strip_part_header(block)
+        assert len(body) <= 2_400
+        total_body_chars += len(body)
+    assert total_body_chars <= store.budget_chars
+
+    # read_page(url, 1) still returns the full ~6,000-char part 1 from PageStore.
+    full_part1 = _strip_part_header(ReadPageTool(store).forward("https://batch.test/a", 1))
+    assert 5_500 <= len(full_part1) <= 6_000
+
+
+def test_visit_five_large_pages_on_8k_budget_stays_within_budget():
+    long_page = "\n".join(f"Line {i:03d}: " + ("x" * 70) for i in range(150))
+    assert len(long_page) > 10_000
+
+    inner = MagicMock()
+    inner.forward.return_value = long_page
+    store = PageStore(budget_chars=page_budget_chars(8_000))
+    visit = PagedVisitTool(inner, store)
+
+    out = visit.forward([f"https://small8k.test/{i}" for i in range(5)])
+    blocks = out.split("\n\nURL: ")
+    assert len(blocks) == 5
+    bodies = [_strip_part_header(b) for b in blocks]
+    assert all(0 < len(body) <= 800 for body in bodies)
+    assert sum(len(body) for body in bodies) <= store.budget_chars

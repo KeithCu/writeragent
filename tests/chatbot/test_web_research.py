@@ -1291,3 +1291,147 @@ def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
     out = VisitWebpageCdpTool("ws://dummy").forward("https://example.test/huge")
     assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
     assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out
+
+
+@pytest.mark.parametrize(
+    "api_config, resolved_window, expected_budget, expected_part",
+    [
+        pytest.param({"endpoint": "http://localhost:11434", "model": "gemma4"}, 8_192, 4_096, 2_048, id="ollama-8k"),
+        pytest.param({"endpoint": "https://openrouter.ai/api", "model": "anthropic/claude-opus-4"}, 200_000, 48_000, 24_000, id="opus-200k"),
+        pytest.param({"endpoint": "http://localhost:11434", "model": "gemma4"}, None, 2_048, 1_024, id="ollama-unknown"),
+        pytest.param({"endpoint": "https://custom.example/v1", "model": "custom-model"}, None, 12_000, 6_000, id="custom-unknown"),
+        pytest.param({"endpoint": "http://localhost:11434", "model": "x", "is_openrouter": True}, None, 12_000, 6_000, id="explicit-openrouter-proxy"),
+    ],
+)
+def test_web_research_sizes_page_store_from_context_window(api_config, resolved_window, expected_budget, expected_part):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.send_cancellation = None
+
+    captured = {}
+
+    def _fake_run(_ctx, _q, _hist, agent_params, **_kwargs):
+        captured["pages"] = agent_params.pages
+        captured["api"] = agent_params.smol_model.api
+        return "ok"
+
+    def _cfg(key):
+        if key == "chatbot.max_tool_rounds":
+            return 5
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_browser":
+            return "off"
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window) as mock_resolve,
+        patch("plugin.chatbot.web_research._run_web_agent", side_effect=_fake_run),
+    ):
+        res = WebResearchTool().execute(ctx, query="test sizing")
+
+    assert res["status"] == "ok"
+    mock_resolve.assert_called_once_with(captured["api"])
+    assert captured["pages"].budget_chars == expected_budget
+    assert captured["pages"].part_chars == expected_part
+
+
+@pytest.mark.parametrize("deep", [False, True])
+def test_web_research_rejects_too_small_context_window(deep):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.send_cancellation = None
+
+    def _cfg(key):
+        if key == "chatbot.max_tool_rounds":
+            return 5
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_browser":
+            return "chrome"
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={"endpoint": "http://localhost:11434", "model": "small"}),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=2_048) as mock_resolve,
+        patch("plugin.chatbot.web_research._begin_shared_cdp") as mock_cdp,
+        patch("plugin.chatbot.web_research._run_web_agent") as mock_shallow,
+        patch("plugin.chatbot.web_research._run_deep_web_research") as mock_deep,
+    ):
+        res = WebResearchTool().execute(ctx, query="test tiny ctx", deep=deep)
+
+    assert res["status"] == "error"
+    assert res["code"] == "WEB_RESEARCH_CONTEXT_TOO_SMALL"
+    assert "num_ctx" in res["message"]
+    assert "2K" in res["message"]
+    mock_resolve.assert_called_once()
+    mock_cdp.assert_not_called()
+    mock_shallow.assert_not_called()
+    mock_deep.assert_not_called()
+
+
+def test_deep_web_research_uses_sized_page_store():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.send_cancellation = None
+
+    captured = {}
+
+    def _fake_deep(_ctx, query_str, agent_params):
+        captured["pages"] = agent_params.pages
+        return "deep ok", query_str
+
+    def _cfg(key):
+        if key == "chatbot.max_tool_rounds":
+            return 5
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_browser":
+            return "off"
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={"endpoint": "https://api.example/v1", "model": "m"}),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=32_768) as mock_resolve,
+        patch("plugin.chatbot.web_research._run_deep_web_research", side_effect=_fake_deep),
+    ):
+        res = WebResearchTool().execute(ctx, query="deep sizing", deep=True)
+
+    assert res["status"] == "ok"
+    mock_resolve.assert_called_once()
+    assert captured["pages"].budget_chars == 16_384
+    assert captured["pages"].part_chars == 8_192
