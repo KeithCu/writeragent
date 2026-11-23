@@ -644,3 +644,150 @@ def test_find_in_page_output_respects_budget_chars(budget):
     assert len(shown_lines) >= 1
     if budget == 2_048:
         assert len(shown_lines) < 10
+
+
+def test_parallel_flag_defaults_on():
+    from plugin.chatbot import web_pages
+
+    assert web_pages.PARALLEL_WEB_FETCH is True
+    visit = PagedVisitTool(MagicMock(), PageStore())
+    assert list(visit.inputs) == ["urls"]
+    assert "one to five" in visit.description.lower()
+
+
+def test_parallel_flag_off_serializes_different_domains_and_concurrent_calls(monkeypatch):
+    from plugin.chatbot import web_pages
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+    order: list[str] = []
+
+    def fetch(url: str) -> str:
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            order.append(url)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return f"Body for {url}"
+
+    inner = MagicMock()
+    inner.forward.side_effect = fetch
+    store = PageStore()
+    visit = PagedVisitTool(inner, store)
+
+    assert list(visit.inputs) == ["url"]
+    assert "five" not in visit.description.lower()
+    assert "at once" not in visit.description.lower()
+    assert "don't" not in visit.description.lower()
+    assert "do not" not in visit.description.lower()
+
+    urls = ["https://d1.test/1", "https://d2.test/2", "https://d3.test/3"]
+    out = visit.forward(urls=urls)
+    assert peak == 1
+    assert order == urls
+    for u in urls:
+        assert f"Body for {u}" in out
+        assert store.get(u) is not None
+
+    # Concurrent visit_webpage calls for different domains also serialize.
+    entered = threading.Event()
+    release = threading.Event()
+    concurrent_peak = 0
+    concurrent_active = 0
+
+    def fetch_concurrent(url: str) -> str:
+        nonlocal concurrent_active, concurrent_peak
+        with lock:
+            concurrent_active += 1
+            concurrent_peak = max(concurrent_peak, concurrent_active)
+        if url.endswith("/a"):
+            entered.set()
+            release.wait(timeout=5)
+        with lock:
+            concurrent_active -= 1
+        return f"Body for {url}"
+
+    inner_a = MagicMock()
+    inner_a.forward.side_effect = fetch_concurrent
+    inner_b = MagicMock()
+    inner_b.forward.side_effect = fetch_concurrent
+    visit_a = PagedVisitTool(inner_a, PageStore())
+    visit_b = PagedVisitTool(inner_b, PageStore())
+    results: dict[str, str] = {}
+
+    def run_a() -> None:
+        results["a"] = visit_a.forward(url="https://d4.test/a")
+
+    def run_b() -> None:
+        assert entered.wait(timeout=2)
+        results["b"] = visit_b.forward(url="https://d5.test/b")
+
+    t_a = threading.Thread(target=run_a)
+    t_b = threading.Thread(target=run_b)
+    t_a.start()
+    t_b.start()
+    assert entered.wait(timeout=2)
+    time.sleep(0.05)
+    release.set()
+    t_a.join(timeout=5)
+    t_b.join(timeout=5)
+
+    assert concurrent_peak == 1
+    assert "Body for https://d4.test/a" in results["a"]
+    assert "Body for https://d5.test/b" in results["b"]
+
+
+def test_parallel_flag_off_chunking_pagestore_and_stop(monkeypatch):
+    from plugin.chatbot import web_pages
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+
+    long_text = "\n".join(f"Line {i:04d}: " + ("x" * 70) for i in range(450))
+    inner = MagicMock()
+    inner.forward.return_value = long_text
+    store = PageStore()
+    visit = PagedVisitTool(inner, store)
+    read = ReadPageTool(store)
+    find = FindInPageTool(store)
+
+    url = "https://serial-chunk.test/long"
+    out = visit.forward(url=url)
+    assert "Part 1 of " in out
+    assert "Part 2 of " in read.forward(url, 2)
+    assert "1 match(es)" in find.forward(url, "Line 0400:")
+
+    # Stop returns promptly while a fetch is blocked.
+    entered = threading.Event()
+    release = threading.Event()
+    stopped = {"flag": False}
+
+    def blocked_fetch(u: str) -> str:
+        entered.set()
+        release.wait(timeout=5)
+        return "Late"
+
+    blocked_inner = MagicMock()
+    blocked_inner.forward.side_effect = blocked_fetch
+    blocked_store = PageStore()
+    stop_visit = PagedVisitTool(blocked_inner, blocked_store, stop_checker=lambda: stopped["flag"])
+
+    def trigger_stop() -> None:
+        assert entered.wait(timeout=2)
+        stopped["flag"] = True
+
+    stopper = threading.Thread(target=trigger_stop)
+    stopper.start()
+    try:
+        stop_out = stop_visit.forward(url="https://serial-stop.test/slow")
+    finally:
+        release.set()
+        stopper.join(timeout=2)
+
+    assert stop_out == "[stopped] https://serial-stop.test/slow"
+    assert blocked_store.get("https://serial-stop.test/slow") is None
