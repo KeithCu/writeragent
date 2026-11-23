@@ -391,13 +391,47 @@ Action:
 """
 
 
+WEB_RESEARCH_SINGLE_EXAMPLES = """Task: "When was Python 3.13 released and what are its main highlights?"
+
+Action:
+{
+  "name": "web_search",
+  "arguments": {"query": "Python 3.13 release date highlights", "recency": "any"}
+}
+Observation: <h2>Search Results</h2><a href="https://docs.python.org/3/whatsnew/3.13.html">What's New In Python 3.13</a> <a href="https://www.python.org/downloads/">Download Python</a>
+
+Action:
+{
+  "name": "visit_webpage",
+  "arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html"}
+}
+Observation: URL: https://docs.python.org/3/whatsnew/3.13.html
+Part 1 of 4 (21840 characters in total). read_page(url, part) returns another part; find_in_page(url, text) shows where a phrase appears.
+
+What's New In Python 3.13 ...
+
+Action:
+{
+  "name": "find_in_page",
+  "arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html", "text": "released on"}
+}
+Observation: 1 match(es) for "released on" in https://docs.python.org/3/whatsnew/3.13.html
+Part 1: …Python 3.13.0 was released on October 7, 2024…
+
+Action:
+{
+  "name": "final_answer",
+  "arguments": "Python 3.13 was released on October 7, 2024 (docs.python.org/3/whatsnew/3.13.html)."
+}
+"""
+
+
 _EXACT_EXAMPLES: dict[str, str] = {
     "librarian": LIBRARIAN_EXAMPLES,
     "brainstorming": BRAINSTORMING_EXAMPLES,
     "writing_plan": WRITING_PLAN_EXAMPLES,
     "deep_research": DEEP_RESEARCH_EXAMPLES,
     "ppt-master": PPT_MASTER_EXAMPLES,
-    "web_research": WEB_RESEARCH_EXAMPLES,
     "domain_tools:shapes": INNER_SHAPES_SCRIPT_EXAMPLES,
 }
 
@@ -412,6 +446,10 @@ def get_examples_block(key: str) -> str:
     ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``python_delegate_domains``).
     Keys ending in ``:images`` use ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
+    if key == "web_research":
+        from plugin.chatbot import web_pages
+
+        return WEB_RESEARCH_EXAMPLES if web_pages.PARALLEL_WEB_FETCH else WEB_RESEARCH_SINGLE_EXAMPLES
     if key in _EXACT_EXAMPLES:
         return _EXACT_EXAMPLES[key]
     if key.endswith(":python"):

@@ -23,11 +23,16 @@ import queue
 import re
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.contrib.smolagents.tools import Tool
+from plugin.framework.url_utils import get_url_domain
 from plugin.framework.worker_pool import run_in_background
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +41,10 @@ log = logging.getLogger(__name__)
 PAGE_TEXT_MAX_CHARS = 200_000
 MAX_URLS_PER_VISIT = 5
 _VISIT_WAIT_SEC = 45.0
+# Controls the parallel web-fetch feature: multi-URL visit_webpage calls (up to MAX_URLS_PER_VISIT)
+# with per-domain parallelism and 45 s batch wait. When False, page fetches run one at a time
+# process-wide and visit_webpage advertises a single-url schema (while still accepting urls arrays).
+PARALLEL_WEB_FETCH = True
 # Per-result character budget: clamp(window_tokens // 2, 2_000, 48_000), roughly one eighth
 # of the context window at ~4 chars/token. Part size is budget // 2.
 MIN_PAGE_BUDGET_CHARS = 2_000
@@ -54,19 +63,88 @@ _FIND_MAX_MATCHES = 10
 _FIND_CONTEXT_CHARS = 120
 _FIND_SNIPPET_OVERHEAD_CHARS = 40
 
+
+@final
+class _DomainTurn:
+    """One domain's fetch lock and the number of threads holding or waiting for it."""
+
+    __slots__ = ("lock", "users")
+    lock: threading.Lock
+    users: int
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.users = 0
+
+
+_DOMAIN_TURNS_GUARD = threading.Lock()
+_DOMAIN_TURNS: dict[str, _DomainTurn] = {}
+# Every fetch shares this key when PARALLEL_WEB_FETCH is False so _domain_turn acts as one process-wide lock.
+_SERIAL_FETCH_KEY = "__serial__"
+
+
+@contextmanager
+def _domain_turn(domain: str, give_up: threading.Event) -> Generator[bool]:
+    """Hold `domain`'s process-wide fetch lock; yield False instead if `give_up` is set first."""
+    # The map holds only domains currently being fetched or waited on, so a long session does not
+    # grow it. The lock is per process so concurrent research runs and deep-research workers take
+    # turns per domain. The key is get_url_domain, so www. and other subdomains share a turn.
+    with _DOMAIN_TURNS_GUARD:
+        turn = _DOMAIN_TURNS.get(domain)
+        if turn is None:
+            turn = _DomainTurn()
+            _DOMAIN_TURNS[domain] = turn
+        turn.users += 1
+
+    acquired = False
+    try:
+        while not give_up.is_set():
+            if turn.lock.acquire(timeout=0.05):
+                if give_up.is_set():
+                    turn.lock.release()
+                else:
+                    acquired = True
+                break
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                turn.lock.release()
+    finally:
+        with _DOMAIN_TURNS_GUARD:
+            turn.users -= 1
+            if turn.users == 0:
+                del _DOMAIN_TURNS[domain]
+
 VISIT_WEBPAGE_DESCRIPTION = (
     "Fetches one to five web pages at once and returns their text. A long page is split into "
     "numbered parts; its result then holds part 1 and the number of parts, and read_page / find_in_page read the rest."
 )
+VISIT_WEBPAGE_SINGLE_DESCRIPTION = (
+    "Fetches a web page and returns its text. A long page is split into "
+    "numbered parts; its result then holds part 1 and the number of parts, and read_page / find_in_page read the rest."
+)
+
+
+def visit_webpage_description() -> str:
+    """Return the visit_webpage tool description for the active PARALLEL_WEB_FETCH mode."""
+    return VISIT_WEBPAGE_DESCRIPTION if PARALLEL_WEB_FETCH else VISIT_WEBPAGE_SINGLE_DESCRIPTION
 
 
 def visit_webpage_inputs() -> dict[str, dict[str, Any]]:
     """Return the smolagents input schema for visit_webpage."""
+    if PARALLEL_WEB_FETCH:
+        return {
+            "urls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "One to five http or https URLs to visit.",
+            }
+        }
     return {
-        "urls": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "One to five http or https URLs to visit.",
+        "url": {
+            "type": "string",
+            "description": "The http or https URL to visit.",
         }
     }
 
@@ -231,12 +309,14 @@ def _format_page(url: str, page: StoredPage, whole_limit: int) -> str:
 
 
 class PagedVisitTool(Tool):
-    """Fetches one to five URLs in parallel, stores valid pages, and returns part 1 for long ones."""
+    """Fetches URLs (in parallel across domains when PARALLEL_WEB_FETCH is True, else one at a time), stores valid pages, and returns part 1 for long ones."""
 
     name: str = "visit_webpage"
-    description: str = VISIT_WEBPAGE_DESCRIPTION
+    description: str = visit_webpage_description()
     inputs: dict[str, dict[str, Any]] = visit_webpage_inputs()
     output_type: str = "string"
+    # Skipped because forward accepts both `url` and `urls` while `inputs` names only one.
+    skip_forward_signature_validation: bool = True
     _inner: Tool
     _pages: PageStore
     _stop_checker: Callable[[], bool] | None
@@ -250,6 +330,9 @@ class PagedVisitTool(Tool):
         *,
         wait_sec: float = _VISIT_WAIT_SEC,
     ) -> None:
+        # Re-read the flag so the active PARALLEL_WEB_FETCH mode applies at construction.
+        self.description = visit_webpage_description()
+        self.inputs = visit_webpage_inputs()
         super().__init__()
         self._inner = inner
         self._pages = pages
@@ -257,39 +340,52 @@ class PagedVisitTool(Tool):
         self._wait_sec = wait_sec
 
     def _fetch_all(self, urls: list[str]) -> tuple[dict[str, str], bool]:
-        """Fetch `urls` concurrently on dedicated threads up to wait_sec."""
+        """Fetch `urls` up to wait_sec: per-domain parallel when PARALLEL_WEB_FETCH is True, else one at a time process-wide."""
         if not urls:
             return {}, False
         results_q: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        give_up = threading.Event()
 
-        def _fetch_one(target_url: str) -> None:
-            try:
-                text = self._inner.forward(target_url)
-            except Exception as exc:
-                log.exception("visit_webpage failed for %s", target_url)
-                text = f"Error fetching the webpage: {exc}"
-            results_q.put((target_url, text))
-
+        by_domain: dict[str, list[str]] = {}
         for target_url in urls:
+            turn_key = get_url_domain(target_url) if PARALLEL_WEB_FETCH else _SERIAL_FETCH_KEY
+            by_domain.setdefault(turn_key, []).append(target_url)
+
+        def _fetch_domain(domain: str, domain_urls: list[str]) -> None:
+            for target_url in domain_urls:
+                with _domain_turn(domain, give_up) as granted:
+                    if not granted:
+                        return
+                    try:
+                        text = self._inner.forward(target_url)
+                    except Exception as exc:
+                        log.exception("visit_webpage failed for %s", target_url)
+                        text = f"Error fetching the webpage: {exc}"
+                    results_q.put((target_url, text))
+
+        for domain, domain_urls in by_domain.items():
             # Dedicated threads: the caller waits on these, and the shared pool has
             # two slots which the agent thread may already hold.
-            run_in_background(_fetch_one, target_url, name="visit-webpage", dedicated=True)
+            run_in_background(_fetch_domain, domain, domain_urls, name="visit-webpage", dedicated=True)
 
         texts: dict[str, str] = {}
         stopped = False
         deadline = time.monotonic() + self._wait_sec
-        while len(texts) < len(urls):
-            if self._stop_checker and self._stop_checker():
-                stopped = True
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                u, text = results_q.get(timeout=min(0.25, remaining))
-            except queue.Empty:
-                continue
-            texts[u] = text
+        try:
+            while len(texts) < len(urls):
+                if self._stop_checker and self._stop_checker():
+                    stopped = True
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    u, text = results_q.get(timeout=min(0.25, remaining))
+                except queue.Empty:
+                    continue
+                texts[u] = text
+        finally:
+            give_up.set()
 
         while True:
             try:
@@ -299,10 +395,19 @@ class PagedVisitTool(Tool):
             texts[u] = text
         return texts, stopped
 
-    def forward(self, urls: list[str]) -> str:
+    def forward(self, url: str | list[str] | None = None, urls: list[str] | str | None = None) -> str:
+        raw_items: list[Any] = []
+        for val in (urls, url):
+            if val is None:
+                continue
+            if isinstance(val, (list, tuple)):
+                raw_items.extend(val)
+            else:
+                raw_items.append(val)
+
         seen: set[str] = set()
         unique: list[str] = []
-        for raw in urls:
+        for raw in raw_items:
             u = str(raw or "").strip()
             key = url_key(u)
             if not key or key in seen:
@@ -313,7 +418,7 @@ class PagedVisitTool(Tool):
         batch = unique[:MAX_URLS_PER_VISIT]
         skipped = unique[MAX_URLS_PER_VISIT:]
         if not batch:
-            return "visit_webpage needs one to five URLs."
+            return "visit_webpage needs one to five URLs." if PARALLEL_WEB_FETCH else "visit_webpage needs a URL."
 
         cached = {u: self._pages.get(u) for u in batch}
         pending = [u for u in batch if cached[u] is None]

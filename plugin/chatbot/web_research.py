@@ -97,6 +97,32 @@ class WebAgentRunParams:
 class WebResearchToolCallingAgent(ToolCallingAgent):
     """Subclass of ToolCallingAgent that injects the step budget into the prompt on each step."""
 
+    def execute_tool_call(self, tool_name: str, arguments: dict[str, str] | str) -> Any:
+        # When PARALLEL_WEB_FETCH is False, visit_webpage advertises `url` only,
+        # but cached or legacy calls may still pass `urls`; route them without failing schema validation.
+        if (
+            tool_name == "visit_webpage"
+            and isinstance(arguments, dict)
+            and "urls" in arguments
+            and set(arguments).issubset({"url", "urls"})
+        ):
+            visit_tool = self.tools.get("visit_webpage")
+            if visit_tool is not None and "urls" not in visit_tool.inputs:
+                from plugin.contrib.smolagents.utils import AgentToolExecutionError
+
+                resolved_args = self._substitute_state_variables(arguments)
+                if not isinstance(resolved_args, dict):
+                    resolved_args = arguments
+                try:
+                    return visit_tool(**resolved_args, sanitize_inputs_outputs=True)
+                except Exception as e:
+                    error_msg = (
+                        f"Error executing tool '{tool_name}' with arguments {str(resolved_args)}: {type(e).__name__}: {e}\n"
+                        "Please try again or use another tool"
+                    )
+                    raise AgentToolExecutionError(error_msg, self.logger) from e
+        return super().execute_tool_call(tool_name, arguments)
+
     def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 
@@ -505,7 +531,8 @@ def _run_web_agent(
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
         elif step.name == "visit_webpage":
-            raw_urls = as_dict(step.arguments).get("urls")
+            visit_args = as_dict(step.arguments)
+            raw_urls = visit_args["urls"] if "urls" in visit_args else visit_args.get("url")
             urls = [str(u) for u in raw_urls] if isinstance(raw_urls, list) else [str(raw_urls or "")]
             # The handler runs before the tool and only reports status. PageStore
             # records a URL after its fetch returns page text.

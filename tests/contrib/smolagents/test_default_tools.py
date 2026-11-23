@@ -2,6 +2,8 @@
 
 import http.client
 import socket
+import threading
+import time
 import urllib.parse
 from unittest.mock import MagicMock, patch
 
@@ -308,3 +310,42 @@ def test_web_search_stale_connection_reconnects_and_returns_results():
     assert fresh.connect.call_count == 1
     remember_gap.assert_not_called()
     wait_abort.assert_not_called()
+
+
+def test_concurrent_searches_from_separate_runs_never_overlap():
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+    conn = _keepalive_conn([])
+
+    def _getresponse():
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.1)
+        with lock:
+            active -= 1
+        return _response(200, _ddg_html("Concurrent Result"))
+
+    conn.getresponse.side_effect = _getresponse
+    patcher, _created = _patch_https([conn])
+    results: list[str] = []
+    results_lock = threading.Lock()
+
+    def _run(query: str) -> None:
+        tool = DuckDuckGoSearchTool(cache_max_age_days=30, cancel=SendCancellation())
+        out = tool.forward(query)
+        with results_lock:
+            results.append(out)
+
+    with patcher:
+        threads = [threading.Thread(target=_run, args=(f"query {i}",)) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+    assert peak == 1
+    assert len(results) == 3
+    assert all("<h2>Search Results</h2>" in r for r in results)

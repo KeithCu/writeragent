@@ -319,6 +319,81 @@ def test_visit_handler_leaves_page_store_empty():
     assert params.pages.get("https://example.com/a") is None
 
 
+def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatch):
+    from plugin.chatbot import web_pages
+    from plugin.chatbot.web_pages import PageStore, PagedVisitTool
+    from plugin.chatbot.web_research import WebResearchToolCallingAgent
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+
+    inner = MagicMock()
+    inner.forward.side_effect = lambda u: f"Body for {u}"
+    store = PageStore()
+    visit_tool = PagedVisitTool(inner, store)
+    assert list(visit_tool.inputs) == ["url"]
+
+    agent = WebResearchToolCallingAgent(tools=[visit_tool], model=MagicMock())
+
+    single_out = agent.execute_tool_call("visit_webpage", {"url": "https://single.test/1"})
+    assert "Body for https://single.test/1" in single_out
+    assert store.get("https://single.test/1") is not None
+
+    multi_out = agent.execute_tool_call("visit_webpage", {"urls": ["https://a.test/1", "https://b.test/2"]})
+    assert "Body for https://a.test/1" in multi_out
+    assert "Body for https://b.test/2" in multi_out
+    assert store.get("https://a.test/1") is not None
+    assert store.get("https://b.test/2") is not None
+
+    agent.state["target_urls"] = ["https://state.test/1"]
+    state_out = agent.execute_tool_call("visit_webpage", {"urls": "target_urls"})
+    assert "Body for https://state.test/1" in state_out
+
+    from plugin.contrib.smolagents.utils import AgentToolExecutionError
+
+    store.put = MagicMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(AgentToolExecutionError):
+        agent.execute_tool_call("visit_webpage", {"urls": ["https://err.test/1"]})
+
+
+def test_web_research_single_url_status_callback(monkeypatch):
+    from plugin.chatbot import web_pages
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+    statuses: list[str] = []
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=4,
+        cancel=None,
+        cache_path="",
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_url=None,
+        status_callback=statuses.append,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        step = ToolCall(name="visit_webpage", arguments={"url": "https://example.com/a/"}, id="v1")
+        assert tool_call_handler is not None
+        assert tool_call_handler(step) is None
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert "Read: example.com..." in statuses
+
+
 def test_cdp_visit_uses_a_private_target(monkeypatch):
 
     from plugin.chatbot.web_research import VisitWebpageCdpTool
