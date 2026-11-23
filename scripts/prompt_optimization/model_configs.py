@@ -69,7 +69,7 @@ MODELS: list[ModelConfig] = [
         context_window_tokens=1_048_576,
         input_cost_per_million=0.3,
         output_cost_per_million=2.5,
-        notes="Google lite Flash for cheap focused subagent tasks.",
+        notes="Google lite Flash for cheap focused subagent tasks. Eval routes to native Google (gemini-3.5-flash-lite) when EVAL_GEMINI_API_KEY or GEMINI_API_KEY is set.",
     ),
     ModelConfig(
         openrouter_id="google/gemma-4-31b-it",
