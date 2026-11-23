@@ -55,13 +55,10 @@ def _mock_cdp_spawn():
 
 
 @pytest.mark.parametrize(
-    "browser_type,expected_flag",
-    [
-        ("chrome", None),
-        ("firefox", "--profile"),
-    ],
+    "browser_type",
+    ["chrome", "chromium", "brave"],
 )
-def test_browser_process_spawning(browser_type, expected_flag):
+def test_browser_process_spawning(browser_type):
     with _mock_cdp_spawn() as (mock_popen, mock_proc):
         ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type=browser_type)
         assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
@@ -69,12 +66,49 @@ def test_browser_process_spawning(browser_type, expected_flag):
         args = mock_popen.call_args[0][0]
         assert "--remote-debugging-port=9222" in args
         assert "--no-first-run" in args
-        if expected_flag is not None:
-            assert expected_flag in args
+        assert "--no-default-browser-check" in args
+        assert any(
+            a.startswith("--user-data-dir=") and a.endswith(f"{browser_type}_profile")
+            for a in args
+        )
 
         cleanup_local_chrome()
         mock_proc.kill.assert_called_once()
         assert browser_cdp_tool._CHROME_BROWSER is None
+
+
+def test_brave_binary_lookup_and_profile_dir(tmp_path):
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("subprocess.run") as mock_which,
+        patch("subprocess.Popen") as mock_popen,
+        patch("urllib.request.urlopen") as mock_urlopen,
+    ):
+        mock_which.side_effect = [
+            FileNotFoundError("brave"),
+            MagicMock(returncode=0),  # brave-browser found
+        ]
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps([
+            {"type": "page", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/brave"}
+        ]).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        mock_urlopen.side_effect = [
+            Exception("Connection refused"),
+            mock_urlopen.return_value,
+        ]
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        try:
+            ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
+            assert ws_url == "ws://127.0.0.1:9222/devtools/page/brave"
+            args = mock_popen.call_args[0][0]
+            assert args[0] == "brave-browser"
+            assert f"--user-data-dir={tmp_path / 'brave_profile'}" in args
+        finally:
+            cleanup_local_chrome()
 
 
 def test_cdp_browser_registered_and_shutdown_all_kills():

@@ -101,6 +101,23 @@ def cleanup_local_chrome() -> None:
     managed.unregister()
 
 
+def _find_browser_executable(candidates: list[str], default: str) -> str:
+    """Return the first existing absolute path or PATH binary from candidates."""
+    for name in candidates:
+        try:
+            if os.path.isabs(name):
+                if os.path.exists(name):
+                    return name
+                continue
+            if sys.platform != "win32" and (name.endswith(".exe") or "\\" in name):
+                continue
+            subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            return name
+        except Exception:
+            continue
+    return default
+
+
 def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
     global _CHROME_BROWSER
     # Try querying existing CDP connection first
@@ -129,84 +146,64 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
     safe_name = "".join([c if c.isalnum() else "_" for c in browser_type])
     profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
     os.makedirs(profile_dir, exist_ok=True)
-    
-    executable = None
+
+    brave_candidates = [
+        "brave",
+        "brave-browser",
+        "brave-browser-stable",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ]
+    if sys.platform == "win32":
+        brave_candidates.extend([
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ])
+
+    browser_table: dict[str, tuple[list[str], str]] = {
+        "brave": (brave_candidates, "brave"),
+        "chromium": (
+            [
+                "chromium-browser",
+                "chromium",
+                "google-chrome",
+                "google-chrome-stable",
+                "chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            ],
+            "chromium",
+        ),
+        "chrome": (
+            [
+                "google-chrome",
+                "google-chrome-stable",
+                "chrome",
+                "chromium-browser",
+                "chromium",
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            ],
+            "google-chrome",
+        ),
+    }
+
     if os.path.exists(browser_type) or "/" in browser_type or "\\" in browser_type:
         executable = browser_type
-    elif browser_type == "firefox":
-        for name in ["firefox", "/Applications/Firefox.app/Contents/MacOS/firefox"]:
-            try:
-                if os.path.isabs(name) and os.path.exists(name):
-                    executable = name
-                    break
-                subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                executable = name
-                break
-            except Exception:
-                continue
-        if not executable:
-            executable = "firefox"
-    elif browser_type == "chromium":
-        for name in ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable", "chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"]:
-            try:
-                if os.path.isabs(name) and os.path.exists(name):
-                    executable = name
-                    break
-                subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                executable = name
-                break
-            except Exception:
-                continue
-        if not executable:
-            executable = "chromium"
-    elif browser_type == "chrome":
-        for name in ["google-chrome", "google-chrome-stable", "chrome", "chromium-browser", "chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]:
-            try:
-                if os.path.isabs(name) and os.path.exists(name):
-                    executable = name
-                    break
-                subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                executable = name
-                break
-            except Exception:
-                continue
-        if not executable:
-            executable = "google-chrome"
+    elif browser_type in browser_table:
+        candidates, default_bin = browser_table[browser_type]
+        executable = _find_browser_executable(candidates, default_bin)
     else:
         search_names = [browser_type]
-        if browser_type.lower() == "brave":
-            search_names.extend(["brave-browser", "brave", "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"])
-        elif browser_type.lower() in ["edge", "microsoft-edge"]:
+        if browser_type.lower() in ["edge", "microsoft-edge"]:
             search_names.extend(["microsoft-edge-stable", "microsoft-edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"])
-        for name in search_names:
-            try:
-                if os.path.isabs(name) and os.path.exists(name):
-                    executable = name
-                    break
-                subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                executable = name
-                break
-            except Exception:
-                continue
-        if not executable:
-            executable = browser_type
+        executable = _find_browser_executable(search_names, browser_type)
 
-    is_firefox = "firefox" in browser_type.lower() or "firefox" in executable.lower()
-    if is_firefox:
-        cmd = [
-            executable,
-            "--remote-debugging-port=9222",
-            "--profile", profile_dir,
-            "--no-first-run"
-        ]
-    else:
-        cmd = [
-            executable,
-            "--remote-debugging-port=9222",
-            f"--user-data-dir={profile_dir}",
-            "--no-first-run",
-            "--no-default-browser-check"
-        ]
+    cmd = [
+        executable,
+        "--remote-debugging-port=9222",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check"
+    ]
         
     logger.info("Spawning local browser (%s): %s", browser_type, " ".join(cmd))
     # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
@@ -250,7 +247,7 @@ def _resolve_cdp_endpoint(ctx: Any = None) -> str:
         if ctx is not None:
             try:
                 cfg_val = get_config("chatbot.web_research_browser")
-                if cfg_val in ["chrome", "firefox"]:
+                if cfg_val in ("chrome", "chromium", "brave"):
                     browser_type = cfg_val
             except Exception:
                 pass

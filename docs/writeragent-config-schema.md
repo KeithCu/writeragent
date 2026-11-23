@@ -101,7 +101,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `web_research_cache_enabled` | `boolean` | `false` |  | Cache completed web research reports by normalized query (uses web cache database). |
 | `show_search_thinking` | `boolean` | `false` |  | Internal |
 | `prompt_for_web_research` | `boolean` | `false` |  | Ask for confirmation before sending a web search query |
-| `web_research_browser` | `string` | `"off"` |  | Select the browser backend to use for webpage visits during research (Off uses static HTTP requests). Options: off (Off (Static HTTP)), firefox (Firefox (CDP)), chromium (Chromium (CDP)), chrome (Chrome (CDP)) |
+| `web_research_browser` | `string` | `"off"` |  | Select the browser backend to use for webpage visits during research (Off uses static HTTP requests). Options: off (Off (Static HTTP)), brave (Brave (CDP)), chromium (Chromium (CDP)), chrome (Chrome (CDP)) |
 | `web_cache_max_mb` | `int` | `50` | `0`–`500` | Max disk size for web search cache (0 to disable) |
 | `web_cache_validity_days` | `int` | `30` | `1`–`30` | How many days cache entries should be considered valid. |
 | `web_research_cache_jaccard_percent` | `int` | `60` | `0`–`100` | Internal. Minimum similarity (0-100) for a fuzzy cache hit. JSON only (internal); default 60. |

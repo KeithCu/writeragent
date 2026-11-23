@@ -405,3 +405,10 @@ def test_password_widget_marks_secret_key(restore_manifest) -> None:
     )
     assert config_schema.is_secret_config_key("sample.secret_tok") is True
     assert config_schema.is_secret_config_key("sample.plain_txt") is False
+
+
+def test_validate_migrates_firefox_browser_to_default() -> None:
+    assert validate({"chatbot.web_research_browser": "firefox"})["chatbot.web_research_browser"] == "off"
+    assert validate({"chatbot.web_research_browser": "Firefox (CDP)"})["chatbot.web_research_browser"] == "off"
+    assert validate({"chatbot.web_research_browser": "brave"})["chatbot.web_research_browser"] == "brave"
+    assert validate({"chatbot.web_research_browser": "Brave (CDP)"})["chatbot.web_research_browser"] == "brave"

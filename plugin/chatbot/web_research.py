@@ -790,7 +790,7 @@ class WebResearchTool(ToolBase):
         from plugin.framework.config import get_config
 
         browser_type = get_config("chatbot.web_research_browser")
-        cdp_enabled = browser_type in ("chrome", "firefox", "chromium")
+        cdp_enabled = browser_type in ("chrome", "chromium", "brave")
         cdp_url = None
         cdp_held = False
 
