@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Impossibile annullare l'ultima modifica dell'agente."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Ultima modifica dell'agente annullata ({0} passaggi)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Immagine non trovata."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Impossibile eliminare l'immagine: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -707,11 +716,11 @@ msgstr "Aprire prima un foglio di calcolo Calc."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"L'editor Monaco è disabilitato da \"scripting.force_internal_script_editor\""
-" in writeragent.json."
+"La finestra dell'editor Python è disabilitata da "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1240,6 +1249,10 @@ msgstr "Accetta questa modifica"
 msgid "Reject this change"
 msgstr "Rifiuta questa modifica"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Impossibile decodificare l'immagine di anteprima."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1644,6 +1657,25 @@ msgstr "perché"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "tu"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Esecuzione in corso…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Annullato."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Anteprima non riuscita: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Esecuzione non riuscita: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2369,6 +2401,35 @@ msgstr "Apertura di '%s' in modalità di sola lettura."
 msgid "Web research completed."
 msgstr "Ricerca web completata."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama non ha riportato num_ctx, quindi WriterAgent ha assunto {0} token, un"
+" valore troppo basso per la ricerca web (il prompt di ricerca e gli "
+"strumenti da soli utilizzano circa 2.000 token, più i token di output). "
+"Aumenta num_ctx ad almeno {1} (tramite PARAMETER num_ctx {2} o superiore in "
+"un Modelfile con ollama create), quindi utilizza Test connessione nelle "
+"Impostazioni (o riavvia LibreOffice) e riprova."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"La finestra di contesto ({0} token) è troppo piccola per la ricerca web (il "
+"prompt di ricerca e gli strumenti da soli utilizzano circa 2.000 token, più "
+"i token di output). Aumenta num_ctx ad almeno {1} (o passa a un modello con "
+"una finestra di contesto più ampia) e riprova."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2652,10 +2713,6 @@ msgstr "Nuovo script Python"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Nome dello script:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Esecuzione in corso…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2975,12 +3032,12 @@ msgstr "Controllo Venv non riuscito"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Impostare il percorso del venv Python in Impostazioni → Python (lo stesso "
-"venv in cui è stato eseguito 'uv pip install pywebview rocher'). Il Python "
-"integrato di LibreOffice non può eseguire l'editor."
+"Imposta il percorso del venv Python in Impostazioni → Python (lo stesso venv"
+" dove hai eseguito 'uv pip install pywebview'). Il Python integrato di "
+"LibreOffice non può eseguire l'editor."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3069,12 +3126,13 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Sondaggio audio fallito (vedere writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Analisi Monaco scaduta."
+msgid "UI / Editor probe timed out."
+msgstr "Timeout del probe dell'interfaccia utente / editor."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Analisi Monaco non riuscita (vedere writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr ""
+"Probe dell'interfaccia utente / editor fallito (vedi writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3121,6 +3179,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "Analisi DuckDB non riuscita (vedere writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR non può essere avviato in questo venv:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nessun dispositivo di ingresso microfono rilevato."
 
@@ -3153,8 +3215,10 @@ msgid "Audio Recording & Speech"
 msgstr "Registrazione audio e sintesi vocale"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Librerie Monaco: controllo all'esterno del worker di script..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr ""
+"Librerie interfaccia utente / editor: controllo all'esterno del worker di "
+"script..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3534,7 +3598,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Gli assistenti visivi richiedono un documento Writer, Calc, Draw o Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Assistente Vision non riuscito."
 
@@ -3630,6 +3694,225 @@ msgstr ""
 "Si è verificato un errore imprevisto durante l'apertura di Esegui script "
 "Python."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Controllare writeragent_debug.log nella cartella di configurazione utente di"
+" LibreOffice"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Avvio del server MCP non riuscito"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Arresta server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Avvia server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Il server MCP non è in esecuzione"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Server MCP in esecuzione"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Percorsi: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "URL locale: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "URL pubblica: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Endpoint locale:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Tunnel pubblico ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Stato: Attivo (connesso)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Stato: Riconnessione in corso — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "riprovo…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Stato: Avvio tunnel in corso…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Stato: Non riuscito — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Stato: Non in esecuzione (il binario {0} è installato?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Copiato!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Test in corso…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Test tunnel"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Test tunnel MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Tunnel pubblico tramite {0} (nessuna autenticazione)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Tunnel pubblico tramite {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "riconnessione in corso…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Tunnel pubblico tramite {0} non riuscito: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Tunnel pubblico tramite {0} in avvio…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Tunnel pubblico tramite {0} non in esecuzione (il binario del provider è "
+"installato?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Modalità test tunnel: provider {0} simulato correttamente."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Provider tunnel sconosciuto: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binario '{0}' per {1} non trovato nel PATH.\n"
+"\n"
+"Installalo da: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Esecuzione del binario {0} fallita ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Il tunnel {0} è in esecuzione e risponde!\n"
+"\n"
+"Endpoint pubblico:\n"
+"{1}\n"
+"\n"
+"Controllo integrità: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Il tunnel {0} è attivo!\n"
+"\n"
+"Endpoint pubblico:\n"
+"{1}\n"
+"\n"
+"(URL pubblico acquisito dalla sessione del tunnel attiva.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Il binario {0} '{1}' è verificato ({2}).\n"
+"\n"
+"(Nota: un tunnel {3} attivo è attualmente in esecuzione su {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Il binario {0} '{1}' è installato e verificato ({2}).\n"
+"\n"
+"Il server MCP è in esecuzione localmente sulla porta {3}.\n"
+"Seleziona 'Esponi tramite tunnel pubblico' e fai clic su OK per attivare il routing pubblico."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Il binario {0} '{1}' è installato e verificato ({2}).\n"
+"\n"
+"Nota: il server MCP non è attualmente in esecuzione sulla porta {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Stato server MCP"
@@ -3650,10 +3933,62 @@ msgstr "Accetta tutto"
 msgid "Reject all"
 msgstr "Rifiuta tutto"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Caricamento modelli…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Riconoscimento testo in corso…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Nessun testo rilevato."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Generazione anteprima in corso…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Impossibile esportare l'immagine selezionata: {error}"
+msgid "Done: {count} characters."
+msgstr "Completato: {count} caratteri."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"L'inserimento OCR Vision richiede un documento Writer o Calc; utilizzare "
+"l'anteprima per Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Inserimento in corso…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Inserite {count} immagini."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Inseriti: {count} caratteri."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Immagine mantenuta perché la revisione delle modifiche dell'agente sta "
+"registrando i cambiamenti."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Impossibile creare il documento di anteprima."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Impossibile visualizzare l'anteprima della pagina."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3661,6 +3996,11 @@ msgid ""
 msgstr ""
 "Selezionare un'immagine incorporata (o un intervallo contenente immagini), "
 "quindi eseguire di nuovo."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Impossibile esportare l'immagine selezionata: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3742,227 +4082,16 @@ msgstr ""
 "L'immagine è stata rimossa durante la preparazione dell'inserimento OCR."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Impossibile eliminare un'immagine senza nome dopo l'inserimento OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "L'immagine è stata rimossa durante l'inserimento OCR."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Controllare writeragent_debug.log nella cartella di configurazione utente di"
-" LibreOffice"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Avvio del server MCP non riuscito"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Arresta server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Avvia server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Il server MCP non è in esecuzione"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Server MCP in esecuzione"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Percorsi: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "URL locale: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "URL pubblica: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Endpoint locale:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Tunnel pubblico ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Stato: Attivo (connesso)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Stato: Riconnessione in corso — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "riprovo…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Stato: Avvio tunnel in corso…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Stato: Non riuscito — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Stato: Non in esecuzione (il binario {0} è installato?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Copiato!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Test in corso…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Test tunnel"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Test tunnel MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Tunnel pubblico tramite {0} (nessuna autenticazione)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Tunnel pubblico tramite {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "riconnessione in corso…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Tunnel pubblico tramite {0} non riuscito: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Tunnel pubblico tramite {0} in avvio…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Tunnel pubblico tramite {0} non in esecuzione (il binario del provider è "
-"installato?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Modalità test tunnel: provider {0} simulato correttamente."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Provider tunnel sconosciuto: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binario '{0}' per {1} non trovato nel PATH.\n"
-"\n"
-"Installalo da: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Esecuzione del binario {0} fallita ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Il tunnel {0} è in esecuzione e risponde!\n"
-"\n"
-"Endpoint pubblico:\n"
-"{1}\n"
-"\n"
-"Controllo integrità: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Il tunnel {0} è attivo!\n"
-"\n"
-"Endpoint pubblico:\n"
-"{1}\n"
-"\n"
-"(URL pubblico acquisito dalla sessione del tunnel attiva.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Il binario {0} '{1}' è verificato ({2}).\n"
-"\n"
-"(Nota: un tunnel {3} attivo è attualmente in esecuzione su {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Il binario {0} '{1}' è installato e verificato ({2}).\n"
-"\n"
-"Il server MCP è in esecuzione localmente sulla porta {3}.\n"
-"Seleziona 'Esponi tramite tunnel pubblico' e fai clic su OK per attivare il routing pubblico."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Il binario {0} '{1}' è installato e verificato ({2}).\n"
-"\n"
-"Nota: il server MCP non è attualmente in esecuzione sulla porta {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Inserisci OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4671,18 +4800,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Abilità Humanizer (prosa naturale)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Quando abilitata, inserisce istruzioni nel prompt di sistema affinché il "
-"modello faccia suonare il testo del documento generato o revisionato in modo"
-" più naturale e umano (rimuove i pattern tipici dell'IA). Modifica le regole"
-" nel tuo profilo LibreOffice sotto writeragent/skills/humanizer/SKILL.md (il"
-" file viene creato automaticamente al primo utilizzo). Una scheda dedicata "
-"alle Abilità potrà essere aggiunta in seguito."
+"Quando abilitato, inserisce una guida integrata nel prompt di sistema "
+"affinché il modello faccia suonare il testo del documento generato o "
+"revisionato in modo più naturale e umano (rimuove i pattern tipici dell'IA)."
 
 msgid "Silence before send (ms)"
 msgstr "Silenzio prima dell'invio (ms)"
@@ -4877,6 +5001,70 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Servizi principali (configurazione, eventi, registrazione)"
 
+msgid "Integrations"
+msgstr "Integrazioni"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Server MCP per la chat nella barra laterale"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Aggiungi"
+
+msgid "Remove"
+msgstr "Rimuovi"
+
+msgid "Use this MCP server in chat"
+msgstr "Usa questo server MCP nella chat"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Solo chat nella barra laterale (dominio mcp); mai esposto al server MCP di "
+"WriterAgent o agli script."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr ""
+"Considera attendibili i suoi strumenti di sola lettura (nessuna richiesta)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Gli strumenti che il server contrassegna come readOnlyHint vengono eseguiti "
+"senza Accetta / Modifica / Rifiuta; ogni altra chiamata richiede comunque "
+"conferma"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Aggiunge un prefisso ai nomi degli strumenti di questo server (es. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL del server"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Endpoint MCP HTTP streamable, es. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Token Bearer. Selezionando OK viene memorizzato nel portachiavi di sistema "
+"se disponibile, altrimenti in writeragent.json."
+
+msgid "Status"
+msgstr "Stato"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4975,70 +5163,6 @@ msgstr "Configurazione client (copia in Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Copia configurazione"
-
-msgid "Integrations"
-msgstr "Integrazioni"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Server MCP per la chat nella barra laterale"
-
-msgid "Server"
-msgstr "Server"
-
-msgid "Add"
-msgstr "Aggiungi"
-
-msgid "Remove"
-msgstr "Rimuovi"
-
-msgid "Use this MCP server in chat"
-msgstr "Usa questo server MCP nella chat"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Solo chat nella barra laterale (dominio mcp); mai esposto al server MCP di "
-"WriterAgent o agli script."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr ""
-"Considera attendibili i suoi strumenti di sola lettura (nessuna richiesta)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Gli strumenti che il server contrassegna come readOnlyHint vengono eseguiti "
-"senza Accetta / Modifica / Rifiuta; ogni altra chiamata richiede comunque "
-"conferma"
-
-msgid "Name"
-msgstr "Nome"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Aggiunge un prefisso ai nomi degli strumenti di questo server (es. home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL del server"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Endpoint MCP HTTP streamable, es. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Token Bearer. Selezionando OK viene memorizzato nel portachiavi di sistema "
-"se disponibile, altrimenti in writeragent.json."
-
-msgid "Status"
-msgstr "Stato"
 
 msgid "Notebook"
 msgstr "Notebook"
@@ -5151,13 +5275,18 @@ msgstr "Consenti accesso ai file"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Se selezionato, Python può leggere e scrivere file ovunque (open, io, "
-"pathlib, shutil, tempfile, sqlite3, glob e chiamate ai file di os come "
-"listdir e stat). Se deselezionato, tali letture e scritture sono bloccate. I"
-" buffer in memoria (io.BytesIO, io.StringIO) rimangono disponibili."
+"Quando selezionato, Python può leggere e scrivere file ovunque (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob e chiamate ai file os come listdir "
+"e stat). Quando deselezionato, tali letture e scritture sono bloccate; i "
+"buffer in memoria (io.BytesIO, io.StringIO) e gli helper dei file di "
+"documento (wa.document.open, wa.document.save, wa.document.export, che sono "
+"raggiungibili tramite MCP e script Python, non offerti al modello di chat "
+"nella barra laterale) rimangono disponibili."
 
 msgid "Allow OS access"
 msgstr "Consenti accesso al sistema operativo"
@@ -5194,11 +5323,11 @@ msgstr ""
 "Finestra dell'editor per Modifica Python nella cella, Esegui script Python, "
 "lo script di inizializzazione e LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (predefinito)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Visione / OCR"
@@ -5209,35 +5338,98 @@ msgstr "Scala immagine"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "Ingrandisci prima di OCR/layout. Prova 2.0 per screenshot piccoli."
 
-msgid "Worker timeout (seconds)"
-msgstr "Timeout worker (secondi)"
+msgid "Document timeout (s)"
+msgstr "Timeout documento (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Limite sottoprocessi host per Vision Helpers (primo download del modello)."
+"Interrompe l'elaborazione Docling di un documento dopo questo numero di "
+"secondi e mantiene le pagine completate finora. Il download e il caricamento"
+" del modello non vengono conteggiati. 0 disattiva il limite."
 
-msgid "Docling artifacts path"
-msgstr "Percorso artefatti Docling"
+msgid "OCR engine"
+msgstr "Motore OCR"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Cartella opzionale per il download dei modelli docling-tools (uso offline)."
+"Motore OCR utilizzato da Docling. Ogni motore, eccetto RapidOCR (ONNX), deve"
+" essere installato nel venv Python; Impostazioni → Python → Test elenca "
+"quelli installati."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, predefinito)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (riga di comando)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Lingua OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Codici lingua come en, de o zh-TW, separati da virgola. I motori Docling "
+"leggono ogni codice; il motore Paddle legge il primo. Se vuoto, utilizza la "
+"lingua dell'immagine o di LibreOffice."
+
+msgid "Device"
+msgstr "Dispositivo"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Hardware per i modelli di Docling. Auto utilizza una GPU quando Docling ne "
+"rileva una; la CPU funziona sempre."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Soglia di confidenza OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Punteggio minimo del testo per RapidOCR. 0.0 è una soglia reale (non quella "
-"predefinita). Aumentare per ridurre il testo spazzatura."
-
-msgid "OCR entire image"
-msgstr "OCR dell'intera immagine"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Consigliato per la grafica incorporata esportata da LibreOffice."
+"Confidenza minima per il testo riconosciuto (RapidOCR ed EasyOCR; altri "
+"motori la ignorano). Aumentala per eliminare il testo spazzatura; 0.0 "
+"mantiene tutto il testo."
 
 msgid "Table extraction mode"
 msgstr "Modalità estrazione tabelle"
@@ -5278,6 +5470,15 @@ msgstr "HTML standard"
 msgid "Structured (layout / cell grid)"
 msgstr "Strutturato (layout / griglia celle)"
 
+msgid "Delete image after OCR"
+msgstr "Elimina immagine dopo OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Rimuovi l'immagine sorgente dal documento dopo che l'OCR ne ha inserito il "
+"contenuto."
+
 msgid "Layout model"
 msgstr "Modello di layout"
 
@@ -5299,8 +5500,44 @@ msgstr "Arricchimento blocco di codice"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "OCR specializzato per screenshot di codice/terminale."
 
-msgid "Docling document timeout (s)"
-msgstr "Timeout documento Docling (s)"
+msgid "RapidOCR model size"
+msgstr "Dimensione modello RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Timeout per conversione all'interno di Docling. 0 = nessun limite."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Dimensione del modello RapidOCR per le lingue PP-OCRv6; altre lingue la "
+"ignorano. Tiny è il più veloce e non include il modello giapponese; medium è"
+" il più accurato."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (predefinito)"
+
+msgid "Medium"
+msgstr "Medio"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Correggi testo ruotato (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Rileggi un'area a 90, 180 e 270 gradi quando meno della metà delle sue righe"
+" viene letta con sicurezza. Corregge le scansioni laterali; richiede tempo "
+"solo in caso di letture scadenti. Si applica ai motori RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Riconoscimento Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Solo Apple Vision (macOS). \"Veloce\" è più rapido ma meno preciso e legge "
+"meno lingue."

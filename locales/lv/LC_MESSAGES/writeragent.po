@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Neizdevās atsaukt pēdējo aģenta labojumu."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Pēdējais aģenta labojums atsaukts ({0} soļi)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Attēls nav atrasts."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Neizdevās izdzēst attēlu: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -699,11 +708,11 @@ msgstr "Vispirms atveriet Calc izklājlapu."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco redaktors ir atslēgts ar \"scripting.force_internal_script_editor\" "
-"failā writeragent.json."
+"Python redaktora logs ir atspējots ar "
+"\"scripting.force_internal_script_editor\" failā writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1228,6 +1237,10 @@ msgstr "Pieņemt šo izmaiņu"
 msgid "Reject this change"
 msgstr "Noraidīt šo izmaiņu"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Neizdevās atšifrēt priekšskatījuma attēlu."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1625,6 +1638,25 @@ msgstr "kāpēc"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "jūs"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Izpilda…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Atcelts."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Priekšskatījums neizdevās: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Izpilde neizdevās: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2339,6 +2371,35 @@ msgstr "Atver '%s' lasīšanai tikai režīmā."
 msgid "Web research completed."
 msgstr "Tīmekļa izpēte pabeigta."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama neziņoja par num_ctx, tāpēc WriterAgent pieņēma {0} marķierus, kas ir"
+" pārāk maz tīmekļa izpētei (tikai izpētes uzvedne un rīki izmanto aptuveni "
+"2000 marķierus, plus izvades marķieri). Palieliniet num_ctx vismaz līdz {1} "
+"(izmantojot PARAMETER num_ctx {2} vai augstāku Modelfile failā ar ollama "
+"create), pēc tam izmantojiet Test Connection iestatījumos (vai restartējiet "
+"LibreOffice) un mēģiniet vēlreiz."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Konteksta logs ({0} marķieri) ir pārāk mazs tīmekļa izpētei (tikai izpētes "
+"uzvedne un rīki izmanto aptuveni 2000 marķierus, plus izvades marķieri). "
+"Palieliniet num_ctx vismaz līdz {1} (vai pārslēdzieties uz modeli ar lielāku"
+" konteksta logu) un mēģiniet vēlreiz."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2622,10 +2683,6 @@ msgstr "Jauns Python skripts"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Skripta nosaukums:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Izpilda…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2937,12 +2994,12 @@ msgstr "Venv pārbaude neizdevās"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Iestatiet Python venv ceļu sadaļā Iestatījumi → Python (tā pati venv, kurā "
-"izpildījāt 'uv pip install pywebview rocher'). LibreOffice iebūvētais Python"
-" nevar palaist redaktoru."
+"Iestatiet Python venv ceļu sadaļā Iestatījumi → Python (tāds pats venv, kurā"
+" izpildījāt 'uv pip install pywebview'). LibreOffice iebūvētais Python nevar"
+" palaist redaktoru."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3031,12 +3088,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Audio pārbaude neizdevās (skatiet writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco pārbaude pārsniedza laika limitu."
+msgid "UI / Editor probe timed out."
+msgstr "UI / redaktora pārbaudes noildze."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco pārbaude neizdevās (skatīt writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / redaktora pārbaude neizdevās (skatiet writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3082,6 +3139,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB pārbaude neizdevās (skatīt writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR nevar startēt šajā venv:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Netika konstatētas mikrofona ievades ierīces."
 
@@ -3115,8 +3176,8 @@ msgid "Audio Recording & Speech"
 msgstr "Audio ierakstīšana un runas sintēze"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco bibliotēkas: tiek pārbaudīts ārpus skripta darbinieka..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / redaktora bibliotēkas: pārbauda ārpus skripta darbinieka..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3492,7 +3553,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Vīzijas palīgiem ir nepieciešams Writer, Calc, Draw vai Impress dokuments."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Vīzijas palīgs neizdevās."
 
@@ -3586,6 +3647,225 @@ msgstr "Nevarēja atvērt iebūvēto skriptu dialoglodziņu."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Atverot Python skripta palaišanu, radās neparedzēta kļūda."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Pārbaudiet writeragent_debug.log savā LibreOffice lietotāja konfigurācijas "
+"mapē"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP serveri neizdevās startēt"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Apturēt MCP serveri"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Startēt MCP serveri"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP serveris nedarbojas"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP serveris darbojas"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Maršruti: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Vietējais URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Publiskais URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Vietējais galapunkts:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Publiskais tunelis ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Statuss: Aktīvs (savienots)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Statuss: Atkārtoti savienojas — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "mēģina vēlreiz…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Statuss: Sāk tuneļa darbību…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Statuss: Neizdevās — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Statuss: Nedarbojas (vai {0} binārais fails ir instalēts?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopēts!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Testē…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testēt tuneli"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP tuneļa tests"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Publiskais tunelis, izmantojot {0} (bez autentifikācijas)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Publiskais tunelis, izmantojot {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "pārveido savienojumu…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Publiskais tunelis, izmantojot {0}, neizdevās: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Publiskais tunelis, izmantojot {0}, tiek startēts…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Publiskais tunelis, izmantojot {0}, nedarbojas (vai pakalpojumu sniedzēja "
+"binārais fails ir instalēts?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tuneļa testa režīms: {0} pakalpojums veiksmīgi simulēts."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Nezināms tuneļa nodrošinātājs: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binārais fails '{0}' priekš {1} nav atrasts PATH.\n"
+"\n"
+"Instalējiet no: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Neizdevās izpildīt {0} bināro failu ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} tunelis darbojas un ir atsaucīgs!\n"
+"\n"
+"Publiskais galapunkts:\n"
+"{1}\n"
+"\n"
+"Veselības pārbaude: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} tunelis ir aktīvs!\n"
+"\n"
+"Publiskais galapunkts:\n"
+"{1}\n"
+"\n"
+"(Publiskais URL iegūts no aktīvās tuneļa sesijas.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} binārais fails '{1}' ir verificēts ({2}).\n"
+"\n"
+"(Piezīme: aktīvs {3} tunelis pašlaik darbojas adresē {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} binārais fails '{1}' ir instalēts un verificēts ({2}).\n"
+"\n"
+"MCP serveris darbojas lokāli portā {3}.\n"
+"Atzīmējiet 'Eksponēt caur publisko tuneli' un noklikšķiniet uz OK, lai aktivizētu publisko maršrutēšanu."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} binārais fails '{1}' ir instalēts un verificēts ({2}).\n"
+"\n"
+"Piezīme: MCP serveris pašlaik nedarbojas portā {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP servera statuss"
@@ -3606,10 +3886,60 @@ msgstr "Pieņemt visu"
 msgid "Reject all"
 msgstr "Noraidīt visu"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Notiek modeļu ielāde…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Atpazīst tekstu…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Teksts nav atrasts."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Veido priekšskatījumu…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Neizdevās eksportēt atlasīto attēlu: {error}"
+msgid "Done: {count} characters."
+msgstr "Gatavs: {count} rakstzīmes."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR ievietošanai nepieciešams Writer vai Calc dokuments; izmantojiet "
+"priekšskatījumu programmām Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Ievieto…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Ievietoti {count} attēli."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Ievietots: {count} rakstzīmes."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr "Attēls saglabāts, jo aģenta rediģēšanas pārskats reģistrē izmaiņas."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Neizdevās izveidot priekšskatījuma dokumentu."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Neizdevās renderēt priekšskatījuma lapu."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3617,6 +3947,11 @@ msgid ""
 msgstr ""
 "Atlasiet iegultu attēlu (vai diapazonu, kas satur attēlus), pēc tam "
 "palaidiet vēlreiz."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Neizdevās eksportēt atlasīto attēlu: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3696,227 +4031,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Attēls tika noņemts, gatavojot OCR ievietošanu."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nevar izdzēst nenosauktu attēlu pēc OCR ievietošanas."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Attēls tika noņemts OCR ievietošanas laikā."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Pārbaudiet writeragent_debug.log savā LibreOffice lietotāja konfigurācijas "
-"mapē"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP serveri neizdevās startēt"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Apturēt MCP serveri"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Startēt MCP serveri"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP serveris nedarbojas"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP serveris darbojas"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Maršruti: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Vietējais URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Publiskais URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Vietējais galapunkts:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Publiskais tunelis ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Statuss: Aktīvs (savienots)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Statuss: Atkārtoti savienojas — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "mēģina vēlreiz…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Statuss: Sāk tuneļa darbību…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Statuss: Neizdevās — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Statuss: Nedarbojas (vai {0} binārais fails ir instalēts?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopēts!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testē…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testēt tuneli"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP tuneļa tests"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Publiskais tunelis, izmantojot {0} (bez autentifikācijas)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Publiskais tunelis, izmantojot {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "pārveido savienojumu…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Publiskais tunelis, izmantojot {0}, neizdevās: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Publiskais tunelis, izmantojot {0}, tiek startēts…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Publiskais tunelis, izmantojot {0}, nedarbojas (vai pakalpojumu sniedzēja "
-"binārais fails ir instalēts?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tuneļa testa režīms: {0} pakalpojums veiksmīgi simulēts."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Nezināms tuneļa nodrošinātājs: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binārais fails '{0}' priekš {1} nav atrasts PATH.\n"
-"\n"
-"Instalējiet no: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Neizdevās izpildīt {0} bināro failu ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} tunelis darbojas un ir atsaucīgs!\n"
-"\n"
-"Publiskais galapunkts:\n"
-"{1}\n"
-"\n"
-"Veselības pārbaude: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} tunelis ir aktīvs!\n"
-"\n"
-"Publiskais galapunkts:\n"
-"{1}\n"
-"\n"
-"(Publiskais URL iegūts no aktīvās tuneļa sesijas.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} binārais fails '{1}' ir verificēts ({2}).\n"
-"\n"
-"(Piezīme: aktīvs {3} tunelis pašlaik darbojas adresē {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} binārais fails '{1}' ir instalēts un verificēts ({2}).\n"
-"\n"
-"MCP serveris darbojas lokāli portā {3}.\n"
-"Atzīmējiet 'Eksponēt caur publisko tuneli' un noklikšķiniet uz OK, lai aktivizētu publisko maršrutēšanu."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} binārais fails '{1}' ir instalēts un verificēts ({2}).\n"
-"\n"
-"Piezīme: MCP serveris pašlaik nedarbojas portā {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Ievietot OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4622,18 +4746,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Humanizētāja prasme (dabiska proza)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Ja iespējots, sistēmas uzvednē tiek ievadīti norādījumi, lai modelis "
-"padarītu ģenerēto vai pārskatīto dokumenta tekstu dabiskāku un cilvēcīgāku "
-"(noņem AI raksturīgos stila defektus). Rediģējiet noteikumus savā "
-"LibreOffice profilā mapē writeragent/skills/humanizer/SKILL.md (fails tiek "
-"automātiski izveidots pirmajā lietošanas reizē). Īpašu prasmju cilni var "
-"pievienot vēlāk."
+"Ja iespējots, ievieto iebūvētos norādījumus sistēmas uzvednē, lai modelis "
+"padarītu ģenerēto vai pārskatīto dokumenta tekstu dabiskāku un cilvēciskāku "
+"(noņem AI raksturīgos kļūdu modeļus)."
 
 msgid "Silence before send (ms)"
 msgstr "Klusums pirms nosūtīšanas (ms)"
@@ -4828,6 +4947,69 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Pamatpakalpojumi (konfigurācija, notikumi, reģistrēšana)"
 
+msgid "Integrations"
+msgstr "Integrācijas"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP serveri sānjoslas tērzēšanai"
+
+msgid "Server"
+msgstr "Serveris"
+
+msgid "Add"
+msgstr "Pievienot"
+
+msgid "Remove"
+msgstr "Noņemt"
+
+msgid "Use this MCP server in chat"
+msgstr "Izmantot šo MCP serveri tērzēšanā"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Tikai sānjoslas tērzēšanai (mcp domēns); nekad netiek atklāts WriterAgent "
+"MCP serverim vai skriptiem."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Uzticēties tā tikai lasāmajiem rīkiem (bez apstiprinājuma)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Rīki, kurus serveris atzīmē kā readOnlyHint, darbojas bez Pieņemt / Mainīt /"
+" Noraidīt; par katru citu izsaukumu joprojām tiek prasīts"
+
+msgid "Name"
+msgstr "Nosaukums"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Pievieno prefiksu šī servera rīku nosaukumiem (piem., home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Servera URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Straumējams HTTP MCP galapunkts, piem., http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Pilnvaras marķieris (Token)"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer marķieris. Iestatījumu apstiprināšana (Settings OK) saglabā to "
+"sistēmas atslēgu saišķī, ja tāds ir pieejams, pretējā gadījumā – failā "
+"writeragent.json."
+
+msgid "Status"
+msgstr "Statuss"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4925,69 +5107,6 @@ msgstr "Klienta konfigurācija (kopēt uz Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopēt konfigurāciju"
-
-msgid "Integrations"
-msgstr "Integrācijas"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "MCP serveri sānjoslas tērzēšanai"
-
-msgid "Server"
-msgstr "Serveris"
-
-msgid "Add"
-msgstr "Pievienot"
-
-msgid "Remove"
-msgstr "Noņemt"
-
-msgid "Use this MCP server in chat"
-msgstr "Izmantot šo MCP serveri tērzēšanā"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Tikai sānjoslas tērzēšanai (mcp domēns); nekad netiek atklāts WriterAgent "
-"MCP serverim vai skriptiem."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Uzticēties tā tikai lasāmajiem rīkiem (bez apstiprinājuma)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Rīki, kurus serveris atzīmē kā readOnlyHint, darbojas bez Pieņemt / Mainīt /"
-" Noraidīt; par katru citu izsaukumu joprojām tiek prasīts"
-
-msgid "Name"
-msgstr "Nosaukums"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Pievieno prefiksu šī servera rīku nosaukumiem (piem., home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "Servera URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Straumējams HTTP MCP galapunkts, piem., http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Pilnvaras marķieris (Token)"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer marķieris. Iestatījumu apstiprināšana (Settings OK) saglabā to "
-"sistēmas atslēgu saišķī, ja tāds ir pieejams, pretējā gadījumā – failā "
-"writeragent.json."
-
-msgid "Status"
-msgstr "Statuss"
 
 msgid "Notebook"
 msgstr "Piezīmju grāmatiņa"
@@ -5099,13 +5218,18 @@ msgstr "Atļaut piekļuvi failiem"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
 "Ja atzīmēts, Python var lasīt un rakstīt failus jebkurā vietā (open, io, "
 "pathlib, shutil, tempfile, sqlite3, glob un os failu izsaukumi, piemēram, "
-"listdir un stat). Ja nav atzīmēts, šī lasīšana un rakstīšana ir bloķēta. "
-"Atmiņas buferi (io.BytesIO, io.StringIO) paliek pieejami."
+"listdir un stat). Ja nav atzīmēts, šīs lasīšanas un rakstīšanas darbības "
+"tiek bloķētas; atmiņas buferi (io.BytesIO, io.StringIO) un dokumentu failu "
+"palīgrīki (wa.document.open, wa.document.save, wa.document.export, kas ir "
+"pieejami MCP un Python skriptiem, bet netiek piedāvāti sānjoslas tērzēšanas "
+"modelim) paliek pieejami."
 
 msgid "Allow OS access"
 msgstr "Atļaut piekļuvi operētājsistēmai"
@@ -5141,11 +5265,11 @@ msgstr ""
 "Redaktora logs funkcijām \"Rediģēt Python šūnā\", \"Palaist Python "
 "skriptu\", sākotnējam skriptam un LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (noklusējuma)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Vīzija / OCR"
@@ -5156,36 +5280,97 @@ msgstr "Attēla mērogošana"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "Mērogot pirms OCR/izkārtojuma. Mēģiniet 2.0 maziem ekrānuzņēmumiem."
 
-msgid "Worker timeout (seconds)"
-msgstr "Darbinieka noildze (sekundēs)"
+msgid "Document timeout (s)"
+msgstr "Dokumenta noildze (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Saimniekdatora apakšprocesu limits Vision palīgiem (pirmā modeļa "
-"lejupielāde)."
+"Pārtrauc Docling dokumenta apstrādi pēc šī sekunžu skaita un saglabā līdz "
+"šim pabeigtās lapas. Modeļa lejupielāde un ielāde netiek skaitīta. 0 atslēdz"
+" ierobežojumu."
 
-msgid "Docling artifacts path"
-msgstr "Docling artefaktu ceļš"
+msgid "OCR engine"
+msgstr "OCR dzinējs"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Neobligāta mape docling-tools modeļu lejupielādei (izmantošanai bezsaistē)."
+"OCR dzinējs, ko izmanto Docling. Katrs dzinējs, izņemot RapidOCR (ONNX), ir "
+"jāinstalē Python venv; Iestatījumi → Python → Tests uzskaita instalētos."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, noklusējuma)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (komandrinda)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR valoda"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Valodu kodi, piemēram, en, de vai zh-TW, atdalīti ar komatiem. Docling "
+"dzinēji nolasa katru kodu; Paddle dzinējs nolasa pirmo. Ja tukšs, tiek "
+"izmantota attēla vai LibreOffice valoda."
+
+msgid "Device"
+msgstr "Ierīce"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Aparatūra Docling modeļiem. \"Auto\" izmanto GPU, ja Docling to atrod; CPU "
+"darbojas vienmēr."
+
+msgid "Auto"
+msgstr "Automātiski"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR ticamības slieksnis"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR minimālais teksta rādītājs. 0.0 ir reāls slieksnis (nevis "
-"noklusējuma). Palieliniet, lai samazinātu nevajadzīgu tekstu."
-
-msgid "OCR entire image"
-msgstr "OCR visam attēlam"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Ieteicams iegultai grafikai, kas eksportēta no LibreOffice."
+"Minimālais ticamības līmenis atpazītajam tekstam (RapidOCR un EasyOCR; citi "
+"dzinēji to ignorē). Palieliniet to, lai izslēgtu nekvalitatīvu tekstu; 0.0 "
+"saglabā visu tekstu."
 
 msgid "Table extraction mode"
 msgstr "Tabulu izvilkšanas režīms"
@@ -5224,6 +5409,13 @@ msgstr "Standarta HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Strukturēts (izkārtojums / šūnu režģis)"
 
+msgid "Delete image after OCR"
+msgstr "Dzēst attēlu pēc OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "Noņemt avota attēlu no dokumenta pēc tam, kad OCR ievieto tā saturu."
+
 msgid "Layout model"
 msgstr "Izkārtojuma modelis"
 
@@ -5246,8 +5438,43 @@ msgstr "Koda bloka bagātināšana"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Specializēta OCR koda/termināļa ekrānuzņēmumiem."
 
-msgid "Docling document timeout (s)"
-msgstr "Docling dokumenta noildze (s)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR modeļa izmērs"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Noildze katrai konvertēšanai Docling ietvaros. 0 = bez ierobežojuma."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"RapidOCR modeļa izmērs PP-OCRv6 valodām; citas valodas to ignorē. Tiny ir "
+"ātrākais un tam nav japāņu valodas modeļa; medium ir visprecīzākais."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (noklusējums)"
+
+msgid "Medium"
+msgstr "Vidējs"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Labot pagrieztu tekstu (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Pārlasīt apgabalu 90, 180 un 270 grādu leņķī, ja mazāk nekā puse rindu ir "
+"nolasītas pārliecinoši. Labo sāniski skenētus dokumentus; patērē laiku tikai"
+" sliktas nolasīšanas gadījumos. Attiecas uz RapidOCR dzinējiem."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision atpazīšana"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Tikai Apple Vision (macOS). \"Ātrs\" (Fast) ir ātrāks, bet mazāk precīzs un "
+"atpazīst mazāk valodu."

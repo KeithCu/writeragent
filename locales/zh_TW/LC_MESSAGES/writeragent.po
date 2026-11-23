@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "無法復原上次的代理編輯。"
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "已復原上次的代理編輯 ({0} 個步驟)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "找不到影像。"
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "無法刪除影像：%s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -645,11 +654,11 @@ msgstr "請先開啟一個 Calc 試算表。"
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco 編輯器已由 writeragent.json 中的 \"scripting.force_internal_script_editor\" "
-"停用。"
+"Python 編輯器視窗已由 writeragent.json 中的 "
+"\"scripting.force_internal_script_editor\" 停用。"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1147,6 +1156,10 @@ msgstr "接受此變更"
 msgid "Reject this change"
 msgstr "拒絕此變更"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "無法解碼預覽影像。"
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1532,6 +1545,25 @@ msgstr "為什麼"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "您"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "執行中…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "已取消。"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "預覽失敗：{error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "執行失敗：{error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2217,6 +2249,31 @@ msgstr "正在以唯讀模式開啟「%s」。"
 msgid "Web research completed."
 msgstr "網路研究完成。"
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama 未回報 num_ctx，因此 WriterAgent 預設為 {0} 個 "
+"token，這對於網路研究來說太小了（僅研究提示詞與工具就使用了約 2,000 個 token，再加上輸出 token）。請將 num_ctx "
+"提高至至少 {1}（透過 Modelfile 中的 PARAMETER num_ctx {2} 或更高值來建立 ollama "
+"模型），然後在「設定」中使用「測試連線」（或重新啟動 LibreOffice）後再試一次。"
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"上下文視窗（{0} 個 token）對於網路研究來說太小了（僅研究提示詞與工具就使用了約 2,000 個 token，再加上輸出 token）。請將 "
+"num_ctx 提高至至少 {1}（或切換至具有更大上下文視窗的模型）後再試一次。"
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2478,10 +2535,6 @@ msgstr "新增 Python 指令碼"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "指令碼名稱："
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "執行中…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2780,11 +2833,11 @@ msgstr "虛擬環境檢查失敗"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"請在「設定」→「Python」中設定 Python venv 路徑（與您執行 'uv pip install pywebview rocher' 的 "
-"venv 相同）。LibreOffice 內建的 Python 無法執行編輯器。"
+"請在「設定」→「Python」中設定 Python venv 路徑（與您執行 'uv pip install pywebview' 時所使用的 venv"
+" 相同）。LibreOffice 內建的 Python 無法執行此編輯器。"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2869,12 +2922,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "音訊探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco 探測逾時。"
+msgid "UI / Editor probe timed out."
+msgstr "UI / 編輯器探測逾時。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco 探測失敗（請參閱 writeragent_debug.log）。"
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / 編輯器探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -2914,6 +2967,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB 探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR 無法在此虛擬環境 (venv) 中啟動："
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "未偵測到麥克風輸入裝置。"
 
@@ -2946,8 +3003,8 @@ msgid "Audio Recording & Speech"
 msgstr "錄音與語音"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco 程式庫：正在檢查指令碼工作執行緒之外的區域..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / 編輯器程式庫：正在檢查指令碼工作程序之外..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3296,7 +3353,7 @@ msgstr "Viz '{helper}' 已完成。{msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "視覺輔助功能需要 Writer、Calc、Draw 或 Impress 文件。"
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "視覺輔助工具失敗。"
 
@@ -3378,6 +3435,221 @@ msgstr "無法開啟內建指令碼對話方塊。"
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "開啟「執行 Python 指令碼」時發生未預期的錯誤。"
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr "請檢查 LibreOffice 使用者設定資料夾中的 writeragent_debug.log"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP 伺服器啟動失敗"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "停止 MCP 伺服器"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "啟動 MCP 伺服器"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP 伺服器未運行"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP 伺服器運行中"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "路由：{0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "本機 URL：{0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "公開網址：{0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "本機端點："
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "公開通道 ({0})："
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "狀態：已啟用（已連線）"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "狀態：重新連線中 — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "正在重試…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "狀態：正在啟動通道…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "狀態：失敗 — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "狀態：未執行（是否已安裝 {0} 二進位檔？）"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ 已複製！"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "測試中…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "測試通道"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP 通道測試"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "透過 {0} 的公開通道（無需驗證）"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "透過 {0} 的公開通道：{1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "重新連線中…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "透過 {0} 的公開通道失敗：{1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "正在啟動透過 {0} 的公開通道…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "透過 {0} 的公開通道未執行（是否已安裝提供者二進位檔？）"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "通道測試模式：{0} 提供者模擬成功。"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "未知的通道提供者：{0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"在 PATH 中找不到用於 {1} 的二進位檔「{0}」。\n"
+"\n"
+"請從此處安裝：{2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "執行 {0} 二進位檔失敗 ({1})：{2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} 通道執行中且回應正常！\n"
+"\n"
+"公開端點：\n"
+"{1}\n"
+"\n"
+"健康檢查：OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} 通道已啟用！\n"
+"\n"
+"公開端點：\n"
+"{1}\n"
+"\n"
+"（公開 URL 係從作用中的通道工作階段取得。）"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} 二進位檔「{1}」已驗證 ({2})。\n"
+"\n"
+"（注意：目前有一個作用中的 {3} 通道正在 {4} 執行。）"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} 二進位檔「{1}」已安裝並驗證 ({2})。\n"
+"\n"
+"MCP 伺服器正在本機連接埠 {3} 上執行。\n"
+"勾選「透過公開通道公開」並點擊「確定」以啟用公開路由。"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} 二進位檔「{1}」已安裝並驗證 ({2})。\n"
+"\n"
+"注意：MCP 伺服器目前未在連接埠 {3} 上執行。"
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP 伺服器狀態"
@@ -3398,15 +3670,68 @@ msgstr "全部接受"
 msgid "Reject all"
 msgstr "全部拒絕"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "正在載入模型…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "正在識別文字…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "未偵測到文字。"
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "正在轉譯預覽…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "無法匯出選取的影像：{error}"
+msgid "Done: {count} characters."
+msgstr "完成：{count} 個字元。"
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr "Vision OCR 插入功能需要 Writer 或 Calc 文件；Draw/Impress 請使用「預覽」。"
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "正在插入…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "已插入 {count} 張圖片。"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "已插入：{count} 個字元。"
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr "由於 Agent 編輯審閱正在記錄變更，因此保留圖片。"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "無法建立預覽文件。"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "無法呈現預覽頁面。"
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr "請選取一張嵌入的影像（或包含影像的範圍），然後再次執行。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "無法匯出選取的影像：{error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3481,223 +3806,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "準備 OCR 插入時影像已被移除。"
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "無法刪除 OCR 插入後未命名的影像。"
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "OCR 插入期間影像已被移除。"
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "請檢查 LibreOffice 使用者設定資料夾中的 writeragent_debug.log"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP 伺服器啟動失敗"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "停止 MCP 伺服器"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "啟動 MCP 伺服器"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP 伺服器未運行"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP 伺服器運行中"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "路由：{0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "本機 URL：{0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "公開網址：{0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "本機端點："
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "公開通道 ({0})："
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "狀態：已啟用（已連線）"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "狀態：重新連線中 — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "正在重試…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "狀態：正在啟動通道…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "狀態：失敗 — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "狀態：未執行（是否已安裝 {0} 二進位檔？）"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ 已複製！"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "測試中…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "測試通道"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP 通道測試"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "透過 {0} 的公開通道（無需驗證）"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "透過 {0} 的公開通道：{1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "重新連線中…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "透過 {0} 的公開通道失敗：{1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "正在啟動透過 {0} 的公開通道…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "透過 {0} 的公開通道未執行（是否已安裝提供者二進位檔？）"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "通道測試模式：{0} 提供者模擬成功。"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "未知的通道提供者：{0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"在 PATH 中找不到用於 {1} 的二進位檔「{0}」。\n"
-"\n"
-"請從此處安裝：{2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "執行 {0} 二進位檔失敗 ({1})：{2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} 通道執行中且回應正常！\n"
-"\n"
-"公開端點：\n"
-"{1}\n"
-"\n"
-"健康檢查：OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} 通道已啟用！\n"
-"\n"
-"公開端點：\n"
-"{1}\n"
-"\n"
-"（公開 URL 係從作用中的通道工作階段取得。）"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} 二進位檔「{1}」已驗證 ({2})。\n"
-"\n"
-"（注意：目前有一個作用中的 {3} 通道正在 {4} 執行。）"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} 二進位檔「{1}」已安裝並驗證 ({2})。\n"
-"\n"
-"MCP 伺服器正在本機連接埠 {3} 上執行。\n"
-"勾選「透過公開通道公開」並點擊「確定」以啟用公開路由。"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} 二進位檔「{1}」已安裝並驗證 ({2})。\n"
-"\n"
-"注意：MCP 伺服器目前未在連接埠 {3} 上執行。"
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent：插入 OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4371,14 +4489,10 @@ msgid "Humanizer skill (natural prose)"
 msgstr "擬人化技能（自然散文）"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
-msgstr ""
-"啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的"
-" writeragent/skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新增專屬的「技能」頁籤。"
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
+msgstr "啟用後，會將內建指引注入系統提示詞中，使模型生成的或修訂的文件文字聽起來更自然、更像人類（移除 AI 產生的冗贅模式）。"
 
 msgid "Silence before send (ms)"
 msgstr "傳送前的靜音時間 (毫秒)"
@@ -4548,6 +4662,60 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "核心服務 (設定、事件、日誌)"
 
+msgid "Integrations"
+msgstr "整合"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "用於側邊欄聊天的 MCP 伺服器"
+
+msgid "Server"
+msgstr "伺服器"
+
+msgid "Add"
+msgstr "新增"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Use this MCP server in chat"
+msgstr "在聊天中使用此 MCP 伺服器"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr "僅限側邊欄聊天 (mcp 網域)；絕不會暴露給 WriterAgent 的 MCP 伺服器或指令碼。"
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "信任其唯讀工具 (無需提示)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr "伺服器標記為 readOnlyHint 的工具執行時不會出現「接受 / 變更 / 拒絕」提示；其他所有呼叫仍會詢問"
+
+msgid "Name"
+msgstr "名稱"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "為此伺服器的工具名稱加上字首（例如：home -> mcp__home__tool）。"
+
+msgid "Server URL"
+msgstr "伺服器 URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "可串流的 HTTP MCP 端點，例如 http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "權杖"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr "Bearer 權杖。按下「確定」後，若系統金鑰環可用，將儲存於其中，否則儲存於 writeragent.json。"
+
+msgid "Status"
+msgstr "狀態"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4635,60 +4803,6 @@ msgstr "用戶端設定（複製到 Claude / Hermes-Agent）："
 
 msgid "Copy Config"
 msgstr "複製設定"
-
-msgid "Integrations"
-msgstr "整合"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "用於側邊欄聊天的 MCP 伺服器"
-
-msgid "Server"
-msgstr "伺服器"
-
-msgid "Add"
-msgstr "新增"
-
-msgid "Remove"
-msgstr "移除"
-
-msgid "Use this MCP server in chat"
-msgstr "在聊天中使用此 MCP 伺服器"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr "僅限側邊欄聊天 (mcp 網域)；絕不會暴露給 WriterAgent 的 MCP 伺服器或指令碼。"
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "信任其唯讀工具 (無需提示)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr "伺服器標記為 readOnlyHint 的工具執行時不會出現「接受 / 變更 / 拒絕」提示；其他所有呼叫仍會詢問"
-
-msgid "Name"
-msgstr "名稱"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr "為此伺服器的工具名稱加上字首（例如：home -> mcp__home__tool）。"
-
-msgid "Server URL"
-msgstr "伺服器 URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "可串流的 HTTP MCP 端點，例如 http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "權杖"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr "Bearer 權杖。按下「確定」後，若系統金鑰環可用，將儲存於其中，否則儲存於 writeragent.json。"
-
-msgid "Status"
-msgstr "狀態"
 
 msgid "Notebook"
 msgstr "筆記本"
@@ -4789,11 +4903,15 @@ msgstr "允許檔案存取"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"勾選後，Python 可讀取與寫入任何位置的檔案（open、io、pathlib、shutil、tempfile、sqlite3、glob 及 os "
-"檔案呼叫，例如 listdir 與 stat）。若未勾選，則會封鎖這些讀寫操作。記憶體緩衝區（io.BytesIO、io.StringIO）仍可使用。"
+"勾選後，Python 可讀寫任何位置的檔案（open、io、pathlib、shutil、tempfile、sqlite3、glob 以及 os "
+"檔案呼叫，例如 listdir 和 "
+"stat）。若未勾選，這些讀寫操作將被封鎖；記憶體緩衝區（io.BytesIO、io.StringIO）以及文件檔案輔助程式（wa.document.open、wa.document.save、wa.document.export，這些可透過"
+" MCP 和 Python 指令碼存取，但不提供給側邊欄聊天模型）仍可使用。"
 
 msgid "Allow OS access"
 msgstr "允許作業系統存取"
@@ -4825,11 +4943,11 @@ msgid ""
 "and LaTeX."
 msgstr "用於編輯儲存格內 Python、執行 Python 指令碼、初始化指令碼與 LaTeX 的編輯器視窗。"
 
-msgid "Monaco (default)"
-msgstr "Monaco (預設)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "視覺 / OCR"
@@ -4840,31 +4958,89 @@ msgstr "影像縮放"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "在 OCR/版面分析前進行放大。若為小型螢幕截圖，請嘗試 2.0。"
 
-msgid "Worker timeout (seconds)"
-msgstr "背景工作逾時 (秒)"
+msgid "Document timeout (s)"
+msgstr "文件逾時 (秒)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Vision Helpers 的主機子處理序限制 (首次下載模型時)。"
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
+msgstr "在經過此秒數後停止 Docling 對單一文件的處理，並保留目前已完成的頁面。模型下載與載入時間不計入。設為 0 則關閉限制。"
 
-msgid "Docling artifacts path"
-msgstr "Docling 產出物路徑"
+msgid "OCR engine"
+msgstr "OCR 引擎"
 
-msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "docling-tools 模型下載的可選資料夾（離線使用）。"
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Docling 使用的 OCR 引擎。除了 RapidOCR (ONNX) 之外，每個引擎都必須安裝在 Python venv "
+"中；「設定」→「Python」→「測試」會列出已安裝的引擎。"
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, 預設)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (命令列)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR 語言"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"語言代碼（如 en、de 或 zh-TW），以逗號分隔。Docling 引擎會讀取所有代碼；Paddle 引擎則讀取第一個。留空則使用影像或 "
+"LibreOffice 的語言。"
+
+msgid "Device"
+msgstr "裝置"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr "Docling 模型使用的硬體。「自動」會在 Docling 偵測到 GPU 時使用它；CPU 則永遠適用。"
+
+msgid "Auto"
+msgstr "自動"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR 信心閾值"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
-msgstr "RapidOCR 最低文字分數。0.0 為實際閾值（非預設值）。提高此數值可減少雜亂文字。"
-
-msgid "OCR entire image"
-msgstr "OCR 整張影像"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "建議用於從 LibreOffice 匯出的嵌入式圖形。"
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
+msgstr ""
+"識別文字的最低信心度（RapidOCR 與 EasyOCR；其他引擎會忽略此設定）。調高此數值可過濾雜訊文字；設為 0.0 則保留所有文字。"
 
 msgid "Table extraction mode"
 msgstr "表格擷取模式"
@@ -4903,6 +5079,13 @@ msgstr "標準 HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "結構化（配置 / 儲存格網格）"
 
+msgid "Delete image after OCR"
+msgstr "OCR 後刪除影像"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "在 OCR 插入內容後，從文件中移除原始影像。"
+
 msgid "Layout model"
 msgstr "版面配置模型"
 
@@ -4924,8 +5107,37 @@ msgstr "程式碼區塊增強"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "針對程式碼/終端機截圖的專用 OCR。"
 
-msgid "Docling document timeout (s)"
-msgstr "Docling 文件逾時時間 (秒)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR 模型大小"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Docling 內部每次轉換的逾時時間。0 = 無限制。"
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr "適用於 PP-OCRv6 語言的 RapidOCR 模型大小；其他語言會忽略此設定。Tiny 最快但沒有日文模型；medium 最準確。"
+
+msgid "Tiny"
+msgstr "Tiny (極小)"
+
+msgid "Small (default)"
+msgstr "Small (預設)"
+
+msgid "Medium"
+msgstr "中"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "修正旋轉文字 (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"當讀取信心度不足一半時，以 90、180 和 270 度重新讀取區域。可修正側向掃描；僅在讀取效果不佳時耗費時間。適用於 RapidOCR 引擎。"
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision 辨識"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr "僅限 Apple Vision (macOS)。「快速」模式速度較快但準確度較低，且支援的語言較少。"

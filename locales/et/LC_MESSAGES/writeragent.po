@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Viimast agendi redigeerimistoimingut ei saanud tagasi võtta."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Viimane agendi redigeerimistoiming võeti tagasi ({0} sammu)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Pilti ei leitud."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Pildi kustutamine ebaõnnestus: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -693,10 +702,10 @@ msgstr "Ava esmalt Calc-i arvutustabel."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco redaktor on keelatud failis writeragent.json määratud valikuga "
+"Python-redaktori aken on keelatud failis writeragent.json sättega "
 "\"scripting.force_internal_script_editor\"."
 
 #: plugin/calc/python/init_script_editor.py
@@ -1220,6 +1229,10 @@ msgstr "Nõustu selle muudatusega"
 msgid "Reject this change"
 msgstr "Lükka see muudatus tagasi"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Eelvaatepildi dekodeerimine ebaõnnestus."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1621,6 +1634,25 @@ msgstr "miks"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "sina"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Töötamine…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Tühistatud."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Eelvaade ebaõnnestus: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Käivitamine ebaõnnestus: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2333,6 +2365,35 @@ msgstr "Avatakse '%s' kirjutuskaitstud režiimis."
 msgid "Web research completed."
 msgstr "Veebiuuring lõpetatud."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama ei edastanud num_ctx väärtust, seega eeldas WriterAgent {0} märki, "
+"mis on veebiuuringute jaoks liiga vähe (uuringu viip ja tööriistad kasutavad"
+" ainuüksi umbes 2000 märki, lisaks väljundmärgid). Suurendage num_ctx "
+"väärtust vähemalt {1}-ni (kasutades PARAMETER num_ctx {2} või suuremat "
+"väärtust Modelfile'is koos ollama create käsuga), seejärel kasutage sätetes "
+"valikut Testi ühendust (või taaskäivitage LibreOffice) ja proovige uuesti."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Kontekstiaken ({0} märki) on veebiuuringute jaoks liiga väike (uuringu viip "
+"ja tööriistad kasutavad ainuüksi umbes 2000 märki, lisaks väljundmärgid). "
+"Suurendage num_ctx väärtust vähemalt {1}-ni (või valige suurema "
+"kontekstiaknaga mudel) ja proovige uuesti."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2610,10 +2671,6 @@ msgstr "Uus Pythoni skript"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Skripti nimi:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Töötamine…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2925,12 +2982,12 @@ msgstr "Venv-i kontrollimine ebaõnnestus"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Määrake Pythoni venv-rada seadetes → Python (sama venv, kus käivitasite 'uv "
-"pip install pywebview rocher'). LibreOffice'i sisseehitatud Python ei saa "
-"redaktorit käivitada."
+"Määrake Pythoni venv-rada jaotises Sätted → Python (sama venv, kus "
+"käivitasite 'uv pip install pywebview'). LibreOffice'i sisseehitatud Python "
+"ei saa redaktorit käivitada."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3018,12 +3075,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Helituvastus ebaõnnestus (vt writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco kontrollimise ajalõpp."
+msgid "UI / Editor probe timed out."
+msgstr "Kasutajaliidese / redaktori kontrollimise aegumine."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco kontrollimine ebaõnnestus (vt writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr ""
+"Kasutajaliidese / redaktori kontrollimine ebaõnnestus (vt "
+"writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3069,6 +3128,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB kontrollimine ebaõnnestus (vt writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR ei saa selles venv-keskkonnas käivituda:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Ühtegi mikrofoni sisendseadet ei tuvastatud."
 
@@ -3102,8 +3165,10 @@ msgid "Audio Recording & Speech"
 msgstr "Helisalvestus ja kõne"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco teegid: kontrollin väljaspool skripti tööprotsessi..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr ""
+"Kasutajaliidese / redaktori teegid: kontrollimine väljaspool skripti "
+"tööprotsessi..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3475,7 +3540,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Visuaalsed abivahendid nõuavad Writeri, Calci, Draw' või Impressi dokumenti."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Nägemisabiline nurjus."
 
@@ -3568,6 +3633,224 @@ msgstr "Sisseehitatud skriptidialoogi ei saanud avada."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Pythoni skripti käivitamise avamisel ilmnes ootamatu viga."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
+" kaustas"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP-serveri käivitamine ebaõnnestus"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Peata MCP-server"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Käivita MCP-server"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-server ei tööta"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP-server töötab"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Marsruudid: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Kohalik URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Avalik URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Kohalik lõpp-punkt:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Avalik tunnel ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Olek: Aktiivne (ühendatud)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Olek: Taasühendamine — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "proovin uuesti…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Olek: Tunneli käivitamine…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Olek: Nurjus — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Olek: Ei tööta (kas {0} binaarfail on installitud?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopeeritud!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Testimine…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testi tunnelit"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP tunneli test"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Avalik tunnel {0} kaudu (autentimiseta)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Avalik tunnel kaudu {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "taasühendamine…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Avalik tunnel {0} kaudu ebaõnnestus: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Avalik tunnel {0} kaudu käivitub…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Avalik tunnel {0} kaudu ei tööta (kas pakkuja binaarfail on installitud?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tunneli testrežiim: {0} pakkuja simuleerimine õnnestus."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Tundelipakkuja on tundmatu: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binaarfaili '{0}' rakenduse {1} jaoks ei leitud PATH-ist.\n"
+"\n"
+"Installige asukohast: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Binaarfaili {0} käivitamine ebaõnnestus ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} tunnel töötab ja vastab!\n"
+"\n"
+"Avalik lõpp-punkt:\n"
+"{1}\n"
+"\n"
+"Tervisekontroll: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} tunnel on aktiivne!\n"
+"\n"
+"Avalik lõpp-punkt:\n"
+"{1}\n"
+"\n"
+"(Avalik URL on saadud aktiivsest tunneli seansist.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} binaarfail '{1}' on kontrollitud ({2}).\n"
+"\n"
+"(Märkus: aktiivne {3} tunnel töötab hetkel aadressil {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
+"\n"
+"MCP-server töötab kohalikult pordis {3}.\n"
+"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida avalik marsruutimine."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
+"\n"
+"Märkus: MCP-server ei tööta hetkel pordis {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP-serveri olek"
@@ -3588,16 +3871,71 @@ msgstr "Nõustu kõigiga"
 msgid "Reject all"
 msgstr "Keeldu kõigist"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Mudelite laadimine…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Teksti tuvastamine…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Teksti ei tuvastatud."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Eelvaate renderdamine…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Valitud pilti ei õnnestunud eksportida: {error}"
+msgid "Done: {count} characters."
+msgstr "Valmis: {count} märki."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR-i sisestamine nõuab Writeri või Calci dokumenti; Draw/Impressi "
+"puhul kasuta eelvaadet."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Sisestamine…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Sisestatud {count} pilti."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Sisestatud: {count} märki."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr "Pilt säilitati, kuna Agendi muudatuste ülevaade salvestab muudatusi."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Eelvaate dokumenti ei saanud luua."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Eelvaate lehekülge ei saanud renderdada."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr ""
 "Valige manustatud pilt (või pilte sisaldav vahemik) ja käivitage uuesti."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Valitud pilti ei õnnestunud eksportida: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3676,226 +4014,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Pilt eemaldati OCR-sisestuse ettevalmistamise ajal."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nimetut pilti ei saa pärast OCR-i sisestamist kustutada."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Pilt eemaldati OCR-sisestuse ajal."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
-" kaustas"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP-serveri käivitamine ebaõnnestus"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Peata MCP-server"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Käivita MCP-server"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP-server ei tööta"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP-server töötab"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Marsruudid: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Kohalik URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Avalik URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Kohalik lõpp-punkt:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Avalik tunnel ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Olek: Aktiivne (ühendatud)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Olek: Taasühendamine — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "proovin uuesti…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Olek: Tunneli käivitamine…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Olek: Nurjus — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Olek: Ei tööta (kas {0} binaarfail on installitud?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopeeritud!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testimine…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testi tunnelit"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP tunneli test"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Avalik tunnel {0} kaudu (autentimiseta)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Avalik tunnel kaudu {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "taasühendamine…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Avalik tunnel {0} kaudu ebaõnnestus: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Avalik tunnel {0} kaudu käivitub…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Avalik tunnel {0} kaudu ei tööta (kas pakkuja binaarfail on installitud?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tunneli testrežiim: {0} pakkuja simuleerimine õnnestus."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Tundelipakkuja on tundmatu: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binaarfaili '{0}' rakenduse {1} jaoks ei leitud PATH-ist.\n"
-"\n"
-"Installige asukohast: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Binaarfaili {0} käivitamine ebaõnnestus ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} tunnel töötab ja vastab!\n"
-"\n"
-"Avalik lõpp-punkt:\n"
-"{1}\n"
-"\n"
-"Tervisekontroll: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} tunnel on aktiivne!\n"
-"\n"
-"Avalik lõpp-punkt:\n"
-"{1}\n"
-"\n"
-"(Avalik URL on saadud aktiivsest tunneli seansist.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} binaarfail '{1}' on kontrollitud ({2}).\n"
-"\n"
-"(Märkus: aktiivne {3} tunnel töötab hetkel aadressil {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
-"\n"
-"MCP-server töötab kohalikult pordis {3}.\n"
-"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida avalik marsruutimine."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
-"\n"
-"Märkus: MCP-server ei tööta hetkel pordis {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: OCR-i sisestamine"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4595,18 +4723,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Humaniseerimisoskus (loomulik proosa)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Kui see on lubatud, lisatakse süsteemiviibale juhised, et mudel muudaks "
-"loodud või muudetud dokumenditeksti loomulikumaks ja inimlikumaks (eemaldab "
-"tehisintellektile omased klišeed). Muutke reegleid oma LibreOffice'i "
-"profiilis asukohas writeragent/skills/humanizer/SKILL.md (fail luuakse "
-"automaatselt esmakordsel kasutamisel). Spetsiaalse oskuste vahekaardi saab "
-"lisada hiljem."
+"Kui see on lubatud, lisatakse süsteemiviipasse sisseehitatud juhised, et "
+"mudeli loodud või muudetud dokumenditekst kõlaks loomulikumalt ja "
+"inimlikumalt (eemaldab tehisintellektile omased klišeed)."
 
 msgid "Silence before send (ms)"
 msgstr "Vaikus enne saatmist (ms)"
@@ -4801,6 +4924,69 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Põhiteenused (konfiguratsioon, sündmused, logimine)"
 
+msgid "Integrations"
+msgstr "Integratsioonid"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-serverid külgriba vestluse jaoks"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Lisa"
+
+msgid "Remove"
+msgstr "Eemalda"
+
+msgid "Use this MCP server in chat"
+msgstr "Kasuta seda MCP-serverit vestluses"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Ainult külgriba vestluses (mcp-domeen); ei avaldata kunagi WriterAgenti MCP-"
+"serverile ega skriptidele."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Usalda selle kirjutuskaitstud tööriistu (ilma viipeta)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Serveri poolt kirjutuskaitstuks (readOnlyHint) märgitud tööriistad "
+"käivituvad ilma kinnitamise/muutmise/tagasilükkamiseta; iga muu päring küsib"
+" endiselt kinnitust"
+
+msgid "Name"
+msgstr "Nimi"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Lisab selle serveri tööriistade nimedele eesliite (nt home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Serveri URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Voogedastatav HTTP MCP-lõpp-punkt, nt http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-token. Sätte „OK“ salvestab selle süsteemi võtmehoidlasse, kui see on"
+" saadaval, vastasel juhul faili writeragent.json."
+
+msgid "Status"
+msgstr "Olek"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4899,69 +5085,6 @@ msgstr "Kliendi konfiguratsioon (kopeerige Claude / Hermes-Agenti):"
 
 msgid "Copy Config"
 msgstr "Kopeeri seadistus"
-
-msgid "Integrations"
-msgstr "Integratsioonid"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "MCP-serverid külgriba vestluse jaoks"
-
-msgid "Server"
-msgstr "Server"
-
-msgid "Add"
-msgstr "Lisa"
-
-msgid "Remove"
-msgstr "Eemalda"
-
-msgid "Use this MCP server in chat"
-msgstr "Kasuta seda MCP-serverit vestluses"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Ainult külgriba vestluses (mcp-domeen); ei avaldata kunagi WriterAgenti MCP-"
-"serverile ega skriptidele."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Usalda selle kirjutuskaitstud tööriistu (ilma viipeta)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Serveri poolt kirjutuskaitstuks (readOnlyHint) märgitud tööriistad "
-"käivituvad ilma kinnitamise/muutmise/tagasilükkamiseta; iga muu päring küsib"
-" endiselt kinnitust"
-
-msgid "Name"
-msgstr "Nimi"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Lisab selle serveri tööriistade nimedele eesliite (nt home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "Serveri URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Voogedastatav HTTP MCP-lõpp-punkt, nt http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer-token. Sätte „OK“ salvestab selle süsteemi võtmehoidlasse, kui see on"
-" saadaval, vastasel juhul faili writeragent.json."
-
-msgid "Status"
-msgstr "Olek"
 
 msgid "Notebook"
 msgstr "Märkmik"
@@ -5073,14 +5196,18 @@ msgstr "Luba failidele juurdepääs"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
 "Kui see on märgitud, võib Python lugeda ja kirjutada faile kõikjal (open, "
-"io, pathlib, shutil, tempfile, sqlite3, glob ja os-failikutsumised nagu "
-"listdir ja stat). Kui see pole märgitud, on need lugemis- ja "
-"kirjutamistoimingud blokeeritud. Mälupuhvrid (io.BytesIO, io.StringIO) "
-"jäävad kättesaadavaks."
+"io, pathlib, shutil, tempfile, sqlite3, glob ja failitoimingud nagu listdir "
+"ja stat). Kui see pole märgitud, on need lugemis- ja kirjutamistoimingud "
+"blokeeritud; mälupuhvrid (io.BytesIO, io.StringIO) ja dokumendifailide "
+"abifunktsioonid (wa.document.open, wa.document.save, wa.document.export, mis"
+" on ligipääsetavad MCP ja Pythoni skriptide kaudu, kuid mida ei pakuta "
+"külgriba vestlusmudelile) jäävad kättesaadavaks."
 
 msgid "Allow OS access"
 msgstr "Luba juurdepääs operatsioonisüsteemile"
@@ -5117,11 +5244,11 @@ msgstr ""
 "Redaktoriaken Pythoni lahtris redigeerimiseks, Pythoni skripti "
 "käivitamiseks, init-skripti ja LaTeX-i jaoks."
 
-msgid "Monaco (default)"
-msgstr "Monaco (vaikimisi)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Visioon / OCR"
@@ -5133,35 +5260,98 @@ msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr ""
 "Skaleeri enne OCR-i/küljendamist. Väikeste ekraanitõmmiste puhul proovi 2.0."
 
-msgid "Worker timeout (seconds)"
-msgstr "Tööprotsessi ajalõpp (sekundites)"
+msgid "Document timeout (s)"
+msgstr "Dokumendi ajalõpp (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Vision Helperi alamprotsesside piirang (esmane mudeli allalaadimine)."
-
-msgid "Docling artifacts path"
-msgstr "Doclingi artefaktide asukoht"
-
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Valikuline kaust docling-toolsi mudelite allalaadimiseks (võrguühenduseta "
-"kasutamiseks)."
+"Peatab Doclingi dokumendi töötlemise pärast määratud sekundite möödumist ja "
+"säilitab seni valminud leheküljed. Mudeli allalaadimine ja laadimine ei lähe"
+" arvesse. 0 lülitab piirangu välja."
+
+msgid "OCR engine"
+msgstr "OCR-mootor"
+
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Doclingi kasutatav OCR-mootor. Kõik mootorid peale RapidOCR-i (ONNX) peavad "
+"olema Pythoni venv-keskkonda installitud; Sätted → Python → Test loetleb "
+"installitud mootorid."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, vaikevalik)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (käsurea)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR-keel"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Keelekoodid, nt en, de või zh-TW, komadega eraldatult. Doclingi mootorid "
+"loevad iga koodi; Paddle'i mootor loeb esimest. Tühjaks jätmisel kasutatakse"
+" pildi või LibreOffice'i keelt."
+
+msgid "Device"
+msgstr "Seade"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Riistvara Doclingi mudelite jaoks. „Auto“ kasutab GPU-d, kui Docling selle "
+"leiab; CPU töötab alati."
+
+msgid "Auto"
+msgstr "Automaatne"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR-i usaldusväärsuse lävi"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR-i minimaalne teksti skoor. 0.0 on tegelik lävi (mitte "
-"vaikeväärtus). Tõstke seda, et vähendada prügiteksti."
-
-msgid "OCR entire image"
-msgstr "OCR-i rakendamine kogu pildile"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Soovitatav LibreOffice'ist eksporditud manustatud graafika jaoks."
+"Minimaalne usaldusväärsus tuvastatud teksti jaoks (RapidOCR ja EasyOCR; "
+"teised mootorid eiravad seda). Suurendage seda prügiteksti eemaldamiseks; "
+"0.0 säilitab kogu teksti."
 
 msgid "Table extraction mode"
 msgstr "Tabelite eraldamise režiim"
@@ -5200,6 +5390,14 @@ msgstr "Standardne HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Struktureeritud (paigutus / lahtrivõrk)"
 
+msgid "Delete image after OCR"
+msgstr "Kustuta pilt pärast OCR-i"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Eemaldage lähtepilt dokumendist pärast seda, kui OCR on selle sisu lisanud."
+
 msgid "Layout model"
 msgstr "Paigutusmudel"
 
@@ -5223,8 +5421,44 @@ msgstr "Koodiploki rikastamine"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Spetsialiseeritud OCR koodi/terminali ekraanitõmmiste jaoks."
 
-msgid "Docling document timeout (s)"
-msgstr "Doclingi dokumendi ajalõpp (s)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR-i mudeli suurus"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"RapidOCR-i mudeli suurus PP-OCRv6 keelte jaoks; teised keeled eiravad seda. "
+"Tiny on kiireim ja sellel pole jaapani keele mudelit; medium on kõige "
+"täpsem."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (vaikimisi)"
+
+msgid "Medium"
+msgstr "Keskmine"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Paranda pööratud tekst (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Loe piirkonda uuesti 90, 180 ja 270 kraadi juures, kui vähem kui pooled read"
+" on loetavad piisava kindlusega. Parandab külili skaneeringuid; võtab aega "
+"ainult kehvade lugemiste korral. Rakendub RapidOCR-i mootoritele."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Visioni tuvastus"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Ainult Apple Vision (macOS). Kiire režiim on kiirem, kuid vähem täpne ja "
+"toetab vähem keeli."

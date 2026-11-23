@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "अंतिम एजेंट संपादन को पूर्�
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "अंतिम एजेंट संपादन को पूर्ववत किया गया ({0} चरण)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "छवि नहीं मिली।"
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "छवि को हटाया नहीं जा सका: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -700,11 +709,11 @@ msgstr "पहले एक Calc स्प्रेडशीट खोलें�
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco संपादक writeragent.json में "
-"\"scripting.force_internal_script_editor\" द्वारा अक्षम है।"
+"writeragent.json में \"scripting.force_internal_script_editor\" द्वारा पायथन"
+" संपादक विंडो अक्षम कर दी गई है।"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1224,6 +1233,10 @@ msgstr "इस परिवर्तन को स्वीकार करे�
 msgid "Reject this change"
 msgstr "इस परिवर्तन को अस्वीकार करें"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "पूर्वावलोकन छवि को डिकोड नहीं किया जा सका।"
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1627,6 +1640,25 @@ msgstr "क्यों"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "आप"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "चल रहा है…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "रद्द किया गया।"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "पूर्वावलोकन विफल: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "रन विफल: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2340,6 +2372,35 @@ msgstr "'%s' को केवल-पठनीय (read-only) एक्सेस 
 msgid "Web research completed."
 msgstr "वेब अनुसंधान पूर्ण हुआ।"
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama ने num_ctx की रिपोर्ट नहीं दी, इसलिए WriterAgent ने {0} टोकन मान लिए,"
+" जो वेब शोध के लिए बहुत कम हैं (अकेले शोध प्रॉम्प्ट और टूल लगभग 2,000 टोकन "
+"का उपयोग करते हैं, साथ ही आउटपुट टोकन)। num_ctx को कम से कम {1} तक बढ़ाएं "
+"(Modelfile में PARAMETER num_ctx {2} या उससे अधिक के माध्यम से ollama create"
+" का उपयोग करके), फिर सेटिंग्स में 'टेस्ट कनेक्शन' का उपयोग करें (या "
+"LibreOffice को पुनरारंभ करें) और पुनः प्रयास करें।"
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"संदर्भ विंडो ({0} टोकन) वेब शोध के लिए बहुत छोटी है (अकेले शोध प्रॉम्प्ट और "
+"टूल लगभग 2,000 टोकन का उपयोग करते हैं, साथ ही आउटपुट टोकन)। num_ctx को कम से"
+" कम {1} तक बढ़ाएं (या बड़ी संदर्भ विंडो वाले मॉडल पर स्विच करें) और पुनः "
+"प्रयास करें।"
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2618,10 +2679,6 @@ msgstr "नया पायथन स्क्रिप्ट"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "स्क्रिप्ट का नाम:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "चल रहा है…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2939,12 +2996,12 @@ msgstr "Venv जांच विफल रही"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Settings → Python में Python venv पथ सेट करें (वही venv जहाँ आपने 'uv pip "
-"install pywebview rocher' चलाया था)। LibreOffice का इन-बिल्ट Python एडिटर को"
-" नहीं चला सकता।"
+"Settings → Python में पायथन venv पथ सेट करें (वही venv जहाँ आपने 'uv pip "
+"install pywebview' चलाया था)। LibreOffice का इन-बिल्ट पायथन संपादक को नहीं "
+"चला सकता।"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3033,12 +3090,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "ऑडियो जांच विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco जाँच का समय समाप्त हो गया।"
+msgid "UI / Editor probe timed out."
+msgstr "UI / संपादक जांच (probe) का समय समाप्त हो गया।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco जाँच विफल रही (writeragent_debug.log देखें)।"
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / संपादक जांच (probe) विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3084,6 +3141,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB जाँच विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR इस venv में शुरू नहीं हो सकता:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "कोई माइक्रोफ़ोन इनपुट डिवाइस नहीं मिला।"
 
@@ -3118,8 +3179,8 @@ msgid "Audio Recording & Speech"
 msgstr "ऑडियो रिकॉर्डिंग और स्पीच"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco लाइब्रेरीज़: स्क्रिप्ट वर्कर के बाहर जाँच की जा रही है..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / संपादक लाइब्रेरी: स्क्रिप्ट वर्कर के बाहर जांच की जा रही है..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3497,7 +3558,7 @@ msgstr ""
 "Vision सहायकों के लिए Writer, Calc, Draw, या Impress दस्तावेज़ की आवश्यकता "
 "है।"
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Vision helper विफल रहा।"
 
@@ -3589,6 +3650,225 @@ msgstr "इन-बिल्ट स्क्रिप्ट डायलॉग �
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Run Python Script खोलते समय एक अप्रत्याशित त्रुटि हुई।"
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"अपने LibreOffice उपयोगकर्ता कॉन्फ़िगरेशन फ़ोल्डर में writeragent_debug.log "
+"की जाँच करें"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP सर्वर प्रारंभ होने में विफल"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "MCP सर्वर रोकें"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "MCP सर्वर प्रारंभ करें"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP सर्वर नहीं चल रहा है"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP सर्वर चल रहा है"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "रूट्स: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "स्थानीय URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "सार्वजनिक URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "स्थानीय एंडपॉइंट:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "सार्वजनिक टनल ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "स्थिति: सक्रिय (कनेक्टेड)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "स्थिति: पुनः कनेक्ट हो रहा है — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "पुनः प्रयास किया जा रहा है…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "स्थिति: टनल शुरू हो रहा है…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "स्थिति: विफल — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "स्थिति: नहीं चल रहा है (क्या {0} बाइनरी इंस्टॉल है?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ कॉपी किया गया!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "परीक्षण किया जा रहा है…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "टेस्ट टनल"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP टनल टेस्ट"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} के माध्यम से सार्वजनिक टनल (कोई प्रमाणीकरण नहीं)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} के माध्यम से सार्वजनिक टनल: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "पुनः कनेक्ट हो रहा है…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} के माध्यम से सार्वजनिक टनल विफल: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} के माध्यम से सार्वजनिक टनल शुरू हो रही है…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"{0} के माध्यम से सार्वजनिक टनल नहीं चल रही है (क्या प्रदाता बाइनरी इंस्टॉल "
+"है?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "टनल परीक्षण मोड: {0} प्रदाता सफलतापूर्वक सिम्युलेट किया गया।"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "अज्ञात टनल प्रदाता: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"{1} के लिए बाइनरी '{0}' PATH पर नहीं मिली।\n"
+"\n"
+"यहाँ से इंस्टॉल करें: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "{0} बाइनरी ({1}) निष्पादित करने में विफल: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} टनल चल रही है और प्रतिक्रिया दे रही है!\n"
+"\n"
+"सार्वजनिक एंडपॉइंट:\n"
+"{1}\n"
+"\n"
+"हेल्थ चेक: ठीक है (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} टनल सक्रिय है!\n"
+"\n"
+"सार्वजनिक एंडपॉइंट:\n"
+"{1}\n"
+"\n"
+"(सक्रिय टनल सत्र से प्राप्त सार्वजनिक URL।)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} बाइनरी '{1}' सत्यापित है ({2})।\n"
+"\n"
+"(नोट: एक सक्रिय {3} टनल वर्तमान में {4} पर चल रही है।)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} बाइनरी '{1}' इंस्टॉल और सत्यापित है ({2})।\n"
+"\n"
+"MCP सर्वर स्थानीय रूप से पोर्ट {3} पर चल रहा है।\n"
+"सार्वजनिक रूटिंग सक्रिय करने के लिए 'सार्वजनिक टनल के माध्यम से एक्सपोज़ करें' चुनें और ठीक (OK) पर क्लिक करें।"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} बाइनरी '{1}' इंस्टॉल और सत्यापित है ({2})।\n"
+"\n"
+"नोट: MCP सर्वर वर्तमान में पोर्ट {3} पर नहीं चल रहा है।"
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP सर्वर स्थिति"
@@ -3609,15 +3889,72 @@ msgstr "सभी स्वीकार करें"
 msgid "Reject all"
 msgstr "सभी अस्वीकार करें"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "मॉडल लोड हो रहे हैं…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "टेक्स्ट पहचाना जा रहा है…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "कोई टेक्स्ट नहीं मिला।"
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "पूर्वावलोकन रेंडर किया जा रहा है…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "चयनित छवि को निर्यात नहीं किया जा सका: {error}"
+msgid "Done: {count} characters."
+msgstr "पूर्ण: {count} वर्ण।"
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR इंसर्ट के लिए Writer या Calc दस्तावेज़ की आवश्यकता है; "
+"Draw/Impress के लिए पूर्वावलोकन का उपयोग करें।"
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "इंसर्ट किया जा रहा है…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "{count} चित्र इंसर्ट किए गए।"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "इंसर्ट किया गया: {count} वर्ण।"
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"चित्र को रखा गया है क्योंकि एजेंट संपादन समीक्षा परिवर्तनों को रिकॉर्ड कर "
+"रही है।"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "पूर्वावलोकन दस्तावेज़ नहीं बनाया जा सका।"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "पूर्वावलोकन पृष्ठ प्रस्तुत नहीं किया जा सका।"
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr "एक एम्बेडेड चित्र (या चित्रों वाली एक श्रेणी) चुनें, फिर पुनः चलाएँ।"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "चयनित छवि को निर्यात नहीं किया जा सका: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3698,227 +4035,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "OCR इन्सर्ट तैयार करते समय इमेज हटा दी गई थी।"
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "OCR प्रविष्टि के बाद बिना नाम वाली छवि को हटाया नहीं जा सकता।"
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "OCR इन्सर्ट के दौरान इमेज हटा दी गई थी।"
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"अपने LibreOffice उपयोगकर्ता कॉन्फ़िगरेशन फ़ोल्डर में writeragent_debug.log "
-"की जाँच करें"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP सर्वर प्रारंभ होने में विफल"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "MCP सर्वर रोकें"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "MCP सर्वर प्रारंभ करें"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP सर्वर नहीं चल रहा है"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP सर्वर चल रहा है"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "रूट्स: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "स्थानीय URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "सार्वजनिक URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "स्थानीय एंडपॉइंट:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "सार्वजनिक टनल ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "स्थिति: सक्रिय (कनेक्टेड)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "स्थिति: पुनः कनेक्ट हो रहा है — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "पुनः प्रयास किया जा रहा है…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "स्थिति: टनल शुरू हो रहा है…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "स्थिति: विफल — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "स्थिति: नहीं चल रहा है (क्या {0} बाइनरी इंस्टॉल है?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ कॉपी किया गया!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "परीक्षण किया जा रहा है…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "टेस्ट टनल"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP टनल टेस्ट"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} के माध्यम से सार्वजनिक टनल (कोई प्रमाणीकरण नहीं)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} के माध्यम से सार्वजनिक टनल: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "पुनः कनेक्ट हो रहा है…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} के माध्यम से सार्वजनिक टनल विफल: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} के माध्यम से सार्वजनिक टनल शुरू हो रही है…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"{0} के माध्यम से सार्वजनिक टनल नहीं चल रही है (क्या प्रदाता बाइनरी इंस्टॉल "
-"है?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "टनल परीक्षण मोड: {0} प्रदाता सफलतापूर्वक सिम्युलेट किया गया।"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "अज्ञात टनल प्रदाता: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"{1} के लिए बाइनरी '{0}' PATH पर नहीं मिली।\n"
-"\n"
-"यहाँ से इंस्टॉल करें: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "{0} बाइनरी ({1}) निष्पादित करने में विफल: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} टनल चल रही है और प्रतिक्रिया दे रही है!\n"
-"\n"
-"सार्वजनिक एंडपॉइंट:\n"
-"{1}\n"
-"\n"
-"हेल्थ चेक: ठीक है (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} टनल सक्रिय है!\n"
-"\n"
-"सार्वजनिक एंडपॉइंट:\n"
-"{1}\n"
-"\n"
-"(सक्रिय टनल सत्र से प्राप्त सार्वजनिक URL।)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} बाइनरी '{1}' सत्यापित है ({2})।\n"
-"\n"
-"(नोट: एक सक्रिय {3} टनल वर्तमान में {4} पर चल रही है।)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} बाइनरी '{1}' इंस्टॉल और सत्यापित है ({2})।\n"
-"\n"
-"MCP सर्वर स्थानीय रूप से पोर्ट {3} पर चल रहा है।\n"
-"सार्वजनिक रूटिंग सक्रिय करने के लिए 'सार्वजनिक टनल के माध्यम से एक्सपोज़ करें' चुनें और ठीक (OK) पर क्लिक करें।"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} बाइनरी '{1}' इंस्टॉल और सत्यापित है ({2})।\n"
-"\n"
-"नोट: MCP सर्वर वर्तमान में पोर्ट {3} पर नहीं चल रहा है।"
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: OCR डालें"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4623,18 +4749,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "ह्यूमेनाइज़र कौशल (प्राकृतिक गद्य)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"जब सक्षम किया जाता है, तो यह सिस्टम प्रॉम्प्ट में मार्गदर्शन इंजेक्ट करता है"
-" ताकि मॉडल द्वारा उत्पन्न या संशोधित दस्तावेज़ पाठ अधिक प्राकृतिक और मानवीय "
-"लगे (AI स्लोप पैटर्न को हटाता है)। अपने LibreOffice प्रोफ़ाइल में "
-"writeragent/skills/humanizer/SKILL.md के अंतर्गत नियमों को संपादित करें (यह "
-"फ़ाइल पहली बार उपयोग करने पर स्वतः बन जाती है)। एक समर्पित कौशल टैब बाद में "
-"जोड़ा जा सकता है।"
+"जब सक्षम किया जाता है, तो यह सिस्टम प्रॉम्प्ट में इन-बिल्ट मार्गदर्शन "
+"इंजेक्ट करता है ताकि मॉडल द्वारा उत्पन्न या संशोधित दस्तावेज़ टेक्स्ट अधिक "
+"स्वाभाविक और मानवीय लगे (AI स्लोप पैटर्न को हटाता है)।"
 
 msgid "Silence before send (ms)"
 msgstr "भेजने से पहले मौन (ms)"
@@ -4826,6 +4947,68 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "कोर सेवाएँ (कॉन्फ़िगरेशन, ईवेंट, लॉगिंग)"
 
+msgid "Integrations"
+msgstr "एकीकरण"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "साइडबार चैट के लिए MCP सर्वर"
+
+msgid "Server"
+msgstr "सर्वर"
+
+msgid "Add"
+msgstr "जोड़ें"
+
+msgid "Remove"
+msgstr "हटाएं"
+
+msgid "Use this MCP server in chat"
+msgstr "चैट में इस MCP सर्वर का उपयोग करें"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"केवल साइडबार चैट (mcp डोमेन); WriterAgent के MCP सर्वर या स्क्रिप्ट के लिए "
+"कभी भी उजागर नहीं किया गया।"
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "इसके रीड-ओनली टूल पर भरोसा करें (कोई प्रॉम्प्ट नहीं)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"सर्वर द्वारा readOnlyHint चिह्नित टूल स्वीकारें / बदलें / अस्वीकार करें के "
+"बिना चलते हैं; हर दूसरा कॉल अभी भी पूछता है"
+
+msgid "Name"
+msgstr "नाम"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"इस सर्वर के टूल नामों के लिए उपसर्ग जोड़ता है (उदाहरण: home -> "
+"mcp__home__tool)।"
+
+msgid "Server URL"
+msgstr "सर्वर URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP एंडपॉइंट, उदाहरण: http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "टोकन"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"बेयरर टोकन। 'Settings OK' इसे उपलब्ध होने पर सिस्टम कीरिंग में सहेजता है, "
+"अन्यथा writeragent.json में सहेजता है।"
+
+msgid "Status"
+msgstr "स्थिति"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4922,68 +5105,6 @@ msgstr "क्लाइंट कॉन्फ़िगरेशन (Claude / Her
 
 msgid "Copy Config"
 msgstr "कॉन्फ़िगरेशन कॉपी करें"
-
-msgid "Integrations"
-msgstr "एकीकरण"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "साइडबार चैट के लिए MCP सर्वर"
-
-msgid "Server"
-msgstr "सर्वर"
-
-msgid "Add"
-msgstr "जोड़ें"
-
-msgid "Remove"
-msgstr "हटाएं"
-
-msgid "Use this MCP server in chat"
-msgstr "चैट में इस MCP सर्वर का उपयोग करें"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"केवल साइडबार चैट (mcp डोमेन); WriterAgent के MCP सर्वर या स्क्रिप्ट के लिए "
-"कभी भी उजागर नहीं किया गया।"
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "इसके रीड-ओनली टूल पर भरोसा करें (कोई प्रॉम्प्ट नहीं)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"सर्वर द्वारा readOnlyHint चिह्नित टूल स्वीकारें / बदलें / अस्वीकार करें के "
-"बिना चलते हैं; हर दूसरा कॉल अभी भी पूछता है"
-
-msgid "Name"
-msgstr "नाम"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"इस सर्वर के टूल नामों के लिए उपसर्ग जोड़ता है (उदाहरण: home -> "
-"mcp__home__tool)।"
-
-msgid "Server URL"
-msgstr "सर्वर URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Streamable-HTTP MCP एंडपॉइंट, उदाहरण: http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "टोकन"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"बेयरर टोकन। 'Settings OK' इसे उपलब्ध होने पर सिस्टम कीरिंग में सहेजता है, "
-"अन्यथा writeragent.json में सहेजता है।"
-
-msgid "Status"
-msgstr "स्थिति"
 
 msgid "Notebook"
 msgstr "नोटबुक"
@@ -5092,13 +5213,18 @@ msgstr "फ़ाइल एक्सेस की अनुमति दें"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"जब चेक किया जाता है, तो Python कहीं भी फ़ाइलें पढ़ और लिख सकता है (open, io,"
-" pathlib, shutil, tempfile, sqlite3, glob, और os फ़ाइल कॉल जैसे listdir और "
-"stat)। जब अनचेक किया जाता है, तो वे रीड और राइट ब्लॉक कर दिए जाते हैं। "
-"इन-मेमोरी बफ़र्स (io.BytesIO, io.StringIO) उपलब्ध रहते हैं।"
+"जब चेक किया जाता है, तो पायथन कहीं भी फ़ाइलें पढ़ और लिख सकता है (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob, और os फ़ाइल कॉल जैसे listdir और "
+"stat)। जब अनचेक किया जाता है, तो वे रीड और राइट ब्लॉक हो जाते हैं; इन-मेमोरी"
+" बफ़र्स (io.BytesIO, io.StringIO) और दस्तावेज़ फ़ाइल हेल्पर्स "
+"(wa.document.open, wa.document.save, wa.document.export, जो MCP और "
+"पायथन-स्क्रिप्ट द्वारा एक्सेस योग्य हैं, साइडबार चैट मॉडल को नहीं दिए जाते) "
+"उपलब्ध रहते हैं।"
 
 msgid "Allow OS access"
 msgstr "OS एक्सेस की अनुमति दें"
@@ -5136,11 +5262,11 @@ msgstr ""
 "सेल में पायथन संपादित करें, पायथन स्क्रिप्ट चलाएँ, इनिट स्क्रिप्ट और लेटेक्स"
 " (LaTeX) के लिए संपादक विंडो।"
 
-msgid "Monaco (default)"
-msgstr "मोनाको (डिफ़ॉल्ट)"
-
 msgid "CodeMirror"
 msgstr "कोडमिरर (CodeMirror)"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -5151,33 +5277,98 @@ msgstr "छवि स्केल"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "OCR/लेआउट से पहले अपस्केल करें। छोटे स्क्रीनशॉट के लिए 2.0 आज़माएं।"
 
-msgid "Worker timeout (seconds)"
-msgstr "वर्कर टाइमआउट (सेकंड)"
+msgid "Document timeout (s)"
+msgstr "दस्तावेज़ समय-सीमा (सेकंड)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Vision Helpers के लिए होस्ट सबप्रोसेस सीमा (पहला मॉडल डाउनलोड)।"
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
+msgstr ""
+"यह इतने सेकंड के बाद एक दस्तावेज़ की Docling प्रोसेसिंग को रोक देता है और अब"
+" तक पूरे हुए पृष्ठों को सुरक्षित रखता है। मॉडल डाउनलोड और लोडिंग इसमें शामिल"
+" नहीं हैं। 0 सीमा को बंद कर देता है।"
 
-msgid "Docling artifacts path"
-msgstr "Docling आर्टिफैक्ट्स पथ"
+msgid "OCR engine"
+msgstr "OCR इंजन"
 
-msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "docling-tools मॉडल डाउनलोड (ऑफ़लाइन उपयोग) के लिए वैकल्पिक फ़ोल्डर।"
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Docling द्वारा उपयोग किया जाने वाला OCR इंजन। RapidOCR (ONNX) को छोड़कर "
+"प्रत्येक इंजन को Python venv में स्थापित होना चाहिए; सेटिंग्स → Python → "
+"टेस्ट स्थापित इंजनों की सूची दिखाता है।"
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, डिफ़ॉल्ट)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (कमांड लाइन)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR भाषा"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"भाषा कोड जैसे en, de या zh-TW, अल्पविराम से अलग किए गए। Docling इंजन हर कोड "
+"को पढ़ते हैं; Paddle इंजन पहले कोड को पढ़ता है। खाली छोड़ने पर छवि या "
+"LibreOffice की भाषा का उपयोग होता है।"
+
+msgid "Device"
+msgstr "डिवाइस"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Docling के मॉडल के लिए हार्डवेयर। Auto विकल्प GPU मिलने पर उसका उपयोग करता "
+"है; CPU हमेशा काम करता है।"
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR कॉन्फिडेंस थ्रेशोल्ड"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR न्यूनतम टेक्स्ट स्कोर। 0.0 एक वास्तविक थ्रेशोल्ड है (डिफ़ॉल्ट "
-"नहीं)। कचरा टेक्स्ट (garbage text) को कम करने के लिए इसे बढ़ाएं।"
-
-msgid "OCR entire image"
-msgstr "संपूर्ण छवि का OCR करें"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "LibreOffice से एक्सपोर्ट की गई एम्बेडेड ग्राफिक्स के लिए अनुशंसित।"
+"पहचाने गए टेक्स्ट के लिए न्यूनतम कॉन्फिडेंस (RapidOCR और EasyOCR; अन्य इंजन "
+"इसे अनदेखा करते हैं)। कचरा टेक्स्ट को हटाने के लिए इसे बढ़ाएं; 0.0 सभी "
+"टेक्स्ट को रखता है।"
 
 msgid "Table extraction mode"
 msgstr "तालिका निष्कर्षण मोड"
@@ -5219,6 +5410,13 @@ msgstr "मानक HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "संरचित (लेआउट / सेल ग्रिड)"
 
+msgid "Delete image after OCR"
+msgstr "OCR के बाद इमेज हटाएं"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "OCR द्वारा सामग्री डालने के बाद दस्तावेज़ से स्रोत इमेज को हटा दें।"
+
 msgid "Layout model"
 msgstr "लेआउट मॉडल"
 
@@ -5241,8 +5439,43 @@ msgstr "कोड ब्लॉक संवर्धन"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "कोड/टर्मिनल स्क्रीनशॉट के लिए विशेष OCR।"
 
-msgid "Docling document timeout (s)"
-msgstr "Docling दस्तावेज़ समय-सीमा (सेकंड)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR मॉडल का आकार"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Docling के भीतर प्रति-रूपांतरण समय-सीमा। 0 = कोई सीमा नहीं।"
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"PP-OCRv6 भाषाओं के लिए RapidOCR मॉडल का आकार; अन्य भाषाएं इसे अनदेखा करती "
+"हैं। Tiny सबसे तेज़ है और इसमें जापानी मॉडल नहीं है; medium सबसे सटीक है।"
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (डिफ़ॉल्ट)"
+
+msgid "Medium"
+msgstr "मध्यम"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "घुमाए गए टेक्स्ट को ठीक करें (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"जब आधे से कम पंक्तियाँ स्पष्ट रूप से पढ़ी जा सकें, तो 90, 180 और 270 डिग्री "
+"पर क्षेत्र को पुनः पढ़ें। यह तिरछे स्कैन को ठीक करता है; केवल खराब रीड पर "
+"समय लेता है। यह RapidOCR इंजन पर लागू होता है।"
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision पहचान"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"केवल Apple Vision (macOS)। 'Fast' विकल्प तेज़ है लेकिन कम सटीक है और कम "
+"भाषाएँ पढ़ता है।"

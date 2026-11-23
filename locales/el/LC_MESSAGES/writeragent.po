@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -34,6 +34,15 @@ msgstr "Δεν ήταν δυνατή η αναίρεση της τελευταί
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Αναιρέθηκε η τελευταία επεξεργασία του πράκτορα ({0} βήματα)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Η εικόνα δεν βρέθηκε."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Αποτυχία διαγραφής της εικόνας: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -714,11 +723,11 @@ msgstr "Ανοίξτε πρώτα ένα υπολογιστικό φύλλο Cal
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Ο επεξεργαστής Monaco είναι απενεργοποιημένος από το "
-"\"scripting.force_internal_script_editor\" στο writeragent.json."
+"Το παράθυρο επεξεργασίας Python είναι απενεργοποιημένο από την επιλογή "
+"\"scripting.force_internal_script_editor\" στο αρχείο writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1255,6 +1264,10 @@ msgstr "Αποδοχή αυτής της αλλαγής"
 msgid "Reject this change"
 msgstr "Απόρριψη αυτής της αλλαγής"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Αποτυχία αποκωδικοποίησης της εικόνας προεπισκόπησης."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1659,6 +1672,25 @@ msgstr "γιατί"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "εσείς"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Εκτέλεση…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Ακυρώθηκε."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Η προεπισκόπηση απέτυχε: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Η εκτέλεση απέτυχε: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2387,6 +2419,37 @@ msgstr "Άνοιγμα του '%s' για πρόσβαση μόνο για αν�
 msgid "Web research completed."
 msgstr "Η έρευνα στον ιστό ολοκληρώθηκε."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Το Ollama δεν ανέφερε num_ctx, οπότε το WriterAgent υπέθεσε {0} tokens, τιμή"
+" πολύ μικρή για διαδικτυακή έρευνα (το prompt έρευνας και τα εργαλεία από "
+"μόνο τους χρησιμοποιούν περίπου 2.000 tokens, συν τα tokens εξόδου). Αυξήστε"
+" το num_ctx σε τουλάχιστον {1} (μέσω PARAMETER num_ctx {2} ή υψηλότερο σε "
+"ένα αρχείο Modelfile με ollama create), στη συνέχεια χρησιμοποιήστε το "
+"«Δοκιμή σύνδεσης» στις Ρυθμίσεις (ή επανεκκινήστε το LibreOffice) και "
+"προσπαθήστε ξανά."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Το παράθυρο πλαισίου ({0} tokens) είναι πολύ μικρό για διαδικτυακή έρευνα "
+"(το prompt έρευνας και τα εργαλεία από μόνο τους χρησιμοποιούν περίπου 2.000"
+" tokens, συν τα tokens εξόδου). Αυξήστε το num_ctx σε τουλάχιστον {1} (ή "
+"μεταβείτε σε ένα μοντέλο με μεγαλύτερο παράθυρο πλαισίου) και προσπαθήστε "
+"ξανά."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2670,10 +2733,6 @@ msgstr "Νέο σενάριο Python"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Όνομα σεναρίου:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Εκτέλεση…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2993,12 +3052,13 @@ msgstr "Ο έλεγχος του Venv απέτυχε"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Ορίστε τη διαδρομή του Python venv στις Ρυθμίσεις → Python (το ίδιο venv "
-"όπου εκτελέσατε την εντολή 'uv pip install pywebview rocher'). Η "
-"ενσωματωμένη Python του LibreOffice δεν μπορεί να εκτελέσει τον επεξεργαστή."
+"Ορίστε τη διαδρομή του εικονικού περιβάλλοντος (venv) Python στις Ρυθμίσεις "
+"→ Python (το ίδιο venv όπου εκτελέσατε την εντολή 'uv pip install "
+"pywebview'). Η ενσωματωμένη Python του LibreOffice δεν μπορεί να εκτελέσει "
+"τον επεξεργαστή."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3088,12 +3148,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Ο έλεγχος ήχου απέτυχε (δείτε το αρχείο writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Ο έλεγχος Monaco έληξε χρονικά."
+msgid "UI / Editor probe timed out."
+msgstr "Έληξε το χρονικό όριο ελέγχου (probe) του UI / Επεξεργαστή."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Ο έλεγχος Monaco απέτυχε (δείτε το writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr ""
+"Ο έλεγχος (probe) του UI / Επεξεργαστή απέτυχε (δείτε το αρχείο "
+"writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3141,6 +3203,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "Ο έλεγχος DuckDB απέτυχε (δείτε το writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Το Nemotron OCR δεν μπορεί να ξεκινήσει σε αυτό το venv:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Δεν ανιχνεύθηκαν συσκευές εισόδου μικροφώνου."
 
@@ -3173,8 +3239,8 @@ msgid "Audio Recording & Speech"
 msgstr "Ηχογράφηση & Ομιλία"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Βιβλιοθήκες Monaco: έλεγχος εκτός του script worker..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "Βιβλιοθήκες UI / Επεξεργαστή: έλεγχος εκτός του script worker..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3557,7 +3623,7 @@ msgstr "Το Viz '{helper}' ολοκληρώθηκε. {msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "Οι βοηθοί όρασης απαιτούν έγγραφο Writer, Calc, Draw ή Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Το βοήθημα όρασης απέτυχε."
 
@@ -3653,6 +3719,225 @@ msgstr ""
 "Προέκυψε ένα απροσδόκητο σφάλμα κατά το άνοιγμα της Εκτέλεσης σεναρίου "
 "Python."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Ελέγξτε το αρχείο writeragent_debug.log στον φάκελο ρυθμίσεων χρήστη του "
+"LibreOffice"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Αποτυχία εκκίνησης του διακομιστή MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Διακοπή διακομιστή MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Εκκίνηση διακομιστή MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Ο διακομιστής MCP δεν εκτελείται"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Ο διακομιστής MCP εκτελείται"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Διαδρομές: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Τοπική διεύθυνση URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Δημόσιο URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Τοπικό σημείο τερματισμού:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Δημόσιο τούνελ ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Κατάσταση: Ενεργή (συνδεδεμένο)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Κατάσταση: Επανασύνδεση — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "γίνεται προσπάθεια…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Κατάσταση: Εκκίνηση τούνελ…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Κατάσταση: Αποτυχία — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Κατάσταση: Δεν εκτελείται (έχει εγκατασταθεί το δυαδικό αρχείο {0};)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Αντιγράφηκε!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Δοκιμή…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Δοκιμή σήραγγας"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Δοκιμή σήραγγας MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Δημόσιο τούνελ μέσω {0} (χωρίς πιστοποίηση)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Δημόσια σήραγγα μέσω {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "επανασύνδεση…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Το δημόσιο τούνελ μέσω {0} απέτυχε: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Το δημόσιο τούνελ μέσω {0} ξεκινά…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Το δημόσιο τούνελ μέσω {0} δεν εκτελείται (έχει εγκατασταθεί το δυαδικό "
+"αρχείο του παρόχου;)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Λειτουργία δοκιμής τούνελ: Ο πάροχος {0} προσομοιώθηκε επιτυχώς."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Άγνωστος πάροχος σήραγγας (tunnel): {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Το δυαδικό αρχείο '{0}' για το {1} δεν βρέθηκε στη διαδρομή (PATH).\n"
+"\n"
+"Εγκαταστήστε το από: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Αποτυχία εκτέλεσης του δυαδικού αρχείου {0} ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Η σήραγγα {0} εκτελείται και αποκρίνεται!\n"
+"\n"
+"Δημόσιο τελικό σημείο:\n"
+"{1}\n"
+"\n"
+"Έλεγχος υγείας: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Η σήραγγα {0} είναι ενεργή!\n"
+"\n"
+"Δημόσιο τελικό σημείο:\n"
+"{1}\n"
+"\n"
+"(Η δημόσια διεύθυνση URL αποκτήθηκε από την ενεργή συνεδρία σήραγγας.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Το δυαδικό αρχείο {0} '{1}' επαληθεύτηκε ({2}).\n"
+"\n"
+"(Σημείωση: Μια ενεργή σήραγγα {3} εκτελείται αυτήν τη στιγμή στη διεύθυνση {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Το δυαδικό αρχείο {0} '{1}' είναι εγκατεστημένο και επαληθευμένο ({2}).\n"
+"\n"
+"Ο διακομιστής MCP εκτελείται τοπικά στη θύρα {3}.\n"
+"Επιλέξτε 'Έκθεση μέσω δημόσιας σήραγγας' και κάντε κλικ στο OK για να ενεργοποιήσετε τη δημόσια δρομολόγηση."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Το δυαδικό αρχείο {0} '{1}' είναι εγκατεστημένο και επαληθευμένο ({2}).\n"
+"\n"
+"Σημείωση: Ο διακομιστής MCP δεν εκτελείται αυτήν τη στιγμή στη θύρα {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Κατάσταση διακομιστή MCP"
@@ -3673,10 +3958,62 @@ msgstr "Αποδοχή όλων"
 msgid "Reject all"
 msgstr "Απόρριψη όλων"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Φόρτωση μοντέλων…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Αναγνώριση κειμένου…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Δεν ανιχνεύθηκε κείμενο."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Απόδοση προεπισκόπησης…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Αποτυχία εξαγωγής της επιλεγμένης εικόνας: {error}"
+msgid "Done: {count} characters."
+msgstr "Ολοκληρώθηκε: {count} χαρακτήρες."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Η εισαγωγή Vision OCR απαιτεί έγγραφο Writer ή Calc· χρησιμοποιήστε την "
+"Προεπισκόπηση για Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Εισαγωγή…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Εισήχθησαν {count} εικόνες."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Εισήχθησαν: {count} χαρακτήρες."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Η εικόνα διατηρήθηκε επειδή η αναθεώρηση επεξεργασίας του Agent καταγράφει "
+"αλλαγές."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Δεν ήταν δυνατή η δημιουργία του εγγράφου προεπισκόπησης."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Δεν ήταν δυνατή η απόδοση της σελίδας προεπισκόπησης."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3684,6 +4021,11 @@ msgid ""
 msgstr ""
 "Επιλέξτε μια ενσωματωμένη εικόνα (ή μια περιοχή που περιέχει εικόνες) και "
 "εκτελέστε ξανά."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Αποτυχία εξαγωγής της επιλεγμένης εικόνας: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3764,227 +4106,17 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Η εικόνα αφαιρέθηκε κατά την προετοιμασία της εισαγωγής OCR."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr ""
+"Δεν είναι δυνατή η διαγραφή μιας εικόνας χωρίς όνομα μετά την εισαγωγή OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Η εικόνα αφαιρέθηκε κατά τη διάρκεια της εισαγωγής OCR."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Ελέγξτε το αρχείο writeragent_debug.log στον φάκελο ρυθμίσεων χρήστη του "
-"LibreOffice"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Αποτυχία εκκίνησης του διακομιστή MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Διακοπή διακομιστή MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Εκκίνηση διακομιστή MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Ο διακομιστής MCP δεν εκτελείται"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Ο διακομιστής MCP εκτελείται"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Διαδρομές: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Τοπική διεύθυνση URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Δημόσιο URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Τοπικό σημείο τερματισμού:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Δημόσιο τούνελ ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Κατάσταση: Ενεργή (συνδεδεμένο)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Κατάσταση: Επανασύνδεση — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "γίνεται προσπάθεια…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Κατάσταση: Εκκίνηση τούνελ…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Κατάσταση: Αποτυχία — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Κατάσταση: Δεν εκτελείται (έχει εγκατασταθεί το δυαδικό αρχείο {0};)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Αντιγράφηκε!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Δοκιμή…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Δοκιμή σήραγγας"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Δοκιμή σήραγγας MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Δημόσιο τούνελ μέσω {0} (χωρίς πιστοποίηση)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Δημόσια σήραγγα μέσω {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "επανασύνδεση…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Το δημόσιο τούνελ μέσω {0} απέτυχε: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Το δημόσιο τούνελ μέσω {0} ξεκινά…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Το δημόσιο τούνελ μέσω {0} δεν εκτελείται (έχει εγκατασταθεί το δυαδικό "
-"αρχείο του παρόχου;)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Λειτουργία δοκιμής τούνελ: Ο πάροχος {0} προσομοιώθηκε επιτυχώς."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Άγνωστος πάροχος σήραγγας (tunnel): {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Το δυαδικό αρχείο '{0}' για το {1} δεν βρέθηκε στη διαδρομή (PATH).\n"
-"\n"
-"Εγκαταστήστε το από: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Αποτυχία εκτέλεσης του δυαδικού αρχείου {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Η σήραγγα {0} εκτελείται και αποκρίνεται!\n"
-"\n"
-"Δημόσιο τελικό σημείο:\n"
-"{1}\n"
-"\n"
-"Έλεγχος υγείας: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Η σήραγγα {0} είναι ενεργή!\n"
-"\n"
-"Δημόσιο τελικό σημείο:\n"
-"{1}\n"
-"\n"
-"(Η δημόσια διεύθυνση URL αποκτήθηκε από την ενεργή συνεδρία σήραγγας.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Το δυαδικό αρχείο {0} '{1}' επαληθεύτηκε ({2}).\n"
-"\n"
-"(Σημείωση: Μια ενεργή σήραγγα {3} εκτελείται αυτήν τη στιγμή στη διεύθυνση {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Το δυαδικό αρχείο {0} '{1}' είναι εγκατεστημένο και επαληθευμένο ({2}).\n"
-"\n"
-"Ο διακομιστής MCP εκτελείται τοπικά στη θύρα {3}.\n"
-"Επιλέξτε 'Έκθεση μέσω δημόσιας σήραγγας' και κάντε κλικ στο OK για να ενεργοποιήσετε τη δημόσια δρομολόγηση."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Το δυαδικό αρχείο {0} '{1}' είναι εγκατεστημένο και επαληθευμένο ({2}).\n"
-"\n"
-"Σημείωση: Ο διακομιστής MCP δεν εκτελείται αυτήν τη στιγμή στη θύρα {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Εισαγωγή OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4698,19 +4830,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Δεξιότητα εξανθρωπισμού (φυσικός λόγος)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Όταν είναι ενεργοποιημένο, εισάγει καθοδήγηση στο σύστημα προτροπών (system "
-"prompt) ώστε το μοντέλο να κάνει το παραγόμενο ή αναθεωρημένο κείμενο του "
-"εγγράφου να ακούγεται πιο φυσικό και ανθρώπινο (αφαιρεί τα μοτίβα τεχνητής "
-"νοημοσύνης). Επεξεργαστείτε τους κανόνες στο προφίλ σας στο LibreOffice στη "
-"διαδρομή writeragent/skills/humanizer/SKILL.md (το αρχείο δημιουργείται "
-"αυτόματα κατά την πρώτη χρήση). Μια ειδική καρτέλα Δεξιοτήτων μπορεί να "
-"προστεθεί αργότερα."
+"Όταν είναι ενεργοποιημένο, εισάγει ενσωματωμένη καθοδήγηση στο prompt "
+"συστήματος, ώστε το παραγόμενο ή αναθεωρημένο κείμενο του εγγράφου να "
+"ακούγεται πιο φυσικό και ανθρώπινο (αφαιρεί τα μοτίβα τεχνητής νοημοσύνης)."
 
 msgid "Silence before send (ms)"
 msgstr "Σιωπή πριν την αποστολή (ms)"
@@ -4911,6 +5037,70 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Βασικές υπηρεσίες (ρυθμίσεις, συμβάντα, καταγραφή)"
 
+msgid "Integrations"
+msgstr "Ενσωματώσεις"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Διακομιστές MCP για τη συνομιλία στην πλευρική στήλη"
+
+msgid "Server"
+msgstr "Διακομιστής"
+
+msgid "Add"
+msgstr "Προσθήκη"
+
+msgid "Remove"
+msgstr "Αφαίρεση"
+
+msgid "Use this MCP server in chat"
+msgstr "Χρήση αυτού του διακομιστή MCP στη συνομιλία"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Μόνο συνομιλία πλευρικής στήλης (τομέας mcp)· δεν εκτίθεται ποτέ στον "
+"διακομιστή MCP του WriterAgent ή σε σενάρια."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Εμπιστοσύνη στα εργαλεία ανάγνωσης μόνο (χωρίς ερώτηση)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Τα εργαλεία που ο διακομιστής επισημαίνει ως readOnlyHint εκτελούνται χωρίς "
+"Αποδοχή / Αλλαγή / Απόρριψη· κάθε άλλη κλήση εξακολουθεί να ζητά επιβεβαίωση"
+
+msgid "Name"
+msgstr "Όνομα"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Προσθέτει πρόθεμα στα ονόματα εργαλείων αυτού του διακομιστή (π.χ. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL διακομιστή"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Τερματικό σημείο MCP τύπου Streamable-HTTP, π.χ. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Διακριτικό (Token)"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Διακριτικό Bearer. Η επιλογή «OK» στις ρυθμίσεις το αποθηκεύει στο σύστημα "
+"διαχείρισης κλειδιών (keyring) αν είναι διαθέσιμο, διαφορετικά στο αρχείο "
+"writeragent.json."
+
+msgid "Status"
+msgstr "Κατάσταση"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -5010,70 +5200,6 @@ msgstr "Ρύθμιση πελάτη (αντιγραφή στο Claude / Hermes-A
 
 msgid "Copy Config"
 msgstr "Αντιγραφή ρυθμίσεων"
-
-msgid "Integrations"
-msgstr "Ενσωματώσεις"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Διακομιστές MCP για τη συνομιλία στην πλευρική στήλη"
-
-msgid "Server"
-msgstr "Διακομιστής"
-
-msgid "Add"
-msgstr "Προσθήκη"
-
-msgid "Remove"
-msgstr "Αφαίρεση"
-
-msgid "Use this MCP server in chat"
-msgstr "Χρήση αυτού του διακομιστή MCP στη συνομιλία"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Μόνο συνομιλία πλευρικής στήλης (τομέας mcp)· δεν εκτίθεται ποτέ στον "
-"διακομιστή MCP του WriterAgent ή σε σενάρια."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Εμπιστοσύνη στα εργαλεία ανάγνωσης μόνο (χωρίς ερώτηση)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Τα εργαλεία που ο διακομιστής επισημαίνει ως readOnlyHint εκτελούνται χωρίς "
-"Αποδοχή / Αλλαγή / Απόρριψη· κάθε άλλη κλήση εξακολουθεί να ζητά επιβεβαίωση"
-
-msgid "Name"
-msgstr "Όνομα"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Προσθέτει πρόθεμα στα ονόματα εργαλείων αυτού του διακομιστή (π.χ. home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL διακομιστή"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr ""
-"Τερματικό σημείο MCP τύπου Streamable-HTTP, π.χ. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Διακριτικό (Token)"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Διακριτικό Bearer. Η επιλογή «OK» στις ρυθμίσεις το αποθηκεύει στο σύστημα "
-"διαχείρισης κλειδιών (keyring) αν είναι διαθέσιμο, διαφορετικά στο αρχείο "
-"writeragent.json."
-
-msgid "Status"
-msgstr "Κατάσταση"
 
 msgid "Notebook"
 msgstr "Σημειωματάριο"
@@ -5185,14 +5311,19 @@ msgstr "Να επιτρέπεται η πρόσβαση σε αρχεία"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
 "Όταν είναι επιλεγμένο, η Python μπορεί να διαβάζει και να γράφει αρχεία "
-"οπουδήποτε (open, io, pathlib, shutil, tempfile, sqlite3, glob και κλήσεις "
-"αρχείων os όπως listdir και stat). Όταν είναι ανενεργό, αυτές οι αναγνώσεις "
-"και εγγραφές αποκλείονται. Οι ενδιάμεσες μνήμες (io.BytesIO, io.StringIO) "
-"παραμένουν διαθέσιμες."
+"οπουδήποτε (κλήσεις open, io, pathlib, shutil, tempfile, sqlite3, glob και "
+"os, όπως listdir και stat). Όταν είναι αποεπιλεγμένο, αυτές οι αναγνώσεις "
+"και εγγραφές μπλοκάρονται· οι προσωρινές μνήμες (io.BytesIO, io.StringIO) "
+"και οι βοηθοί αρχείων εγγράφου (wa.document.open, wa.document.save, "
+"wa.document.export, οι οποίοι είναι προσβάσιμοι μέσω MCP και σεναρίων "
+"Python, αλλά δεν προσφέρονται στο μοντέλο συνομιλίας της πλευρικής στήλης) "
+"παραμένουν διαθέσιμοι."
 
 msgid "Allow OS access"
 msgstr "Να επιτρέπεται η πρόσβαση στο λειτουργικό σύστημα"
@@ -5230,11 +5361,11 @@ msgstr ""
 "Παράθυρο επεξεργαστή για την Επεξεργασία Python σε Κελί, την Εκτέλεση "
 "Σεναρίου Python, το σενάριο αρχικοποίησης και το LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (προεπιλογή)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Όραση / OCR"
@@ -5247,36 +5378,99 @@ msgstr ""
 "Μεγέθυνση πριν από OCR/διάταξη. Δοκιμάστε το 2.0 για μικρά στιγμιότυπα "
 "οθόνης."
 
-msgid "Worker timeout (seconds)"
-msgstr "Χρονικό όριο εργασίας (δευτερόλεπτα)"
+msgid "Document timeout (s)"
+msgstr "Χρονικό όριο εγγράφου (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Όριο υποδιεργασιών κεντρικού υπολογιστή για τους βοηθούς όρασης (πρώτη λήψη "
-"μοντέλου)."
+"Διακόπτει την επεξεργασία Docling ενός εγγράφου μετά από αυτόν τον αριθμό "
+"δευτερολέπτων και διατηρεί τις σελίδες που έχουν ολοκληρωθεί μέχρι στιγμής. "
+"Η λήψη και η φόρτωση του μοντέλου δεν προσμετρώνται. Το 0 απενεργοποιεί το "
+"όριο."
 
-msgid "Docling artifacts path"
-msgstr "Διαδρομή τεχνουργημάτων Docling"
+msgid "OCR engine"
+msgstr "Μηχανή OCR"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Προαιρετικός φάκελος για λήψη μοντέλων docling-tools (χρήση εκτός σύνδεσης)."
+"Η μηχανή OCR που χρησιμοποιεί το Docling. Κάθε μηχανή εκτός από το RapidOCR "
+"(ONNX) πρέπει να είναι εγκατεστημένη στο Python venv· οι Ρυθμίσεις → Python "
+"→ Έλεγχος παραθέτουν τις εγκατεστημένες."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, προεπιλογή)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (γραμμή εντολών)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Γλώσσα OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Κωδικοί γλώσσας όπως en, de ή zh-TW, χωρισμένοι με κόμμα. Οι μηχανές Docling"
+" διαβάζουν κάθε κωδικό· η μηχανή Paddle διαβάζει τον πρώτο. Αν μείνει κενό, "
+"χρησιμοποιείται η γλώσσα της εικόνας ή του LibreOffice."
+
+msgid "Device"
+msgstr "Συσκευή"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Υλικό για τα μοντέλα του Docling. Η επιλογή «Αυτόματα» χρησιμοποιεί GPU όταν"
+" το Docling εντοπίζει μία· η CPU λειτουργεί πάντα."
+
+msgid "Auto"
+msgstr "Αυτόματα"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Κατώφλι εμπιστοσύνης OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Ελάχιστο σκορ κειμένου RapidOCR. Το 0.0 είναι ένα πραγματικό κατώφλι (όχι η "
-"προεπιλογή). Αυξήστε το για να μειώσετε το άχρηστο κείμενο."
-
-msgid "OCR entire image"
-msgstr "OCR ολόκληρης της εικόνας"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Συνιστάται για ενσωματωμένα γραφικά που εξάγονται από το LibreOffice."
+"Ελάχιστη εμπιστοσύνη για αναγνωρισμένο κείμενο (RapidOCR και EasyOCR· άλλες "
+"μηχανές την αγνοούν). Αυξήστε την για να απορρίψετε άχρηστο κείμενο· το 0.0 "
+"διατηρεί όλο το κείμενο."
 
 msgid "Table extraction mode"
 msgstr "Λειτουργία εξαγωγής πίνακα"
@@ -5317,6 +5511,15 @@ msgstr "Τυπικό HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Δομημένο (διάταξη / πλέγμα κελιών)"
 
+msgid "Delete image after OCR"
+msgstr "Διαγραφή εικόνας μετά το OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Αφαίρεση της εικόνας προέλευσης από το έγγραφο αφού το OCR εισαγάγει το "
+"περιεχόμενό της."
+
 msgid "Layout model"
 msgstr "Μοντέλο διάταξης"
 
@@ -5339,8 +5542,44 @@ msgstr "Εμπλουτισμός μπλοκ κώδικα"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Εξειδικευμένο OCR για στιγμιότυπα οθόνης κώδικα/τερματικού."
 
-msgid "Docling document timeout (s)"
-msgstr "Χρονικό όριο εγγράφου Docling (s)"
+msgid "RapidOCR model size"
+msgstr "Μέγεθος μοντέλου RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Χρονικό όριο ανά μετατροπή εντός του Docling. 0 = χωρίς όριο."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Μέγεθος μοντέλου RapidOCR για γλώσσες PP-OCRv6· άλλες γλώσσες το αγνοούν. Το"
+" Tiny είναι το ταχύτερο και δεν διαθέτει ιαπωνικό μοντέλο· το medium είναι "
+"το πιο ακριβές."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (προεπιλογή)"
+
+msgid "Medium"
+msgstr "Μεσαίο"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Διόρθωση περιστραμμένου κειμένου (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Ανάγνωση περιοχής σε 90, 180 και 270 μοίρες όταν λιγότερες από τις μισές "
+"γραμμές της αναγνωρίζονται με βεβαιότητα. Διορθώνει πλάγιες σαρώσεις· "
+"απαιτεί χρόνο μόνο σε κακές αναγνώσεις. Εφαρμόζεται στις μηχανές RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Αναγνώριση Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Μόνο για Apple Vision (macOS). Η γρήγορη επιλογή είναι ταχύτερη αλλά "
+"λιγότερο ακριβής και αναγνωρίζει λιγότερες γλώσσες."

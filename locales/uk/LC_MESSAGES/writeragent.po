@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Не вдалося скасувати останнє редагуван
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Останнє редагування агента скасовано ({0} кроків)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Зображення не знайдено."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Не вдалося видалити зображення: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -704,10 +713,10 @@ msgstr "Спочатку відкрийте електронну таблицю 
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Редактор Monaco вимкнено параметром "
+"Вікно редактора Python вимкнено параметром "
 "\"scripting.force_internal_script_editor\" у файлі writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
@@ -1237,6 +1246,10 @@ msgstr "Прийняти цю зміну"
 msgid "Reject this change"
 msgstr "Відхилити цю зміну"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Не вдалося декодувати зображення попереднього перегляду."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1636,6 +1649,25 @@ msgstr "чому"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "ви"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Виконання…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Скасовано."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Помилка попереднього перегляду: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Помилка виконання: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2355,6 +2387,35 @@ msgstr "Відкриття '%s' для доступу лише для читан
 msgid "Web research completed."
 msgstr "Веб-дослідження завершено."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama не повідомила num_ctx, тому WriterAgent припустив {0} токенів, що "
+"замало для вебдослідження (лише запит для дослідження та інструменти "
+"використовують близько 2000 токенів, плюс токени виводу). Збільште num_ctx "
+"принаймні до {1} (через PARAMETER num_ctx {2} або вище у файлі Modelfile за "
+"допомогою ollama create), потім скористайтеся «Перевірити з'єднання» в "
+"налаштуваннях (або перезапустіть LibreOffice) і спробуйте знову."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Вікно контексту ({0} токенів) замале для вебдослідження (лише запит для "
+"дослідження та інструменти використовують близько 2000 токенів, плюс токени "
+"виводу). Збільште num_ctx принаймні до {1} (або перемкніться на модель із "
+"більшим вікном контексту) і спробуйте знову."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2636,10 +2697,6 @@ msgstr "Новий скрипт Python"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Назва скрипта:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Виконання…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2953,12 +3010,12 @@ msgstr "Помилка перевірки Venv"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Вкажіть шлях до віртуального середовища Python (venv) у Налаштуваннях → "
-"Python (те саме середовище, де ви виконували 'uv pip install pywebview "
-"rocher'). Вбудований Python у LibreOffice не може запустити редактор."
+"Вкажіть шлях до віртуального середовища (venv) Python у Налаштуваннях → "
+"Python (те саме venv, де ви виконували 'uv pip install pywebview'). "
+"Вбудований у LibreOffice Python не може запустити редактор."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3048,12 +3105,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Помилка перевірки аудіо (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Час очікування зондування Monaco вичерпано."
+msgid "UI / Editor probe timed out."
+msgstr "Час очікування зонда інтерфейсу / редактора вичерпано."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Помилка зондування Monaco (див. writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "Помилка зонда інтерфейсу / редактора (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3099,6 +3156,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "Помилка зондування DuckDB (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR не може запуститися в цьому venv:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Не виявлено пристроїв введення мікрофона."
 
@@ -3132,8 +3193,10 @@ msgid "Audio Recording & Speech"
 msgstr "Аудіозапис та мовлення"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Бібліотеки Monaco: перевірка поза межами робочого скрипта..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr ""
+"Бібліотеки інтерфейсу / редактора: перевірка поза межами робочого процесу "
+"скриптів..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3512,7 +3575,7 @@ msgstr "Виконано Viz '{helper}'. {msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "Помічники зору потребують документа Writer, Calc, Draw або Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Помилка помічника Vision."
 
@@ -3606,6 +3669,224 @@ msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "Під час відкриття «Виконати сценарій Python» сталася неочікувана помилка."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Перевірте writeragent_debug.log у папці конфігурації користувача LibreOffice"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Не вдалося запустити сервер MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Зупинити сервер MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Запустити сервер MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Сервер MCP не запущений"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Сервер MCP працює"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Маршрути: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Локальна URL-адреса: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Публічна URL-адреса: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Локальна кінцева точка:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Публічний тунель ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Статус: Активний (підключено)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Статус: Перепідключення — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "повторна спроба…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Статус: Запуск тунелю…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Статус: Помилка — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Статус: Не запущено (чи встановлено бінарний файл {0}?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Скопійовано!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Перевірка…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Перевірка тунелю"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Перевірка тунелю MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Публічний тунель через {0} (без автентифікації)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Публічний тунель через {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "перепідключення…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Публічний тунель через {0} не вдався: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Публічний тунель через {0} запускається…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Публічний тунель через {0} не запущено (чи встановлено бінарний файл "
+"провайдера?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Режим тестування тунелю: провайдер {0} успішно симульовано."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Невідомий постачальник тунелю: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Бінарний файл '{0}' для {1} не знайдено у PATH.\n"
+"\n"
+"Встановіть з: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Не вдалося виконати бінарний файл {0} ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Тунель {0} запущено та працює!\n"
+"\n"
+"Публічна кінцева точка:\n"
+"{1}\n"
+"\n"
+"Перевірка стану: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Тунель {0} активний!\n"
+"\n"
+"Публічна кінцева точка:\n"
+"{1}\n"
+"\n"
+"(Публічну URL-адресу отримано з активного сеансу тунелю.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Бінарний файл {0} '{1}' перевірено ({2}).\n"
+"\n"
+"(Примітка: активний тунель {3} наразі працює на {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Бінарний файл {0} '{1}' встановлено та перевірено ({2}).\n"
+"\n"
+"Сервер MCP працює локально на порту {3}.\n"
+"Позначте 'Надати доступ через публічний тунель' та натисніть OK, щоб активувати публічну маршрутизацію."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Бінарний файл {0} '{1}' встановлено та перевірено ({2}).\n"
+"\n"
+"Примітка: сервер MCP наразі не працює на порту {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Статус сервера MCP"
@@ -3626,10 +3907,62 @@ msgstr "Прийняти все"
 msgid "Reject all"
 msgstr "Відхилити все"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Завантаження моделей…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Розпізнавання тексту…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Текст не виявлено."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Візуалізація попереднього перегляду…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Не вдалося експортувати вибране зображення: {error}"
+msgid "Done: {count} characters."
+msgstr "Готово: {count} символів."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Функція Vision OCR потребує документа Writer або Calc; для Draw/Impress "
+"використовуйте попередній перегляд."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Вставлення…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Вставлено {count} зображень."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Вставлено: {count} символів."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Зображення збережено, оскільки триває запис змін під час перегляду "
+"редагування агентом."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Не вдалося створити документ попереднього перегляду."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Не вдалося відобразити сторінку попереднього перегляду."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3637,6 +3970,11 @@ msgid ""
 msgstr ""
 "Виберіть вбудоване зображення (або діапазон, що містить зображення), а потім"
 " запустіть знову."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Не вдалося експортувати вибране зображення: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3716,226 +4054,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Зображення було видалено під час підготовки вставки OCR."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Не вдалося видалити безіменне зображення після вставки OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Зображення було видалено під час вставки OCR."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Перевірте writeragent_debug.log у папці конфігурації користувача LibreOffice"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Не вдалося запустити сервер MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Зупинити сервер MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Запустити сервер MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Сервер MCP не запущений"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Сервер MCP працює"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Маршрути: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Локальна URL-адреса: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Публічна URL-адреса: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Локальна кінцева точка:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Публічний тунель ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Статус: Активний (підключено)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Статус: Перепідключення — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "повторна спроба…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Статус: Запуск тунелю…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Статус: Помилка — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Статус: Не запущено (чи встановлено бінарний файл {0}?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Скопійовано!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Перевірка…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Перевірка тунелю"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Перевірка тунелю MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Публічний тунель через {0} (без автентифікації)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Публічний тунель через {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "перепідключення…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Публічний тунель через {0} не вдався: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Публічний тунель через {0} запускається…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Публічний тунель через {0} не запущено (чи встановлено бінарний файл "
-"провайдера?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Режим тестування тунелю: провайдер {0} успішно симульовано."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Невідомий постачальник тунелю: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Бінарний файл '{0}' для {1} не знайдено у PATH.\n"
-"\n"
-"Встановіть з: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Не вдалося виконати бінарний файл {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Тунель {0} запущено та працює!\n"
-"\n"
-"Публічна кінцева точка:\n"
-"{1}\n"
-"\n"
-"Перевірка стану: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Тунель {0} активний!\n"
-"\n"
-"Публічна кінцева точка:\n"
-"{1}\n"
-"\n"
-"(Публічну URL-адресу отримано з активного сеансу тунелю.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Бінарний файл {0} '{1}' перевірено ({2}).\n"
-"\n"
-"(Примітка: активний тунель {3} наразі працює на {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Бінарний файл {0} '{1}' встановлено та перевірено ({2}).\n"
-"\n"
-"Сервер MCP працює локально на порту {3}.\n"
-"Позначте 'Надати доступ через публічний тунель' та натисніть OK, щоб активувати публічну маршрутизацію."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Бінарний файл {0} '{1}' встановлено та перевірено ({2}).\n"
-"\n"
-"Примітка: сервер MCP наразі не працює на порту {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Вставити OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4639,17 +4767,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Навичка «Гуманізатор» (природна проза)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Якщо ввімкнено, додає вказівки до системного запиту, щоб модель робила "
-"згенерований або відредагований текст документа більш природним і людяним "
-"(усуває шаблони ШІ). Редагуйте правила у своєму профілі LibreOffice у папці "
-"writeragent/skills/humanizer/SKILL.md (файл створюється автоматично під час "
-"першого використання). Окрему вкладку «Навички» можна буде додати пізніше."
+"Якщо увімкнено, вставляє вбудовані інструкції в системний запит, щоб "
+"згенерований або відредагований текст документа звучав більш природно та по-"
+"людськи (видаляє шаблони «AI slop»)."
 
 msgid "Silence before send (ms)"
 msgstr "Тиша перед надсиланням (мс)"
@@ -4847,6 +4971,70 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Основні служби (конфігурація, події, журналювання)"
 
+msgid "Integrations"
+msgstr "Інтеграції"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Сервери MCP для чату на бічній панелі"
+
+msgid "Server"
+msgstr "Сервер"
+
+msgid "Add"
+msgstr "Додати"
+
+msgid "Remove"
+msgstr "Видалити"
+
+msgid "Use this MCP server in chat"
+msgstr "Використовувати цей сервер MCP у чаті"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Тільки чат на бічній панелі (домен mcp); ніколи не надається серверу MCP "
+"WriterAgent або скриптам."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Довіряти інструментам лише для читання (без запиту)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Інструменти, які сервер позначає як readOnlyHint, запускаються без "
+"підтвердження «Прийняти / Змінити / Відхилити»; для всіх інших викликів "
+"запит залишається"
+
+msgid "Name"
+msgstr "Назва"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Додає префікс до назв інструментів цього сервера (наприклад, home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL-адреса сервера"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Кінцева точка Streamable-HTTP MCP, наприклад, http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Токен"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Токен носія (Bearer token). Натискання «ОК» зберігає його в системній "
+"зв'язці ключів, якщо вона доступна, інакше — у файлі writeragent.json."
+
+msgid "Status"
+msgstr "Статус"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4945,70 +5133,6 @@ msgstr "Конфігурація клієнта (скопіюйте в Claude / 
 
 msgid "Copy Config"
 msgstr "Копіювати конфігурацію"
-
-msgid "Integrations"
-msgstr "Інтеграції"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Сервери MCP для чату на бічній панелі"
-
-msgid "Server"
-msgstr "Сервер"
-
-msgid "Add"
-msgstr "Додати"
-
-msgid "Remove"
-msgstr "Видалити"
-
-msgid "Use this MCP server in chat"
-msgstr "Використовувати цей сервер MCP у чаті"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Тільки чат на бічній панелі (домен mcp); ніколи не надається серверу MCP "
-"WriterAgent або скриптам."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Довіряти інструментам лише для читання (без запиту)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Інструменти, які сервер позначає як readOnlyHint, запускаються без "
-"підтвердження «Прийняти / Змінити / Відхилити»; для всіх інших викликів "
-"запит залишається"
-
-msgid "Name"
-msgstr "Назва"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Додає префікс до назв інструментів цього сервера (наприклад, home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL-адреса сервера"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr ""
-"Кінцева точка Streamable-HTTP MCP, наприклад, http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Токен"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Токен носія (Bearer token). Натискання «ОК» зберігає його в системній "
-"зв'язці ключів, якщо вона доступна, інакше — у файлі writeragent.json."
-
-msgid "Status"
-msgstr "Статус"
 
 msgid "Notebook"
 msgstr "Блокнот"
@@ -5122,14 +5246,18 @@ msgstr "Дозволити доступ до файлів"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
 "Якщо позначено, Python може читати та записувати файли будь-де (open, io, "
 "pathlib, shutil, tempfile, sqlite3, glob та файлові виклики os, такі як "
-"listdir і stat). Якщо не позначено, ці операції читання та запису "
-"блокуються. Буфери в пам'яті (io.BytesIO, io.StringIO) залишаються "
-"доступними."
+"listdir та stat). Якщо не позначено, ці операції читання та запису "
+"блокуються; буфери в пам'яті (io.BytesIO, io.StringIO) та допоміжні функції "
+"документа (wa.document.open, wa.document.save, wa.document.export, які "
+"доступні через MCP та Python-скрипти, але не пропонуються моделі чату на "
+"бічній панелі) залишаються доступними."
 
 msgid "Allow OS access"
 msgstr "Дозволити доступ до ОС"
@@ -5165,11 +5293,11 @@ msgstr ""
 "Вікно редактора для «Редагувати Python у клітинці», «Запустити сценарій "
 "Python», сценарію ініціалізації та LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (типово)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Бачення / OCR"
@@ -5181,36 +5309,98 @@ msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr ""
 "Збільшити перед OCR/розміткою. Спробуйте 2.0 для малих знімків екрана."
 
-msgid "Worker timeout (seconds)"
-msgstr "Час очікування робочого процесу (секунди)"
+msgid "Document timeout (s)"
+msgstr "Тайм-аут документа (с)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Ліміт хост-підпроцесів для Vision Helpers (перше завантаження моделі)."
+"Зупиняє обробку документа Docling після вказаної кількості секунд і зберігає"
+" вже оброблені сторінки. Завантаження моделі не враховується. 0 вимикає "
+"обмеження."
 
-msgid "Docling artifacts path"
-msgstr "Шлях до артефактів Docling"
+msgid "OCR engine"
+msgstr "Рушій OCR"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Необов'язкова папка для завантажених моделей docling-tools (для офлайн-"
-"використання)."
+"Рушій OCR, який використовує Docling. Кожен рушій, окрім RapidOCR (ONNX), "
+"має бути встановлений у Python venv; Налаштування → Python → Тест показує "
+"встановлені рушії."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, типово)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (командний рядок)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Мова OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Коди мов, як-от en, de або zh-TW, розділені комами. Рушії Docling зчитують "
+"кожен код; рушій Paddle — лише перший. Якщо залишити порожнім, "
+"використовується мова зображення або LibreOffice."
+
+msgid "Device"
+msgstr "Пристрій"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Апаратне забезпечення для моделей Docling. «Авто» використовує графічний "
+"процесор, якщо Docling його знаходить; CPU працює завжди."
+
+msgid "Auto"
+msgstr "Авто"
+
+msgid "CPU"
+msgstr "ЦП"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Поріг впевненості OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Мінімальний бал тексту RapidOCR. 0.0 — це реальний поріг (не типовий). "
-"Збільште, щоб зменшити кількість «сміттєвого» тексту."
-
-msgid "OCR entire image"
-msgstr "OCR всього зображення"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Рекомендовано для вбудованої графіки, експортованої з LibreOffice."
+"Мінімальна впевненість для розпізнаного тексту (RapidOCR та EasyOCR; інші "
+"рушії ігнорують це). Збільште значення, щоб відкинути сміттєвий текст; 0.0 "
+"залишає весь текст."
 
 msgid "Table extraction mode"
 msgstr "Режим вилучення таблиць"
@@ -5249,6 +5439,15 @@ msgstr "Стандартний HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Структурований (макет / сітка клітинок)"
 
+msgid "Delete image after OCR"
+msgstr "Видалити зображення після OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Видалити вихідне зображення з документа після того, як OCR вставить його "
+"вміст."
+
 msgid "Layout model"
 msgstr "Модель макета"
 
@@ -5274,8 +5473,43 @@ msgstr ""
 "Спеціалізоване розпізнавання тексту (OCR) для знімків екрана з кодом або "
 "терміналом."
 
-msgid "Docling document timeout (s)"
-msgstr "Таймаут документа Docling (с)"
+msgid "RapidOCR model size"
+msgstr "Розмір моделі RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Таймаут для кожного перетворення в Docling. 0 = без обмежень."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Розмір моделі RapidOCR для мов PP-OCRv6; інші мови ігнорують це. Tiny — "
+"найшвидша, не має японської моделі; medium — найточніша."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (типово)"
+
+msgid "Medium"
+msgstr "Середній"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Виправити повернутий текст (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Повторно зчитувати область під кутами 90, 180 та 270 градусів, якщо менше "
+"половини рядків розпізнано впевнено. Виправляє перевернуті скани; витрачає "
+"час лише при поганому зчитуванні. Застосовується до рушіїв RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Розпізнавання Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Тільки для Apple Vision (macOS). Режим «Швидко» працює швидше, але менш "
+"точно і підтримує меншу кількість мов."
