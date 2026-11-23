@@ -408,7 +408,7 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 
 | Rule                                 | Meaning                                                                                                                                                                                                                                                    |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **One namespace per workbook**       | The `calc:…` session lives until **Reset Python Session**, worker crash/restart, init-script hash change + re-seed, or **document unload**. The first `=PY()` for a workbook registers [`workbook_lifecycle.py`](../plugin/calc/python/workbook_lifecycle.py) so close/reopen runs the init script again. |
+| **One namespace per workbook**       | The `calc:…` session lives until **Reset Python Session**, worker crash/restart, init-script change (re-seed) or removal, or **document unload**. The first `=PY()` for a workbook registers [`workbook_lifecycle.py`](../plugin/calc/python/workbook_lifecycle.py) so close/reopen runs the init script again. |
 | **Any cell can clobber any name**    | True shared mutable globals — cell B1 can overwrite a name from A1.                                                                                                                                                                                        |
 | **Order via** `data`**, not layout** | `result = x + 1` with **no** second arg has **no** ordering guarantee. Pass upstream cells/ranges as `data`. Init script always runs before any cell.                                                                                                      |
 | **Runs any time**                    | Partial recalc, matrix spill, manual F9 — treat every cell as **restartable**.                                                                                                                                                                             |
@@ -421,7 +421,7 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 | ----------------------------------------------- | ------------------------------------------------- |
 | **Reset Python Session** (namespace + session DuckDB) | F9 / automatic / partial recalc                   |
 | Worker subprocess restart or crash              | Names from cells that did not recalc this pass    |
-| Init script hash change (re-seed)               | Until user resets (matches Excel: no reset on F9) |
+| Init script changed (re-seed) or removed        | Until user resets (matches Excel: no reset on F9) |
 | Document close (`OnUnload` — sends `reset_session` only when pool child is alive) | No child means kernel is already gone; close does not start one |
 
 
@@ -440,7 +440,7 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 
 Workbook initialization scripts can be defined via **Edit Initialization Script…** (Calc only). This stores a workbook startup script in document properties (`calc:…:init`). It runs once per workbook session even when the session mode is **Isolated**, making its imports and helper functions available to all `=PY()` cells.
 
-Saving in the init editor only updates the document property. The new script takes effect on the next `=PY()` evaluation, when the worker sees the new script hash and re-seeds; saving does not reset the workbook session.
+Saving in the init editor only updates the document property. The new script takes effect on the next `=PY()` evaluation, when the worker sees the new script hash and re-seeds; saving does not reset the workbook session. Blanking or removing the script also takes effect on the next `=PY()`: in Shared kernel the worker drops the old init names together with the workbook namespace and its DuckDB catalog, as a changed script does. Cells that do not recalculate keep their displayed values. If the stored scripts cannot be read, nothing is dropped.
 
 In the worker sandbox:
 - Functions and variables defined in the init script are executed in the companion `calc:…:init` session and snapshot into cell executors.

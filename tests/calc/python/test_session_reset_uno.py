@@ -146,3 +146,50 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
 
     finally:
         save({"scripting.python_session_mode": "isolated"})
+
+
+@native_test
+@with_native_doc("calc")
+def test_shared_kernel_removed_init_drops_bindings_uno(ctx, doc):
+    from plugin.calc.python.addin import PythonFunction
+    from plugin.doc.udprops import remove_document_property, set_document_property
+    from plugin.framework.config import save
+    from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP, set_calc_init_script
+
+    try:
+        save({"scripting.python_session_mode": "shared"})
+        func = PythonFunction(ctx)
+
+        # 1. Never-initialised kernel keeps variables across calls.
+        assert func.py(doc, "keep = 5") == 5.0
+        assert func.py(doc, "result = keep") == 5.0
+
+        # 2. Seed INIT.
+        set_calc_init_script(doc, "HELPER = 7")
+        assert func.py(doc, "result = HELPER") == 7.0
+
+        # 3. Clear INIT -> next =PY() drops old init names.
+        set_calc_init_script(doc, "")
+        _assert_undefined_name_error(func.py(doc, "result = HELPER"))
+
+        # 4. Drop happens once, not on every call.
+        assert func.py(doc, "nv = 3") == 3.0
+        assert func.py(doc, "result = nv") == 3.0
+
+        # 5. Re-seed then whitespace-only INIT -> dropped again.
+        set_calc_init_script(doc, "HELPER = 8")
+        assert func.py(doc, "result = HELPER") == 8.0
+        set_calc_init_script(doc, "  \n ")
+        _assert_undefined_name_error(func.py(doc, "result = HELPER"))
+
+        # 6. Re-seed then corrupt property -> unreadable map keeps kernel.
+        set_calc_init_script(doc, "HELPER = 9")
+        assert func.py(doc, "result = HELPER") == 9.0
+        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "{bad json")
+        assert func.py(doc, "result = HELPER") == 9.0
+
+        # 7. Remove property altogether -> dropped.
+        remove_document_property(doc, DOCUMENT_SCRIPTS_UDPROP)
+        _assert_undefined_name_error(func.py(doc, "result = HELPER"))
+    finally:
+        save({"scripting.python_session_mode": "isolated"})
