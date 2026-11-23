@@ -29,8 +29,13 @@ def test_tool_error_formatting():
 
 @contextmanager
 def _mock_cdp_spawn(which_side_effect=None):
-    mock_response = MagicMock()
-    mock_response.read.return_value = json.dumps([
+    version_response = MagicMock()
+    version_response.read.return_value = json.dumps({
+        "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/test-id",
+    }).encode("utf-8")
+
+    page_response = MagicMock()
+    page_response.read.return_value = json.dumps([
         {
             "type": "page",
             "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/test-id",
@@ -41,16 +46,25 @@ def _mock_cdp_spawn(which_side_effect=None):
     mock_proc.poll.return_value = None
     mock_proc.kill.side_effect = lambda: setattr(mock_proc.poll, "return_value", 0)
 
+    calls = 0
+
+    def fake_urlopen(req, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise Exception("Connection refused")
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        ctx_mgr = MagicMock()
+        ctx_mgr.__enter__.return_value = (
+            version_response if url.endswith("/json/version") else page_response
+        )
+        return ctx_mgr
+
     with (
         patch("subprocess.run", side_effect=which_side_effect),
         patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
-        patch("urllib.request.urlopen") as mock_urlopen,
+        patch("urllib.request.urlopen", side_effect=fake_urlopen),
     ):
-        mock_urlopen.return_value.__enter__.return_value = mock_response
-        mock_urlopen.side_effect = [
-            Exception("Connection refused"),
-            mock_urlopen.return_value,
-        ]
         try:
             yield mock_popen, mock_proc
         finally:
@@ -70,7 +84,7 @@ def test_browser_process_spawning(browser_type, tmp_path, monkeypatch):
     _isolate_home(monkeypatch, tmp_path)
     with _mock_cdp_spawn() as (mock_popen, mock_proc):
         ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type=browser_type)
-        assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
+        assert ws_url == "ws://127.0.0.1:9222/devtools/browser/test-id"
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
         assert "--remote-debugging-port=9222" in args
@@ -95,7 +109,7 @@ def test_brave_linux_binary_lookup_and_profile_dir(binary_name, tmp_path, monkey
 
     with _mock_cdp_spawn(which_side_effect=fake_which) as (mock_popen, _mock_proc):
         ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
-        assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
+        assert ws_url == "ws://127.0.0.1:9222/devtools/browser/test-id"
         args = mock_popen.call_args[0][0]
         assert args[0] == binary_name
         expected_profile = tmp_path / ".config" / "writeragent" / "brave_profile"
@@ -119,7 +133,7 @@ def test_brave_windows_binary_lookup(tmp_path, monkeypatch):
         _mock_cdp_spawn(which_side_effect=fake_which) as (mock_popen, _mock_proc),
     ):
         ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
-        assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
+        assert ws_url == "ws://127.0.0.1:9222/devtools/browser/test-id"
         args = mock_popen.call_args[0][0]
         assert args[0] == win_brave
         expected_profile = tmp_path / ".config" / "writeragent" / "brave_profile"
@@ -209,3 +223,107 @@ def test_spawn_local_browser_refuses_when_previous_browser_is_alive():
             mock_popen.assert_called_once()
     finally:
         cleanup_local_chrome()
+
+
+def test_browser_cdp_reuses_launch_endpoint(tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+    seen_urls: list[str] = []
+
+    async def fake_cdp_call(ws_url, _method, _params, _target_id, _timeout):
+        seen_urls.append(ws_url)
+        return {"ok": True}
+
+    with _mock_cdp_spawn():
+        ws_url = get_local_chrome_cdp_url(MagicMock())
+        assert ws_url == "ws://127.0.0.1:9222/devtools/browser/test-id"
+        with (
+            patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call),
+            patch("urllib.request.urlopen") as mock_urlopen,
+        ):
+            res1 = json.loads(browser_cdp_tool.browser_cdp("Target.createTarget", {"url": "about:blank"}))
+            res2 = json.loads(browser_cdp_tool.browser_cdp("Target.closeTarget", {"targetId": "T1"}))
+            assert res1["success"] is True
+            assert res2["success"] is True
+            assert seen_urls == [
+                "ws://127.0.0.1:9222/devtools/browser/test-id",
+                "ws://127.0.0.1:9222/devtools/browser/test-id",
+            ]
+            mock_urlopen.assert_not_called()
+
+
+@pytest.mark.parametrize("already_listening", [False, True])
+def test_browser_cdp_after_cleanup_never_spawns(already_listening, tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+    cleanup_local_chrome()
+    try:
+        if already_listening:
+            version_response = MagicMock()
+            version_response.read.return_value = json.dumps({
+                "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/existing",
+            }).encode("utf-8")
+            with patch("urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value = version_response
+                ws_url = get_local_chrome_cdp_url(MagicMock())
+            assert ws_url == "ws://127.0.0.1:9222/devtools/browser/existing"
+            assert browser_cdp_tool._CHROME_BROWSER is None
+        else:
+            with _mock_cdp_spawn():
+                get_local_chrome_cdp_url(MagicMock())
+
+        cleanup_local_chrome()
+        assert browser_cdp_tool._CDP_ENDPOINT == ""
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("urllib.request.urlopen") as mock_urlopen,
+        ):
+            result = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.com")
+            assert result.startswith(
+                "Error visiting webpage via browser: Failed to create page target: No CDP endpoint is available"
+            )
+            mock_popen.assert_not_called()
+            mock_urlopen.assert_not_called()
+    finally:
+        cleanup_local_chrome()
+
+
+def test_dead_browser_fails_the_visit_without_spawning(tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+
+    async def fake_cdp_call(_ws_url, _method, _params, _target_id, _timeout):
+        raise ConnectionRefusedError("Connection refused")
+
+    with _mock_cdp_spawn() as (mock_popen, _mock_proc):
+        get_local_chrome_cdp_url(MagicMock())
+        assert mock_popen.call_count == 1
+        with patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call):
+            result = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.com")
+            assert "browser may have disconnected" in result
+            assert mock_popen.call_count == 1
+
+
+def test_failed_relaunch_keeps_the_running_endpoint(tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+    seen_urls: list[str] = []
+
+    async def fake_cdp_call(ws_url, _method, _params, _target_id, _timeout):
+        seen_urls.append(ws_url)
+        return {"ok": True}
+
+    with _mock_cdp_spawn():
+        first_url = get_local_chrome_cdp_url(MagicMock())
+        with (
+            patch("urllib.request.urlopen", side_effect=Exception("busy")),
+            patch.object(
+                browser_cdp_tool,
+                "spawn_local_browser",
+                side_effect=RuntimeError("another local browser is already running"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="another local browser is already running"):
+                get_local_chrome_cdp_url(MagicMock())
+
+        with patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call):
+            res = json.loads(browser_cdp_tool.browser_cdp("Target.getTargets", {}))
+            assert res["success"] is True
+            assert seen_urls == [first_url]

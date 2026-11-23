@@ -29,7 +29,6 @@ import sys
 import time
 import subprocess
 import urllib.request
-import urllib.error
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
 
@@ -83,11 +82,14 @@ def _run_async(coro):
 
 
 _CHROME_BROWSER: ManagedSubprocess | None = None
+# Written only by launch (under CdpRefCount.launch_lock) and by teardown, so a page visit can never start a browser.
+_CDP_ENDPOINT: str = ""
 
 
 def cleanup_local_chrome() -> None:
     """Kill the locally spawned CDP browser and drop it from quit-time registry."""
-    global _CHROME_BROWSER
+    global _CHROME_BROWSER, _CDP_ENDPOINT
+    _CDP_ENDPOINT = ""
     managed = _CHROME_BROWSER
     if managed is None:
         return
@@ -197,18 +199,25 @@ def spawn_local_browser(cmd: list[str], *, label: str) -> None:
     )
 
 
-def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
-    # Try querying existing CDP connection first
+def _query_browser_endpoint() -> str:
+    """Return the listening browser's browser-level WebSocket URL, or "" if none answers.
+
+    The browser endpoint outlives every tab. A page endpoint from /json closes
+    with its tab, which another research worker may own.
+    """
     try:
-        req = urllib.request.Request("http://127.0.0.1:9222/json")
-        with urllib.request.urlopen(req, timeout=1.0) as response:
-            data = json.loads(response.read().decode())
-            if isinstance(data, list) and len(data) > 0:
-                for target in data:
-                    if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                        return target["webSocketDebuggerUrl"]
+        with urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0) as response:
+            return str(json.loads(response.read().decode()).get("webSocketDebuggerUrl") or "")
     except Exception:
-        pass
+        return ""
+
+
+def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
+    global _CDP_ENDPOINT
+    endpoint = _query_browser_endpoint()
+    if endpoint:
+        _CDP_ENDPOINT = endpoint
+        return endpoint
 
     # Spawn browser non-headlessly if not already running
     profile_dir = browser_profile_dir(browser_type)
@@ -238,36 +247,13 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
     # Wait for browser to listen on port 9222
     deadline = time.time() + 6.0
     while time.time() < deadline:
-        try:
-            req = urllib.request.Request("http://127.0.0.1:9222/json")
-            with urllib.request.urlopen(req, timeout=1.0) as response:
-                data = json.loads(response.read().decode())
-                if isinstance(data, list) and len(data) > 0:
-                    for target in data:
-                        if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                            return target["webSocketDebuggerUrl"]
-        except Exception:
-            pass
+        endpoint = _query_browser_endpoint()
+        if endpoint:
+            _CDP_ENDPOINT = endpoint
+            return endpoint
         time.sleep(0.2)
-        
-    raise RuntimeError(f"Browser ({browser_type}) CDP did not start listening on port 9222 after 6 seconds")
 
-def _resolve_cdp_endpoint(ctx: Any = None) -> str:
-    """Return the normalized CDP WebSocket URL, or empty string if unavailable."""
-    try:
-        from plugin.framework.config import get_config
-        browser_type = "chrome"
-        if ctx is not None:
-            try:
-                cfg_val = get_config("chatbot.web_research_browser")
-                if cfg_val in _CDP_BROWSER_CANDIDATES:
-                    browser_type = cfg_val
-            except Exception:
-                pass
-        return get_local_chrome_cdp_url(ctx, browser_type)
-    except Exception as exc:
-        logger.debug("browser_cdp: failed to resolve CDP endpoint: %s", exc)
-        return ""
+    raise RuntimeError(f"Browser ({browser_type}) CDP did not start listening on port 9222 after 6 seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +523,7 @@ def browser_cdp(
             "Install it with: pip install websockets"
         )
 
-    endpoint = _resolve_cdp_endpoint()
+    endpoint = _CDP_ENDPOINT
     if not endpoint:
         return tool_error(
             "No CDP endpoint is available. Run '/browser connect' to attach "
@@ -578,7 +564,8 @@ def browser_cdp(
         )
     except RuntimeError as exc:
         return tool_error(str(exc), method=method)
-    except WebSocketException as exc:
+    except (WebSocketException, OSError) as exc:
+        # A refused connection means the browser exited.
         return tool_error(
             f"WebSocket error talking to CDP at {endpoint}: {exc}. The "
             "browser may have disconnected — try '/browser connect' again.",

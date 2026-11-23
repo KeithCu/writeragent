@@ -314,7 +314,7 @@ class BrowserPageDriver(Protocol):
 
 @final
 class CdpPageDriver:
-    """Chromium-family page driver; each method is one stateless browser_cdp call."""
+    """Chromium-family page driver; each method is one stateless browser_cdp call to the endpoint found when the run began."""
 
     @staticmethod
     def _call(
