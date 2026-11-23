@@ -466,6 +466,8 @@ def _run_web_agent(
             max_output_length=PAGE_TEXT_MAX_CHARS,
         )
     )
+    # Wrap inner -> paged -> dedup so dedup sees the paged header on long pages,
+    # while fetch errors pass through paged unchanged so dedup can retry them.
     paged = PagedVisitTool(visit_inner, params.pages)
     visit_tool = (
         _VisitWebpageDedupTool(paged, params.visited_urls)
@@ -532,12 +534,12 @@ def _run_web_agent(
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
         elif step.name in ("visit_webpage", "read_page", "find_in_page"):
-            url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
+            url = str(as_dict(step.arguments).get("url", ""))
             # Do not mark the URL visited here. This handler runs before the
             # tool, and _VisitWebpageDedupTool.forward treats a URL already in
             # the set as a skip, so the first fetch never reached the page.
             if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
+                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
             from plugin.framework.url_utils import get_url_domain
 
             status_msg = f"Read: {get_url_domain(url)}"

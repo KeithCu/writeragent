@@ -143,7 +143,7 @@ def test_find_in_page_reports_part_and_context():
     visit.forward(many_url)
     many_res = find.forward(many_url, "targetword")
     assert '25 match(es) for "targetword"' in many_res
-    assert "(first 10 shown)" in many_res
+    assert "(10 shown)" in many_res
     assert len(many_res.splitlines()) == 11
 
 

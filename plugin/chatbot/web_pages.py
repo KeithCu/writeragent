@@ -25,8 +25,11 @@ from typing import Any
 
 from plugin.contrib.smolagents.tools import Tool
 
+# Shared by both HTTP and CDP visit tools; raises HTTP page-cache row sizes accordingly.
 PAGE_TEXT_MAX_CHARS = 200_000
+# Pages up to this size are returned whole, unchanged from before chunked reading.
 _WHOLE_PAGE_MAX_CHARS = 12_000
+# Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
 _PART_CHARS = 6_000
 _MAX_PAGES = 100
 _FIND_MAX_MATCHES = 10
@@ -126,6 +129,11 @@ class PageStore:
 
 
 def _render_part(url: str, page: StoredPage, number: int) -> str:
+    """Format one stored page part with its navigation header.
+
+    The header must never start with "Error" or "Failed"; otherwise _VisitWebpageDedupTool
+    treats the visit as a failed fetch and does not mark the URL visited.
+    """
     body = page.part(number).rstrip("\n")
     return (
         f"URL: {url}\n"
@@ -228,11 +236,7 @@ class FindInPageTool(Tool):
                 snippets.append(f"Part {part_num}: …{snippet}…")
                 last_window_end = win_end
         if total == 0:
-            return f'No match for "{text}" in {url} ({page.part_count} part(s)).'
-        capped = (
-            f" (first {_FIND_MAX_MATCHES} shown)"
-            if len(snippets) >= _FIND_MAX_MATCHES and total > _FIND_MAX_MATCHES
-            else ""
-        )
-        header = f'{total} match(es) for "{text}" in {url}{capped}'
+            return f'No match for "{needle}" in {url} ({page.part_count} part(s)).'
+        capped = f" ({len(snippets)} shown)" if total > len(snippets) else ""
+        header = f'{total} match(es) for "{needle}" in {url}{capped}'
         return header + "\n" + "\n".join(snippets)

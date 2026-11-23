@@ -1352,3 +1352,29 @@ def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
     out = VisitWebpageCdpTool("ws://dummy").forward("https://example.test/huge")
     assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
     assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out
+
+
+def test_dedup_over_paged_visit_marks_long_page_visited():
+    from plugin.chatbot.web_pages import PagedVisitTool, PageStore, ReadPageTool
+    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
+
+    text = "\n".join(f"Line {i:04d}: " + ("x" * 60) for i in range(450))
+    assert len(text) > 30_000
+    url = "https://example.test/deep-long"
+
+    inner = MagicMock()
+    inner.forward.return_value = text
+    store = PageStore()
+    seen = _VisitedUrls()
+    tool = _VisitWebpageDedupTool(PagedVisitTool(inner, store), seen)
+
+    first = tool.forward(url)
+    assert "Part 1 of " in first
+    assert inner.forward.call_count == 1
+
+    second = tool.forward(url + "/")
+    assert "Already visited" in second
+    assert inner.forward.call_count == 1
+
+    part2 = ReadPageTool(store).forward(url, 2)
+    assert "Part 2 of " in part2
