@@ -198,7 +198,14 @@ def test_visit_keeps_cached_page_when_evicted_mid_batch():
     assert "[timed out]" not in out
 
 
-def test_visit_fetches_different_domains_in_parallel():
+@pytest.mark.parametrize(
+    "urls",
+    [
+        pytest.param(["https://p1.test/1", "https://p2.test/2", "https://p3.test/3"], id="plain"),
+        pytest.param(["https://www.p1.co.uk/1", "https://www.p2.co.uk/2", "https://p3.co.uk/3"], id="shared-cc-suffix"),
+    ],
+)
+def test_visit_fetches_different_domains_in_parallel(urls):
     barrier = threading.Barrier(3, timeout=5)
 
     def fetch(url: str) -> str:
@@ -210,14 +217,13 @@ def test_visit_fetches_different_domains_in_parallel():
     store = PageStore()
     visit = PagedVisitTool(inner, store)
 
-    urls = ["https://p1.test/1", "https://p2.test/2", "https://p3.test/3"]
     out = visit.forward(urls)
 
     blocks = out.split("\n\nURL: ")
     assert len(blocks) == 3
-    assert "https://p1.test/1" in blocks[0] and "Body for https://p1.test/1" in blocks[0]
-    assert blocks[1].startswith("https://p2.test/2") and "Body for https://p2.test/2" in blocks[1]
-    assert blocks[2].startswith("https://p3.test/3") and "Body for https://p3.test/3" in blocks[2]
+    assert urls[0] in blocks[0] and f"Body for {urls[0]}" in blocks[0]
+    for i in (1, 2):
+        assert blocks[i].startswith(urls[i]) and f"Body for {urls[i]}" in blocks[i]
     for u in urls:
         assert store.get(u) is not None
 

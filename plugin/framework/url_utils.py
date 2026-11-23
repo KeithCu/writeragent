@@ -104,10 +104,18 @@ def get_url_hostname(url: Any) -> str:
     return _parse(url).hostname or ""
 
 
+# Labels that registries under two-letter country TLDs use as a public second level
+# (bbc.co.uk, abc.net.au, soumu.go.jp). A short list rather than the Public Suffix List:
+# a missing label leaves two labels, and an extra match keeps one more label than needed.
+_CC_SECOND_LEVEL = frozenset({"ac", "co", "com", "edu", "go", "gob", "gouv", "gov", "govt", "mil", "ne", "net", "or", "org"})
+
+
 @deal.post(lambda result: isinstance(result, str))
 def get_url_domain(url: Any) -> str:
-    """Return 'example.com' from 'https://api.example.com/v1'."""
-    return ".".join(get_url_hostname(url).split(".")[-2:])
+    """Return 'example.com' from 'https://api.example.com/v1' and 'bbc.co.uk' from 'https://www.bbc.co.uk/'."""
+    labels = get_url_hostname(url).split(".")
+    keep = 3 if len(labels) > 2 and len(labels[-1]) == 2 and labels[-2] in _CC_SECOND_LEVEL else 2
+    return ".".join(labels[-keep:])
 
 
 @deal.post(lambda result: isinstance(result, str))

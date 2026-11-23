@@ -230,6 +230,26 @@ class TestUrlAccessors:
         # Last two labels. IPv4 stays "3.4" so the visit status line does not change.
         assert get_url_domain("https://1.2.3.4/x") == "3.4"
 
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("https://WWW.BBC.CO.UK/a", "bbc.co.uk"),
+            ("https://bbc.co.uk/", "bbc.co.uk"),
+            ("https://user:p@news.abc.net.au:8443/", "abc.net.au"),
+            ("https://www.soumu.go.jp/", "soumu.go.jp"),
+            # The suffix itself, and a two-letter host with no dot.
+            ("https://co.uk/", "co.uk"),
+            ("http://uk/", "uk"),
+            # A two-letter TLD without a generic second level, and a listed label under a long TLD.
+            ("https://api.t.co/x", "t.co"),
+            ("https://www.spiegel.de/", "spiegel.de"),
+            ("https://a.b.com.example.org/", "example.org"),
+            ("https://www.co.com/", "co.com"),
+        ],
+    )
+    def test_get_url_domain_country_second_level(self, url, expected):
+        assert get_url_domain(url) == expected
+
     def test_get_url_path(self):
         assert get_url_path("https://example.com/foo/bar?q=1") == "/foo/bar"
         assert get_url_path("https://example.com") == ""
