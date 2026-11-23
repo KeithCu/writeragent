@@ -2,16 +2,18 @@
 # coding=utf-8
 
 import logging
+import random
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any
 
 
+from plugin.framework.client.request_controls import wait_abortable
 from plugin.framework.client.requests import sync_request
 from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
 from plugin.framework.errors import NetworkError
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, acquire_unless_cancelled
 from plugin.framework.url_utils import get_url_hostname, is_pdf_url
 try:
     from plugin.chatbot.history_db import HAS_SQLITE, sqlite3
@@ -277,11 +279,31 @@ _SEARCH_READ_TIMEOUT_SEC = 10
 _SEARCH_CONNECT_TIMEOUT_SEC = 5
 SEARCH_ERROR_PREFIX = "Error fetching search results:"
 _SEARCH_UNAVAILABLE = (
-    f"{SEARCH_ERROR_PREFIX} the search service did not answer after several attempts. "
+    f"{SEARCH_ERROR_PREFIX} the search service is unavailable or is refusing automated queries right now. "
     "This is a network or rate-limit problem, not a problem with the query, so rewording the query will not help. "
     "Use visit_webpage on URLs you already have, or call final_answer with what you found and say that web search was unavailable."
 )
 _SEARCH_STOPPED = f"{SEARCH_ERROR_PREFIX} stopped by user."
+
+# DDG Lite answers a bot challenge (HTTP 202 captcha page, occasionally 403)
+# to a few percent of requests from one IP and the same query a few seconds
+# later usually succeeds; parallel bursts (7 q/s) raise that to 30 percent.
+# Every query in the process goes through one gate that keeps searches serial
+# and at least _SEARCH_MIN_GAP_SEC apart, and challenge retries wait inside
+# that gate so other workers do not fire into the same window.
+_SEARCH_MIN_GAP_SEC: float = 1.5
+_SEARCH_CHALLENGE_STATUSES: frozenset[int] = frozenset({202, 403})
+_SEARCH_OK_STATUSES: frozenset[int] = frozenset({200}) | _SEARCH_CHALLENGE_STATUSES
+_SEARCH_CHALLENGE_DELAYS_SEC: tuple[float, ...] = (2.0, 5.0, 12.0)
+_RECENCY_MAX_AGE_DAYS: dict[str, int] = {"day": 1, "week": 7}
+_SEARCH_GATE = threading.Lock()
+_search_next_allowed: float = 0.0
+
+
+def _challenge_delay_sec(retry_index: int) -> float:
+    """Return challenge retry wait with ±30% jitter."""
+    return _SEARCH_CHALLENGE_DELAYS_SEC[retry_index] * random.uniform(0.7, 1.3)
+
 
 def _norm_recency(value):
     """Normalize recency to a cache-key token. Unknown or unset values are 'any'."""
@@ -292,8 +314,13 @@ def _norm_recency(value):
 
 
 def _search_cache_key(query, recency):
-    """Search cache key includes recency so filtered results don't collide with evergreen ones."""
-    return f"{_norm_recency(recency)}|{' '.join(str(query).strip().split())}"
+    """Search cache key includes recency and is case- and trailing-punctuation-insensitive.
+
+    Model rewrites of one query share an entry; quotes and operators are kept
+    because DDG treats them as syntax.
+    """
+    text = " ".join(str(query).split()).lower().rstrip("?.!")
+    return f"{_norm_recency(recency)}|{text}"
 
 
 class DuckDuckGoSearchTool(Tool):
@@ -329,10 +356,70 @@ class DuckDuckGoSearchTool(Tool):
         self._cache_max_age_days = max(cache_max_age_days, 1)
         self._cancel = cancel
 
+    def _fetch_results_html(self, data: bytes, headers: dict[str, str]) -> str:
+        """Fetch DDG Lite HTML through the process-wide search gate, retrying bot challenges."""
+        global _search_next_allowed
+        if not acquire_unless_cancelled(_SEARCH_GATE, self._cancel):
+            return _SEARCH_STOPPED
+        try:
+            retries = len(_SEARCH_CHALLENGE_DELAYS_SEC)
+            for retry_index in range(retries + 1):
+                if not wait_abortable(_search_next_allowed - time.monotonic(), self._cancel):
+                    return _SEARCH_STOPPED
+                _search_next_allowed = time.monotonic() + _SEARCH_MIN_GAP_SEC
+                try:
+                    # Connection errors, 429/503, and Stop are handled by the shared transport;
+                    # challenge statuses (202/403) come back as HttpResult and are retried here.
+                    result = sync_request(
+                        _SEARCH_URL,
+                        data,
+                        headers,
+                        parse_json=False,
+                        timeout=_SEARCH_READ_TIMEOUT_SEC,
+                        connect_timeout=_SEARCH_CONNECT_TIMEOUT_SEC,
+                        cancel=self._cancel,
+                        include_meta=True,
+                        ok_statuses=_SEARCH_OK_STATUSES,
+                    )
+                    if result.status == 200:
+                        return result.body.decode("utf-8")
+                except NetworkError as e:
+                    if e.code == "STOPPED":
+                        return _SEARCH_STOPPED
+                    log.warning("web_search failed: %s", e)
+                    return _SEARCH_UNAVAILABLE
+                except Exception as e:
+                    return f"{SEARCH_ERROR_PREFIX} {e}"
+                if retry_index == retries:
+                    break
+                delay = _challenge_delay_sec(retry_index)
+                log.warning(
+                    "web_search: DuckDuckGo bot challenge (HTTP %s); retry %s/%s in %.1fs",
+                    result.status,
+                    retry_index + 1,
+                    retries,
+                    delay,
+                )
+                if not wait_abortable(delay, self._cancel):
+                    return _SEARCH_STOPPED
+            log.warning(
+                "web_search: DuckDuckGo bot challenge (HTTP %s) on %s attempts; giving up",
+                result.status,
+                retries + 1,
+            )
+            return _SEARCH_UNAVAILABLE
+        finally:
+            _SEARCH_GATE.release()
+
     def forward(self, query: str, recency: str | None = None) -> str:
-        cache_key = _search_cache_key(query, recency)
+        recency_token = _norm_recency(recency)
+        cache_key = _search_cache_key(query, recency_token)
+        max_age_days = min(
+            self._cache_max_age_days,
+            _RECENCY_MAX_AGE_DAYS.get(recency_token, self._cache_max_age_days),
+        )
         if self._cache_path and self._cache_max_mb > 0 and cache_key:
-            cached = _web_cache_get(self._cache_path, "search", cache_key, max_age_days=self._cache_max_age_days)
+            cached = _web_cache_get(self._cache_path, "search", cache_key, max_age_days=max_age_days)
             if cached is not None:
                 log.debug("web_cache: search hit: %s" % (cache_key[:60] + "..." if len(cache_key) > 60 else cache_key))
                 return cached
@@ -342,7 +429,7 @@ class DuckDuckGoSearchTool(Tool):
         from html.parser import HTMLParser
 
         params = {"q": query}
-        df = _RECENCY_TO_DF.get(_norm_recency(recency))
+        df = _RECENCY_TO_DF.get(recency_token)
         if df:
             params["df"] = df
         data = urllib.parse.urlencode(params).encode("utf-8")
@@ -351,27 +438,9 @@ class DuckDuckGoSearchTool(Tool):
             "User-Agent": _get_user_agent_for_url(_SEARCH_URL),
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        try:
-            # Retry, backoff, Stop cancellation, and per-host cooldown come from LlmHttpTransport.exchange.
-            # Shared transport connects directly; system proxies are not used, same as LLM traffic.
-            raw = sync_request(
-                _SEARCH_URL,
-                data,
-                headers,
-                parse_json=False,
-                timeout=_SEARCH_READ_TIMEOUT_SEC,
-                connect_timeout=_SEARCH_CONNECT_TIMEOUT_SEC,
-                cancel=self._cancel,
-            )
-            html = raw.decode("utf-8")
-        except NetworkError as e:
-            if e.code == "STOPPED":
-                return _SEARCH_STOPPED
-            log.warning("web_search failed after shared retries: %s", e)
-            # Fixed message tells the model that rewording the query will not fix a network or rate-limit failure.
-            return _SEARCH_UNAVAILABLE
-        except Exception as e:
-            return f"{SEARCH_ERROR_PREFIX} {str(e)}"
+        html = self._fetch_results_html(data, headers)
+        if html.startswith(SEARCH_ERROR_PREFIX):
+            return html
 
         class SimpleResultParser(HTMLParser):
             """Parses DDG Lite result rows.

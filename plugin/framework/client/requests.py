@@ -106,6 +106,7 @@ def sync_request(
     status_callback: Any = None,
     include_meta: bool = False,
     max_bytes: int | None = None,
+    ok_statuses: frozenset[int] = frozenset({200}),
 ) -> Any:
     """Blocking HTTP GET or POST on the shared transport.
 
@@ -119,6 +120,9 @@ def sync_request(
 
     Returns decoded JSON, or raw bytes when ``parse_json`` is false. With
     ``include_meta``, returns ``http_transport.HttpResult`` (status, body, content type).
+    Statuses in ``ok_statuses`` are returned as a normal ``HttpResult`` instead
+    of raising ``NetworkError``. HTTP errors are labelled with the origin
+    rather than "AI Provider".
 
     Redirects follow ``LlmHttpTransport.exchange``.
     A non-numeric or out-of-range port, or an unmatched bracket
@@ -149,6 +153,8 @@ def sync_request(
                 status_callback=status_callback,
                 parse_json=parse_json,
                 max_bytes=max_bytes,
+                ok_statuses=ok_statuses,
+                error_source=origin,
             )
         finally:
             if cancel is not None:

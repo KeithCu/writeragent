@@ -159,8 +159,8 @@ def resolve_folder_rerank_model() -> str:
     return DEFAULT_FOLDER_RERANK_MODEL
 
 
-# Browser-style user agent for a small, whitelisted set of sites
-# (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
+# Browser-style user agent for ordinary pages fetched by visit_webpage.
+# DuckDuckGo and Wikipedia get the identifying USER_AGENT (a browser UA on DDG Lite is challenged far more often).
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
 
