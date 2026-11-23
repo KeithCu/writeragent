@@ -6,7 +6,6 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from plugin.chatbot import web_pages
 from plugin.chatbot.web_pages import (
     _PART_CHARS,
     FindInPageTool,
@@ -163,9 +162,8 @@ def test_url_trailing_slash_reads_same_page():
     assert "Part 2 of " in out
 
 
-def test_store_drops_oldest_page_past_cap(monkeypatch):
-    monkeypatch.setattr(web_pages, "_MAX_PAGES", 2)
-    store = PageStore()
+def test_store_drops_oldest_page_past_cap():
+    store = PageStore(max_pages=2)
     store.put("https://a.test/1", "one")
     store.put("https://a.test/2", "two")
     store.put("https://a.test/3", "three")
@@ -173,6 +171,27 @@ def test_store_drops_oldest_page_past_cap(monkeypatch):
     assert store.get("https://a.test/1") is None
     assert store.get("https://a.test/2") is not None
     assert store.get("https://a.test/3") is not None
+
+
+def test_visit_keeps_cached_page_when_evicted_mid_batch():
+    store = PageStore(max_pages=2)
+    store.put("https://evict.test/a", "Page A")
+    store.put("https://evict.test/filler", "Filler")
+
+    def fetch(url: str) -> str:
+        # Evict Page A while fetching B.
+        store.put("https://evict.test/extra1", "X1")
+        store.put("https://evict.test/extra2", "X2")
+        return "Page B"
+
+    inner = MagicMock()
+    inner.forward.side_effect = fetch
+    visit = PagedVisitTool(inner, store)
+
+    out = visit.forward(["https://evict.test/a", "https://evict.test/b"])
+    assert "Page A" in out
+    assert "Page B" in out
+    assert "[timed out]" not in out
 
 
 def test_visit_fetches_urls_in_parallel():
@@ -265,8 +284,7 @@ def test_visit_stop_returns_while_fetch_is_blocked():
     assert store.get("https://stop.test/slow") is None
 
 
-def test_visit_timeout_reports_only_the_slow_page(monkeypatch):
-    monkeypatch.setattr(web_pages, "_VISIT_WAIT_SEC", 0.3)
+def test_visit_timeout_reports_only_the_slow_page():
     release = threading.Event()
 
     def fetch(url: str) -> str:
@@ -278,7 +296,7 @@ def test_visit_timeout_reports_only_the_slow_page(monkeypatch):
     inner = MagicMock()
     inner.forward.side_effect = fetch
     store = PageStore()
-    visit = PagedVisitTool(inner, store)
+    visit = PagedVisitTool(inner, store, wait_sec=0.3)
 
     try:
         out = visit.forward(["https://t.test/fast", "https://t.test/slow"])

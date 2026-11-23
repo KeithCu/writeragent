@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
+from plugin.framework.url_utils import get_url_domain
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot.tool_loop_state import as_dict
@@ -443,6 +444,8 @@ def _run_web_agent(
         nonlocal web_search_step_index
         if stop_checker and stop_checker():
             return _user_stopped_payload()
+        if params.append_thinking_callback:
+            params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
         status_msg = ""
         if step.name == "web_search":
             def echo(q: str) -> None:
@@ -451,8 +454,6 @@ def _run_web_agent(
 
             args = as_dict(step.arguments)
             q = str(args.get("query", ""))
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
 
             if params.approval_callback:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar
@@ -481,23 +482,13 @@ def _run_web_agent(
             urls = [str(u) for u in raw_urls] if isinstance(raw_urls, list) else [str(raw_urls or "")]
             # The handler runs before the tool and only reports status. PageStore
             # records a URL after its fetch returns page text.
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-            from plugin.framework.url_utils import get_url_domain
-
             first_domain = get_url_domain(urls[0]) if urls else ""
             extra = f" +{len(urls) - 1}" if len(urls) > 1 else ""
             status_msg = f"Read: {first_domain}{extra}"
         elif step.name in ("read_page", "find_in_page"):
             url = str(as_dict(step.arguments).get("url", ""))
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-            from plugin.framework.url_utils import get_url_domain
-
             status_msg = f"Read: {get_url_domain(url)}"
         else:
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
             status_msg = str(step.name)
 
         if params.status_callback and status_msg:

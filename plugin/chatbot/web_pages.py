@@ -32,6 +32,7 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 # Shared by both HTTP and CDP visit tools; raises HTTP page-cache row sizes accordingly.
+# Pre-existing 40,000-character HTTP cache rows continue to be served until they expire.
 PAGE_TEXT_MAX_CHARS = 200_000
 MAX_URLS_PER_VISIT = 5
 _VISIT_WAIT_SEC = 45.0
@@ -118,20 +119,22 @@ class PageStore:
 
     _lock: threading.Lock
     _pages: dict[str, StoredPage]
+    _max_pages: int
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_pages: int = _MAX_PAGES) -> None:
         self._lock = threading.Lock()
         self._pages = {}
+        self._max_pages = max_pages
 
     def put(self, url: str, text: str) -> StoredPage:
-        """Store fetched page text under its normalized URL, evicting the oldest past _MAX_PAGES."""
+        """Store fetched page text under its normalized URL, evicting the oldest past max_pages."""
         key = url_key(url)
         page = StoredPage(text=text, starts=split_parts(text))
         with self._lock:
             if key in self._pages:
                 del self._pages[key]
             self._pages[key] = page
-            while len(self._pages) > _MAX_PAGES:
+            while len(self._pages) > self._max_pages:
                 self._pages.pop(next(iter(self._pages)))
         return page
 
@@ -173,20 +176,24 @@ class PagedVisitTool(Tool):
     _inner: Tool
     _pages: PageStore
     _stop_checker: Callable[[], bool] | None
+    _wait_sec: float
 
     def __init__(
         self,
         inner: Tool,
         pages: PageStore,
         stop_checker: Callable[[], bool] | None = None,
+        *,
+        wait_sec: float = _VISIT_WAIT_SEC,
     ) -> None:
         super().__init__()
         self._inner = inner
         self._pages = pages
         self._stop_checker = stop_checker
+        self._wait_sec = wait_sec
 
     def _fetch_all(self, urls: list[str]) -> tuple[dict[str, str], bool]:
-        """Fetch `urls` concurrently on dedicated threads up to _VISIT_WAIT_SEC."""
+        """Fetch `urls` concurrently on dedicated threads up to wait_sec."""
         if not urls:
             return {}, False
         results_q: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
@@ -206,7 +213,7 @@ class PagedVisitTool(Tool):
 
         texts: dict[str, str] = {}
         stopped = False
-        deadline = time.monotonic() + _VISIT_WAIT_SEC
+        deadline = time.monotonic() + self._wait_sec
         while len(texts) < len(urls):
             if self._stop_checker and self._stop_checker():
                 stopped = True
@@ -244,16 +251,18 @@ class PagedVisitTool(Tool):
         if not batch:
             return "visit_webpage needs one to five URLs."
 
-        pending = [u for u in batch if self._pages.get(u) is None]
+        cached = {u: self._pages.get(u) for u in batch}
+        pending = [u for u in batch if cached[u] is None]
         texts, stopped = self._fetch_all(pending)
 
         blocks: list[str] = []
         for u in batch:
-            existing = self._pages.get(u)
+            existing = cached[u]
             if existing is not None:
                 blocks.append(_format_page(u, existing))
             elif u in texts:
                 text = texts[u]
+                # Only store valid page text so an Error/Failed reply or blank extract stays retryable.
                 if is_page_text(text):
                     page = self._pages.put(u, text)
                     blocks.append(_format_page(u, page))
@@ -263,7 +272,7 @@ class PagedVisitTool(Tool):
             elif stopped:
                 blocks.append(f"[stopped] {u}")
             else:
-                blocks.append(f"[timed out] {u}: no response within {int(_VISIT_WAIT_SEC)} s")
+                blocks.append(f"[timed out] {u}: no response within {int(self._wait_sec)} s")
 
         for u in skipped:
             blocks.append(f"[skipped] {u}: at most {MAX_URLS_PER_VISIT} URLs per call")
