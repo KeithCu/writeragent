@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.framework.send_cancellation import SendCancellation
@@ -35,10 +35,25 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
+from plugin.framework.client.auth import resolve_auth_for_config
+from plugin.framework.client.errors import format_context_window_label
+from plugin.framework.client.model_fetcher import resolve_context_window
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
+from plugin.framework.url_utils import get_url_domain
 from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot.tool_loop_state import as_dict
+from plugin.chatbot.web_pages import (
+    MIN_WEB_RESEARCH_CONTEXT_TOKENS,
+    PAGE_TEXT_MAX_CHARS,
+    FindInPageTool,
+    PageStore,
+    PagedVisitTool,
+    ReadPageTool,
+    effective_context_window,
+    page_budget_chars,
+)
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
@@ -50,16 +65,6 @@ WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_an
 - Use clear section headings (plain lines) and bullet lists (- item).
 - Include facts, names, dates, ratings, and sources where relevant.
 - No HTML tags, no Markdown (# or **), no JSON."""
-
-
-class _VisitedUrls(set[str]):
-    """Shared URL set and lock for visit deduplication in deep research."""
-
-    lock: threading.Lock
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.lock = threading.Lock()
 
 
 @dataclass
@@ -77,11 +82,12 @@ class WebAgentRunParams:
     approval_callback: Any
     chat_append_callback: Callable[[str], None] | None
     outer_query: str
-    visited_urls: _VisitedUrls | None = None
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
     cancel: SendCancellation | None = None
+    # Text of every page this run fetched. dataclasses.replace keeps the same store, so deep-research workers share one store.
+    pages: PageStore = field(default_factory=PageStore)
 
 
 
@@ -173,50 +179,6 @@ def _write_research_cache(
         enqueue_research_cache_embedding_for_row(ctx.ctx, cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, max_age_days)
     return _research_cache_result_fields("saved", unique_key, stem_lang=stem_lang)
-
-
-from plugin.contrib.smolagents.tools import Tool
-
-
-_VISIT_WEBPAGE_DESCRIPTION = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-
-
-def _visit_webpage_inputs() -> dict[str, dict[str, str | type[Any] | bool]]:
-    return {"url": {"type": "string", "description": "The url of the webpage to visit."}}
-
-
-class _VisitWebpageDedupTool(Tool):
-    """Wraps visit_webpage and skips URLs already read in this deep-research run."""
-
-    name: str = "visit_webpage"
-    description: str = _VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
-    output_type: str = "string"
-    _inner: Tool
-    _visited_urls: _VisitedUrls
-
-    def __init__(self, inner: Tool, visited_urls: _VisitedUrls) -> None:
-        super().__init__()
-        self._inner = inner
-        self._visited_urls = visited_urls
-
-    def forward(self, url: str) -> str:
-        key = str(url or "").strip().rstrip("/")
-        if not key:
-            return self._inner.forward(url)
-        with self._visited_urls.lock:
-            if key in self._visited_urls:
-                return f"(Already visited in this research run: {key})"
-        text = self._inner.forward(url)
-        # Record the URL only after non-empty, non-error text, under the
-        # same lock as the check. An error string is retryable. An empty
-        # extract is too: a blank page or whitespace-only innerText is not
-        # an error prefix; only non-empty success text marks the URL visited.
-        body = str(text or "").strip()
-        if body and not body.startswith(("Error", "Failed")):
-            with self._visited_urls.lock:
-                self._visited_urls.add(key)
-        return text
 
 
 @final
@@ -327,8 +289,8 @@ def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
 
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
-    description: str = _VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
+    description: str = "Visits a webpage via CDP and returns its text."
+    inputs: dict[str, dict[str, Any]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
     cdp_url: str
     stop_checker: Callable[[], bool] | None
@@ -387,8 +349,11 @@ class VisitWebpageCdpTool(Tool):
             if not text:
                 text = eval_res.get("result", {}).get("result", {}).get("description") or ""
 
-            if len(text) > 40000:
-                return text[:40000] + "\n..._This content has been truncated to stay below 40000 characters_...\n"
+            if len(text) > PAGE_TEXT_MAX_CHARS:
+                return (
+                    text[:PAGE_TEXT_MAX_CHARS]
+                    + f"\n..._This content has been truncated to stay below {PAGE_TEXT_MAX_CHARS} characters_...\n"
+                )
             return text
         except Exception as e:
             return f"Error visiting webpage via CDP: {e}"
@@ -399,6 +364,27 @@ class VisitWebpageCdpTool(Tool):
                     f"visit_webpage: closeTarget failed for {target_id}",
                 )
             _cdp_refcount.visit_leave()
+
+
+def _resolve_web_research_window(client: Any) -> tuple[int, bool]:
+    """Return (window_tokens, assumed) for this run's client (once per WebResearchTool.execute).
+
+    Provider detection goes through resolve_auth_for_config so it stays in lockstep with
+    LlmClient._get_provider and resolve_context_window.
+    """
+    raw = resolve_context_window(client)
+    if raw is not None:
+        return raw, False
+    config = client.config
+    is_ollama = (
+        isinstance(config, dict)
+        and best_effort(
+            lambda: resolve_auth_for_config(config).get("provider"),
+            "web_research: provider",
+        )
+        == "ollama"
+    )
+    return effective_context_window(None, is_ollama=is_ollama), True
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -432,7 +418,7 @@ def _run_web_agent(
     budget_text = (
         f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
         "including final_answer). "
-        f"Use at most {tool_steps_budget} step(s) for web_search and visit_webpage; "
+        f"Use at most {tool_steps_budget} step(s) for web_search, visit_webpage, read_page and find_in_page; "
         "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
         "If you have enough evidence earlier, call final_answer sooner."
     )
@@ -448,16 +434,18 @@ def _run_web_agent(
         "Return the full research report as plain text in final_answer; the main agent receives it in the delegate tool result."
     )
 
+    stop_checker = _stop_checker_from_cancel(params.cancel)
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=_stop_checker_from_cancel(params.cancel))
+        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=stop_checker)
         if params.cdp_url
-        else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
+        else VisitWebpageTool(
+            cache_path=params.cache_path,
+            cache_max_mb=params.cache_max_mb,
+            cache_max_age_days=params.cache_max_age_days,
+            max_output_length=PAGE_TEXT_MAX_CHARS,
+        )
     )
-    visit_tool = (
-        _VisitWebpageDedupTool(visit_inner, params.visited_urls)
-        if params.visited_urls is not None
-        else visit_inner
-    )
+    visit_tool = PagedVisitTool(visit_inner, params.pages, stop_checker=stop_checker)
     agent = WebResearchToolCallingAgent(
         tools=[
             DuckDuckGoSearchTool(
@@ -467,6 +455,8 @@ def _run_web_agent(
                 cancel=params.cancel,
             ),
             visit_tool,
+            ReadPageTool(params.pages),
+            FindInPageTool(params.pages),
         ],
         model=params.smol_model,
         max_steps=max_steps,
@@ -476,12 +466,13 @@ def _run_web_agent(
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
     web_search_step_index = 0
-    stop_checker = _stop_checker_from_cancel(params.cancel)
 
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
         if stop_checker and stop_checker():
             return _user_stopped_payload()
+        if params.append_thinking_callback:
+            params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
         status_msg = ""
         if step.name == "web_search":
             def echo(q: str) -> None:
@@ -490,8 +481,6 @@ def _run_web_agent(
 
             args = as_dict(step.arguments)
             q = str(args.get("query", ""))
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
 
             if params.approval_callback:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar
@@ -516,18 +505,17 @@ def _run_web_agent(
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
         elif step.name == "visit_webpage":
-            url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
-            # Do not mark the URL visited here. This handler runs before the
-            # tool, and _VisitWebpageDedupTool.forward treats a URL already in
-            # the set as a skip, so the first fetch never reached the page.
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
-            from plugin.framework.url_utils import get_url_domain
-
+            raw_urls = as_dict(step.arguments).get("urls")
+            urls = [str(u) for u in raw_urls] if isinstance(raw_urls, list) else [str(raw_urls or "")]
+            # The handler runs before the tool and only reports status. PageStore
+            # records a URL after its fetch returns page text.
+            first_domain = get_url_domain(urls[0]) if urls else ""
+            extra = f" +{len(urls) - 1}" if len(urls) > 1 else ""
+            status_msg = f"Read: {first_domain}{extra}"
+        elif step.name in ("read_page", "find_in_page"):
+            url = str(as_dict(step.arguments).get("url", ""))
             status_msg = f"Read: {get_url_domain(url)}"
         else:
-            if params.append_thinking_callback:
-                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
             status_msg = str(step.name)
 
         if params.status_callback and status_msg:
@@ -570,7 +558,6 @@ def _run_deep_web_research(
 
         return chat
 
-    visited = _VisitedUrls()
     sub_steps = get_config("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
         run_max_steps = sub_steps
@@ -578,12 +565,11 @@ def _run_deep_web_research(
         run_max_steps = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
     else:
         run_max_steps = agent_params.max_steps
-    # replace keeps the shared visited set/lock (and cancellation scope) by
-    # reference. A fresh WebAgentRunParams would copy the field list and drop
-    # any new field the next time one is added.
+    # replace keeps the shared PageStore and cancellation scope by reference, so every
+    # deep-research worker reads and adds to one store. A fresh WebAgentRunParams would
+    # copy the field list and drop any new field the next time one is added.
     deep_params = replace(
         agent_params,
-        visited_urls=visited,
         max_steps=run_max_steps,
     )
 
@@ -784,6 +770,28 @@ class WebResearchTool(ToolBase):
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         try:
+            window_tokens, assumed = _resolve_web_research_window(smol_model.api)
+            if window_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS:
+                label = format_context_window_label(window_tokens) or str(window_tokens)
+                min_label = format_context_window_label(MIN_WEB_RESEARCH_CONTEXT_TOKENS) or str(MIN_WEB_RESEARCH_CONTEXT_TOKENS)
+                if assumed:
+                    message = _(
+                        "Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is too small for web research "
+                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
+                        "Raise num_ctx to at least {1} (via PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), "
+                        "then use Test Connection in Settings (or restart LibreOffice) and try again."
+                    ).format(label, min_label, MIN_WEB_RESEARCH_CONTEXT_TOKENS)
+                else:
+                    message = _(
+                        "Context window ({0} tokens) is too small for web research "
+                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
+                        "Raise num_ctx to at least {1} (or switch to a model with a larger context window) and try again."
+                    ).format(label, min_label)
+                return format_error_payload(
+                    ToolExecutionError(message, code="WEB_RESEARCH_CONTEXT_TOO_SMALL")
+                )
+            pages = PageStore(budget_chars=page_budget_chars(window_tokens))
+
             if cdp_enabled:
                 try:
                     cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
@@ -807,6 +815,7 @@ class WebResearchTool(ToolBase):
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
                 cancel=scope,
+                pages=pages,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(

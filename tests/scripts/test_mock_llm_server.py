@@ -194,7 +194,8 @@ def test_smol_online_sequence():
         cfg,
     )
     assert second.tool_name == "visit_webpage"
-    assert (second.tool_args or {}).get("url", "").startswith("http")
+    urls = (second.tool_args or {}).get("urls") or []
+    assert urls and urls[0].startswith("http")
     third = decide_completion(
         {
             "messages": [
@@ -263,11 +264,11 @@ def test_smol_action_in_content_advances_search_then_visit():
         cfg,
     )
     assert second.tool_name == "visit_webpage"
-    assert (second.tool_args or {}).get("url") == "https://www.python.org/downloads/"
+    assert (second.tool_args or {}).get("urls") == ["https://www.python.org/downloads/"]
 
     visited = (
         obs
-        + '\nAction:\n{"name": "visit_webpage", "arguments": {"url": "https://www.python.org/downloads/"}}\n'
+        + '\nAction:\n{"name": "visit_webpage", "arguments": {"urls": ["https://www.python.org/downloads/"]}}\n'
         "Observation:\nPython 3.14 notes"
     )
     third = decide_completion(

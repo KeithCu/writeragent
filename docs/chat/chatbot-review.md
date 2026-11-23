@@ -57,7 +57,7 @@ Point TTS, refresh, and domain updates at `session_for_turn`. Call `bind_turn_se
 
 ### 4. Visited-URL dedup on fetch errors (Shipped)
 
-**Shipped (`plugin/chatbot/web_research.py`):** `_VisitWebpageDedupTool.forward` records a URL in the visited set only after a non-error text return, so failed fetches can be retried by later sub-queries.
+**Shipped (`plugin/chatbot/web_pages.py`):** `PagedVisitTool.forward` stores a URL in `PageStore` only after a non-empty, non-error text return, so failed fetches can be retried by later calls or sub-queries.
 
 ### 5. Non-English research cache and embedding backfill
 

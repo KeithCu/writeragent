@@ -126,7 +126,7 @@ class TestToolcallingPromptExamples:
                 "finish": "reply_to_user",
             },
             "web_research": {
-                "allowed": {"web_search", "final_answer"},
+                "allowed": {"web_search", "visit_webpage", "read_page", "find_in_page", "final_answer"},
                 "finish": "final_answer",
             },
             "ppt-master": {
