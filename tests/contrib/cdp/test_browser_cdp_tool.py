@@ -1,6 +1,8 @@
 # Automated unit tests for browser CDP functionality in WriterAgent
 
 import json
+import ntpath
+import subprocess
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -25,7 +27,7 @@ def test_tool_error_formatting():
 
 
 @contextmanager
-def _mock_cdp_spawn():
+def _mock_cdp_spawn(which_side_effect=None):
     mock_response = MagicMock()
     mock_response.read.return_value = json.dumps([
         {
@@ -39,7 +41,7 @@ def _mock_cdp_spawn():
     mock_proc.kill.side_effect = lambda: setattr(mock_proc.poll, "return_value", 0)
 
     with (
-        patch("subprocess.run"),
+        patch("subprocess.run", side_effect=which_side_effect),
         patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
         patch("urllib.request.urlopen") as mock_urlopen,
     ):
@@ -54,11 +56,19 @@ def _mock_cdp_spawn():
             cleanup_local_chrome()
 
 
+def _isolate_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    # Match the real 0-arg user_config_dir() so the ~/.config/writeragent fallback runs.
+    monkeypatch.setattr("plugin.framework.config.user_config_dir", lambda: None)
+
+
 @pytest.mark.parametrize(
     "browser_type",
     ["chrome", "chromium", "brave"],
 )
-def test_browser_process_spawning(browser_type):
+def test_browser_process_spawning(browser_type, tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
     with _mock_cdp_spawn() as (mock_popen, mock_proc):
         ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type=browser_type)
         assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
@@ -67,51 +77,58 @@ def test_browser_process_spawning(browser_type):
         assert "--remote-debugging-port=9222" in args
         assert "--no-first-run" in args
         assert "--no-default-browser-check" in args
-        assert any(
-            a.startswith("--user-data-dir=") and a.endswith(f"{browser_type}_profile")
-            for a in args
-        )
+        expected_profile = tmp_path / ".config" / "writeragent" / f"{browser_type}_profile"
+        assert f"--user-data-dir={expected_profile}" in args
 
         cleanup_local_chrome()
         mock_proc.kill.assert_called_once()
         assert browser_cdp_tool._CHROME_BROWSER is None
 
 
-def test_brave_binary_lookup_and_profile_dir(tmp_path):
+@pytest.mark.parametrize("binary_name", ["brave", "brave-browser", "brave-browser-stable"])
+def test_brave_linux_binary_lookup_and_profile_dir(binary_name, tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+
+    def fake_which(cmd, **_kwargs):
+        if cmd[1] == binary_name:
+            return MagicMock(returncode=0)
+        raise subprocess.CalledProcessError(1, cmd)
+
+    with _mock_cdp_spawn(which_side_effect=fake_which) as (mock_popen, _mock_proc):
+        ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
+        assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
+        args = mock_popen.call_args[0][0]
+        assert args[0] == binary_name
+        expected_profile = tmp_path / ".config" / "writeragent" / "brave_profile"
+        assert f"--user-data-dir={expected_profile}" in args
+
+
+def test_brave_windows_binary_lookup(tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setattr(browser_cdp_tool.sys, "platform", "win32")
+    monkeypatch.setattr(browser_cdp_tool.os.path, "expandvars", ntpath.expandvars)
+    monkeypatch.setattr(browser_cdp_tool.os.path, "isabs", ntpath.isabs)
+
+    win_brave = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+
+    def fake_which(cmd, **_kwargs):
+        raise subprocess.CalledProcessError(1, cmd)
+
     with (
-        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("subprocess.run") as mock_which,
-        patch("subprocess.Popen") as mock_popen,
-        patch("urllib.request.urlopen") as mock_urlopen,
+        patch("os.path.exists", side_effect=lambda p: p == win_brave),
+        _mock_cdp_spawn(which_side_effect=fake_which) as (mock_popen, _mock_proc),
     ):
-        mock_which.side_effect = [
-            FileNotFoundError("brave"),
-            MagicMock(returncode=0),  # brave-browser found
-        ]
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps([
-            {"type": "page", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/brave"}
-        ]).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_resp
-        mock_urlopen.side_effect = [
-            Exception("Connection refused"),
-            mock_urlopen.return_value,
-        ]
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        mock_popen.return_value = mock_proc
-
-        try:
-            ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
-            assert ws_url == "ws://127.0.0.1:9222/devtools/page/brave"
-            args = mock_popen.call_args[0][0]
-            assert args[0] == "brave-browser"
-            assert f"--user-data-dir={tmp_path / 'brave_profile'}" in args
-        finally:
-            cleanup_local_chrome()
+        ws_url = get_local_chrome_cdp_url(MagicMock(), browser_type="brave")
+        assert ws_url == "ws://127.0.0.1:9222/devtools/page/test-id"
+        args = mock_popen.call_args[0][0]
+        assert args[0] == win_brave
+        expected_profile = tmp_path / ".config" / "writeragent" / "brave_profile"
+        assert f"--user-data-dir={expected_profile}" in args
 
 
-def test_cdp_browser_registered_and_shutdown_all_kills():
+def test_cdp_browser_registered_and_shutdown_all_kills(tmp_path, monkeypatch):
+    _isolate_home(monkeypatch, tmp_path)
     cleanup_local_chrome()
     before = set(_instances)
     with _mock_cdp_spawn() as (_mock_popen, mock_proc):

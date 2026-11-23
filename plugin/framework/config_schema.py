@@ -550,13 +550,6 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
         else:
             out["endpoint"] = ""
 
-    # 5b. Migrate removed Firefox CDP browser choice to default ("off")
-    browser_val = out.get("chatbot.web_research_browser")
-    if isinstance(browser_val, str) and browser_val.strip().lower() in ("firefox", "firefox (cdp)"):
-        default_browser = resolve_default("chatbot.web_research_browser")
-        log.info("Migrating chatbot.web_research_browser from %r to %r", browser_val, default_browser)
-        out["chatbot.web_research_browser"] = default_browser
-
     # 6. Coerce and validate known keys
     for key, val in list(out.items()):
         if key in ("endpoint", "saved_python_scripts"):

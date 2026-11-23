@@ -101,6 +101,47 @@ def cleanup_local_chrome() -> None:
     managed.unregister()
 
 
+_CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str]] = {
+    "brave": (
+        [
+            "brave",
+            "brave-browser",
+            "brave-browser-stable",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ],
+        "brave",
+    ),
+    "chromium": (
+        [
+            "chromium-browser",
+            "chromium",
+            "google-chrome",
+            "google-chrome-stable",
+            "chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ],
+        "chromium",
+    ),
+    "chrome": (
+        [
+            "google-chrome",
+            "google-chrome-stable",
+            "chrome",
+            "chromium-browser",
+            "chromium",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ],
+        "google-chrome",
+    ),
+}
+
+_BRAVE_WIN32_PATHS = (
+    r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
+    r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe",
+    r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe",
+)
+
+
 def _find_browser_executable(candidates: list[str], default: str) -> str:
     """Return the first existing absolute path or PATH binary from candidates."""
     for name in candidates:
@@ -108,8 +149,6 @@ def _find_browser_executable(candidates: list[str], default: str) -> str:
             if os.path.isabs(name):
                 if os.path.exists(name):
                     return name
-                continue
-            if sys.platform != "win32" and (name.endswith(".exe") or "\\" in name):
                 continue
             subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             return name
@@ -147,49 +186,12 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
     profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
     os.makedirs(profile_dir, exist_ok=True)
 
-    brave_candidates = [
-        "brave",
-        "brave-browser",
-        "brave-browser-stable",
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    ]
-    if sys.platform == "win32":
-        brave_candidates.extend([
-            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-            os.path.expandvars(r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-            os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-        ])
-
-    browser_table: dict[str, tuple[list[str], str]] = {
-        "brave": (brave_candidates, "brave"),
-        "chromium": (
-            [
-                "chromium-browser",
-                "chromium",
-                "google-chrome",
-                "google-chrome-stable",
-                "chrome",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            ],
-            "chromium",
-        ),
-        "chrome": (
-            [
-                "google-chrome",
-                "google-chrome-stable",
-                "chrome",
-                "chromium-browser",
-                "chromium",
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            ],
-            "google-chrome",
-        ),
-    }
-
     if os.path.exists(browser_type) or "/" in browser_type or "\\" in browser_type:
         executable = browser_type
-    elif browser_type in browser_table:
-        candidates, default_bin = browser_table[browser_type]
+    elif browser_type in _CDP_BROWSER_CANDIDATES:
+        candidates, default_bin = _CDP_BROWSER_CANDIDATES[browser_type]
+        if browser_type == "brave" and sys.platform == "win32":
+            candidates = candidates + [os.path.expandvars(p) for p in _BRAVE_WIN32_PATHS]
         executable = _find_browser_executable(candidates, default_bin)
     else:
         search_names = [browser_type]
@@ -247,7 +249,7 @@ def _resolve_cdp_endpoint(ctx: Any = None) -> str:
         if ctx is not None:
             try:
                 cfg_val = get_config("chatbot.web_research_browser")
-                if cfg_val in ("chrome", "chromium", "brave"):
+                if cfg_val in _CDP_BROWSER_CANDIDATES:
                     browser_type = cfg_val
             except Exception:
                 pass

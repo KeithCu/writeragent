@@ -459,6 +459,10 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
             if not str(data.get("agent_backend.model") or "").strip():
                 data["agent_backend.model"] = agy_model
 
+        # Firefox's --remote-debugging-port serves WebDriver BiDi, not CDP.
+        if data.get("chatbot.web_research_browser") == "firefox":
+            data.pop("chatbot.web_research_browser")
+
         for flat_key, full_key in _config_schema.FLAT_TO_MODULE_KEY.items():
             if flat_key in ("stt_model", "model"):
                 continue

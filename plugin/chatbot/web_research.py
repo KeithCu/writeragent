@@ -788,9 +788,10 @@ class WebResearchTool(ToolBase):
         max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
+        from plugin.framework.constants import CDP_BROWSER_TYPES
 
         browser_type = get_config("chatbot.web_research_browser")
-        cdp_enabled = browser_type in ("chrome", "chromium", "brave")
+        cdp_enabled = browser_type in CDP_BROWSER_TYPES
         cdp_url = None
         cdp_held = False
 
