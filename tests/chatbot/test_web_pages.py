@@ -453,3 +453,43 @@ def test_visit_five_large_pages_on_8k_budget_stays_within_budget():
     bodies = [_strip_part_header(b) for b in blocks]
     assert all(0 < len(body) <= 800 for body in bodies)
     assert sum(len(body) for body in bodies) <= store.budget_chars
+
+
+def test_visit_failed_urls_do_not_shrink_surviving_page_budget():
+    medium = "\n".join(f"Row {i:03d}: " + ("m" * 80) for i in range(100))
+    assert 8_500 < len(medium) < 9_500
+
+    def fetch(url: str) -> str:
+        if url.endswith("/ok"):
+            return medium
+        return "Error fetching the webpage: 403"
+
+    inner = MagicMock()
+    inner.forward.side_effect = fetch
+    store = PageStore(budget_chars=12_000)
+    visit = PagedVisitTool(inner, store)
+
+    out = visit.forward([
+        "https://fail.test/1",
+        "https://fail.test/2",
+        "https://fail.test/3",
+        "https://fail.test/4",
+        "https://fail.test/ok",
+    ])
+    assert "Part 1 of " not in out
+    assert f"URL: https://fail.test/ok\n\n{medium}" in out
+
+
+@pytest.mark.parametrize("budget", [2_048, 4_096])
+def test_find_in_page_output_respects_budget_chars(budget):
+    many_text = "\n".join(f"item {i}: TARGETWORD " + ("z" * 300) for i in range(25))
+    store = PageStore(budget_chars=budget)
+    url = "https://find-bound.test/page"
+    store.put(url, many_text)
+
+    res = FindInPageTool(store).forward(url, "targetword")
+    assert len(res) <= budget
+    shown_lines = res.splitlines()[1:]
+    assert len(shown_lines) >= 1
+    if budget == 2_048:
+        assert len(shown_lines) < 10

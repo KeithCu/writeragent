@@ -35,9 +35,9 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
+from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client.errors import format_context_window_label
 from plugin.framework.client.model_fetcher import resolve_context_window
-from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
@@ -366,29 +366,25 @@ class VisitWebpageCdpTool(Tool):
             _cdp_refcount.visit_leave()
 
 
-def _is_ollama_client(client: Any) -> bool:
-    """True when the client targets an Ollama endpoint (and not an explicit OpenRouter proxy)."""
+def _resolve_web_research_window(client: Any) -> tuple[int, bool]:
+    """Return (window_tokens, assumed) for this run's client (once per WebResearchTool.execute).
+
+    Provider detection goes through resolve_auth_for_config so it stays in lockstep with
+    LlmClient._get_provider and resolve_context_window.
+    """
+    raw = resolve_context_window(client)
+    if raw is not None:
+        return raw, False
     config = client.config
-    if not isinstance(config, dict):
-        return False
-    endpoint = str(config.get("endpoint") or "")
-    if not endpoint:
-        return False
-
-    def _check() -> bool:
-        if is_openrouter_endpoint(endpoint, explicit_is_openrouter=config.get("is_openrouter")):
-            return False
-        return get_provider_from_endpoint(endpoint) == "ollama"
-
-    return best_effort(_check, "web_research: provider") is True
-
-
-def _resolve_web_research_window(client: Any) -> int:
-    """Resolve the sub-agent's effective context window in tokens (once per WebResearchTool.execute)."""
-    return effective_context_window(
-        resolve_context_window(client),
-        is_ollama=_is_ollama_client(client),
+    is_ollama = (
+        isinstance(config, dict)
+        and best_effort(
+            lambda: resolve_auth_for_config(config).get("provider"),
+            "web_research: provider",
+        )
+        == "ollama"
     )
+    return effective_context_window(None, is_ollama=is_ollama), True
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -774,18 +770,24 @@ class WebResearchTool(ToolBase):
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         try:
-            window_tokens = _resolve_web_research_window(smol_model.api)
+            window_tokens, assumed = _resolve_web_research_window(smol_model.api)
             if window_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS:
                 label = format_context_window_label(window_tokens) or str(window_tokens)
+                min_label = format_context_window_label(MIN_WEB_RESEARCH_CONTEXT_TOKENS) or str(MIN_WEB_RESEARCH_CONTEXT_TOKENS)
+                if assumed:
+                    message = _(
+                        "Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is too small for web research "
+                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
+                        "Raise num_ctx to at least {1} (via PARAMETER num_ctx in a Modelfile or OLLAMA_CONTEXT_LENGTH) and try again."
+                    ).format(label, min_label)
+                else:
+                    message = _(
+                        "Context window ({0} tokens) is too small for web research "
+                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
+                        "Raise num_ctx to at least {1} (or switch to a model with a larger context window) and try again."
+                    ).format(label, min_label)
                 return format_error_payload(
-                    ToolExecutionError(
-                        _(
-                            "Context window ({0} tokens) is too small for web research "
-                            "(the research prompt and tools alone use about 2,000 tokens). "
-                            "Raise num_ctx to at least 8192 (or switch to a model with a larger context window) and try again."
-                        ).format(label),
-                        code="WEB_RESEARCH_CONTEXT_TOO_SMALL",
-                    )
+                    ToolExecutionError(message, code="WEB_RESEARCH_CONTEXT_TOO_SMALL")
                 )
             pages = PageStore(budget_chars=page_budget_chars(window_tokens))
 

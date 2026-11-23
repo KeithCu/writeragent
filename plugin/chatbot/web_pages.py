@@ -45,15 +45,14 @@ MAX_PAGE_BUDGET_CHARS = 48_000
 OLLAMA_DEFAULT_CONTEXT_TOKENS = 4_096
 FALLBACK_CONTEXT_TOKENS = 24_000
 # System prompt + WEB_RESEARCH_EXAMPLES (~1,370-1,450 rough tokens) plus wire tool schemas
-# (~565 rough tokens) consume ~2,000 tokens before any query or observation; below 4,000 tokens
-# there is too little room left for search, page reading, and an answer.
-MIN_WEB_RESEARCH_CONTEXT_TOKENS = 4_000
-DEFAULT_PAGE_BUDGET_CHARS = FALLBACK_CONTEXT_TOKENS // 2
-# Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
-DEFAULT_PART_CHARS = DEFAULT_PAGE_BUDGET_CHARS // 2
+# (~565 rough tokens) consume ~2,000 tokens before any query, history, or observation, and
+# Ollama's output reservation (chat_max_tokens) also comes out of num_ctx. A 4,096 window
+# overflows within 2-3 steps, so web research requires at least 8,192 tokens.
+MIN_WEB_RESEARCH_CONTEXT_TOKENS = 8_192
 _MAX_PAGES = 100
 _FIND_MAX_MATCHES = 10
 _FIND_CONTEXT_CHARS = 120
+_FIND_SNIPPET_OVERHEAD_CHARS = 40
 
 VISIT_WEBPAGE_DESCRIPTION = (
     "Fetches one to five web pages at once and returns their text. A long page is split into "
@@ -94,6 +93,11 @@ def page_budget_chars(window_tokens: int | None, *, is_ollama: bool = False) -> 
     """Per-tool-result character budget derived from the model's context window."""
     resolved = effective_context_window(window_tokens, is_ollama=is_ollama)
     return max(MIN_PAGE_BUDGET_CHARS, min(MAX_PAGE_BUDGET_CHARS, resolved // 2))
+
+
+DEFAULT_PAGE_BUDGET_CHARS = page_budget_chars(None)
+# Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
+DEFAULT_PART_CHARS = DEFAULT_PAGE_BUDGET_CHARS // 2
 
 
 def _clip_at_newline(text: str, limit: int) -> str:
@@ -315,21 +319,26 @@ class PagedVisitTool(Tool):
         pending = [u for u in batch if cached[u] is None]
         texts, stopped = self._fetch_all(pending)
 
-        whole_limit = max(1, self._pages.budget_chars // len(batch))
-        blocks: list[str] = []
+        # Store fetched pages first so failed, timed-out, or stopped URLs do not shrink
+        # the surviving pages' share of the body budget.
+        pages_by_url: dict[str, StoredPage] = {}
         for u in batch:
             existing = cached[u]
             if existing is not None:
-                blocks.append(_format_page(u, existing, whole_limit))
+                pages_by_url[u] = existing
+            elif u in texts and is_page_text(texts[u]):
+                pages_by_url[u] = self._pages.put(u, texts[u])
+
+        # Budget covers page bodies (per-block URL and part headers are fixed overhead).
+        whole_limit = max(1, self._pages.budget_chars // max(1, len(pages_by_url)))
+        blocks: list[str] = []
+        for u in batch:
+            page = pages_by_url.get(u)
+            if page is not None:
+                blocks.append(_format_page(u, page, whole_limit))
             elif u in texts:
-                text = texts[u]
-                # Only store valid page text so an Error/Failed reply or blank extract stays retryable.
-                if is_page_text(text):
-                    page = self._pages.put(u, text)
-                    blocks.append(_format_page(u, page, whole_limit))
-                else:
-                    reason = text.strip() or "no text could be extracted"
-                    blocks.append(f"[failed] {u}: {reason}")
+                reason = texts[u].strip() or "no text could be extracted"
+                blocks.append(f"[failed] {u}: {reason}")
             elif stopped:
                 blocks.append(f"[stopped] {u}")
             else:
@@ -393,6 +402,8 @@ class FindInPageTool(Tool):
         needle = text.strip()
         if not needle:
             return "find_in_page needs a non-empty text."
+        per_snippet = 2 * _FIND_CONTEXT_CHARS + len(needle) + _FIND_SNIPPET_OVERHEAD_CHARS
+        max_matches = max(1, min(_FIND_MAX_MATCHES, self._pages.budget_chars // per_snippet))
         total = 0
         snippets: list[str] = []
         last_window_end = -1
@@ -401,7 +412,7 @@ class FindInPageTool(Tool):
             s, e = match.start(), match.end()
             if s < last_window_end:
                 continue
-            if len(snippets) < _FIND_MAX_MATCHES:
+            if len(snippets) < max_matches:
                 win_start = max(0, s - _FIND_CONTEXT_CHARS)
                 win_end = min(len(page.text), e + _FIND_CONTEXT_CHARS)
                 snippet = page.text[win_start:win_end].replace("\n", " ")
