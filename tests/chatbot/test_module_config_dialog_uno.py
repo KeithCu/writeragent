@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import os
+import sys
 import tempfile
 from unittest.mock import patch
 
@@ -19,7 +20,21 @@ from plugin.chatbot.dialogs import get_optional
 from plugin.chatbot.module_config_dialog import ModuleConfigDialog, PreviewImage, _active_dialogs
 from plugin.testing_runner import native_test
 from plugin.writer.images.image_tools import graphic_from_bytes
-from scripts.manifest_xdl import generate_standalone_config_dialog
+
+
+def _generate_standalone_config_dialog(module: dict) -> str:
+    try:
+        from scripts.manifest_xdl import generate_standalone_config_dialog
+    except ImportError:
+        # release_verify runs this in a stripped tree with no scripts/; it sets
+        # WRITERAGENT_PROJECT_ROOT to the real checkout.
+        root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
+        if not root:
+            raise
+        sys.path.append(root)
+        from scripts.manifest_xdl import generate_standalone_config_dialog
+    return generate_standalone_config_dialog(module)
+
 
 # 1x1 transparent PNG
 _PNG_1X1 = base64.b64decode(
@@ -30,7 +45,7 @@ _PNG_1X1 = base64.b64decode(
 @native_test
 def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
     vision_mod = next(m for m in MODULES if m["name"] == "vision")
-    xdl = generate_standalone_config_dialog(vision_mod)
+    xdl = _generate_standalone_config_dialog(vision_mod)
     fd, xdl_path = tempfile.mkstemp(prefix="wa_vision_dlg_", suffix=".xdl")
     os.close(fd)
     dialog = None
