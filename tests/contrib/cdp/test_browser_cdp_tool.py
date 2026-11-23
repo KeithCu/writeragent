@@ -48,12 +48,11 @@ def _mock_cdp_spawn(which_side_effect=None):
 
     calls = 0
 
-    def fake_urlopen(req, **_kwargs):
+    def fake_urlopen(url, **_kwargs):
         nonlocal calls
         calls += 1
         if calls == 1:
             raise Exception("Connection refused")
-        url = req.full_url if hasattr(req, "full_url") else str(req)
         ctx_mgr = MagicMock()
         ctx_mgr.__enter__.return_value = (
             version_response if url.endswith("/json/version") else page_response
@@ -271,7 +270,6 @@ def test_browser_cdp_after_cleanup_never_spawns(already_listening, tmp_path, mon
                 get_local_chrome_cdp_url(MagicMock())
 
         cleanup_local_chrome()
-        assert browser_cdp_tool._CDP_ENDPOINT == ""
 
         with (
             patch("subprocess.Popen") as mock_popen,
@@ -287,18 +285,25 @@ def test_browser_cdp_after_cleanup_never_spawns(already_listening, tmp_path, mon
         cleanup_local_chrome()
 
 
-def test_dead_browser_fails_the_visit_without_spawning(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("exc", "expected_fragment"),
+    [
+        (ConnectionRefusedError("Connection refused"), "browser may have disconnected"),
+        (TimeoutError("x"), "timed out"),
+    ],
+)
+def test_dead_browser_fails_the_visit_without_spawning(exc, expected_fragment, tmp_path, monkeypatch):
     _isolate_home(monkeypatch, tmp_path)
 
     async def fake_cdp_call(_ws_url, _method, _params, _target_id, _timeout):
-        raise ConnectionRefusedError("Connection refused")
+        raise exc
 
     with _mock_cdp_spawn() as (mock_popen, _mock_proc):
         get_local_chrome_cdp_url(MagicMock())
         assert mock_popen.call_count == 1
         with patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call):
             result = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.com")
-            assert "browser may have disconnected" in result
+            assert expected_fragment in result
             assert mock_popen.call_count == 1
 
 

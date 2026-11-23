@@ -82,7 +82,7 @@ def _run_async(coro):
 
 
 _CHROME_BROWSER: ManagedSubprocess | None = None
-# Written only by launch (under CdpRefCount.launch_lock) and by teardown, so a page visit can never start a browser.
+# Browser-level URL of the current local browser. Written only by launch (under CdpRefCount.launch_lock) and teardown; browser_cdp only reads it, so a page visit can never start a browser.
 _CDP_ENDPOINT: str = ""
 
 
@@ -214,6 +214,7 @@ def _query_browser_endpoint() -> str:
 
 def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
     global _CDP_ENDPOINT
+    # Do not clear on entry or failure: another run may still be using a live browser too busy to answer in 1 s.
     endpoint = _query_browser_endpoint()
     if endpoint:
         _CDP_ENDPOINT = endpoint
@@ -565,7 +566,7 @@ def browser_cdp(
     except RuntimeError as exc:
         return tool_error(str(exc), method=method)
     except (WebSocketException, OSError) as exc:
-        # A refused connection means the browser exited.
+        # A refused connection means the browser exited. Keep after TimeoutError, which is an OSError.
         return tool_error(
             f"WebSocket error talking to CDP at {endpoint}: {exc}. The "
             "browser may have disconnected — try '/browser connect' again.",
