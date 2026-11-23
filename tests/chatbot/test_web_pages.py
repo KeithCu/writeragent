@@ -309,7 +309,7 @@ def test_visit_serializes_same_domain_across_concurrent_calls():
         pytest.param(False, "https://wait-a.test/a", "https://wait-b.test/b", id="serial-cross-domain"),
     ],
 )
-def test_visit_stop_returns_while_waiting_for_same_domain_turn(monkeypatch, parallel, first_url, second_url):
+def test_visit_stop_returns_while_waiting_for_fetch_turn(monkeypatch, parallel, first_url, second_url):
     from plugin.chatbot import web_pages
 
     monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", parallel)
@@ -362,7 +362,7 @@ def test_visit_stop_returns_while_waiting_for_same_domain_turn(monkeypatch, para
         pytest.param(False, "https://queue-a.test/slow", "https://queue-b.test/next", id="serial-cross-domain"),
     ],
 )
-def test_visit_deadline_skips_queued_same_domain_url(monkeypatch, parallel, slow_url, next_url):
+def test_visit_deadline_skips_queued_url(monkeypatch, parallel, slow_url, next_url):
     from plugin.chatbot import web_pages
 
     monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", parallel)

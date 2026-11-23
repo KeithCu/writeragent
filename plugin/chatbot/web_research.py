@@ -110,7 +110,9 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
             if visit_tool is not None and "urls" not in visit_tool.inputs:
                 from plugin.contrib.smolagents.utils import AgentToolExecutionError
 
-                resolved_args = {k: self._substitute_state_variables(v) for k, v in arguments.items()}
+                resolved_args = self._substitute_state_variables(arguments)
+                if not isinstance(resolved_args, dict):
+                    resolved_args = arguments
                 try:
                     return visit_tool(**resolved_args, sanitize_inputs_outputs=True)
                 except Exception as e:

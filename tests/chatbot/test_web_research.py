@@ -344,6 +344,10 @@ def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatc
     assert store.get("https://a.test/1") is not None
     assert store.get("https://b.test/2") is not None
 
+    agent.state["target_urls"] = ["https://state.test/1"]
+    state_out = agent.execute_tool_call("visit_webpage", {"urls": "target_urls"})
+    assert "Body for https://state.test/1" in state_out
+
     from plugin.contrib.smolagents.utils import AgentToolExecutionError
 
     store.put = MagicMock(side_effect=RuntimeError("boom"))
