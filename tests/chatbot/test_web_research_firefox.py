@@ -278,7 +278,7 @@ def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monk
     try:
         with (
             patch("websockets.sync.client.connect", side_effect=fake_connect),
-            patch("plugin.chatbot.web_research_firefox.cleanup_local_chrome", side_effect=fake_cleanup),
+            patch("plugin.chatbot.web_research_firefox.cleanup_local_browser", side_effect=fake_cleanup),
             patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
         ):
