@@ -1292,3 +1292,50 @@ def test_stop_join_is_bounded_when_a_worker_ignores_the_checker(monkeypatch):
         for thread in _alive_deep_threads():
             thread.join(timeout=2)
     assert _alive_deep_threads() == []
+
+
+def test_deep_workers_share_the_run_page_store():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_deep_web_research
+
+    parent_client = MagicMock()
+    parent_client.config = MagicMock()
+    parent_client.ctx = MagicMock()
+    smol_model = MagicMock()
+    smol_model.api = parent_client
+    smol_model.max_tokens = 2048
+
+    agent_params = WebAgentRunParams(
+        smol_model=smol_model,
+        max_steps=6,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_url=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+
+    captured_factory = []
+    captured_params = []
+
+    def fake_run_deep(*args, worker_factory=None, **kwargs):
+        captured_factory.append(worker_factory)
+        run_worker = worker_factory()[0]
+        run_worker("q", "g")
+        return "synthesized"
+
+    def fake_run_web_agent(ctx, query, history, params, *, research_goal=None):
+        captured_params.append(params)
+        return "sub-report"
+
+    with patch("plugin.chatbot.web_research_deep.run_deep_research", side_effect=fake_run_deep), \
+         patch("plugin.chatbot.smol_agent.create_smol_model", return_value=MagicMock()), \
+         patch("plugin.chatbot.web_research._run_web_agent", side_effect=fake_run_web_agent):
+        _run_deep_web_research(MagicMock(), "topic", agent_params)
+
+    assert len(captured_factory) == 1
+    assert len(captured_params) == 1
+    assert captured_params[0].pages is agent_params.pages

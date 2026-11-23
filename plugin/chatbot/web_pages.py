@@ -18,15 +18,23 @@
 from __future__ import annotations
 
 import bisect
+import logging
+import queue
 import re
 import threading
+import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from plugin.contrib.smolagents.tools import Tool
+from plugin.framework.worker_pool import run_in_background
+
+log = logging.getLogger(__name__)
 
 # Shared by both HTTP and CDP visit tools; raises HTTP page-cache row sizes accordingly.
 PAGE_TEXT_MAX_CHARS = 200_000
+MAX_URLS_PER_VISIT = 5
+_VISIT_WAIT_SEC = 45.0
 # Pages up to this size are returned whole, unchanged from before chunked reading.
 _WHOLE_PAGE_MAX_CHARS = 12_000
 # Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
@@ -36,14 +44,20 @@ _FIND_MAX_MATCHES = 10
 _FIND_CONTEXT_CHARS = 120
 
 VISIT_WEBPAGE_DESCRIPTION = (
-    "Fetches the webpage at the given url and returns its text. A long page is split into "
-    "numbered parts; the result then holds part 1 and the number of parts."
+    "Fetches one to five web pages at once and returns their text. A long page is split into "
+    "numbered parts; its result then holds part 1 and the number of parts, and read_page / find_in_page read the rest."
 )
 
 
-def visit_webpage_inputs() -> dict[str, dict[str, str | type[Any] | bool]]:
+def visit_webpage_inputs() -> dict[str, dict[str, Any]]:
     """Return the smolagents input schema for visit_webpage."""
-    return {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    return {
+        "urls": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "One to five http or https URLs to visit.",
+        }
+    }
 
 
 def url_key(url: str) -> str:
@@ -131,8 +145,7 @@ class PageStore:
 def _render_part(url: str, page: StoredPage, number: int) -> str:
     """Format one stored page part with its navigation header.
 
-    The header must never start with "Error" or "Failed"; otherwise _VisitWebpageDedupTool
-    treats the visit as a failed fetch and does not mark the URL visited.
+    The header must never start with "Error" or "Failed" so is_page_text treats it as valid text.
     """
     body = page.part(number).rstrip("\n")
     return (
@@ -143,29 +156,119 @@ def _render_part(url: str, page: StoredPage, number: int) -> str:
     )
 
 
+def _format_page(url: str, page: StoredPage) -> str:
+    """Return the full page for short pages or part 1 with navigation for long ones."""
+    if len(page.text) <= _WHOLE_PAGE_MAX_CHARS:
+        return f"URL: {url}\n\n{page.text}"
+    return _render_part(url, page, 1)
+
+
 class PagedVisitTool(Tool):
-    """Wraps visit_webpage to store fetched pages and return long ones as part 1."""
+    """Fetches one to five URLs in parallel, stores valid pages, and returns part 1 for long ones."""
 
     name: str = "visit_webpage"
     description: str = VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = visit_webpage_inputs()
+    inputs: dict[str, dict[str, Any]] = visit_webpage_inputs()
     output_type: str = "string"
     _inner: Tool
     _pages: PageStore
+    _stop_checker: Callable[[], bool] | None
 
-    def __init__(self, inner: Tool, pages: PageStore) -> None:
+    def __init__(
+        self,
+        inner: Tool,
+        pages: PageStore,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> None:
         super().__init__()
         self._inner = inner
         self._pages = pages
+        self._stop_checker = stop_checker
 
-    def forward(self, url: str) -> str:
-        text = self._inner.forward(url)
-        if not is_page_text(text):
-            return text
-        page = self._pages.put(url, text)
-        if len(text) <= _WHOLE_PAGE_MAX_CHARS:
-            return text
-        return _render_part(url, page, 1)
+    def _fetch_all(self, urls: list[str]) -> tuple[dict[str, str], bool]:
+        """Fetch `urls` concurrently on dedicated threads up to _VISIT_WAIT_SEC."""
+        if not urls:
+            return {}, False
+        results_q: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+
+        def _fetch_one(target_url: str) -> None:
+            try:
+                text = self._inner.forward(target_url)
+            except Exception as exc:
+                log.exception("visit_webpage failed for %s", target_url)
+                text = f"Error fetching the webpage: {exc}"
+            results_q.put((target_url, text))
+
+        for target_url in urls:
+            # Dedicated threads: the caller waits on these, and the shared pool has
+            # two slots which the agent thread may already hold.
+            run_in_background(_fetch_one, target_url, name="visit-webpage", dedicated=True)
+
+        texts: dict[str, str] = {}
+        stopped = False
+        deadline = time.monotonic() + _VISIT_WAIT_SEC
+        while len(texts) < len(urls):
+            if self._stop_checker and self._stop_checker():
+                stopped = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                u, text = results_q.get(timeout=min(0.25, remaining))
+            except queue.Empty:
+                continue
+            texts[u] = text
+
+        while True:
+            try:
+                u, text = results_q.get_nowait()
+            except queue.Empty:
+                break
+            texts[u] = text
+        return texts, stopped
+
+    def forward(self, urls: list[str]) -> str:
+        seen: set[str] = set()
+        unique: list[str] = []
+        for raw in urls:
+            u = str(raw or "").strip()
+            key = url_key(u)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(u)
+
+        batch = unique[:MAX_URLS_PER_VISIT]
+        skipped = unique[MAX_URLS_PER_VISIT:]
+        if not batch:
+            return "visit_webpage needs one to five URLs."
+
+        pending = [u for u in batch if self._pages.get(u) is None]
+        texts, stopped = self._fetch_all(pending)
+
+        blocks: list[str] = []
+        for u in batch:
+            existing = self._pages.get(u)
+            if existing is not None:
+                blocks.append(_format_page(u, existing))
+            elif u in texts:
+                text = texts[u]
+                if is_page_text(text):
+                    page = self._pages.put(u, text)
+                    blocks.append(_format_page(u, page))
+                else:
+                    reason = text.strip() or "no text could be extracted"
+                    blocks.append(f"[failed] {u}: {reason}")
+            elif stopped:
+                blocks.append(f"[stopped] {u}")
+            else:
+                blocks.append(f"[timed out] {u}: no response within {int(_VISIT_WAIT_SEC)} s")
+
+        for u in skipped:
+            blocks.append(f"[skipped] {u}: at most {MAX_URLS_PER_VISIT} URLs per call")
+
+        return "\n\n".join(blocks)
 
 
 class ReadPageTool(Tool):
@@ -187,7 +290,7 @@ class ReadPageTool(Tool):
     def forward(self, url: str, part: int) -> str:
         page = self._pages.get(url)
         if page is None:
-            return f"No text is stored for {url}; visit_webpage(url) fetches it."
+            return f"No text is stored for {url}; visit_webpage fetches it."
         count = page.part_count
         if part < 1 or part > count:
             return f"Part {part} does not exist; this page has {count} part(s)."
@@ -216,7 +319,7 @@ class FindInPageTool(Tool):
     def forward(self, url: str, text: str) -> str:
         page = self._pages.get(url)
         if page is None:
-            return f"No text is stored for {url}; visit_webpage(url) fetches it."
+            return f"No text is stored for {url}; visit_webpage fetches it."
         needle = text.strip()
         if not needle:
             return "find_in_page needs a non-empty text."

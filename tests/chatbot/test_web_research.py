@@ -216,8 +216,7 @@ def _run_web_search_tool_call_handler(
          patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
          patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
          patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
-         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
-         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
         mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
         _run_web_agent(MagicMock(), outer_query, None, params)
 
@@ -285,11 +284,10 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
     assert chat_lines == []
 
 
-def test_visit_handler_does_not_preclaim_the_url():
-    from plugin.chatbot.web_research import WebAgentRunParams, _VisitedUrls, _run_web_agent
+def test_visit_handler_leaves_page_store_empty():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
     from plugin.contrib.smolagents.memory import ToolCall
 
-    visited = _VisitedUrls()
     params = WebAgentRunParams(
         smol_model=MagicMock(),
         max_steps=5,
@@ -302,11 +300,10 @@ def test_visit_handler_does_not_preclaim_the_url():
         approval_callback=None,
         chat_append_callback=None,
         outer_query="topic",
-        visited_urls=visited,
     )
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
-        step = ToolCall(name="visit_webpage", arguments={"url": "https://example.com/a/"}, id="v1")
+        step = ToolCall(name="visit_webpage", arguments={"urls": ["https://example.com/a/"]}, id="v1")
         assert tool_call_handler is not None
         assert tool_call_handler(step) is None
         return "done"
@@ -315,69 +312,11 @@ def test_visit_handler_does_not_preclaim_the_url():
          patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
          patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
          patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
-         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
-         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
         mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
         _run_web_agent(MagicMock(), "topic", None, params)
 
-    assert visited == set()
-
-
-def test_visit_dedup_fetches_the_first_url_only():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
-
-    inner = MagicMock()
-    inner.forward.return_value = "page body"
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a") == "page body"
-    assert "Already visited" in tool.forward("https://example.com/a/")
-    inner.forward.assert_called_once_with("https://example.com/a")
-
-
-def test_visit_dedup_retries_after_a_fetch_error():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
-
-    inner = MagicMock()
-    inner.forward.return_value = "Error visiting page"
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a").startswith("Error")
-    assert seen == set()
-    inner.forward.side_effect = RuntimeError("navigate failed")
-    try:
-        tool.forward("https://example.com/b")
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError("forward should raise")
-    assert "https://example.com/b" not in seen
-    inner.forward.side_effect = None
-    inner.forward.return_value = "Failed to navigate"
-    assert tool.forward("https://example.com/a").startswith("Failed")
-    assert seen == set()
-    inner.forward.return_value = "page body"
-    assert tool.forward("https://example.com/a") == "page body"
-    assert seen == {"https://example.com/a"}
-
-
-def test_visit_dedup_retries_after_an_empty_extract():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
-
-    inner = MagicMock()
-    inner.forward.return_value = ""
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a") == ""
-    assert seen == set()
-    inner.forward.return_value = "   \n"
-    assert tool.forward("https://example.com/a/") == "   \n"
-    assert seen == set()
-    inner.forward.return_value = "page body"
-    assert tool.forward("https://example.com/a") == "page body"
-    assert seen == {"https://example.com/a"}
-    assert "Already visited" in tool.forward("https://example.com/a/")
-    assert inner.forward.call_count == 3
+    assert params.pages.get("https://example.com/a") is None
 
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):
@@ -1305,7 +1244,7 @@ def test_web_agent_tools_read_stored_parts_beyond_old_cap():
 
     def first_execute(agent, task, **kwargs):
         tools_by_name = captured_tools[-1]
-        visit_out = tools_by_name["visit_webpage"].forward(url)
+        visit_out = tools_by_name["visit_webpage"].forward([url])
         assert "Part 1 of " in visit_out
         find_out = tools_by_name["find_in_page"].forward(url, "tailmarker")
         find_results.append(find_out)
@@ -1352,29 +1291,3 @@ def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
     out = VisitWebpageCdpTool("ws://dummy").forward("https://example.test/huge")
     assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
     assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out
-
-
-def test_dedup_over_paged_visit_marks_long_page_visited():
-    from plugin.chatbot.web_pages import PagedVisitTool, PageStore, ReadPageTool
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
-
-    text = "\n".join(f"Line {i:04d}: " + ("x" * 60) for i in range(450))
-    assert len(text) > 30_000
-    url = "https://example.test/deep-long"
-
-    inner = MagicMock()
-    inner.forward.return_value = text
-    store = PageStore()
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(PagedVisitTool(inner, store), seen)
-
-    first = tool.forward(url)
-    assert "Part 1 of " in first
-    assert inner.forward.call_count == 1
-
-    second = tool.forward(url + "/")
-    assert "Already visited" in second
-    assert inner.forward.call_count == 1
-
-    part2 = ReadPageTool(store).forward(url, 2)
-    assert "Part 2 of " in part2

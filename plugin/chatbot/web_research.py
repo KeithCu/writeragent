@@ -38,17 +38,14 @@ if TYPE_CHECKING:
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_pages import (
     PAGE_TEXT_MAX_CHARS,
-    VISIT_WEBPAGE_DESCRIPTION,
     FindInPageTool,
     PageStore,
     PagedVisitTool,
     ReadPageTool,
-    is_page_text,
-    url_key,
-    visit_webpage_inputs,
 )
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
@@ -61,16 +58,6 @@ WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_an
 - Use clear section headings (plain lines) and bullet lists (- item).
 - Include facts, names, dates, ratings, and sources where relevant.
 - No HTML tags, no Markdown (# or **), no JSON."""
-
-
-class _VisitedUrls(set[str]):
-    """Shared URL set and lock for visit deduplication in deep research."""
-
-    lock: threading.Lock
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.lock = threading.Lock()
 
 
 @dataclass
@@ -88,7 +75,6 @@ class WebAgentRunParams:
     approval_callback: Any
     chat_append_callback: Callable[[str], None] | None
     outer_query: str
-    visited_urls: _VisitedUrls | None = None
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
@@ -186,42 +172,6 @@ def _write_research_cache(
         enqueue_research_cache_embedding_for_row(ctx.ctx, cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, max_age_days)
     return _research_cache_result_fields("saved", unique_key, stem_lang=stem_lang)
-
-
-from plugin.contrib.smolagents.tools import Tool
-
-
-class _VisitWebpageDedupTool(Tool):
-    """Wraps visit_webpage and skips URLs already read in this deep-research run."""
-
-    name: str = "visit_webpage"
-    description: str = VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = visit_webpage_inputs()
-    output_type: str = "string"
-    _inner: Tool
-    _visited_urls: _VisitedUrls
-
-    def __init__(self, inner: Tool, visited_urls: _VisitedUrls) -> None:
-        super().__init__()
-        self._inner = inner
-        self._visited_urls = visited_urls
-
-    def forward(self, url: str) -> str:
-        key = url_key(url)
-        if not key:
-            return self._inner.forward(url)
-        with self._visited_urls.lock:
-            if key in self._visited_urls:
-                return f"(Already visited in this research run: {key}. read_page and find_in_page read its stored text.)"
-        text = self._inner.forward(url)
-        # Record the URL only after non-empty, non-error text, under the
-        # same lock as the check. An error string is retryable. An empty
-        # extract is too: a blank page or whitespace-only innerText is not
-        # an error prefix; only non-empty success text marks the URL visited.
-        if is_page_text(text):
-            with self._visited_urls.lock:
-                self._visited_urls.add(key)
-        return text
 
 
 @final
@@ -332,8 +282,8 @@ def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
 
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
-    description: str = VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = visit_webpage_inputs()
+    description: str = "Visits a webpage via CDP and returns its text."
+    inputs: dict[str, dict[str, Any]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
     cdp_url: str
     stop_checker: Callable[[], bool] | None
@@ -456,8 +406,9 @@ def _run_web_agent(
         "Return the full research report as plain text in final_answer; the main agent receives it in the delegate tool result."
     )
 
+    stop_checker = _stop_checker_from_cancel(params.cancel)
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=_stop_checker_from_cancel(params.cancel))
+        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=stop_checker)
         if params.cdp_url
         else VisitWebpageTool(
             cache_path=params.cache_path,
@@ -466,14 +417,7 @@ def _run_web_agent(
             max_output_length=PAGE_TEXT_MAX_CHARS,
         )
     )
-    # Wrap inner -> paged -> dedup so dedup sees the paged header on long pages,
-    # while fetch errors pass through paged unchanged so dedup can retry them.
-    paged = PagedVisitTool(visit_inner, params.pages)
-    visit_tool = (
-        _VisitWebpageDedupTool(paged, params.visited_urls)
-        if params.visited_urls is not None
-        else paged
-    )
+    visit_tool = PagedVisitTool(visit_inner, params.pages, stop_checker=stop_checker)
     agent = WebResearchToolCallingAgent(
         tools=[
             DuckDuckGoSearchTool(
@@ -494,7 +438,6 @@ def _run_web_agent(
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
     web_search_step_index = 0
-    stop_checker = _stop_checker_from_cancel(params.cancel)
 
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
@@ -533,11 +476,20 @@ def _run_web_agent(
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
-        elif step.name in ("visit_webpage", "read_page", "find_in_page"):
+        elif step.name == "visit_webpage":
+            raw_urls = as_dict(step.arguments).get("urls")
+            urls = [str(u) for u in raw_urls] if isinstance(raw_urls, list) else [str(raw_urls or "")]
+            # The handler runs before the tool and only reports status. PageStore
+            # records a URL after its fetch returns page text.
+            if params.append_thinking_callback:
+                params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+            from plugin.framework.url_utils import get_url_domain
+
+            first_domain = get_url_domain(urls[0]) if urls else ""
+            extra = f" +{len(urls) - 1}" if len(urls) > 1 else ""
+            status_msg = f"Read: {first_domain}{extra}"
+        elif step.name in ("read_page", "find_in_page"):
             url = str(as_dict(step.arguments).get("url", ""))
-            # Do not mark the URL visited here. This handler runs before the
-            # tool, and _VisitWebpageDedupTool.forward treats a URL already in
-            # the set as a skip, so the first fetch never reached the page.
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
             from plugin.framework.url_utils import get_url_domain
@@ -588,7 +540,6 @@ def _run_deep_web_research(
 
         return chat
 
-    visited = _VisitedUrls()
     sub_steps = get_config("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
         run_max_steps = sub_steps
@@ -596,12 +547,11 @@ def _run_deep_web_research(
         run_max_steps = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
     else:
         run_max_steps = agent_params.max_steps
-    # replace keeps the shared visited set/lock (and cancellation scope) by
-    # reference. A fresh WebAgentRunParams would copy the field list and drop
-    # any new field the next time one is added.
+    # replace keeps the shared PageStore and cancellation scope by reference, so every
+    # deep-research worker reads and adds to one store. A fresh WebAgentRunParams would
+    # copy the field list and drop any new field the next time one is added.
     deep_params = replace(
         agent_params,
-        visited_urls=visited,
         max_steps=run_max_steps,
     )
 

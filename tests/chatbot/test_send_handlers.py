@@ -726,7 +726,7 @@ def test_web_research_tool():
                 type="function",
                 function=ChatMessageToolCallFunction(
                     name="visit_webpage",
-                    arguments='{"url": "https://python.org/downloads"}'
+                    arguments='{"urls": ["https://python.org/downloads"]}'
                 )
             )
             return ChatMessage(role=MessageRole.ASSISTANT, content="", tool_calls=[tc])
