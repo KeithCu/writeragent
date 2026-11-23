@@ -31,6 +31,7 @@ from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
 from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, request_conn
+from plugin.framework.child_runtime import Deadline
 
 
 def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
@@ -2576,23 +2577,22 @@ def test_bearer_scheme_case_insensitive() -> None:
     assert status == "401 Unauthorized"
 
 
-def test_session_reset_passes_bounded_timeout() -> None:
-    """The accept-time deadline is the reset lease budget, capped at SESSION_RESET_TIMEOUT_SEC."""
-    from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
+def test_session_reset_budget_is_max_timeout_sec() -> None:
+    """Reset admission deadline uses max_timeout_sec so it can outlast a long cell."""
+    seen: list[Deadline] = []
 
-    seen: list[float] = []
-
-    def fake_reset(sid: str, timeout_sec: float = SESSION_RESET_TIMEOUT_SEC) -> dict[str, Any]:
+    def fake_reset(sid: str, *, deadline: Deadline) -> dict[str, Any]:
         del sid
-        seen.append(timeout_sec)
+        seen.append(deadline)
         return {"status": "ok"}
 
-    app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
+    app = create_wsgi_app(ComputeSettings(default_timeout_sec=5, max_timeout_sec=90), reset_fn=fake_reset)
     status, _headers, parsed = _wsgi_post(app, b'{"id": "reset-budget"}', path="/v1/session/reset", query="session_id=s123", headers={"Content-Type": "application/json"})
     assert status == "200 OK"
     assert parsed.get("status") == "ok"
     assert len(seen) == 1
-    assert 0 < seen[0] <= SESSION_RESET_TIMEOUT_SEC
+    assert seen[0].budget_sec == 90.0
+    assert 5 < seen[0].left() <= 90
 
 
 def test_vision_unknown_helper_is_400() -> None:
@@ -3356,8 +3356,8 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     unblock_first_reset = threading.Event()
     read_called_during_first = threading.Event()
 
-    def mock_reset(session_id: str, timeout_sec: float = 0.0, **kwargs: Any) -> dict[str, Any]:
-        del session_id, timeout_sec, kwargs
+    def mock_reset(session_id: str, **kwargs: Any) -> dict[str, Any]:
+        del session_id, kwargs
         in_first_reset.set()
         unblock_first_reset.wait(timeout=5.0)
         return {"status": "ok"}

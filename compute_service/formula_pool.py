@@ -42,7 +42,10 @@ log = logging.getLogger("compute_service.formula")
 # The child never ran the cell. Dropping the lost-session marker on these
 # codes would hide a reset kernel from the next sticky call.
 _UNRUN_RESULT_CODES = frozenset({ec.QUEUE_TIMEOUT, ec.PAYLOAD_TOO_LARGE, ec.WORKER_SPAWN_FAILED, ec.WORKER_PIPE_BROKEN})
-SESSION_RESET_TIMEOUT_SEC = 5.0
+# Budget for the worker-side reset_session action only (a dictionary drop in the child).
+# Kept fixed because a frame sent with under MIN_REQUEST_SEC fails before send, and a short
+# clock would SIGKILL the worker and every session on it on a late reply.
+_RESET_ACTION_TIMEOUT_SEC = 5.0
 _SESSION_GATE_BUSY = "Sticky session is busy and request timed out waiting for the session gate."
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -228,24 +231,24 @@ class FormulaProcessPool(BaseProcessPool):
         self._idle.pop(chosen, None)
         return chosen
 
-    def reset_session(self, session_id: str, timeout_sec: float = SESSION_RESET_TIMEOUT_SEC) -> dict[str, Any]:
+    def reset_session(self, session_id: str, *, deadline: Deadline) -> dict[str, Any]:
         """Drop the shared sandbox + init companion for *session_id*.
 
-        HTTP ``POST /v1/session/reset`` calls this (do not add a second reset
-        path). Unknown / already-gone ids are idempotent ``ok``. The session
-        map is dropped only when the worker reset returns ``status`` ``ok``.
-        A failed reset is logged and the map stays, because that process may
-        still hold the namespace. Default timeout_sec=SESSION_RESET_TIMEOUT_SEC
-        gives an in-progress calculation time to complete before failing the
-        control-plane reset request. The gate wait uses timeout_sec, then the lease
-        uses timeout_sec again.
+        HTTP ``POST /v1/session/reset`` passes its admission deadline; the
+        session gate and worker lease spend that one clock so the reset can
+        outlast the cell it is queued behind. Unknown / already-gone ids are
+        idempotent ``ok``. The session map is dropped only when the worker
+        reset returns ``status`` ``ok``; a failed reset is logged and the map
+        stays because that process may still hold the namespace. The worker
+        action keeps a fixed budget, so a reset that acquires the lease after
+        the clock ran out still runs the action to free the namespace.
         """
         try:
             validate_session_id(session_id)
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc))
 
-        with self._session_gate(session_id, timeout_sec) as entered:
+        with self._session_gate(session_id, max(deadline.left(), 0.0)) as entered:
             if not entered:
                 return error_dict(ec.WORKER_POOL_BUSY, _SESSION_GATE_BUSY)
             with self._cond:
@@ -257,10 +260,10 @@ class FormulaProcessPool(BaseProcessPool):
                     return {"status": "ok"}
                 worker = s.worker
 
-            with self.leased(worker, timeout_sec=timeout_sec) as leased:
+            with self.leased(worker, timeout_sec=max(deadline.left(), 0.0)) as leased:
                 if leased is None:
                     return error_dict(ec.WORKER_POOL_BUSY, "Could not lease worker to reset session.")
-                res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
+                res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=_RESET_ACTION_TIMEOUT_SEC)
                 # A non-ok reset can mean the worker still holds the namespace.
                 if res.get("status") == "ok":
                     self._drop_session(session_id, only_if_worker=leased)
