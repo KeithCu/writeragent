@@ -540,8 +540,9 @@ def _run_web_agent(
             extra = f" +{len(urls) - 1}" if len(urls) > 1 else ""
             status_msg = f"Read: {first_domain}{extra}"
         elif step.name in ("read_page", "find_in_page"):
-            url = as_dict(step.arguments).get("url")
-            status_msg = f"Read: {get_url_domain(url) if url else _('all fetched pages')}"
+            url = str(as_dict(step.arguments).get("url") or "").strip()
+            target = _("all fetched pages") if step.name == "find_in_page" and not url else get_url_domain(url)
+            status_msg = f"Read: {target}"
         else:
             status_msg = str(step.name)
 

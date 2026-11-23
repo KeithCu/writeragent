@@ -819,6 +819,7 @@ def test_parallel_flag_off_chunking_pagestore_and_stop(monkeypatch):
         {"text": "targetphrase"},
         {"text": "targetphrase", "url": None},
         {"text": "targetphrase", "url": ""},
+        {"text": "targetphrase", "url": "  "},
     ],
 )
 def test_find_in_page_without_url_searches_every_stored_page(args):
@@ -866,10 +867,21 @@ def test_find_in_page_all_shares_snippets_across_pages():
     res = FindInPageTool(store).forward("targetword")
     assert old1 in res
     assert old2 in res
+    assert "Old page one has TARGETWORD once." in res
+    assert "Old page two has TARGETWORD once." in res
     part_lines = [line for line in res.splitlines() if line.startswith("Part ")]
     assert len(part_lines) <= 10
     busy_line = next(line for line in res.splitlines() if busy in line)
     assert "shown)" in busy_line
+
+    # Unused shares from newer 1-match pages pass to the older busy page.
+    store2 = PageStore()
+    store2.put(busy, many_text)
+    store2.put("https://new.test/1", "New page one has TARGETWORD once.")
+    store2.put("https://new.test/2", "New page two has TARGETWORD once.")
+    res2 = FindInPageTool(store2).forward("targetword")
+    busy_line2 = next(line for line in res2.splitlines() if busy in line)
+    assert "(8 shown)" in busy_line2
 
 
 @pytest.mark.parametrize("budget", [2_048, 4_096])

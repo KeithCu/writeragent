@@ -420,6 +420,7 @@ def test_find_all_pages_status_is_not_blank():
             [
                 {"text": "x"},
                 {"text": "x", "url": None},
+                {"text": "x", "url": "  "},
                 {"text": "x", "url": "https://example.com/a"},
             ]
         ):
@@ -434,10 +435,10 @@ def test_find_all_pages_status_is_not_blank():
         mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
         _run_web_agent(MagicMock(), "topic", None, params)
 
-    assert len(statuses) == 3
-    assert statuses[0] == statuses[1]
+    assert len(statuses) == 4
+    assert statuses[0] == statuses[1] == statuses[2]
     assert statuses[0] != "Read: ..."
-    assert statuses[2] == "Read: example.com..."
+    assert statuses[3] == "Read: example.com..."
 
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):
