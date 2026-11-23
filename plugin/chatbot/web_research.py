@@ -356,7 +356,9 @@ def _begin_shared_browser(uno_ctx: Any, browser_type: str) -> BrowserPageDriver:
     with _cdp_refcount.launch_lock:
         _cdp_refcount.run_enter()
         try:
-            if browser_type == "firefox":
+            from plugin.framework.constants import BIDI_BROWSER_TYPE
+
+            if browser_type == BIDI_BROWSER_TYPE:
                 return web_research_firefox.begin_firefox_bidi()
             browser_cdp_tool.get_local_chrome_cdp_url(uno_ctx, browser_type)
             return CdpPageDriver()
@@ -811,10 +813,10 @@ class WebResearchTool(ToolBase):
         max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
-        from plugin.framework.constants import CDP_BROWSER_TYPES
+        from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
 
         browser_type = get_config("chatbot.web_research_browser")
-        browser_enabled = browser_type == "firefox" or browser_type in CDP_BROWSER_TYPES
+        browser_enabled = browser_type == BIDI_BROWSER_TYPE or browser_type in CDP_BROWSER_TYPES
         browser: BrowserPageDriver | None = None
         browser_held = False
 

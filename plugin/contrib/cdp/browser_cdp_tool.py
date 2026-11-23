@@ -178,6 +178,8 @@ def browser_profile_dir(browser_type: str) -> str:
 def spawn_local_browser(cmd: list[str], *, label: str) -> None:
     """Launch a local browser process and register it for quit-time cleanup."""
     global _CHROME_BROWSER
+    if _CHROME_BROWSER is not None and _CHROME_BROWSER.is_alive():
+        raise RuntimeError("another local browser is already running for web research")
     # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
     popen_kw: dict[str, Any] = {}
     if sys.platform != "win32":

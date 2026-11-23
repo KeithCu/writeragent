@@ -207,7 +207,7 @@ def test_begin_launches_firefox_without_chromium_flags_and_reuses_the_client(tmp
     wrf._CLIENT = None
     try:
         with (
-            patch("plugin.chatbot.web_research_firefox.connect", side_effect=[ConnectionRefusedError("down"), ws]) as mock_connect,
+            patch("websockets.sync.client.connect", side_effect=[ConnectionRefusedError("down"), ws]) as mock_connect,
             patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
         ):
@@ -238,7 +238,7 @@ def test_begin_does_not_spawn_when_port_holds_a_session_it_cannot_use():
     wrf._CLIENT = None
     try:
         with (
-            patch("plugin.chatbot.web_research_firefox.connect", return_value=ws),
+            patch("websockets.sync.client.connect", return_value=ws),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
         ):
             with pytest.raises(RuntimeError, match="refused a new WebDriver BiDi session"):
@@ -246,6 +246,97 @@ def test_begin_does_not_spawn_when_port_holds_a_session_it_cannot_use():
             mock_spawn.assert_not_called()
     finally:
         close_firefox_bidi()
+
+
+def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def on_send(msg, ws):
+        ws.push_json({"type": "success", "id": msg["id"], "result": {}})
+
+    ws1 = _FakeWebSocket(on_send=on_send)
+    ws2 = _FakeWebSocket(on_send=on_send)
+    events: list[str] = []
+    connect_calls = 0
+
+    def fake_connect(*_args, **_kwargs):
+        nonlocal connect_calls
+        connect_calls += 1
+        events.append("connect")
+        if connect_calls == 1:
+            return ws1
+        if connect_calls == 2:
+            raise ConnectionRefusedError("down")
+        return ws2
+
+    def fake_cleanup():
+        events.append("cleanup")
+
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", side_effect=fake_connect),
+            patch("plugin.chatbot.web_research_firefox.cleanup_local_chrome", side_effect=fake_cleanup),
+            patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            client1 = begin_firefox_bidi()
+            ws1.incoming.put(ConnectionClosedError(None, None))
+            # Wait for the reader thread to mark client1 closed via _fail.
+            deadline = threading.Event()
+            while not client1.closed:
+                deadline.wait(0.01)
+
+            client2 = begin_firefox_bidi()
+            assert client2 is not client1
+            assert events == ["connect", "cleanup", "connect", "connect"]
+            mock_spawn.assert_called_once()
+    finally:
+        close_firefox_bidi()
+
+
+def test_begin_raises_on_6s_deadline(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    clock = {"now": 100.0}
+
+    def fake_time():
+        return clock["now"]
+
+    def fake_sleep(seconds: float):
+        clock["now"] += seconds
+
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", side_effect=ConnectionRefusedError("refused")),
+            patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+            patch("plugin.chatbot.web_research_firefox.time.time", side_effect=fake_time),
+            patch("plugin.chatbot.web_research_firefox.time.sleep", side_effect=fake_sleep),
+        ):
+            with pytest.raises(RuntimeError, match="after 6 seconds"):
+                begin_firefox_bidi()
+            mock_spawn.assert_called_once()
+    finally:
+        close_firefox_bidi()
+
+
+def test_reader_skips_undecodable_frame_and_fail_closes_socket():
+    def on_send(msg, ws):
+        ws.incoming.put("not valid json{{{")
+        ws.push_json({"type": "success", "id": msg["id"], "result": {"ok": True}})
+
+    ws = _FakeWebSocket(on_send=on_send)
+    client = FirefoxBidiClient(ws)  # type: ignore[arg-type]
+    try:
+        assert client.call("test.ping", {}) == {"ok": True}
+        ws.incoming.put(RuntimeError("unexpected reader error"))
+        waiter = threading.Event()
+        while not client.closed:
+            waiter.wait(0.01)
+        assert ws.closed is True
+    finally:
+        client.close()
 
 
 def test_close_ends_session_once():

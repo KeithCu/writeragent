@@ -16,10 +16,7 @@ import logging
 import threading
 import time
 from concurrent.futures import Future
-from typing import Any, final
-
-from websockets.exceptions import WebSocketException
-from websockets.sync.client import ClientConnection, connect
+from typing import TYPE_CHECKING, Any, final
 
 from plugin.contrib.cdp.browser_cdp_tool import (
     browser_profile_dir,
@@ -31,10 +28,14 @@ from plugin.framework.errors import best_effort
 from plugin.framework.thread_guard import background
 from plugin.framework.worker_pool import run_in_background
 
+if TYPE_CHECKING:
+    from websockets.sync.client import ClientConnection
+
 log = logging.getLogger(__name__)
 
 FIREFOX_BIDI_PORT = 9222
-FIREFOX_BIDI_URL = "ws://127.0.0.1:9222/session"
+FIREFOX_BIDI_URL = f"ws://127.0.0.1:{FIREFOX_BIDI_PORT}/session"
+# Matches browser_cdp's per-call timeout.
 BIDI_CALL_TIMEOUT = 30.0
 _FIREFOX_CANDIDATES = [
     "firefox",
@@ -108,6 +109,7 @@ class FirefoxBidiClient:
         return str(res["context"])
 
     def navigate(self, tab: str, url: str) -> None:
+        # wait="none" returns immediately so VisitWebpageBrowserTool owns the 3 s settle loop.
         self.call("browsingContext.navigate", {"context": tab, "url": url, "wait": "none"})
 
     def page_text(self, tab: str) -> str:
@@ -141,7 +143,12 @@ class FirefoxBidiClient:
     def _read_loop(self) -> None:
         try:
             while True:
-                msg = json.loads(self._ws.recv())
+                raw = self._ws.recv()
+                try:
+                    msg = json.loads(raw)
+                except (ValueError, TypeError) as exc:
+                    log.debug("firefox bidi: ignoring undecodable frame: %s", exc)
+                    continue
                 if not isinstance(msg, dict):
                     continue
                 cmd_id = msg.get("id")
@@ -159,6 +166,7 @@ class FirefoxBidiClient:
             self._closed = True
             pending = list(self._pending.values())
             self._pending.clear()
+        best_effort(self._ws.close, "firefox bidi: ws.close on fail")
         err = RuntimeError(f"Firefox BiDi connection closed: {exc}")
         for fut in pending:
             if not fut.done():
@@ -170,14 +178,24 @@ _CLIENT: FirefoxBidiClient | None = None
 
 def connect_firefox_bidi(open_timeout: float) -> FirefoxBidiClient:
     """Connect to a listening Firefox BiDi endpoint and start one session."""
-    ws = connect(
-        FIREFOX_BIDI_URL,
-        open_timeout=open_timeout,
-        ping_interval=None,
-        max_size=None,
-        proxy=None,
-        legacy=True,
-    )
+    # Lazy import: avoids paying websockets/ssl import cost at startup when browser
+    # research is off, and keeps an older/missing websockets from breaking web_research import.
+    from websockets.exceptions import WebSocketException
+    from websockets.sync.client import connect
+
+    try:
+        ws = connect(
+            FIREFOX_BIDI_URL,
+            open_timeout=open_timeout,
+            # Disable keepalive pings and message size cap for local BiDi pages.
+            ping_interval=None,
+            max_size=None,
+            # An env HTTP(S)_PROXY must not be used for the local BiDi socket.
+            proxy=None,
+            legacy=True,
+        )
+    except WebSocketException as exc:
+        raise ConnectionError(str(exc)) from exc
     client = FirefoxBidiClient(ws)
     try:
         client.call("session.new", {"capabilities": {}}, timeout=10.0)
@@ -204,7 +222,9 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
     try:
         _CLIENT = connect_firefox_bidi(1.0)
         return _CLIENT
-    except (OSError, WebSocketException):
+    except OSError:
+        # Nothing is listening yet, so launch Firefox. A RuntimeError from
+        # session.new propagates because the port is held by a Firefox we cannot drive.
         pass
 
     executable = find_browser_executable(_FIREFOX_CANDIDATES, "firefox", _FIREFOX_WIN32_PATHS)
@@ -223,7 +243,7 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
         try:
             _CLIENT = connect_firefox_bidi(1.0)
             return _CLIENT
-        except (OSError, WebSocketException):
+        except OSError:
             time.sleep(0.2)
     raise RuntimeError(
         f"Firefox did not start listening for WebDriver BiDi on port {FIREFOX_BIDI_PORT} after 6 seconds"

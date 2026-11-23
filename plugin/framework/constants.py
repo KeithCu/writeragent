@@ -44,6 +44,7 @@ ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
 )
 
 CDP_BROWSER_TYPES: tuple[str, ...] = ("brave", "chromium", "chrome")
+BIDI_BROWSER_TYPE: str = "firefox"
 
 
 def get_plugin_dir() -> str:

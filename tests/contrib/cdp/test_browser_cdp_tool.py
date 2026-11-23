@@ -193,3 +193,19 @@ def test_find_browser_executable_expands_win32_paths_only_on_windows(monkeypatch
         monkeypatch.setattr(browser_cdp_tool.os.path, "isabs", ntpath.isabs)
         with patch("os.path.exists", side_effect=lambda p: p == expanded):
             assert find_browser_executable(["firefox"], "firefox", (win_path,)) == expanded
+
+
+def test_spawn_local_browser_refuses_when_previous_browser_is_alive():
+    cleanup_local_chrome()
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.kill.side_effect = lambda: setattr(mock_proc.poll, "return_value", 0)
+
+    try:
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            browser_cdp_tool.spawn_local_browser(["chrome"], label="cdp-browser")
+            with pytest.raises(RuntimeError, match="another local browser is already running"):
+                browser_cdp_tool.spawn_local_browser(["firefox"], label="bidi-browser")
+            mock_popen.assert_called_once()
+    finally:
+        cleanup_local_chrome()

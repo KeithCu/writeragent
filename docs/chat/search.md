@@ -192,4 +192,4 @@ Firefox removed CDP in v141. WriterAgent drives Firefox over WebDriver BiDi (`pl
 
 ## Open
 
-- `[feature L few]` Connect to the user's running Chrome (CDP) or Firefox (Marionette) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)
+- `[feature L few]` Connect to the user's running Chrome (CDP) or Firefox (WebDriver BiDi) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)
