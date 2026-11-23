@@ -394,6 +394,52 @@ def test_web_research_single_url_status_callback(monkeypatch):
     assert "Read: example.com..." in statuses
 
 
+def test_find_all_pages_status_is_not_blank():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    statuses: list[str] = []
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=4,
+        cancel=None,
+        cache_path="",
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_url=None,
+        status_callback=statuses.append,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        assert tool_call_handler is not None
+        for idx, args in enumerate(
+            [
+                {"text": "x"},
+                {"text": "x", "url": None},
+                {"text": "x", "url": "https://example.com/a"},
+            ]
+        ):
+            assert tool_call_handler(ToolCall(name="find_in_page", arguments=args, id=f"f{idx}")) is None
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert len(statuses) == 3
+    assert statuses[0] == statuses[1]
+    assert statuses[0] != "Read: ..."
+    assert statuses[2] == "Read: example.com..."
+
+
 def test_cdp_visit_uses_a_private_target(monkeypatch):
 
     from plugin.chatbot.web_research import VisitWebpageCdpTool
@@ -1321,7 +1367,7 @@ def test_web_agent_tools_read_stored_parts_beyond_old_cap():
         tools_by_name = captured_tools[-1]
         visit_out = tools_by_name["visit_webpage"].forward([url])
         assert "Part 1 of " in visit_out
-        find_out = tools_by_name["find_in_page"].forward(url, "tailmarker")
+        find_out = tools_by_name["find_in_page"].forward("tailmarker", url)
         find_results.append(find_out)
         return "done"
 
