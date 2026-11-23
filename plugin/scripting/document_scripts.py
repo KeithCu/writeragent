@@ -291,7 +291,9 @@ def build_python_eval_init_kwargs(doc: Any, *, shared_session: bool = False) -> 
 
     With *shared_session*, a document that has no init script still names its init
     session. The worker then drops an init it ran earlier, with the shared namespace
-    that init seeded. Isolated cells have no namespace that outlives the call.
+    that init seeded. Isolated cells have no namespace that outlives the call. Reset
+    Python Session leaves it False in both modes: it has already dropped the init,
+    and an empty dict tells it there is nothing to re-seed.
     """
     scripts, err = _load_document_script_map(doc)
     if err is not None:

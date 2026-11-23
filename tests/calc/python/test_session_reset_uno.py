@@ -185,11 +185,11 @@ def test_shared_kernel_removed_init_drops_bindings_uno(ctx, doc):
         # 6. Re-seed then corrupt property -> unreadable map keeps kernel.
         set_calc_init_script(doc, "HELPER = 9")
         assert func.py(doc, "result = HELPER") == 9.0
-        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "{bad json")
+        assert set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "{bad json")
         assert func.py(doc, "result = HELPER") == 9.0
 
         # 7. Remove property altogether -> dropped.
-        remove_document_property(doc, DOCUMENT_SCRIPTS_UDPROP)
+        assert remove_document_property(doc, DOCUMENT_SCRIPTS_UDPROP)
         _assert_undefined_name_error(func.py(doc, "result = HELPER"))
     finally:
         save({"scripting.python_session_mode": "isolated"})
