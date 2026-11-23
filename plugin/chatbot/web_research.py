@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.framework.send_cancellation import SendCancellation
@@ -39,6 +39,17 @@ from plugin.framework.errors import ToolExecutionError, best_effort, format_erro
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.chatbot.tool_loop_state import as_dict
+from plugin.chatbot.web_pages import (
+    PAGE_TEXT_MAX_CHARS,
+    VISIT_WEBPAGE_DESCRIPTION,
+    FindInPageTool,
+    PageStore,
+    PagedVisitTool,
+    ReadPageTool,
+    is_page_text,
+    url_key,
+    visit_webpage_inputs,
+)
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
@@ -82,6 +93,8 @@ class WebAgentRunParams:
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
     cancel: SendCancellation | None = None
+    # Text of every page this run fetched. dataclasses.replace keeps the same store, so deep-research workers share one store.
+    pages: PageStore = field(default_factory=PageStore)
 
 
 
@@ -178,19 +191,12 @@ def _write_research_cache(
 from plugin.contrib.smolagents.tools import Tool
 
 
-_VISIT_WEBPAGE_DESCRIPTION = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-
-
-def _visit_webpage_inputs() -> dict[str, dict[str, str | type[Any] | bool]]:
-    return {"url": {"type": "string", "description": "The url of the webpage to visit."}}
-
-
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
     name: str = "visit_webpage"
-    description: str = _VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
+    description: str = VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = visit_webpage_inputs()
     output_type: str = "string"
     _inner: Tool
     _visited_urls: _VisitedUrls
@@ -201,19 +207,18 @@ class _VisitWebpageDedupTool(Tool):
         self._visited_urls = visited_urls
 
     def forward(self, url: str) -> str:
-        key = str(url or "").strip().rstrip("/")
+        key = url_key(url)
         if not key:
             return self._inner.forward(url)
         with self._visited_urls.lock:
             if key in self._visited_urls:
-                return f"(Already visited in this research run: {key})"
+                return f"(Already visited in this research run: {key}. read_page and find_in_page read its stored text.)"
         text = self._inner.forward(url)
         # Record the URL only after non-empty, non-error text, under the
         # same lock as the check. An error string is retryable. An empty
         # extract is too: a blank page or whitespace-only innerText is not
         # an error prefix; only non-empty success text marks the URL visited.
-        body = str(text or "").strip()
-        if body and not body.startswith(("Error", "Failed")):
+        if is_page_text(text):
             with self._visited_urls.lock:
                 self._visited_urls.add(key)
         return text
@@ -327,8 +332,8 @@ def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
 
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
-    description: str = _VISIT_WEBPAGE_DESCRIPTION
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
+    description: str = VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = visit_webpage_inputs()
     output_type: str = "string"
     cdp_url: str
     stop_checker: Callable[[], bool] | None
@@ -387,8 +392,11 @@ class VisitWebpageCdpTool(Tool):
             if not text:
                 text = eval_res.get("result", {}).get("result", {}).get("description") or ""
 
-            if len(text) > 40000:
-                return text[:40000] + "\n..._This content has been truncated to stay below 40000 characters_...\n"
+            if len(text) > PAGE_TEXT_MAX_CHARS:
+                return (
+                    text[:PAGE_TEXT_MAX_CHARS]
+                    + f"\n..._This content has been truncated to stay below {PAGE_TEXT_MAX_CHARS} characters_...\n"
+                )
             return text
         except Exception as e:
             return f"Error visiting webpage via CDP: {e}"
@@ -432,7 +440,7 @@ def _run_web_agent(
     budget_text = (
         f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
         "including final_answer). "
-        f"Use at most {tool_steps_budget} step(s) for web_search and visit_webpage; "
+        f"Use at most {tool_steps_budget} step(s) for web_search, visit_webpage, read_page and find_in_page; "
         "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
         "If you have enough evidence earlier, call final_answer sooner."
     )
@@ -451,12 +459,18 @@ def _run_web_agent(
     visit_inner = (
         VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=_stop_checker_from_cancel(params.cancel))
         if params.cdp_url
-        else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
+        else VisitWebpageTool(
+            cache_path=params.cache_path,
+            cache_max_mb=params.cache_max_mb,
+            cache_max_age_days=params.cache_max_age_days,
+            max_output_length=PAGE_TEXT_MAX_CHARS,
+        )
     )
+    paged = PagedVisitTool(visit_inner, params.pages)
     visit_tool = (
-        _VisitWebpageDedupTool(visit_inner, params.visited_urls)
+        _VisitWebpageDedupTool(paged, params.visited_urls)
         if params.visited_urls is not None
-        else visit_inner
+        else paged
     )
     agent = WebResearchToolCallingAgent(
         tools=[
@@ -467,6 +481,8 @@ def _run_web_agent(
                 cancel=params.cancel,
             ),
             visit_tool,
+            ReadPageTool(params.pages),
+            FindInPageTool(params.pages),
         ],
         model=params.smol_model,
         max_steps=max_steps,
@@ -515,7 +531,7 @@ def _run_web_agent(
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
-        elif step.name == "visit_webpage":
+        elif step.name in ("visit_webpage", "read_page", "find_in_page"):
             url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
             # Do not mark the URL visited here. This handler runs before the
             # tool, and _VisitWebpageDedupTool.forward treats a URL already in

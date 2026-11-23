@@ -1269,3 +1269,86 @@ def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None
             reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
         )["core"]
         assert "web_research" in core_proxy_tools
+
+
+def test_web_agent_tools_read_stored_parts_beyond_old_cap():
+    import re
+    from dataclasses import replace
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+
+    url = "https://example.test/long-article"
+    body_paras = "".join(f"<p>Paragraph {i:04d}: " + ("word " * 18) + "</p>\n" for i in range(1500))
+    html = f"<html><body>{body_paras}<p>TAILMARKER</p></body></html>".encode("utf-8")
+    assert len(html) > 140_000
+
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_url=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="find tailmarker",
+    )
+
+    captured_tools: list[dict[str, Any]] = []
+    find_results: list[str] = []
+    read_results: list[str] = []
+
+    def capture_agent(*args, tools=None, **kwargs):
+        captured_tools.append({t.name: t for t in (tools or [])})
+        return MagicMock()
+
+    def first_execute(agent, task, **kwargs):
+        tools_by_name = captured_tools[-1]
+        visit_out = tools_by_name["visit_webpage"].forward(url)
+        assert "Part 1 of " in visit_out
+        find_out = tools_by_name["find_in_page"].forward(url, "tailmarker")
+        find_results.append(find_out)
+        return "done"
+
+    def second_execute(agent, task, **kwargs):
+        tools_by_name = captured_tools[-1]
+        read_results.append(tools_by_name["read_page"].forward(url, 1))
+        return "done"
+
+    with patch("urllib.request.urlopen", return_value=_FakeUrlopenResponse(html)) as mock_open, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", side_effect=capture_agent), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls:
+        mock_exe_cls.return_value.execute_safe.side_effect = first_execute
+        _run_web_agent(MagicMock(), "find tailmarker", None, params)
+        mock_open.assert_called_once()
+
+        mock_exe_cls.return_value.execute_safe.side_effect = second_execute
+        _run_web_agent(MagicMock(), "read part 1", None, replace(params, smol_model=MagicMock()))
+        mock_open.assert_called_once()
+
+    assert find_results
+    match = re.search(r"Part (\d+):", find_results[0])
+    assert match is not None and int(match.group(1)) > 7
+    assert "TAILMARKER" in find_results[0]
+    assert read_results and "Part 1 of " in read_results[0]
+
+
+def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
+    from plugin.chatbot.web_pages import PAGE_TEXT_MAX_CHARS
+    from plugin.chatbot.web_research import VisitWebpageCdpTool
+
+    long_value = "A" * 250_000
+    responses = iter([
+        json.dumps({"success": True, "result": {"targetId": "tab-cap"}}),
+        json.dumps({"success": True}),
+        json.dumps({"success": True, "result": {"result": {"type": "string", "value": long_value}}}),
+        json.dumps({"success": True}),
+    ])
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", lambda *a, **kw: next(responses))
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    out = VisitWebpageCdpTool("ws://dummy").forward("https://example.test/huge")
+    assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
+    assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out

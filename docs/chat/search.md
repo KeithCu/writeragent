@@ -44,6 +44,8 @@ When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`),
 
 `visit_webpage` records a URL only after the fetch returns non-empty page text. An error string (`Error…` / `Failed…`) or an empty extract does not count, so a later sub-query can retry that URL. Marking the URL when the model requests the visit made the dedup wrapper skip the first read. When Chrome or Firefox CDP is on, research runs in this process share one local browser. That browser is closed only after the last of those runs leaves, and only once that run's in-flight page reads have returned. A failed deep-research synthesis is returned as notes and is not written to the research cache.
 
+Pages over 12,000 characters are stored in a per-run in-memory `PageStore` (`plugin/chatbot/web_pages.py`) and returned as part 1 of N (~6,000-character parts cut at line breaks). Two companion tools, `read_page(url, part)` and `find_in_page(url, text)`, let the sub-agent read later parts or jump to matches without replaying the full page on every step. The store is shared across deep-research workers via `dataclasses.replace`, capped at 100 pages (evicting the oldest), and freed when the run ends; both HTTP and CDP fetches allow up to 200,000 characters per page. Parts are used instead of line numbers because `TextExtractor` emits one line per HTML text-node fragment (often 7–14 characters).
+
 Before the Accept/Change/Reject wait, the sidebar response area shows a `Tool: web_search` line plus the search-engine preview sentence (`web_research_chat.web_search_engine_step_chat_text`). Reject leaves that line in the transcript; Change appends a second preview for the edited query.
 
 ## 3. Vendored Files Overview
