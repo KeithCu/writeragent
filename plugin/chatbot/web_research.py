@@ -108,7 +108,17 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         ):
             visit_tool = self.tools.get("visit_webpage")
             if visit_tool is not None and "urls" not in visit_tool.inputs:
-                return visit_tool(**arguments, sanitize_inputs_outputs=True)
+                from plugin.contrib.smolagents.utils import AgentToolExecutionError
+
+                resolved_args = {k: self._substitute_state_variables(v) for k, v in arguments.items()}
+                try:
+                    return visit_tool(**resolved_args, sanitize_inputs_outputs=True)
+                except Exception as e:
+                    error_msg = (
+                        f"Error executing tool '{tool_name}' with arguments {str(resolved_args)}: {type(e).__name__}: {e}\n"
+                        "Please try again or use another tool"
+                    )
+                    raise AgentToolExecutionError(error_msg, self.logger) from e
         return super().execute_tool_call(tool_name, arguments)
 
     def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:

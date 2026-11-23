@@ -58,6 +58,20 @@ class TestToolcallingPromptExamples:
         assert ('"name": "final_answer"') in (block)
         assert ("workflow_finished") not in (block)
 
+    def test_get_examples_block_web_research_matches_parallel_flag(self, monkeypatch):
+        from plugin.chatbot import web_pages
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", True)
+        parallel_block = get_examples_block("web_research")
+        assert '"urls"' in parallel_block
+        assert '"arguments": {"urls":' in parallel_block
+
+        monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+        serial_block = get_examples_block("web_research")
+        assert '"urls"' not in serial_block
+        assert '"arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html"}' in serial_block
+
     def test_get_examples_block_ppt_master_finishes_the_deck(self):
         from plugin.chatbot.smol_examples import get_examples_block
 

@@ -344,6 +344,12 @@ def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatc
     assert store.get("https://a.test/1") is not None
     assert store.get("https://b.test/2") is not None
 
+    from plugin.contrib.smolagents.utils import AgentToolExecutionError
+
+    store.put = MagicMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(AgentToolExecutionError):
+        agent.execute_tool_call("visit_webpage", {"urls": ["https://err.test/1"]})
+
 
 def test_web_research_single_url_status_callback(monkeypatch):
     from plugin.chatbot import web_pages

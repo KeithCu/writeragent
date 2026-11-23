@@ -79,6 +79,8 @@ class _DomainTurn:
 
 _DOMAIN_TURNS_GUARD = threading.Lock()
 _DOMAIN_TURNS: dict[str, _DomainTurn] = {}
+# Every fetch shares this key when PARALLEL_WEB_FETCH is False so _domain_turn acts as one process-wide lock.
+_SERIAL_FETCH_KEY = "__serial__"
 
 
 @contextmanager
@@ -313,6 +315,7 @@ class PagedVisitTool(Tool):
     description: str = visit_webpage_description()
     inputs: dict[str, dict[str, Any]] = visit_webpage_inputs()
     output_type: str = "string"
+    # Skipped because forward accepts both `url` and `urls` while `inputs` names only one.
     skip_forward_signature_validation: bool = True
     _inner: Tool
     _pages: PageStore
@@ -327,6 +330,7 @@ class PagedVisitTool(Tool):
         *,
         wait_sec: float = _VISIT_WAIT_SEC,
     ) -> None:
+        # Re-read the flag so the active PARALLEL_WEB_FETCH mode applies at construction.
         self.description = visit_webpage_description()
         self.inputs = visit_webpage_inputs()
         super().__init__()
@@ -344,7 +348,7 @@ class PagedVisitTool(Tool):
 
         by_domain: dict[str, list[str]] = {}
         for target_url in urls:
-            turn_key = get_url_domain(target_url) if PARALLEL_WEB_FETCH else "__serial__"
+            turn_key = get_url_domain(target_url) if PARALLEL_WEB_FETCH else _SERIAL_FETCH_KEY
             by_domain.setdefault(turn_key, []).append(target_url)
 
         def _fetch_domain(domain: str, domain_urls: list[str]) -> None:

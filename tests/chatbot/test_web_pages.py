@@ -302,7 +302,17 @@ def test_visit_serializes_same_domain_across_concurrent_calls():
     assert "Body for https://www.cross.test/b" in results["b"]
 
 
-def test_visit_stop_returns_while_waiting_for_same_domain_turn():
+@pytest.mark.parametrize(
+    "parallel, first_url, second_url",
+    [
+        pytest.param(True, "https://wait.test/a", "https://www.wait.test/b", id="parallel-same-domain"),
+        pytest.param(False, "https://wait-a.test/a", "https://wait-b.test/b", id="serial-cross-domain"),
+    ],
+)
+def test_visit_stop_returns_while_waiting_for_same_domain_turn(monkeypatch, parallel, first_url, second_url):
+    from plugin.chatbot import web_pages
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", parallel)
     entered = threading.Event()
     release = threading.Event()
     stopped = {"flag": False}
@@ -321,7 +331,7 @@ def test_visit_stop_returns_while_waiting_for_same_domain_turn():
     store_b = PageStore()
     visit_b = PagedVisitTool(inner_b, store_b, stop_checker=lambda: stopped["flag"])
 
-    thread_a = threading.Thread(target=visit_a.forward, args=(["https://wait.test/a"],))
+    thread_a = threading.Thread(target=visit_a.forward, args=([first_url],))
     thread_a.start()
     assert entered.wait(timeout=2)
 
@@ -333,19 +343,29 @@ def test_visit_stop_returns_while_waiting_for_same_domain_turn():
     stopper.start()
     try:
         # Release is not set until after visit_b returns, so Stop must abort the lock wait.
-        out = visit_b.forward(["https://www.wait.test/b"])
+        out = visit_b.forward([second_url])
     finally:
         release.set()
         stopper.join(timeout=2)
         thread_a.join(timeout=2)
 
-    assert out == "[stopped] https://www.wait.test/b"
+    assert out == f"[stopped] {second_url}"
     time.sleep(0.1)
     assert inner_b.forward.call_count == 0
-    assert store_b.get("https://www.wait.test/b") is None
+    assert store_b.get(second_url) is None
 
 
-def test_visit_deadline_skips_queued_same_domain_url():
+@pytest.mark.parametrize(
+    "parallel, slow_url, next_url",
+    [
+        pytest.param(True, "https://queue.test/slow", "https://queue.test/next", id="parallel-same-domain"),
+        pytest.param(False, "https://queue-a.test/slow", "https://queue-b.test/next", id="serial-cross-domain"),
+    ],
+)
+def test_visit_deadline_skips_queued_same_domain_url(monkeypatch, parallel, slow_url, next_url):
+    from plugin.chatbot import web_pages
+
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", parallel)
     release = threading.Event()
     called: list[str] = []
 
@@ -362,15 +382,15 @@ def test_visit_deadline_skips_queued_same_domain_url():
     visit = PagedVisitTool(inner, store, wait_sec=0.3)
 
     try:
-        out = visit.forward(["https://queue.test/slow", "https://queue.test/next"])
+        out = visit.forward([slow_url, next_url])
     finally:
         release.set()
 
     time.sleep(0.1)
-    assert "[timed out] https://queue.test/slow:" in out
-    assert "[timed out] https://queue.test/next:" in out
-    assert called == ["https://queue.test/slow"]
-    assert store.get("https://queue.test/next") is None
+    assert f"[timed out] {slow_url}:" in out
+    assert f"[timed out] {next_url}:" in out
+    assert called == [slow_url]
+    assert store.get(next_url) is None
 
 
 def test_visit_one_failure_keeps_the_other_pages():
