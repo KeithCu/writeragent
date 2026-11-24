@@ -2529,3 +2529,12 @@ def test_set_style_integer_colors_and_negative_rejected():
     bad = _tool("set_style").execute_safe(ctx, range=["A1"], border_color=-1)
     assert bad["status"] == "error"
     assert bad["code"] == "INVALID_PARAM"
+
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch("plugin.calc.cells.CellManipulator") as bad_manip,
+    ):
+        bad_hex = _tool("set_style").execute_safe(ctx, range=["A1"], bg_color="-10000")
+    assert bad_hex["status"] == "error"
+    assert bad_hex["code"] == "INVALID_PARAM"
+    bad_manip.return_value.set_cell_style.assert_not_called()

@@ -238,6 +238,7 @@ _COLOR_NAMES: dict[str, int] = {
 }
 
 _RGB_RE = re.compile(r"^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d.]+\s*)?\)$")
+_HEX_RE = re.compile(r"(?:0x|#*)([0-9a-f]{3}|[0-9a-f]{6})")
 
 
 def _pack_rgb(r: int, g: int, b: int) -> int | None:
@@ -282,15 +283,12 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
     if rgb_match:
         return _pack_rgb(int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3)))
 
-    hex_str = color_str[2:] if color_str.startswith("0x") else color_str.lstrip("#")
-    if len(hex_str) == 3:
-        hex_str = "".join(c * 2 for c in hex_str)
-    if len(hex_str) == 6:
-        try:
-            return int(hex_str, 16)
-        except ValueError:
-            return None
-    return None
+    # int(text, 16) alone accepts signs, underscores and spaces, so "-10000" would be a negative color.
+    hex_match = _HEX_RE.fullmatch(color_str)
+    if hex_match is None:
+        return None
+    digits = hex_match.group(1)
+    return int(digits if len(digits) == 6 else "".join(c * 2 for c in digits), 16)
 
 
 def _font_slant(italic: bool) -> Any:

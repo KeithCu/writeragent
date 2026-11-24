@@ -18,9 +18,9 @@
 """OpenAI and MCP JSON Schema conversion for ToolBase instances.
 
 Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
-converts arguments (including nested ``properties`` and ``items``) to their
-declared schema types and folds enum spellings; rules are listed on the
-function. ``call_properties`` / ``without_unknown_kwargs`` are the one
+converts arguments (including nested ``properties``, ``items``, and
+``additionalProperties`` maps without ``patternProperties``) to their declared
+schema types and folds enum spellings; rules are listed on the function. ``call_properties`` / ``without_unknown_kwargs`` are the one
 allow-list for a call: an empty ``properties`` object is a no-arg schema.
 ``normalize_outbound_tool_calls`` applies that allow-list once, before any
 provider shim builds a request.
@@ -356,20 +356,24 @@ def _coerce_value(spec: dict[str, Any], value: Any, *, is_item: bool = False) ->
     if isinstance(value, list) and isinstance(items, dict):
         value = [_coerce_value(items, v, is_item=True) for v in value]
     elif isinstance(value, dict):
-        value = coerce_call_args(spec.get("properties"), value)
+        # A key that matches patternProperties is not "additional", and a remote server's regexes are never run on arguments.
+        extra = None if "patternProperties" in spec else spec.get("additionalProperties")
+        value = coerce_call_args(spec.get("properties"), value, extra)
     enum = spec.get("enum")
     if isinstance(value, str) and isinstance(enum, list) and enum and value not in enum:
         value = _match_enum(value, enum)
     return value
 
 
-def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+def coerce_call_args(props: Any, kwargs: dict[str, Any], extra: Any = None) -> dict[str, Any]:
     """Coerce tool arguments toward their declared JSON Schema types and enums.
 
-    Returns a new dict without mutating *kwargs*. Nested ``properties`` and
-    ``items`` are walked recursively; union items and array items are not
-    converted (a bare row of an array-of-arrays stays unwrapped so the tool's
-    row-type check still runs). Rules applied per property in order:
+    Returns a new dict without mutating *kwargs*. Nested ``properties``,
+    ``items``, and ``additionalProperties`` maps (when ``patternProperties`` is
+    absent) are walked recursively; *extra* is the schema applied to keys not
+    declared in *props*. Union items and array items are not converted (a bare
+    row of an array-of-arrays stays unwrapped so the tool's row-type check
+    still runs). Rules applied per property in order:
     - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds; unions that include ``string`` keep strings so the tool owns string parsing (such as forms ``items``).
     - Numeric strings match ASCII digits and finite floats only (Python ``int()``/``float()`` accept ``1_0``, full-width digits, ``nan``, and ``inf``); ``integer`` accepts whole values only.
     - Boolean words (``true``/``yes``/``1`` and ``false``/``no``/``0``, case-insensitive) convert to ``bool``.
@@ -381,9 +385,12 @@ def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(kwargs, dict):
         return kwargs
-    if not isinstance(props, dict):
-        return dict(kwargs)
-    return {k: _coerce_value(props[k], v) if isinstance(props.get(k), dict) else v for k, v in kwargs.items()}
+    specs = props if isinstance(props, dict) else {}
+    out: dict[str, Any] = {}
+    for k, v in kwargs.items():
+        spec = specs.get(k, extra)
+        out[k] = _coerce_value(spec, v) if isinstance(spec, dict) else v
+    return out
 
 
 @deal.ensure(lambda prop_schema, result, for_mcp=False: not isinstance(prop_schema, dict) or isinstance(result, dict))

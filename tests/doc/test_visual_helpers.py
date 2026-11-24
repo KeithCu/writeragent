@@ -511,6 +511,7 @@ def test_px_to_display_units_preserves_aspect_and_does_not_upscale():
 
 def test_parse_color_to_uno_int_hex_and_int() -> None:
     assert visual_helpers.parse_color_to_uno_int("#FF0000") == 0xFF0000
+    assert visual_helpers.parse_color_to_uno_int("##ff0000") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("00FF00") == 0x00FF00
     assert visual_helpers.parse_color_to_uno_int("#0f0") == 0x00FF00
     assert visual_helpers.parse_color_to_uno_int("#000") == 0x000000
@@ -538,6 +539,8 @@ def test_parse_color_to_uno_int_invalid() -> None:
     assert visual_helpers.parse_color_to_uno_int(0x1AABBCC) == 0xAABBCC
     assert visual_helpers.parse_color_to_uno_int((1, 2)) is None
     assert visual_helpers.parse_color_to_uno_int("rgb(300, 0, 0)") is None
+    for raw in ("-10000", "#-10000", "+10000", "1_0000", "# 12345", "0x0x1234", "１２３４５６", "１２３"):
+        assert visual_helpers.parse_color_to_uno_int(raw) is None
 
 
 def test_apply_character_properties() -> None:
