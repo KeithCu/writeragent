@@ -98,6 +98,7 @@ CLEARABLE_PARA_PROPERTIES = (
 # Justify sub-properties (ParaComposer, ParaExpandSingleWord, ParaLastLineAdjust,
 # ParaLetterSpacing*, ParaWordSpacing*, ParaScaleWidth*) make makeRedline raise,
 # and an unknown name stops SwUnoCursorHelper::makeRedline's property loop.
+# FillStyle/FillColor store direct paragraph backgrounds.
 _REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
     "ParaContextMargin", "ParaLineSpacing", "ParaTabStops", "ParaVertAlignment",
     "ParaWidows", "ParaOrphans", "ParaIsHyphenation", "OutlineLevel",
@@ -437,13 +438,11 @@ def _has_paragraph_format_redline(para: Any) -> bool:
     return False
 
 
-def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> list[_ParagraphRevert]:
+def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> tuple[list[_ParagraphRevert], bool]:
     """Capture each changed paragraph's pre-change formatting for a ParagraphFormat redline."""
     read = _CountingReader()
     notes: list[str] = []
-    para_enum = read(capture_cursor.createEnumeration)
-    if para_enum is _READ_FAILED:
-        return []
+    para_enum = capture_cursor.createEnumeration()
     states: list[_ParagraphRevert] = []
     for para in _capture_paragraphs(read, para_enum, notes):
         old_style = para.getPropertyValue("ParaStyleName")
@@ -453,11 +452,15 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> list[_Para
         ]
         if old_style == style_name and not direct:
             continue
+        # ParaStyleName must stay first (unknown names stop makeRedline's loop; empty falls back to default).
         props: list[Any] = [create_property_value("ParaStyleName", old_style)]
         for name in direct:
             props.append(create_property_value(name, _typed_property_value(name, para.getPropertyValue(name))))
         if para.getPropertyValue("NumberingStyleName"):
+            # Reject runs DelNumRules (DocumentRedlineManager.cxx lcl_RejectRedline); without
+            # NumberingRules, hand-numbered paragraphs lose their number.
             props.append(create_property_value("NumberingRules", para.getPropertyValue("NumberingRules")))
+        # Require a label or direct NumberingRules so a heading without chapter numbering is not flagged.
         numbered = bool(para.getPropertyValue("ListLabelString")) or (
             para.getPropertyState("NumberingRules").value == "DIRECT_VALUE"
         )
@@ -467,7 +470,7 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> list[_Para
             recorded=_has_paragraph_format_redline(para),
             numbered=numbered,
         ))
-    return states
+    return states, bool(read.failures or notes)
 
 
 def _record_paragraph_styles(states: list[_ParagraphRevert], author: str) -> tuple[int, int]:
@@ -485,15 +488,18 @@ def _record_paragraph_styles(states: list[_ParagraphRevert], author: str) -> tup
         if state.recorded:
             recorded += 1
             continue
-        if state.cursor.isCollapsed():
+        if state.cursor.isCollapsed():  # AppendRedline refuses empty ranges.
             continue
         try:
             state.cursor.makeRedline(
                 "ParagraphFormat",
                 (
+                    # Explicit RedlineAuthor: makeRedline otherwise uses nAuthor=0
+                    # (SwUnoCursorHelper::makeRedline, unocrsrhelper.cxx:1261).
                     create_property_value("RedlineAuthor", author),
                     create_property_value(
                         "RedlineRevertProperties",
+                        # Inner sequence must be typed as []PropertyValue.
                         uno_any("[]com.sun.star.beans.PropertyValue", state.properties),
                     ),
                 ),
@@ -501,6 +507,7 @@ def _record_paragraph_styles(states: list[_ParagraphRevert], author: str) -> tup
             recorded += 1
         except Exception as exc:
             reraise_if_disposed(exc)
+            # Do not fail the tool: the style is already applied.
             log.exception("Failed to record ParagraphFormat redline")
             failed += 1
     return recorded, failed
@@ -556,7 +563,7 @@ def apply_paragraph_style_preserving_direct_char(
     capture_cursor = _expand_to_full_paragraphs(cursor)
     overrides, capture_failures, walk_notes = _capture_direct_char_overrides(doc, capture_cursor, style_cache)
     found = _summarize_char_overrides(overrides)
-    states = _paragraph_revert_states(capture_cursor, style_name) if author is not None else []
+    states, revert_incomplete = _paragraph_revert_states(capture_cursor, style_name) if author is not None else ([], False)
     try:
         cursor.setPropertyValue("ParaStyleName", style_name)
     except Exception as exc:
@@ -599,13 +606,13 @@ def apply_paragraph_style_preserving_direct_char(
         unreviewed_notes: list[str] = []
         if report.get("removed_char_overrides") or (clear_direct == "all" and bool(overrides)):
             unreviewed_notes.append(
-                "Rejecting the tracked style change does not bring back the direct font or character formatting that was cleared."
+                "The cleared direct font or character formatting is not a tracked change and cannot be rejected."
             )
         if any(state.numbered for state in states):
-            unreviewed_notes.append("Rejecting it may not restore list levels or numbers.")
+            unreviewed_notes.append("Rejecting the style change may not restore list levels or numbers.")
         # Empty paragraphs are not flagged when at least one paragraph was recorded,
         # because LibreOffice records nothing for them either.
-        if failed or (states and recorded == 0):
+        if failed or revert_incomplete or (states and recorded == 0):
             unreviewed_notes.append(
                 "Some paragraphs (for example empty ones) were restyled without a tracked change."
             )
@@ -1717,7 +1724,7 @@ class ApplyStyle(FrameworkToolBase):
                 existing = out.get("warning")
                 if not existing:
                     out["warning"] = rep["warning"]
-                elif isinstance(rep["warning"], str) and rep["warning"] not in existing:
+                elif rep["warning"] not in existing:
                     out["warning"] = f"{existing} {rep['warning']}"
             if rep.get("capture_incomplete"):
                 out["capture_incomplete"] = True

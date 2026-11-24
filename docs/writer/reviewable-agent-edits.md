@@ -280,7 +280,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **Most style and page layout changes are not reviewable.** `apply_style` on paragraphs when `RecordChanges` is off, `style_update`, `style_create`, `style_clone`,
   `style_import`, `section_*`, `page_set_style_properties`, `page_set_header_footer_text`,
   `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
-  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user which change they cannot accept/reject like a text edit. `page_insert_break` is not in that set.
+  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user which change they cannot accept/reject like a text edit (they don't produce redlines). `page_insert_break` is not in that set.
 * **Paragraph `apply_style` tracking limits (while `RecordChanges` is on):**
   * Cleared character formatting (`clear_direct="style_props"` or `"all"`) is not restored on Reject and sets `style_unreviewed: true`.
   * List levels, and numbers under an outline-numbered heading style, are not restored on Reject and set `style_unreviewed: true`.
