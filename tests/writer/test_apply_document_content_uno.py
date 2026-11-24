@@ -11,19 +11,26 @@ from plugin.tests.testing_utils import native_writer_tool_context, with_native_d
 from plugin.writer.apply_document_content import ApplyDocumentContent
 
 
-def _reset_three_paras(doc):
-    text = doc.getText()
+def _clear_body(doc):
     doc.setPropertyValue("RecordChanges", False)
+    doc.getText().setString("")
+
+
+def _reset_three_paras(doc):
+    _clear_body(doc)
+    text = doc.getText()
     cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
     cur.gotoStart(False)
     text.insertString(cur, "Intro paragraph here.", False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "Alpha one. Beta two.", False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "Outro paragraph.", False)
+    assert _body_structure(doc) == [
+        "P:Intro paragraph here.",
+        "P:Alpha one. Beta two.",
+        "P:Outro paragraph.",
+    ]
 
 
 def _select_match(doc, needle: str):
@@ -371,14 +378,14 @@ def _body_structure(doc):
     return out
 
 
-def _setup_leading_tables(doc, count=1, page_desc="First Page"):
+def _setup_leading_tables(doc, count=1, page_desc="First Page", middle=False):
+    _clear_body(doc)
     text = doc.getText()
-    doc.setPropertyValue("RecordChanges", False)
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
     for idx in range(count):
+        if middle and idx == 1:
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "mid", False)
         tbl = doc.createInstance("com.sun.star.text.TextTable")
         tbl.initialize(1, 1)
         text.insertTextContent(text.getEnd(), tbl, False)
@@ -388,6 +395,11 @@ def _setup_leading_tables(doc, count=1, page_desc="First Page"):
     cur = text.createTextCursor()
     cur.gotoEnd(False)
     text.insertString(cur, "tail", False)
+    expected = [f"T:old{idx}" for idx in range(count)]
+    if middle and count > 1:
+        expected.insert(1, "P:mid")
+    expected.append("P:tail")
+    assert _body_structure(doc) == expected
 
 
 @native_test
@@ -406,7 +418,7 @@ def test_full_document_leading_tables_off_keeps_page_desc_and_undoes_uno(ctx, do
             res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
             assert res.get("status") == "ok", res
             assert _body_structure(doc) == ["P:NEW"]
-            first_para = next(iter(doc.getText().createEnumeration())) if False else doc.getText().createEnumeration().nextElement()
+            first_para = doc.getText().createEnumeration().nextElement()
             assert first_para.getPropertyValue("PageDescName") == "First Page"
             doc.getUndoManager().undo()
             assert _body_structure(doc) == before
@@ -426,50 +438,51 @@ def test_full_document_leading_tables_record_accept_reject_and_rewrite_uno(ctx, 
     prev = get_config(flag)
     save({flag: "record"})
     try:
-        _setup_leading_tables(doc, count=1, page_desc=None)
-        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
-        assert res.get("status") == "ok", res
-        enum = doc.getRedlines().createEnumeration()
-        comments = []
-        while enum_has_more(enum):
-            comments.append(str(enum.nextElement().getPropertyValue("RedlineComment")))
-        assert comments and all(c.startswith("wa-review:") for c in comments), comments
-        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-        assert _body_structure(doc) == ["P:NEW", "P:"]
+        for count, middle in ((1, False), (2, False), (2, True)):
+            _setup_leading_tables(doc, count=count, page_desc=None, middle=middle)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            enum = doc.getRedlines().createEnumeration()
+            comments = []
+            while enum_has_more(enum):
+                comments.append(str(enum.nextElement().getPropertyValue("RedlineComment")))
+            assert comments and all(c.startswith("wa-review:") for c in comments), comments
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert _body_structure(doc) == ["P:NEW", "P:"]
 
-        _setup_leading_tables(doc, count=1, page_desc=None)
-        before = _body_structure(doc)
-        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
-        assert res.get("status") == "ok", res
-        execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
-        assert _body_structure(doc) == before
+            _setup_leading_tables(doc, count=count, page_desc=None, middle=middle)
+            before = _body_structure(doc)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+            assert _body_structure(doc) == before
 
         for manual_rec in (False, True):
-            save({flag: "off" if manual_rec else "record"})
-            _reset_three_paras(doc)
-            if manual_rec:
-                doc.setPropertyValue("RecordChanges", True)
-            r1 = ApplyDocumentContent().execute(
-                tctx, target="full_document", content="<table><tr><td>D1</td></tr></table><p>t1</p>"
-            )
-            assert r1.get("status") == "ok", r1
-            r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
-            assert r2.get("status") == "ok", r2
-            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-            assert _body_structure(doc) == ["P:D2", "P:"]
+            for draft_html in (
+                "<table><tr><td>D1</td></tr></table><p>t1</p>",
+                "<table><tr><td>D1</td></tr></table><table><tr><td>D1b</td></tr></table><p>t1</p>",
+            ):
+                save({flag: "off" if manual_rec else "record"})
+                _reset_three_paras(doc)
+                if manual_rec:
+                    doc.setPropertyValue("RecordChanges", True)
+                r1 = ApplyDocumentContent().execute(tctx, target="full_document", content=draft_html)
+                assert r1.get("status") == "ok", r1
+                r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+                assert r2.get("status") == "ok", r2
+                execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+                assert _body_structure(doc) == ["P:D2", "P:"]
 
-            _reset_three_paras(doc)
-            if manual_rec:
-                doc.setPropertyValue("RecordChanges", True)
-            before_orig = _body_structure(doc)
-            r1 = ApplyDocumentContent().execute(
-                tctx, target="full_document", content="<table><tr><td>D1</td></tr></table><p>t1</p>"
-            )
-            assert r1.get("status") == "ok", r1
-            r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
-            assert r2.get("status") == "ok", r2
-            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
-            assert _body_structure(doc) == before_orig
+                _reset_three_paras(doc)
+                if manual_rec:
+                    doc.setPropertyValue("RecordChanges", True)
+                before_orig = _body_structure(doc)
+                r1 = ApplyDocumentContent().execute(tctx, target="full_document", content=draft_html)
+                assert r1.get("status") == "ok", r1
+                r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+                assert r2.get("status") == "ok", r2
+                execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+                assert _body_structure(doc) == before_orig
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -504,4 +517,61 @@ def test_full_document_leading_table_rolls_back_on_import_failure_uno(ctx, doc):
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode, anchor_type in (("off", AS_CHARACTER), ("record", AS_CHARACTER), ("record", AT_PARAGRAPH)):
+            save({flag: mode})
+            _clear_body(doc)
+            text = doc.getText()
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getStart(), tbl, False)
+            cell = tbl.getCellByName("A1")
+            cell.setString("logo")
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                f.write(png)
+                img_path = f.name
+            try:
+                g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+                g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+                g.setPropertyValue("AnchorType", anchor_type)
+                g.setPropertyValue("Width", 500)
+                g.setPropertyValue("Height", 500)
+                cell.insertTextContent(cell.getStart(), g, False)
+            finally:
+                os.unlink(img_path)
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "tail", False)
+
+            html = document_to_content(doc, ctx, scope="full")
+            assert 'src=""' in html, html
+            updated = html.replace("tail", "updated")
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content=updated)
+            assert res.get("status") == "ok", (mode, anchor_type, res)
+            if mode == "record":
+                execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1, (mode, anchor_type)
+            assert "updated" in doc.getText().getString(), (mode, anchor_type)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 

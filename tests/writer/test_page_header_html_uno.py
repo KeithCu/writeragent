@@ -841,6 +841,7 @@ def test_header_table_shapes_cleared_and_trailing_para_style_uno(ctx, doc):
     tbl.getCellByName("A1").setString("c")
     elems = list(iter_elements(header.createEnumeration()))
     elems[-1].dispose()
+    assert _header_structure(header) == ["P:a", "T"]
     res = _set(doc, ctx, "header", "<p>z</p>")
     assert res.get("status") == "ok", res
     assert _header_structure(header) == ["P:z"]
@@ -853,6 +854,7 @@ def test_header_table_shapes_cleared_and_trailing_para_style_uno(ctx, doc):
     tbl.getCellByName("A1").setString("c")
     elems = list(iter_elements(header.createEnumeration()))
     elems[-1].dispose()
+    assert _header_structure(header) == ["T"]
     res = _set(doc, ctx, "header", "<p>z</p>")
     assert res.get("status") == "ok", res
     assert _header_structure(header) == ["P:z"]
@@ -937,4 +939,3 @@ def test_header_table_cell_as_character_logo_round_trip_uno(ctx, doc):
     assert graphics.getCount() == 1
     anchor_text = graphics.getByIndex(0).getAnchor().getText()
     assert anchor_text.supportsService("com.sun.star.text.CellProperties")
-

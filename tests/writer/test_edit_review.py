@@ -1257,4 +1257,3 @@ def test_record_html_atomically_clear_first_runs_in_undo_group_and_rolls_back():
     undo_mgr.undo.assert_called_once()
 
 
-

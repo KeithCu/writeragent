@@ -807,7 +807,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
-            # graphics=False: page-style clone copies region shapes separately via _copy_region_graphics.
+            # graphics=False: page-style clones omit cell images (not cloned here).
             copy_table(el, doc, dest_text, cursor, None)
             continue
         try:

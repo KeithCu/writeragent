@@ -1066,8 +1066,9 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
 @native_test
 @with_native_doc("writer")
 def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any) -> None:
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.uno_context import execute_dispatch
+    from plugin.doc.text_helpers import live_selection_range, selection_cursor_snapshot
+    from plugin.framework.errors import uno_read
+    from plugin.framework.uno_context import execute_dispatch, uno_same
     from plugin.writer.html_export import document_to_content
 
     def _reset_and_add_table(cell_text: str) -> Any:
@@ -1085,6 +1086,8 @@ def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any
         # In a non-empty cell, Ctrl+A expands: cell -> table -> (outer cell -> outer table ->) document.
         for _ in range(presses):
             execute_dispatch(ctx, controller, ".uno:SelectAll")
+        sel = live_selection_range(controller)
+        assert sel is not None and not uno_same(sel.getText(), text)
 
     # [T, tail], [T, T, tail], [T, mid, T, tail], and nested leading table via Ctrl+A and snapshot.
     cases = [
@@ -1137,16 +1140,24 @@ def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any
     for token in ("OUTER", "INNER", "tail"):
         assert token in html, html
 
-    # ['BEFORE_PARA', T, 'tail'] selected from inside T to 'tail' excludes 'BEFORE_PARA'.
+    # ['BEFORE_PARA', T, 'tail'] with a body-text selection starting in T and ending in 'tail'
+    # exercises the SwXBodyText form of _table_start_range (SwCursor::IsSelOvr forbids
+    # Shift+Down from leaving a table, so pass the range directly).
+    from types import SimpleNamespace
+
     text.setString("BEFORE_PARA")
     tbl = _reset_and_add_table("T0")
     cur = text.createTextCursor()
     cur.gotoEnd(False)
     text.insertString(cur, "tail", False)
-    controller.select(text.getEnd())
-    controller.getSelection()
-    execute_dispatch(ctx, controller, ".uno:LineUpSel")
-    html = document_to_content(doc, ctx, scope="selection")
+    body_sel = SimpleNamespace(
+        getText=lambda: text,
+        getStart=lambda: tbl.getCellByName("A1").getStart(),
+        getEnd=lambda: text.getEnd(),
+    )
+    assert uno_same(body_sel.getText(), text)
+    assert uno_read(lambda: text.createTextCursorByRange(body_sel.getStart()), None) is None
+    html = document_to_content(doc, ctx, scope="selection", selection=body_sel)
     assert "T0" in html and "tail" in html and "BEFORE_PARA" not in html, html
 
     # In-cell selection unchanged.
@@ -1156,5 +1167,4 @@ def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any
     controller.select(cell_cur)
     html_cell = document_to_content(doc, ctx, scope="selection")
     assert "T0" in html_cell and "tail" not in html_cell, html_cell
-
 

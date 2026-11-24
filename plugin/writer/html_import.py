@@ -1067,7 +1067,11 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
 
 
 def replace_full_document(
-    model: Any, ctx: Any, content: str
+    model: Any,
+    ctx: Any,
+    content: str,
+    *,
+    kept_images: tuple[str, list[Any]] | None = None,
 ) -> html_import_styles.WriteReport:
     """Clear the document and insert *content*.
 
@@ -1075,7 +1079,7 @@ def replace_full_document(
     steps past them); ``_edit_full_document`` deletes them first with
     ``delete_leading_tables``.
     """
-    with image_placeholders.keep_placeholder_images(model, content) as swapped:
+    with image_placeholders.keep_placeholder_images(model, content, pre_swapped=kept_images) as swapped:
         content = html_import_styles.decode_complete_character_references(swapped)
 
         text = model.getText()

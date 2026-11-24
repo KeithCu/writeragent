@@ -572,7 +572,8 @@ def _copy_window_to_scratch(
             if need_break:
                 range_copy.begin_next_paragraph(temp_text, temp_cursor)
             # graphics=False: range reads with include_images=False would emit
-            # placeholders named after the scratch clone.
+            # placeholders named after the scratch clone, and a later write-back
+            # (image_placeholders) would restore a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
             for para in range_copy.iter_table_paragraphs(table):
                 copied_ruby.extend(html_ruby.ruby_spans_in_window(para, 0, len(para.getString())))

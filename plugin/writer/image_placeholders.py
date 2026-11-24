@@ -62,7 +62,7 @@ class _KeptImage(NamedTuple):
     props: dict[str, Any]
 
 
-def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
+def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
     """Swap each data-less image wrapper that names a picture of *model* for a text marker.
 
     Runs BEFORE the edit deletes anything: the picture is read now, while it still exists (with
@@ -135,7 +135,14 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
             point = anchor.getText().createTextCursorByRange(anchor.getStart())
             point.gotoEndOfParagraph(False)
             if not point.goRight(1, True):
-                return False  # the last paragraph has no break: it stays
+                if not uno_read(
+                    lambda: anchor.getText().supportsService("com.sun.star.text.CellProperties") is True,
+                    False,
+                ):
+                    return False  # the last paragraph has no break: it stays
+                # A table cell's last paragraph has no trailing break, yet a struck
+                # table deletes the cell; check whether the anchor itself is in a Delete redline.
+                point = anchor
         except Exception as exc:
             reraise_if_disposed(exc)
             return False
@@ -236,9 +243,19 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
 
 
 @contextlib.contextmanager
-def keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
-    """Yield *content* with data-less images swapped for markers; put the pictures back after."""
-    swapped, kept = _swap_image_placeholders(model, content)
+def keep_placeholder_images(
+    model: Any,
+    content: str,
+    *,
+    pre_swapped: tuple[str, list[_KeptImage]] | None = None,
+) -> Generator[str, None, None]:
+    """Yield *content* with data-less images swapped for markers; put the pictures back after.
+
+    Callers that delete content before entering this context (such as
+    ``_edit_full_document`` clearing leading tables) pass *pre_swapped* from
+    ``capture_placeholder_images`` so pictures are read before anything is deleted.
+    """
+    swapped, kept = pre_swapped if pre_swapped is not None else capture_placeholder_images(model, content)
     yield swapped
     if kept:
         _restore_image_placeholders(model, kept)

@@ -1578,4 +1578,3 @@ def test_pending_insertions_detects_inserted_table_spans():
 
 
 
-

@@ -62,7 +62,14 @@ from plugin.framework.errors import (
 from plugin.doc.text_helpers import KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
-from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
+from plugin.writer import (
+    html_import,
+    html_import_styles,
+    image_placeholders,
+    range_copy,
+    record_changes,
+    search as search_mod,
+)
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
@@ -1383,11 +1390,18 @@ class ApplyDocumentContent(ToolBase):
         content = params.content
         plain = params.plain
         has_table = params.has_table
+        # Capture data-less image placeholders BEFORE clear_first deletes leading
+        # tables: with review off (or own pending-insertion tables), deleting the
+        # table disposes its pictures so they can no longer be read.
+        captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
         with session:
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
-                rep = html_import.replace_full_document(ctx.doc, ctx.ctx, content)
+                kwargs = {"kept_images": captured} if captured[1] else {}
+                rep = html_import.replace_full_document(
+                    ctx.doc, ctx.ctx, content, **kwargs
+                )
                 _verify_table_insert(ctx.doc, 0 if has_table else None)
                 return rep
 
