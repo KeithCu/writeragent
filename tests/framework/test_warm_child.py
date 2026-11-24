@@ -1072,30 +1072,78 @@ def test_spawn_start_runtime_error_before_publish_reports(
         warm.retire()
 
 
-def test_kill_signals_child_published_before_its_lock_hold(tmp_path: Any, supervisor: Supervisor) -> None:
+def test_cancel_during_publish_is_not_lost(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
-    child = Child(_managed_with_popen(), worker_name="warm-test", worker_id=1)
-    real_lock = warm._lifecycle_lock
-    injected = False
+    scope = SendCancellation()
+    scope.register_on_cancel(warm.kill)
+    spawned: list[_FakePopen] = []
+    cancel_thread: threading.Thread | None = None
 
-    class _LockProxy:
-        def __enter__(self) -> Any:
-            nonlocal injected
-            if not injected:
-                injected = True
-                warm._publish(child)
-            return real_lock.__enter__()
+    def _fake_spawn(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
+        del timeout_sec
+        proc = _FakePopen()
+        managed._proc = proc  # type: ignore[assignment]
+        spawned.append(proc)
 
-        def __exit__(self, *args: Any) -> Any:
-            return real_lock.__exit__(*args)
+    orig_refusal = warm._publish_refusal
 
+    def _refusal_then_cancel() -> dict[str, Any] | None:
+        nonlocal cancel_thread
+        refusal = orig_refusal()
+        if spawned and cancel_thread is None:
+            cancel_thread = threading.Thread(target=scope.cancel)
+            cancel_thread.start()
+            # kill must block on _lifecycle_lock, which publish holds here, so this join times out.
+            # With an unlocked kill it returns, the child is stored afterwards, and the lease below is live.
+            cancel_thread.join(timeout=0.2)
+        return refusal
+
+    def _ready_after_cancel(child: Child, *_args: Any, **_kwargs: Any) -> tuple[str, Any]:
+        del child
+        if cancel_thread is not None:
+            cancel_thread.join(timeout=5.0)
+        return ("ready", {"status": "ready"})
+
+    monkeypatch.setattr(supervisor, "spawn", _fake_spawn)
+    monkeypatch.setattr(warm, "_publish_refusal", _refusal_then_cancel)
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _ready_after_cancel)
     try:
-        warm._lifecycle_lock = _LockProxy()  # type: ignore[assignment]
-        assert warm.kill() is True
-        assert child.was_signaled() is True
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+        assert len(spawned) == 1
         assert warm.child is None
     finally:
-        warm._lifecycle_lock = real_lock
+        if cancel_thread is not None:
+            cancel_thread.join(timeout=5.0)
+        warm.retire()
+
+
+def test_cancel_during_spawn_kills_the_unpublished_child(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    scope = SendCancellation()
+    scope.register_on_cancel(warm.kill)
+    orig_spawn = supervisor.spawn
+    popens: list[subprocess.Popen[bytes]] = []
+
+    def _spawn_then_cancel(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
+        orig_spawn(managed, timeout_sec=timeout_sec)
+        assert managed.popen is not None
+        popens.append(managed.popen)
+        scope.cancel()
+
+    monkeypatch.setattr(supervisor, "spawn", _spawn_then_cancel)
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert warm.child is None
+        assert len(popens) == 1
+        assert popens[0].poll() is not None
+    finally:
         warm.retire()
 
 
@@ -1127,21 +1175,43 @@ def test_kill_after_ready_frame_is_interrupted(
         warm.retire()
 
 
-def test_kill_between_ensure_live_and_lease_yields_error(
-    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("action", "expected_code"),
+    [
+        ("kill", "WORKER_SPAWN_FAILED"),
+        ("retire", "SERVICE_SHUTDOWN"),
+        ("cancel", "CANCELLED"),
+    ],
+)
+def test_stop_between_ensure_live_and_lease_yields_error(
+    tmp_path: Any,
+    supervisor: Supervisor,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    expected_code: str,
 ) -> None:
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     warm.child = Child(_managed_with_popen(), worker_name="warm-test", worker_id=1)
+    scope: SendCancellation | None = None
+    if action == "cancel":
+        scope = SendCancellation()
+        scope.register_on_cancel(warm.kill)
 
-    def _ensure_then_kill(_deadline: Deadline) -> dict[str, Any] | None:
-        warm.kill()
+    def _ensure_then_stop(_deadline: Deadline) -> dict[str, Any] | None:
+        if action == "kill":
+            warm.kill()
+        elif action == "retire":
+            warm.retire()
+        else:
+            assert scope is not None
+            scope.cancel()
         return None
 
-    monkeypatch.setattr(warm, "_ensure_live", _ensure_then_kill)
+    monkeypatch.setattr(warm, "_ensure_live", _ensure_then_stop)
     try:
-        with warm.lease(Deadline(10.0)) as leased:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
             assert isinstance(leased, dict)
-            assert leased["code"] == "WORKER_SPAWN_FAILED"
+            assert leased["code"] == expected_code
     finally:
         warm.retire()
 
@@ -1167,8 +1237,10 @@ def test_lease_refuses_signaled_child_not_yet_dropped(
         warm.retire()
 
 
-def test_cancel_before_lease_clears_the_slot_refuses_spawn(tmp_path: Any, supervisor: Supervisor) -> None:
-    from plugin.framework.send_cancellation import SendCancellation
+def test_cancel_before_lease_clears_the_slot_refuses_spawn(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import MagicMock
 
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     scope = SendCancellation()
@@ -1188,12 +1260,15 @@ def test_cancel_before_lease_clears_the_slot_refuses_spawn(tmp_path: Any, superv
         def release(self) -> None:
             real_lock.release()
 
+    spawn_mock = MagicMock(wraps=supervisor.spawn)
+    monkeypatch.setattr(supervisor, "spawn", spawn_mock)
     warm._io_lock = _LockProxy()  # type: ignore[assignment]
     try:
         with warm.lease(Deadline(10.0), cancel=scope) as leased:
             assert isinstance(leased, dict)
             assert leased["code"] == "CANCELLED"
         assert warm.child is None
+        assert spawn_mock.call_count == 0
 
         with warm.lease(Deadline(10.0)) as leased2:
             assert not isinstance(leased2, dict)
@@ -1206,7 +1281,7 @@ def test_cancel_before_lease_clears_the_slot_refuses_spawn(tmp_path: Any, superv
 def test_cancel_of_idle_child_before_ensure_live_does_not_respawn(
     tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from plugin.framework.send_cancellation import SendCancellation
+    from unittest.mock import MagicMock
 
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     try:
@@ -1214,6 +1289,8 @@ def test_cancel_of_idle_child_before_ensure_live_does_not_respawn(
             assert not isinstance(first, dict)
         assert warm._generation == 1
 
+        spawn_mock = MagicMock(wraps=supervisor.spawn)
+        monkeypatch.setattr(supervisor, "spawn", spawn_mock)
         scope = SendCancellation()
         scope.register_on_cancel(warm.kill)
         orig_ensure = warm._ensure_live
@@ -1228,6 +1305,7 @@ def test_cancel_of_idle_child_before_ensure_live_does_not_respawn(
             assert leased["code"] == "CANCELLED"
         assert warm._generation == 1
         assert warm.child is None
+        assert spawn_mock.call_count == 0
     finally:
         warm.retire()
 
