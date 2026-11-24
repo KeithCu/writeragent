@@ -123,3 +123,77 @@ def test_embedded_insert_persists_odt_and_docx(ctx, doc):
             os.rmdir(temp_dir)
         except OSError:
             pass
+
+
+@native_test
+@with_native_doc("writer")
+def test_embedded_insert_search_while_recording_accept_and_reject_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    tctx = _tool_ctx(ctx, doc)
+
+    for accept in (False, True):
+        text.setString("hello MATCH world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = EmbeddedInsert().execute(
+                tctx,
+                object_type="spreadsheet",
+                target="search",
+                old_content="MATCH",
+                name=f"RecSheet_{accept}",
+                data=[["x"]],
+            )
+            assert res["status"] == "ok", res
+            assert res["tracked"] is True and res["pending_review"] is True
+            cmd = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+            execute_dispatch(ctx, doc.getCurrentController(), cmd)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        if accept:
+            assert "MATCH" not in text.getString()
+            assert doc.getEmbeddedObjects().hasByName(f"RecSheet_{accept}")
+        else:
+            assert text.getString() == "hello MATCH world"
+            assert not doc.getEmbeddedObjects().hasByName(f"RecSheet_{accept}")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_embedded_insert_with_at_page_ole_selected_uno(ctx, doc):
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Page one", False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    cur.setPropertyValue("BreakType", PAGE_BEFORE)
+    text.insertString(cur, "Page two", False)
+
+    controller = doc.getCurrentController()
+    vc = controller.getViewCursor()
+    vc.gotoRange(cur.getEnd(), False)
+    assert vc.getPage() == 2
+
+    tctx = _tool_ctx(ctx, doc)
+    first = EmbeddedInsert().execute(
+        tctx, object_type="spreadsheet", target="selection", name="Page2AtPage", data=[["a"]]
+    )
+    assert first["status"] == "ok", first
+    emb = doc.getEmbeddedObjects().getByName("Page2AtPage")
+    emb.setPropertyValue("AnchorType", AT_PAGE)
+    emb.setPropertyValue("AnchorPageNo", 2)
+    assert emb.getAnchor() is None
+    controller.select(emb)
+
+    second = EmbeddedInsert().execute(
+        tctx, object_type="spreadsheet", target="selection", name="AfterAtPage", data=[["b"]]
+    )
+    assert second["status"] == "ok", second
+    emb2 = doc.getEmbeddedObjects().getByName("AfterAtPage")
+    vc.gotoRange(emb2.getAnchor().getStart(), False)
+    assert vc.getPage() == 2

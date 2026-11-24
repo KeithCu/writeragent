@@ -335,9 +335,11 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
-        recorded = anchor_type == 1 and is_recording_changes(doc)
+        recorded = False
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
+            nonlocal recorded
+            recorded = anchor_type == 1 and is_recording_changes(doc)
             host = cursor.getText()
             if anchor_type == 1:
                 insert_recorded_content(doc, host, cursor, frame)
@@ -368,6 +370,7 @@ class FrameInsert(ToolWriterTextFramesBase):
             what="the text frame",
             undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
+            review=True,
         )
         if err is not None:
             return err

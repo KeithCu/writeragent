@@ -1597,15 +1597,47 @@ def test_column_band_cells_merged_rows(cell_names, seps_by_row, idx, expected):
     assert set(_column_band_cells(table, positions, idx)) == expected
 
 
-def test_tracked_row_delete_refuses_tall_edge_cell_without_dispatch():
-    table = _TrackingTable(3, 2, cells={"A1": "Tall", "B1": "Top"}, name="T", row_spans={"A1": 2})
+@pytest.mark.parametrize("tall_cell", ["A1", "B1"])
+def test_tracked_row_delete_refuses_tall_cell_without_dispatch(tall_cell):
+    table = _TrackingTable(
+        3,
+        3,
+        cells={"A1": "A", "B1": "B", "C1": "C"},
+        name="T",
+        row_spans={tall_cell: 2},
+    )
     doc = _TrackingDoc({"T": table})
     res = ManageTableStructure().execute_safe(
         SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
     )
     assert res["status"] == "error"
-    assert res["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert tall_cell in res["message"]
     assert doc.dispatched == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "B1", "C1"])
+def test_untracked_row_delete_refuses_tall_cell(tall_cell):
+    table = FakeTable(3, 3, name="T", row_spans={tall_cell: 2})
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert table._rows.removes == []
+
+
+def test_untracked_row_delete_covered_row_still_removes():
+    table = FakeTable(
+        3,
+        3,
+        name="T",
+        cell_names=["A1", "B1", "C1", "B2", "C2", "A3", "B3", "C3"],
+        row_spans={"A1": 2},
+    )
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=1)
+    assert res["status"] == "ok"
+    assert table._rows.removes == [(1, 1)]
 
 
 

@@ -796,7 +796,7 @@ def test_tall_first_cell_row_delete_refused_and_covered_row_deletes_own_cells_un
     try:
         refused = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=tall_name, index=0)
         assert refused["status"] == "error"
-        assert refused["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+        assert refused["code"] == "ROW_HAS_SPANNING_CELL"
         assert doc.getRedlines().getCount() == 0
 
         ok = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=tall_name, index=1)
@@ -806,3 +806,44 @@ def test_tall_first_cell_row_delete_refused_and_covered_row_deletes_own_cells_un
         assert doc.getTextTables().getByName(tall_name).getRows().getCount() == 2
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_tall_cell_row_delete_untracked_and_middle_tracked_and_after_split_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t1 = TableInsert().execute(
+        tool_ctx, rows=3, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]
+    )["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t1, cell_range="A1:A2")
+    tbl1 = doc.getTextTables().getByName(t1)
+
+    refused_untracked = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t1, index=0)
+    assert refused_untracked["status"] == "error"
+    assert refused_untracked["code"] == "ROW_HAS_SPANNING_CELL"
+    assert tbl1.getRows().getCount() == 3
+    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+
+    # Deleting covered row 1 keeps A1's merged content.
+    ok_cov = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t1, index=1)
+    assert ok_cov["status"] == "ok"
+    assert tbl1.getCellByName("A1").getString() == "a1\na2"
+
+    # Middle tall cell (B1:B2) while recording is also refused; after split, row 0 deletes cleanly.
+    t2 = TableInsert().execute(
+        tool_ctx, rows=3, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]
+    )["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t2, cell_range="B1:B2")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        refused_mid = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t2, index=0)
+        assert refused_mid["status"] == "error"
+        assert refused_mid["code"] == "ROW_HAS_SPANNING_CELL"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    split_res = TableSplitCell().execute_safe(tool_ctx, name=t2, cell="B1", direction="rows", parts=2)
+    assert split_res["status"] == "ok"
+    ok_after_split = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t2, index=0)
+    assert ok_after_split["status"] == "ok"
+    assert doc.getTextTables().getByName(t2).getRows().getCount() == 2

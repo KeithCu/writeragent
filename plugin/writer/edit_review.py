@@ -394,6 +394,16 @@ class ChangeRecord:
     proposed_preview: str
 
 
+def run_in_review_session(doc: Any, ctx: Any, run: Callable[[EditReviewSession], Any]) -> Any:
+    """Run *run(session)* inside an ``EditReviewSession`` and clean up its bookmarks."""
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
+    try:
+        with review:
+            return run(review)
+    finally:
+        review.cleanup()
+
+
 class EditReviewSession:
     """Record agent edits as tagged tracked changes and report per-change outcomes."""
 

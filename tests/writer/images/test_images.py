@@ -2379,4 +2379,29 @@ def test_image_generate_pending_review_only_on_writer_insert():
         res_edit = ImageGenerate().execute(ctx_edit, prompt="a dog")
     assert res_edit["status"] == "ok"
     assert "pending_review" not in res_edit
+    assert res_edit["tracked"] is False
+    assert "warning" in res_edit
+
+
+def test_image_replace_warns_untracked_only_when_recording(tmp_path):
+    img_file = tmp_path / "new.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+    graphic = MagicMock()
+
+    for rec, expect_warn in ((True, True), (False, False)):
+        ctx = TestingFactory.create_context(doc_type="writer")
+        ctx.doc.getPropertyValue = lambda key, _r=rec: _r if key == "RecordChanges" else None
+        with (
+            patch("plugin.writer.images.images._resolve_graphic", return_value=(graphic, None)),
+            patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+            patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+        ):
+            res = ImageReplace().execute(ctx, name="Image1", path=str(img_file))
+        assert res["status"] == "ok"
+        if expect_warn:
+            assert res["tracked"] is False
+            assert "warning" in res
+        else:
+            assert "tracked" not in res
+            assert "warning" not in res
 

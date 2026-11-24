@@ -32,8 +32,9 @@ def _clear_doc(doc):
 
 
 class MockCtx:
-    def __init__(self, doc):
+    def __init__(self, doc, ctx=None):
         self.doc = doc
+        self.ctx = ctx
         self.doc_type = "writer"
 
 
@@ -351,6 +352,64 @@ def test_forms_radio_group_rename(ctx, doc):
     assert edit_res2["status"] == "ok"
     assert edit_res2["control_name"] == "radio2"
     assert edit_res2["group_name"] == "groupB"
+
+
+@native_test
+@with_native_doc("writer")
+def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
+    from plugin.app import get_tools
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.inline_review import agent_tokens, scan_redline_view
+
+    tools = get_tools()
+    form_create = tools.get("form_create")
+    tctx = MockCtx(doc, ctx)
+    fields = [
+        {"control": "text", "name": "f_txt", "default_value": "hi"},
+        {"control": "checkbox", "name": "f_chk", "label": "Ok"},
+    ]
+
+    _clear_doc(doc)
+    doc.getText().setString("base")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_rej = form_create.execute(tctx, fields=fields)
+        assert res_rej["status"] == "ok" and res_rej["tracked"] is True
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getText().getString() == "base"
+        assert doc.getDrawPage().getCount() == 0
+
+        res_acc = form_create.execute(tctx, fields=fields)
+        assert res_acc["status"] == "ok"
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getDrawPage().getCount() == 2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _clear_doc(doc)
+    doc.getText().setString("before")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res_rec = form_create.execute(tctx, fields=fields)
+        assert res_rec["status"] == "ok"
+        assert res_rec["tracked"] is True and res_rec["pending_review"] is True
+        assert len(agent_tokens(scan_redline_view(doc))) == 1
+        assert not doc.getPropertyValue("RecordChanges")
+
+        bad = form_create.execute(
+            tctx,
+            fields=[
+                {"control": "text", "name": "ok_field"},
+                {"control": "invalid_kind", "name": "bad_field"},
+            ],
+        )
+        assert bad["status"] == "error"
+        assert doc.getText().getString().startswith("before")
+        assert not doc.getPropertyValue("RecordChanges")
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
 
 
 

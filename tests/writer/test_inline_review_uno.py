@@ -686,3 +686,39 @@ def test_inline_review_accept_and_reject_multi_cell_change_uno(ctx, doc):
     finally:
         save({"doc.agent_edit_review_mode": prev})
 
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.specialized.tables import ManageTableStructure, TableInsert
+
+    prev = get_config("doc.agent_edit_review_mode")
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        for accept in (True, False):
+            save({"doc.agent_edit_review_mode": "off"})
+            doc.getText().setString("")
+            t_name = TableInsert().execute(
+                tctx,
+                rows=4,
+                columns=2,
+                data=[["r0a", "r0b"], ["r1a", "r1b"], ["r2a", "r2b"], ["r3a", "r3b"]],
+            )["table_name"]
+            save({"doc.agent_edit_review_mode": "record"})
+            r0 = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t_name, index=0)
+            r2 = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t_name, index=2)
+            assert r0["status"] == "ok" and r2["status"] == "ok"
+            changes = agent_changes(doc)
+            assert len(changes) == 2, changes
+
+            res, _after = resolve_agent_change(doc, ctx, changes[0]["token"], accept=accept)
+            assert res.status == ResolveStatus.RESOLVED, res
+            left = agent_changes(doc)
+            assert len(left) == 1 and left[0]["token"] == changes[1]["token"], left
+            expected_rows = 3 if accept else 4
+            assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+

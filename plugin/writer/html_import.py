@@ -202,6 +202,7 @@ def _insert_mixed_html_and_math_at_cursor(
     _segs = segment_html_with_mixed_math(unescaped)
     tail = _parked_cursor(cursor)
     attempts: list[dict[str, Any]] = []
+    after_inline_math = False
     for seg in _segs:
         if seg.kind == "html":
             chunk = seg.text
@@ -210,7 +211,20 @@ def _insert_mixed_html_and_math_at_cursor(
             if not chunk.strip():
                 cursor.getText().insertString(cursor, chunk, False)
                 cursor.gotoRange(tail.getStart(), False)
+                after_inline_math = False
                 continue
+
+            lead = chunk[: len(chunk) - len(chunk.lstrip())]
+            if (
+                after_inline_math
+                and lead
+                and lead.count("\n") < 2
+                and not html_import_styles.LINEBREAK_MARKUP_RE.match(chunk, len(lead))
+            ):
+                # The HTML filter drops leading whitespace of the fragment it imports.
+                cursor.getText().insertString(cursor, " ", False)
+                cursor.gotoRange(tail.getStart(), False)
+            after_inline_math = False
 
             # Expand literal \n and \t for plain HTML without math
             chunk = html_import_styles.expand_escapes(chunk)
@@ -235,6 +249,7 @@ def _insert_mixed_html_and_math_at_cursor(
             cursor.getText().insertString(cursor, fallback, False)
             log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
             attempts.append(_math_attempt_entry(seg, snippet, ok=False, error=res.error_message))
+        after_inline_math = not seg.display_block
         cursor.gotoRange(tail.getStart(), False)
     return attempts
 
@@ -1608,15 +1623,11 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
     directly. Full WriterAgent (or co-install) imports it and honors review mode.
     """
     try:
-        from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+        # Lazy: LibrePy ships without plugin.writer.edit_review.
+        from plugin.writer.edit_review import run_in_review_session
     except ImportError:
         return apply_fn()
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
-    try:
-        with review:
-            return review.record_mutation(apply_fn)
-    finally:
-        review.cleanup()
+    return run_in_review_session(doc, ctx, lambda review: review.record_mutation(apply_fn))
 
 
 

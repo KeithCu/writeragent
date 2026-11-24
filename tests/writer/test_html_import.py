@@ -273,8 +273,13 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
          patch.object(html_import, "convert_latex_to_starmath", return_value=failed):
         html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "<p>antes \\(x\\) depois</p>")
+    from unittest.mock import call
+
     assert frag.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "[Math import failed] x", False)
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, "[Math import failed] x", False),
+        call(cursor, " ", False),
+    ]
     assert cursor.gotoRange.call_args.args == (parked.getStart.return_value, False)
     model.getText.assert_not_called()
 
@@ -982,10 +987,13 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
         {"kind": "tex", "display_block": True, "snippet": "y=2", "ok": False, "error": "tex syntax error"},
         {"kind": "mathml", "display_block": True, "snippet": "<math display='block'><mi>z</mi></math>", "ok": True},
     ]
+    from unittest.mock import call
+
     assert mock_formula.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(
-        cursor, "[Math import failed] y=2", False
-    )
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, " ", False),
+        call(cursor, "[Math import failed] y=2", False),
+    ]
 
 
 def test_mixed_inserters_report_math_and_preserve_returns():

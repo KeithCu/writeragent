@@ -242,3 +242,51 @@ def test_frame_insert_reports_real_anchor_uno(ctx, doc):
     assert res.get("anchor_type") == 0
     frame = doc.getTextFrames().getByName("FallbackFrame")
     assert frame.getPropertyValue("AnchorType") == AT_PARAGRAPH
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_insert_record_mode_inline_and_anchored_search_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        text.setString("hello INLINE world")
+        res_inline = FrameInsert().execute(
+            tool_ctx,
+            target="search",
+            old_content="INLINE",
+            name="RecInlineFrame",
+            text="Inside",
+            width_mm=40.0,
+            height_mm=20.0,
+            anchor_type=1,
+        )
+        assert res_inline["status"] == "ok", res_inline
+        assert res_inline["tracked"] is True and res_inline["pending_review"] is True
+        assert doc.getTextFrames().hasByName("RecInlineFrame")
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert not doc.getTextFrames().hasByName("RecInlineFrame")
+        assert text.getString() == "hello INLINE world"
+
+        text.setString("hello PARA world")
+        res_para = FrameInsert().execute(
+            tool_ctx,
+            target="search",
+            old_content="PARA",
+            name="RecParaFrame",
+            text="Inside",
+            width_mm=40.0,
+            height_mm=20.0,
+            anchor_type=0,
+        )
+        assert res_para["status"] == "ok", res_para
+        assert res_para["tracked"] is False and "warning" in res_para
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert "PARA" in text.getString()
+    finally:
+        save({"doc.agent_edit_review_mode": prev})

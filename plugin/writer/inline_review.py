@@ -764,6 +764,7 @@ def _resolve_multi_text_change(
     """Accept/reject a change spanning several text objects (e.g. table cells) one cell at a time."""
     dispatched = False
     try:
+        strict_siblings: set[str] = set()
         for text, left, right in spans:
             span = text.createTextCursorByRange(left)
             span.gotoRange(right, True)
@@ -775,6 +776,7 @@ def _resolve_multi_text_change(
                 refuse_sibling,
                 "multi-text",
                 strict_sibling_edges=True,
+                sibling_tokens=strict_siblings,
             )
             if refusal is not None:
                 return ResolveResult(refusal), before
@@ -795,13 +797,16 @@ def _resolve_multi_text_change(
                 cur_view, failed = _dispatch_and_scan(ctx, controller, model, command, token)
                 if failed or not cur_view.reliable:
                     break
+                removed, foreign_safe = _token_delta(before, cur_view)
+                if not foreign_safe or not (removed - {token}) <= strict_siblings:
+                    break
                 next_spans = _spans_by_text(cur_view, token)
                 if len(next_spans) >= len(cur_spans):
                     break
                 cur_spans = next_spans
 
         removed, foreign_safe = _token_delta(before, cur_view)
-        if token in removed and cur_view.reliable and foreign_safe:
+        if token in removed and (removed - {token}) <= strict_siblings and cur_view.reliable and foreign_safe:
             return ResolveResult(ResolveStatus.RESOLVED, len(removed)), cur_view
         if not failed and not removed and cur_view.reliable and foreign_safe and len(cur_spans) == len(spans):
             return ResolveResult(ResolveStatus.NO_OP), cur_view

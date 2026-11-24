@@ -6,7 +6,7 @@ from plugin.doc.text_helpers import clone_text_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
-from plugin.writer.edit_review import next_agent_edit_undo_title
+from plugin.writer.edit_review import next_agent_edit_undo_title, run_in_review_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -127,6 +127,7 @@ def insert_at_target(
     replace_match: bool = True,
     undo_title: str | None = None,
     code: str = "TOOL_EXECUTION_ERROR",
+    review: bool = False,
 ) -> dict[str, Any] | None:
     """Resolve `target` / `old_content` / `case_sensitive` from kwargs (the triple
     `target_params` declares), then run one undo step that deletes the search match
@@ -139,7 +140,9 @@ def insert_at_target(
     UNDO_UNAVAILABLE "Cannot insert {what} as one undo step (no usable undo context);
     the document was not changed."; or `code` with "Failed to insert {what}; the change
     was rolled back (cause)." when insert raises. undo_title defaults to
-    next_agent_edit_undo_title().
+    next_agent_edit_undo_title(). When `review` is True, run inside an agent review
+    session, so the search-match deletion and the insert are one tagged change in
+    Record/Wait.
     """
     target = kwargs.get("target", "selection")
     try:
@@ -165,12 +168,17 @@ def insert_at_target(
         # is False, the cursor still spans the match and the new content attaches at its start.
         return insert(cursor)
 
-    return commit_or_rollback_mutation(
-        tool,
-        ctx.doc,
-        undo_title or next_agent_edit_undo_title(),
-        mutate,
-        f"Cannot insert {what} as one undo step (no usable undo context); the document was not changed.",
-        f"Failed to insert {what}; the change was rolled back",
-        code=code,
-    )
+    def commit(session: Any | None = None) -> dict[str, Any] | None:
+        apply = mutate if session is None else (lambda: session.record_mutation(mutate))
+        return commit_or_rollback_mutation(
+            tool,
+            ctx.doc,
+            undo_title or next_agent_edit_undo_title(),
+            apply,
+            f"Cannot insert {what} as one undo step (no usable undo context); the document was not changed.",
+            f"Failed to insert {what}; the change was rolled back",
+            code=code,
+            session=session,
+        )
+
+    return run_in_review_session(ctx.doc, ctx.ctx, commit) if review else commit()
