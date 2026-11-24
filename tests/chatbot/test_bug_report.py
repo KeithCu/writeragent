@@ -217,3 +217,22 @@ def test_open_url_in_browser_returns_false_when_both_fail():
     with patch("webbrowser.open", return_value=False):
         with patch.object(br, "log"):
             assert br.open_url_in_browser(ctx, "https://example.com/issue") is False
+
+
+def test_issue_url_does_not_read_uncached_key(fake_keystore):
+    from plugin.framework import config as fw_config, keystore
+
+    endpoint = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": endpoint})
+    fw_config.set_api_key_for_endpoint(endpoint, "sk-secret-999")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    br.build_github_issue_url(extra_body="failed with sk-secret-999", ctx=None)
+    assert fake_keystore.get_calls == 0
+
+    fake_keystore.locked = False
+    assert fw_config.get_api_key_for_endpoint(endpoint) == "sk-secret-999"
+    url = br.build_github_issue_url(extra_body="failed with sk-secret-999", ctx=None)
+    assert "sk-secret-999" not in url
+    assert "redacted" in url

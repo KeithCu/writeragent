@@ -1035,3 +1035,64 @@ def test_run_stream_drain_loop_error_handler():
     assert len(error_received) == 1
     assert error_received[0]["status"] == "error"
     assert error_received[0]["message"] == "Simulation error"
+
+
+@pytest.mark.parametrize("locked", [True, False], ids=["locked", "unlocked"])
+def test_stop_during_unlock_prompt_stops_and_sends_nothing(fake_keystore, locked: bool) -> None:
+    import threading
+    from plugin.chatbot.selection import create_validated_client
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.async_stream import run_stream_completion_async
+
+    endpoint = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
+    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = locked
+
+    scope = SendCancellation()
+    release = threading.Event()
+    threads: list[threading.Thread] = []
+
+    def _on_get(_name: str) -> None:
+        scope.cancel()
+        release.wait(timeout=5)
+
+    fake_keystore.on_get = _on_get
+
+    client = create_validated_client(MagicMock(), "Edit")
+    assert client is not None
+
+    events: list[str] = []
+
+    def _spawn(fn: Any, **_kwargs: Any) -> threading.Thread:
+        t = threading.Thread(target=fn, daemon=True)
+        threads.append(t)
+        t.start()
+        return t
+
+    with (
+        patch("plugin.framework.async_stream.get_toolkit", return_value=DummyToolkit()),
+        patch("plugin.framework.async_stream.run_in_background", side_effect=_spawn),
+        patch.object(client._transport, "send") as mock_send,
+    ):
+        run_stream_completion_async(
+            MagicMock(),
+            client,
+            "hi",
+            "sys",
+            64,
+            lambda *_a: None,
+            lambda: events.append("done"),
+            lambda _e: events.append("error"),
+            cancel=scope,
+            on_stopped_fn=lambda: events.append("stopped"),
+        )
+        assert events == ["stopped"]
+        release.set()
+        for t in threads:
+            t.join(timeout=5)
+            assert not t.is_alive()
+
+    assert mock_send.call_count == 0
+    assert events == ["stopped"]
