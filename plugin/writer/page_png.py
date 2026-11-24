@@ -36,12 +36,54 @@ def write_page_png(page: int, export: Callable[[str], None]) -> tuple[bytes | No
             best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
 
 
-def render_writer_page_png(
+def export_current_page_png(
     doc: Any,
     page: int,
     *,
     pixel_size: tuple[int, int] | None = None,
 ) -> tuple[bytes | None, str | None]:
+    """Export the page of *doc*'s view cursor (or page 1 when the view has no view cursor) to PNG.
+
+    Uses ``DocumentToGraphicRenderer::getCurrentPageWriter``, which falls back to page 1 when
+    there is no view cursor. *page* only names the page in error text.
+    """
+    # UNO imports only here: nothing above needs them, so validation/error paths stay
+    # exception-free even where the uno module is unavailable (e.g. mocked test envs).
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    def export(tmp_path: str) -> None:
+        url = uno.systemPathToFileUrl(tmp_path)
+        if pixel_size is None:
+            doc.storeToURL(url, (PropertyValue(Name="FilterName", Value="writer_png_Export"),))
+            return
+        w, h = pixel_size
+        # FilterData must travel as a typed Any through uno.invoke; a plain tuple is dropped and the
+        # page renders at 96 DPI (same as image_mark.py:217-221). GraphicExportFilter ignores the
+        # target unless both PixelWidth and PixelHeight are non-zero (GraphicExportFilter.cxx filterRenderDocument).
+        filter_data = getattr(uno, "Any")(
+            "[]com.sun.star.beans.PropertyValue",
+            (PropertyValue(Name="PixelWidth", Value=w), PropertyValue(Name="PixelHeight", Value=h)),
+        )
+        uno.invoke(
+            unwrap_uno(doc),
+            "storeToURL",
+            cast(
+                "tuple[Any, ...]",
+                (
+                    url,
+                    (
+                        PropertyValue(Name="FilterName", Value="writer_png_Export"),
+                        PropertyValue(Name="FilterData", Value=filter_data),
+                    ),
+                ),
+            ),
+        )
+
+    return write_page_png(page, export)
+
+
+def render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
 
     *page* is model-facing (first page = 0); jump_view_cursor_to_page converts it to Writer's
@@ -72,40 +114,7 @@ def render_writer_page_png(
         total = jump_view_cursor_to_page(vc, page)
         if total is not None:
             return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
-        # UNO imports only here: nothing above needs them, so validation/error paths stay
-        # exception-free even where the uno module is unavailable (e.g. mocked test envs).
-        import uno
-        from com.sun.star.beans import PropertyValue
-
-        def export(tmp_path: str) -> None:
-            url = uno.systemPathToFileUrl(tmp_path)
-            if pixel_size is None:
-                doc.storeToURL(url, (PropertyValue(Name="FilterName", Value="writer_png_Export"),))
-                return
-            w, h = pixel_size
-            # FilterData must travel as a typed Any through uno.invoke; a plain tuple is dropped and the
-            # page renders at 96 DPI (same as image_mark.py:217-221). GraphicExportFilter ignores the
-            # target unless both PixelWidth and PixelHeight are non-zero (GraphicExportFilter.cxx filterRenderDocument).
-            filter_data = getattr(uno, "Any")(
-                "[]com.sun.star.beans.PropertyValue",
-                (PropertyValue(Name="PixelWidth", Value=w), PropertyValue(Name="PixelHeight", Value=h)),
-            )
-            uno.invoke(
-                unwrap_uno(doc),
-                "storeToURL",
-                cast(
-                    "tuple[Any, ...]",
-                    (
-                        url,
-                        (
-                            PropertyValue(Name="FilterName", Value="writer_png_Export"),
-                            PropertyValue(Name="FilterData", Value=filter_data),
-                        ),
-                    ),
-                ),
-            )
-
-        return write_page_png(page, export)
+        return export_current_page_png(doc, page)
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
