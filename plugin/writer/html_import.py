@@ -1285,9 +1285,10 @@ def replace_full_document(
         one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
         # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
-        # sw/source/core/undo/unattr.cxx, calls DontExpandFormat), so Undo would bring a lone
-        # paragraph back without its font, size and language. Undo restores several paragraphs
-        # with their own formatting, and resetting a long document first doubles the delete time.
+        # sw/source/core/undo/unattr.cxx, calls DontExpandFormat, which turns paragraph attributes
+        # into text attributes via FormatToTextAttr), so Undo would bring a lone paragraph back
+        # without its font, size and language. Undo restores several paragraphs with their own
+        # formatting, and resetting a long document first doubles the delete time.
         reset_first = one_paragraph and not recording
         if reset_first:
             reset_direct_char_formatting(cursor, language)

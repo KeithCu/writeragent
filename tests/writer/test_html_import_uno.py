@@ -2856,6 +2856,7 @@ def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
         save({flag: "off"})
         for char_style in ("", "Emphasis"):
             for words in (["Only"], ["First", "Second"]):
+                case = (char_style, words)
                 with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
                     doc.setPropertyValue("RecordChanges", False)
                     tctx = native_writer_tool_context(doc, ctx)
@@ -2877,21 +2878,21 @@ def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
                     cur.setPropertyValue("ParaLeftMargin", 800)
                     cur.setPropertyValue("NumberingStyleName", "Numbering 123")
                     expected_seeded = _state(doc)
-                    assert len(expected_seeded) == len(words)
+                    assert len(expected_seeded) == len(words), case
                     for _s, margin, label, props in expected_seeded:
-                        assert margin > 0
-                        assert label != ""
-                        assert props["weight"] == 150.0
-                        assert props["height"] == 30.0
-                        assert props["color"] == 0xFF0000
-                        assert props["char_style"] == char_style
-                        assert props["lang"] == "pt"
+                        assert margin > 0, case
+                        assert label != "", case
+                        assert props["weight"] == 150.0, case
+                        assert props["height"] == 30.0, case
+                        assert props["color"] == 0xFF0000, case
+                        assert props["char_style"] == char_style, case
+                        assert props["lang"] == "pt", case
                     doc.getUndoManager().clear()
 
                     res = ApplyDocumentContent().execute(
                         tctx, target="full_document", content=["<p>Done</p>"]
                     )
-                    assert res.get("status") == "ok", res
+                    assert res.get("status") == "ok", (case, res)
                     std_height = float(
                         doc.getStyleFamilies()
                         .getByName("ParagraphStyles")
@@ -2910,13 +2911,14 @@ def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
                             "lang": "pt",
                         },
                     )]
-                    assert _state(doc) == expected_done
+                    assert _state(doc) == expected_done, case
 
                     doc.getUndoManager().undo()
-                    assert _state(doc) == expected_seeded
+                    assert len(_body_paragraphs(doc)) == len(words), case
+                    assert _state(doc) == expected_seeded, case
 
                     doc.getUndoManager().redo()
-                    assert _state(doc) == expected_done
+                    assert _state(doc) == expected_done, case
     finally:
         save({flag: prev})
 
@@ -2962,6 +2964,7 @@ def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, do
                 res = ApplyDocumentContent().execute(tctx, **kwargs)
                 assert res.get("status") == "ok", res
                 if mode == "record":
+                    assert doc.getRedlines().getCount() > 0, (mode, target)
                     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
                 labels = [
                     (p.getString(), str(p.getPropertyValue("ListLabelString") or ""))
