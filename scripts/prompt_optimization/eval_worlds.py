@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import re
 from html.parser import HTMLParser
+from types import SimpleNamespace
 from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
@@ -28,8 +29,17 @@ from plugin.calc.manipulator import (
     _values_length_mismatch_message,
     parse_then_by,
 )
-from plugin.draw.tree import short_shape_type
+from plugin.draw.tree import (
+    build_shape_tree,
+    custom_shape_geometry,
+    find_shape_on_page,
+    iter_shape_addresses,
+    resolve_shape_ref,
+    short_shape_type,
+)
+from plugin.framework.errors import available_miss_details, make_tool_error
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.tool_schema import coerce_call_args
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -603,7 +613,11 @@ class WriterWorld:
 # Same resolution as _execute_upsert_shape in plugin/draw/shapes.py: these names are UNO
 # shapes, a UNO type name passes through, and every other name is a CustomShape preset.
 _BASIC_SHAPE_TYPES = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
-_SHAPE_DEFAULTS: dict[str, Any] = {"text": "", "x": 1000, "y": 1000, "width": 2000, "height": 1000}
+_SHAPE_DEFAULTS = {"x": 1000, "y": 1000, "width": 2000, "height": 1000}
+_UPSERT_COERCE: dict[str, Any] = {
+    "index": {"type": ["integer", "string"]},
+    **{key: {"type": "integer"} for key in _SHAPE_DEFAULTS},
+}
 
 
 def _draw_node_type(shape_type: str) -> tuple[str, str | None]:
@@ -615,199 +629,259 @@ def _draw_node_type(shape_type: str) -> tuple[str, str | None]:
     return "CustomShape", shape_type
 
 
-def _line_ends(args: dict[str, Any]) -> tuple[dict[str, str], str | None]:
-    out: dict[str, str] = {}
-    for key in ("line_start", "line_end"):
+def _line_ends(args: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """UNO line-end name properties for the arrowhead arguments, or an error."""
+    out: dict[str, Any] = {}
+    for key, prop in (("line_start", "LineStartName"), ("line_end", "LineEndName")):
         marker = args.get(key)
         if marker is None:
             continue
         if marker not in ("none", "arrow"):
             return {}, f"Invalid value for {key}: {marker!r}. Valid options: none, arrow"
-        out[key] = marker
+        out[prop] = "Arrow" if marker == "arrow" else ""
     return out, None
 
 
-class DrawWorld:
-    """Draw page: shapes, z-order (list order), and connectors."""
+def _normal_box(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
+    """Same as ``_normalize_negative_span`` in plugin/draw/shapes.py, which needs UNO to import."""
+    return min(x, x + width), min(y, y + height), abs(width), abs(height)
 
-    __slots__ = ("shapes", "connections", "groups", "_next_index")
+
+class _SimNode:
+    """The XShape calls ``plugin.draw.tree`` and ``shape_get_summary`` read, kept in memory."""
+
+    def __init__(self, shape_type: str, name: str) -> None:
+        self.shape_type = shape_type
+        self.Name = name
+        self.props: dict[str, Any] = {}
+
+    def getShapeType(self) -> str:
+        return f"com.sun.star.drawing.{self.shape_type}"
+
+    def getPropertyValue(self, prop: str) -> Any:
+        return self.props.get(prop)
+
+    def box(self) -> tuple[int, int, int, int]:
+        raise NotImplementedError
+
+    def set_box(self, x: int, y: int, width: int, height: int) -> None:
+        raise NotImplementedError
+
+    def getPosition(self) -> SimpleNamespace:
+        x, y, _w, _h = self.box()
+        return SimpleNamespace(X=x, Y=y)
+
+    def getSize(self) -> SimpleNamespace:
+        _x, _y, width, height = self.box()
+        return SimpleNamespace(Width=width, Height=height)
+
+
+class _SimShape(_SimNode):
+    def __init__(self, shape_type: str, name: str, preset: str | None = None) -> None:
+        super().__init__(shape_type, name)
+        self.text = ""
+        self._box = (0, 0, 0, 0)
+        if preset:
+            # build_shape_tree flags a CustomShape with neither Path nor ViewBox as unpainted.
+            self.props["CustomShapeGeometry"] = (
+                SimpleNamespace(Name="Type", Value=preset),
+                SimpleNamespace(Name="ViewBox", Value=(0, 0, 21600, 21600)),
+            )
+
+    def getString(self) -> str:
+        return self.text
+
+    def box(self) -> tuple[int, int, int, int]:
+        start, end = self.props.get("StartShape"), self.props.get("EndShape")
+        if start is None or end is None:
+            return self._box
+        # A linked connector follows its shapes; LibreOffice uses glue points, this uses centres.
+        (sx, sy, sw, sh), (ex, ey, ew, eh) = start.box(), end.box()
+        x0, y0, x1, y1 = sx + sw // 2, sy + sh // 2, ex + ew // 2, ey + eh // 2
+        return min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0)
+
+    def set_box(self, x: int, y: int, width: int, height: int) -> None:
+        # A live line keeps its direction but reads back as the same bounding box.
+        self._box = _normal_box(x, y, width, height)
+
+
+class _SimGroup(_SimNode):
+    """Page or GroupShape: an XShapes container (no text, like a live GroupShape)."""
+
+    def __init__(self, name: str = "", items: list[Any] | None = None) -> None:
+        super().__init__("GroupShape", name)
+        self.items: list[Any] = items or []
+
+    def getCount(self) -> int:
+        return len(self.items)
+
+    def getByIndex(self, index: int) -> Any:
+        return self.items[index]
+
+    def box(self) -> tuple[int, int, int, int]:
+        boxes = [c.box() for c in self.items]
+        x = min(b[0] for b in boxes)
+        y = min(b[1] for b in boxes)
+        return x, y, max(b[0] + b[2] for b in boxes) - x, max(b[1] + b[3] for b in boxes) - y
+
+    def set_box(self, x: int, y: int, width: int, height: int) -> None:
+        """Move and scale the children, as LibreOffice does for a group."""
+        ox, oy, ow, oh = self.box()
+        x, y, width, height = _normal_box(x, y, width, height)
+        fx, fy = width / (ow or 1), height / (oh or 1)
+        for child in self.items:
+            cx, cy, cw, ch = child.box()
+            child.set_box(x + round((cx - ox) * fx), y + round((cy - oy) * fy), round(cw * fx), round(ch * fy))
+
+
+class DrawWorld:
+    """One Draw page of in-memory shapes, read and addressed through ``plugin.draw.tree``."""
+
+    __slots__ = ("page",)
 
     def __init__(self) -> None:
-        self.shapes: list[dict[str, Any]] = []
-        self.connections: list[dict[str, Any]] = []
-        self.groups: list[list[int]] = []
-        self._next_index = 0
+        self.page = _SimGroup()
 
     def export_for_prompt(self) -> str:
         import json
 
         return json.dumps(self.get_tree(), ensure_ascii=False)
 
-    def shape_upsert(
-        self,
-        action: str = "create",
-        index: int | None = None,
-        shape_type: str = "rectangle",
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        line_ends, err = _line_ends(kwargs)
+    def _names(self) -> list[str]:
+        return [shape.Name for _addr, shape, _parent in iter_shape_addresses(self.page)]
+
+    def _new_name(self) -> str:
+        """Next free ``Shape<n>``, as ``_ensure_shape_name`` in plugin/draw/shapes.py assigns."""
+        used = [int(m.group(1)) for m in (re.fullmatch(r"Shape([0-9]+)", n) for n in self._names()) if m]
+        return f"Shape{max(used, default=0) + 1}"
+
+    def _miss(self, err: str | None, wanted: Any) -> dict[str, Any]:
+        """Lookup error payload, as ``_lookup_ref`` in plugin/draw/shapes.py builds it."""
+        message = err or "Shape not found."
+        if not message.startswith("No shape named"):
+            return make_tool_error(message)
+        names = self._names()[:40]
+        return make_tool_error(message, available=names, **available_miss_details(str(wanted).strip(), names))
+
+    def shape_upsert(self, **kwargs: Any) -> dict[str, Any]:
+        args = coerce_call_args(_UPSERT_COERCE, {k: v for k, v in kwargs.items() if v is not None})
+        props, err = _line_ends(args)
         if err:
-            return {"status": "error", "message": err}
-        props = {k: kwargs[k] for k in _SHAPE_DEFAULTS if kwargs.get(k) is not None}
+            return make_tool_error(err, code="VALIDATION_ERROR")
+        action = args.get("action", "create")
+        name = str(args.get("name") or "").strip()
+        taken = f"A shape named {name!r} already exists on this page; choose another name or edit that shape."
+        rename_to: str | None = None
         if action == "create":
-            idx = self._next_index
-            self._next_index += 1
+            if name and name in self._names():
+                return make_tool_error(taken, code="INVALID_PARAM")
+            shape_type = args.get("shape_type", "rectangle")
             node_type, preset = _draw_node_type(shape_type)
-            entry = {
-                "index": idx,
-                "type": node_type,
-                "custom_shape_type": preset,
-                **_SHAPE_DEFAULTS,
-                **props,
-                **line_ends,
-            }
-            self.shapes.append(entry)
-            return {
-                "status": "ok",
-                "message": f"Created {shape_type}",
-                "index": idx,
-                "page": 0,
-                "shape_count_after": len(self.shapes),
-            }
-        if action == "edit":
-            if index is None:
-                return {"status": "error", "message": "index is required for edit"}
-            found = next((s for s in self.shapes if s["index"] == index), None)
-            if not found:
-                return {"status": "error", "message": f"Shape index {index} not found"}
-            found.update(props)
-            found.update(line_ends)
-            return {"status": "ok", "message": "Shape updated", "page": 0}
-        return {"status": "error", "message": f"Unknown action {action}"}
+            shape: Any = _SimShape(node_type, name or self._new_name(), preset)
+            address: int | str = self.page.getCount()
+            box = tuple(args.get(k, default) for k, default in _SHAPE_DEFAULTS.items())
+        elif action == "edit":
+            if "index" not in args and not name:
+                return make_tool_error("Parameter 'index' or 'name' is required when action is 'edit'", code="VALIDATION_ERROR")
+            if "index" in args:
+                found, shape, _parent, err = find_shape_on_page(self.page, index=args["index"])
+            else:
+                found, shape, _parent, err = find_shape_on_page(self.page, name=name)
+            if shape is None or found is None:
+                return self._miss(err, name)
+            address = found
+            if "index" in args and name and name != shape.Name:
+                if name in self._names():
+                    return make_tool_error(taken, code="INVALID_PARAM")
+                rename_to = name
+            box = tuple(args.get(k, cur) for k, cur in zip(_SHAPE_DEFAULTS, shape.box()))
+        else:
+            return make_tool_error(f"Unknown action: '{action}'. Must be 'create' or 'edit'")
+        if action == "create" or any(k in args for k in _SHAPE_DEFAULTS):
+            shape.set_box(*box)
+        if rename_to is not None:
+            shape.Name = rename_to
+        if "text" in args:
+            shape.text = str(args["text"])
+        shape.props.update(props)
+        result: dict[str, Any] = {"status": "ok", "action": action, "message": "Shape updated", "page": 0, "index": address, "name": shape.Name}
+        if action == "create":
+            self.page.items.append(shape)
+            result.update(message=f"Created {shape_type}", shape_count_after=self.page.getCount())
+        return result
 
     def shape_connect(self, **kwargs: Any) -> dict[str, Any]:
-        start = kwargs.get("start")
-        end = kwargs.get("end")
-        if start is None or end is None:
-            return {"status": "error", "message": "start and end are required."}
-        try:
-            start_i = int(start)
-            end_i = int(end)
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "start and end must be integers."}
-        indexes = {s["index"] for s in self.shapes}
-        if start_i not in indexes or end_i not in indexes:
-            return {"status": "error", "message": "Failed to find shapes at given indices."}
-        raw_ends, err = _line_ends(kwargs)
+        for key in ("start", "end"):
+            if kwargs.get(key) is None:
+                return make_tool_error(f"Missing required parameter: {key}", code="VALIDATION_ERROR")
+        props, err = _line_ends(kwargs)
         if err:
-            return {"status": "error", "message": err}
-        # shape_get_tree omits an end without an arrowhead, so only "arrow" is stored.
-        arrowheads = {k: v for k, v in raw_ends.items() if v == "arrow"}
-        label = str(kwargs.get("label") or kwargs.get("text") or "")
-        entry: dict[str, Any] = {"from_index": start_i, "to_index": end_i, **arrowheads}
-        if label:
-            entry["label"] = label
-        self.connections.append(entry)
+            return make_tool_error(err, code="VALIDATION_ERROR")
+        addresses = []
+        for key, prop in (("start", "StartShape"), ("end", "EndShape")):
+            address, shape, _parent, err = resolve_shape_ref(self.page, kwargs[key])
+            if shape is None:
+                return self._miss(err, kwargs[key])
+            addresses.append(address)
+            props[prop] = shape
+        connector = _SimShape("ConnectorShape", self._new_name())
+        connector.props.update(props)
+        self.page.items.append(connector)
         return {
             "status": "ok",
-            "message": f"Connected shape {start_i} to {end_i}",
-            "index": start_i,
+            "message": f"Connected shape {addresses[0]} to {addresses[1]}",
+            "index": self.page.getCount() - 1,
+            "name": connector.Name,
+            "page": 0,
         }
 
     def shape_group(self, **kwargs: Any) -> dict[str, Any]:
-        raw = kwargs.get("indexes") or kwargs.get("indices") or []
-        if not isinstance(raw, list) or len(raw) < 2:
-            return {"status": "error", "message": "indexes must be a list of at least two shape indexes."}
-        try:
-            idxs = [int(i) for i in raw]
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "indexes must be integers."}
-        self.groups.append(idxs)
-        return {"status": "ok", "message": f"Grouped {len(idxs)} shapes", "indexes": idxs}
+        indices = kwargs.get("indices")
+        if not isinstance(indices, list) or len(indices) < 2:
+            return make_tool_error("At least two shape indices are required to group.")
+        slots: set[int] = set()
+        for ref in indices:
+            address, shape, parent, err = resolve_shape_ref(self.page, ref)
+            if shape is None:
+                return self._miss(err, ref)
+            if parent is not self.page:
+                return make_tool_error(f"Cannot group shape {address}: it is not a top-level shape on the page.")
+            slots.add(int(address))
+        if len(slots) < len(indices):
+            return make_tool_error("Duplicate shape in indices; pass each shape once.")
+        # SdrEditView::GroupMarked (svx/source/svdraw/svdedtv2.cxx) keeps the z-order inside the
+        # group and puts the group where its topmost member was.
+        members = [self.page.items[i] for i in sorted(slots)]
+        group = _SimGroup(self._new_name(), members)
+        index = max(slots) - len(slots) + 1
+        rest = [s for i, s in enumerate(self.page.items) if i not in slots]
+        self.page.items = [*rest[:index], group, *rest[index:]]
+        return {"status": "ok", "message": f"Grouped {len(indices)} shapes.", "index": index, "name": group.Name, "page": 0}
 
-    def _shape_by_index(self, idx: int) -> dict[str, Any] | None:
-        return next((s for s in self.shapes if s["index"] == idx), None)
+    def get_tree(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"status": "ok", "page": 0, "tree": build_shape_tree(self.page)}
 
-    def get_tree(self, **kwargs: Any) -> dict[str, Any]:
-        unused = kwargs
-        del unused
-        by_idx = {s["index"]: s for s in self.shapes}
-        starts: dict[int, list[int]] = {}
-        ends: dict[int, list[int]] = {}
-        for conn in self.connections:
-            starts.setdefault(conn["from_index"], []).append(conn["to_index"])
-            ends.setdefault(conn["to_index"], []).append(conn["from_index"])
-        tree = []
-        for s in self.shapes:
-            node: dict[str, Any] = {
-                "type": s["type"],
-                "name": f"shape_{s['index']}",
-                "text": s.get("text", ""),
-                "geometry": {
-                    "x": s["x"],
-                    "y": s["y"],
-                    "width": s["width"],
-                    "height": s["height"],
-                },
+    def get_draw_summary(self, **_kwargs: Any) -> dict[str, Any]:
+        """Same rows as ``GetDrawSummary.execute`` in plugin/draw/shapes.py."""
+        rows = []
+        for addr, shape, _parent in iter_shape_addresses(self.page):
+            x, y, width, height = shape.box()
+            row: dict[str, Any] = {
+                "index": addr if "." in addr else int(addr),
+                "name": shape.Name,
+                "type": shape.getShapeType(),
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
             }
-            if s.get("custom_shape_type"):
-                node["custom_shape_type"] = s["custom_shape_type"]
-            style: dict[str, str] = {}
-            if s.get("line_start") == "arrow":
-                style["LineStartName"] = "Arrow"
-            if s.get("line_end") == "arrow":
-                style["LineEndName"] = "Arrow"
-            if style:
-                node["style"] = style
-            dests = starts.get(s["index"]) or []
-            srcs = ends.get(s["index"]) or []
-            if dests:
-                other = by_idx.get(dests[0])
-                if other:
-                    node["connected_end"] = {
-                        "name": f"shape_{other['index']}",
-                        "text": other.get("text", ""),
-                    }
-            if srcs:
-                other = by_idx.get(srcs[0])
-                if other:
-                    node["connected_start"] = {
-                        "name": f"shape_{other['index']}",
-                        "text": other.get("text", ""),
-                    }
-            tree.append(node)
-        children: list[dict[str, Any]] = []
-        for g in self.groups:
-            children.append({"type": "group", "indexes": list(g)})
-        return {
-            "status": "ok",
-            "page_index": 0,
-            "tree": tree,
-            "connections": list(self.connections),
-            "children": children,
-        }
-
-    def get_draw_summary(self, **kwargs: Any) -> dict[str, Any]:
-        unused = kwargs
-        del unused
-        return {
-            "status": "ok",
-            "page_index": 0,
-            "shapes": [
-                {
-                    "index": s["index"],
-                    "type": f"com.sun.star.drawing.{s['type']}",
-                    **({"custom_shape_type": s["custom_shape_type"]} if s.get("custom_shape_type") else {}),
-                    "x": s["x"],
-                    "y": s["y"],
-                    "width": s["width"],
-                    "height": s["height"],
-                    "text": s.get("text", ""),
-                }
-                for s in self.shapes
-            ],
-            "connections": list(self.connections),
-        }
+            preset = custom_shape_geometry(shape).get("Type")
+            if preset:
+                row["custom_shape_type"] = preset
+            if isinstance(shape, _SimShape):
+                row["text"] = shape.text
+            rows.append(row)
+        return {"status": "ok", "page": 0, "shapes": rows}
 
 
 def _calc_sort_key(raw: Any, ascending: bool) -> tuple[int, Any]:
@@ -1222,5 +1296,4 @@ class CalcWorld:
 
 # Back-compat names used across the harness and tests.
 StringDocState = WriterWorld
-DrawDocState = DrawWorld
 CalcStringState = CalcWorld
