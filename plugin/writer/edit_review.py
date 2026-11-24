@@ -134,6 +134,15 @@ def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None
         review_authors.end(ctx, prior)
 
 
+def paragraph_redline_author(ctx: Any) -> str:
+    """Author for ``ParagraphFormat`` redlines, which makeRedline does not stamp itself.
+
+    They never fold into an insertion (DocumentRedlineManager::AppendRedline has no case for
+    them), so unlike ``agent_format_author`` a foreign insertion in the range does not matter.
+    """
+    return review_authors.INSERT_AUTHOR if review_recording_enabled() else review_authors.office_author(ctx)
+
+
 def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> None:
     """Flag style and page-layout mutations for the user when changes are being recorded.
 

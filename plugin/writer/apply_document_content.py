@@ -63,7 +63,7 @@ from plugin.framework.errors import (
 from plugin.doc.text_helpers import KeepViewSelection
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
-from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
+from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
 from plugin.writer.heading_links import (
     document_headings,
     headings_if_touched,

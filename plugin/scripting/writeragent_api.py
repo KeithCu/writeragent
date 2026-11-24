@@ -2881,7 +2881,7 @@ class _TableProxy:
 
         Args:
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
@@ -2892,7 +2892,7 @@ class _TableProxy:
         Args:
             name (optional): Table name from table_list.
             cell (optional): Optional. One A1-style address; return that cell only.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
@@ -2906,7 +2906,7 @@ class _TableProxy:
             data (optional): 2D cell strings.
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted).
+            page (optional): Draw/Impress: 0-based page index (active if omitted).
             x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
             y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
             width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
@@ -2926,7 +2926,7 @@ class _TableProxy:
             axis (required): Whether to edit rows or columns. One of: row, column.
             index (required): 0-based row or column index (insert at count = append).
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
         return _result(call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index))
@@ -2947,7 +2947,7 @@ class _TableProxy:
             cell (required): A1-style cell address, e.g. 'B2'.
             text (required): New plain text for the cell.
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))
@@ -3074,7 +3074,7 @@ class _WriterProxy:
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
+            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. To drop hand-set formatting without changing the style, use style_format_text reset. One of: none, style_props, all.
         """
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 

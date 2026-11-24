@@ -66,7 +66,9 @@ def _ctx_with_families(**families):
 
 @pytest.fixture
 def mock_ctx():
-    return TestingFactory.create_context(doc_type="writer")
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getUndoManager = MagicMock()
+    return ctx
 
 
 def test_list_styles_filtering():
@@ -1224,6 +1226,7 @@ def test_apply_style_character_ignores_schema_default_clear_direct():
     fam = _style_family({"Source Text": MagicMock()})
     cursor = MagicMock()
     ctx = _ctx_with_families(CharacterStyles=fam)
+    ctx.doc.getUndoManager = MagicMock()
 
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
         res = ApplyStyle().execute(ctx, style="Source Text", family="CharacterStyles", clear_direct="style_props")
@@ -1329,15 +1332,16 @@ def test_apply_style_occurrence_string_is_validation_error():
 
 
 def test_apply_style_single_target_reraises_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
     DisposedEx = type("DisposedException", (Exception,), {})
     cursor = MagicMock()
     cursor.setPropertyValue.side_effect = DisposedEx("gone")
     ctx = _style_ctx()
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(DocumentDisposedError):
             ApplyStyle().execute(
                 ctx, style="Source Text", family="CharacterStyles", target="selection")
-    assert "DisposedException" in type(exc_info.value).__name__
 
 
 def test_apply_style_all_matches_leave_failure_is_not_ok():
@@ -1614,6 +1618,7 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_fin
     from plugin.writer.styles import ApplyStyle
 
     ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    ctx.doc.getUndoManager = MagicMock()
     r1 = MagicMock()
     r2 = MagicMock()
     calls = []
@@ -2259,7 +2264,7 @@ def test_style_format_text_search_miss_reports_not_matched():
     assert res["applied"] is False
 
 
-def test_style_format_text_records_set_and_warns_for_para_props():
+def test_style_format_text_unrecorded_para_props_are_flagged():
     cursor = _noncollapsed_cursor()
     ctx = _style_ctx()
     # False initially, then True after setPropertyValue("RecordChanges", True), then False on restore.
@@ -2271,9 +2276,10 @@ def test_style_format_text_records_set_and_warns_for_para_props():
         res = StyleFormatText().execute(ctx, properties={"CharWeight": 150, "ParaAdjust": "center"})
     assert res["status"] == "ok"
     assert res["tracked"] is True
+    assert res["style_unreviewed"] is True
     assert res["pending_review"] is True
     assert res["review_mode"] == "record"
-    assert "Paragraph properties" in res["warning"]
+    assert "ParaAdjust" in res["warning"]
     rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
     assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
@@ -2293,7 +2299,7 @@ def test_recordable_reset_values():
         cursor,
         ["ParaLeftMargin", "CharStyleName", "CharTopBorderComplexColor", "CharFontName"],
     )
-    assert got == {"CharFontName": "Liberation Serif"}
+    assert got == {"CharStyleName": "Standard", "CharFontName": "Liberation Serif"}
 
 
 def test_style_format_text_reset_under_review_mode_is_tracked():
@@ -2428,10 +2434,41 @@ def test_style_format_text_warns_for_non_para_prefix_paragraph_props():
     ctx.doc.setPropertyValue.side_effect = lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
-        res = StyleFormatText().execute(ctx, properties={"NumberingStyleName": "List 1"})
+        res = StyleFormatText().execute(ctx, properties={"BreakType": 4})
+    assert res["status"] == "ok"
+    assert res["tracked"] is False
+    assert res["style_unreviewed"] is True
+    assert "BreakType" in res["warning"]
+
+
+def test_apply_style_character_records_in_review_mode_and_skips_collapsed():
+    cursor = _noncollapsed_cursor()
+    ctx = _style_ctx()
+    rec_state = [False]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res = ApplyStyle().execute(ctx, style="Source Text", family="CharacterStyles")
     assert res["status"] == "ok"
     assert res["tracked"] is True
-    assert "Paragraph properties" in res["warning"]
+    assert "style_unreviewed" not in res
+    assert res["pending_review"] is True
+    rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
+
+    collapsed = MagicMock()
+    collapsed.isCollapsed.return_value = True
+    ctx_collapsed = _style_ctx()
+    rec_collapsed = [False]
+    ctx_collapsed.doc.getPropertyValue.side_effect = lambda name: rec_collapsed[0] if name == "RecordChanges" else None
+    ctx_collapsed.doc.setPropertyValue.side_effect = lambda name, val: rec_collapsed.__setitem__(0, bool(val)) if name == "RecordChanges" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=collapsed), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        res_collapsed = ApplyStyle().execute(ctx_collapsed, style="Source Text", family="CharacterStyles")
+    assert res_collapsed["status"] == "ok"
+    assert "tracked" not in res_collapsed
+    assert res_collapsed["style_unreviewed"] is True
 
 
 def test_apply_style_undo_unavailable_names_the_style():
@@ -2532,7 +2569,7 @@ def test_apply_style_recording_passes_author_and_toggles_record_changes():
         return {"direct_formatting": "preserved", "clear_direct": "none", "tracked": True}
 
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
-         patch("plugin.writer.styles.office_author", return_value="Alice Smith"), \
+         patch("plugin.writer.styles.paragraph_redline_author", return_value="Alice Smith"), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply):
         res = ApplyStyle().execute(ctx, style="Heading 1", target="selection")
 
@@ -2542,7 +2579,7 @@ def test_apply_style_recording_passes_author_and_toggles_record_changes():
     assert rec[0] is True
 
 
-def test_record_paragraph_styles_failure_and_disposal(monkeypatch: pytest.MonkeyPatch):
+def test_record_paragraph_formats_failure_and_disposal(monkeypatch: pytest.MonkeyPatch):
     from types import SimpleNamespace
     from plugin.framework.errors import DocumentDisposedError
 
@@ -2586,7 +2623,7 @@ def test_record_paragraph_styles_failure_and_disposal(monkeypatch: pytest.Monkey
 
     ctx_fail, cursor_fail, redline_fail = _make_ctx_and_para(RuntimeError("refused"))
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor_fail), \
-         patch("plugin.writer.styles.office_author", return_value="Alice Smith"), \
+         patch("plugin.writer.styles.paragraph_redline_author", return_value="Alice Smith"), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=redline_fail):
         res = ApplyStyle().execute(ctx_fail, style="Heading 1", target="selection", clear_direct="none")
     assert res["status"] == "ok"
@@ -2597,7 +2634,7 @@ def test_record_paragraph_styles_failure_and_disposal(monkeypatch: pytest.Monkey
     DisposedExc = type("DisposedException", (Exception,), {})
     ctx_disp, cursor_disp, redline_disp = _make_ctx_and_para(DisposedExc("disposed"))
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor_disp), \
-         patch("plugin.writer.styles.office_author", return_value="Alice Smith"), \
+         patch("plugin.writer.styles.paragraph_redline_author", return_value="Alice Smith"), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=redline_disp):
         with pytest.raises(DocumentDisposedError):
             ApplyStyle().execute(ctx_disp, style="Heading 1", target="selection", clear_direct="none")
