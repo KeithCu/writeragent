@@ -46,7 +46,7 @@ def _mgr_proc(mgr: PythonWorkerManager) -> Any:
     warm = mgr._warm
     if warm is None:
         return None
-    child = warm._child
+    child = warm.child
     if child is None:
         return None
     return child.managed.popen
@@ -90,7 +90,7 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
 
     child.begin_io = begin_io
     child.end_io = end_io
-    warm._child = child
+    warm.child = child
     warm._generation = 0
     warm._fake_io_owner: int | None = None
 
@@ -138,7 +138,7 @@ def _mgr_stderr_tail(mgr: PythonWorkerManager) -> Any:
     warm = mgr._warm
     if warm is None:
         return None
-    child = warm._child
+    child = warm.child
     if child is None:
         return None
     return child.managed.stderr_tail
