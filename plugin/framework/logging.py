@@ -721,6 +721,11 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
         _post_main(_clear_hung_status, ctrl_to_clear, fail_msg="watchdog: failed to post Hung-status clear")
 
 
+def is_hung_status(text: str) -> bool:
+    """True when *text* is the watchdog's ``Hung:`` label."""
+    return text.startswith(_HUNG_STATUS_PREFIX)
+
+
 def _clear_hung_status(status_control: Any) -> None:
     """Clear a watchdog Hung: label once work resumes. Leave any newer status."""
     try:
@@ -728,7 +733,7 @@ def _clear_hung_status(status_control: Any) -> None:
     except Exception:
         log.debug("watchdog: could not read status text", exc_info=True)
         return
-    if isinstance(current, str) and current.startswith(_HUNG_STATUS_PREFIX):
+    if isinstance(current, str) and is_hung_status(current):
         status_control.setText("")
 
 

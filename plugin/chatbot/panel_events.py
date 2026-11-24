@@ -6,7 +6,7 @@ from typing import Any
 from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
-from plugin.framework.logging import set_waiting_for_user
+from plugin.framework.logging import is_hung_status, set_waiting_for_user
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class PanelEventsController:
         set_waiting_for_user(True)
         self._panel._approval_query_for_engine = query
         controls: dict[str, tuple[str, bool]] = {}
-        self._panel._approval_ui_backup = {
+        backup: dict[str, Any] = {
             "actions": (
                 self._panel._button_action,
                 self._panel._stop_button_action,
@@ -114,6 +114,7 @@ class PanelEventsController:
             ),
             "controls": controls,
         }
+        self._panel._approval_ui_backup = backup
         self._panel._button_action = ButtonAction.ACCEPT
         self._panel._stop_button_action = ButtonAction.CHANGE
         self._panel._clear_button_action = ButtonAction.REJECT
@@ -132,7 +133,9 @@ class PanelEventsController:
                 _relabel_button(ctrl, label, cache)
                 m.Enabled = True
             if self._panel.status_control:
-                self._panel._approval_ui_backup["status_text"] = self._panel.status_control.getText()
+                status_text = self._panel.status_control.getText()
+                # A stall label describes the time before the card; restoring it would show a stall that is over.
+                backup["status_text"] = "" if is_hung_status(status_text) else status_text
 
         # Approval is inline (Accept / Change / Reject); search preview is already in the transcript.
         self._panel._set_status(_("Waiting for approval…"))
