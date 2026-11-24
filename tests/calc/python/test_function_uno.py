@@ -687,3 +687,52 @@ def test_calc_spill_undo_lock(ctx, doc):
 
     titles_after = list(um.getAllUndoActionTitles()) if um else []
     assert titles_after == titles_before, f"Deferred spill added extra undo actions: {titles_after} vs {titles_before}"
+
+
+@native_test
+@with_native_doc("calc")
+def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
+    """NaN spill neighbours become #NUM! (503) and orphan cleanup clears error literals but keeps user =1/0."""
+    from com.sun.star.table.CellContentType import EMPTY, FORMULA
+    from plugin.calc.python.spill import cleanup_orphans, perform_deferred_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[1, float('nan'), '#VALUE!', '#N/A', '#DIV/0!']]"
+        sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+        perform_deferred_spill(
+            sheet.Name,
+            0,
+            0,
+            [[1.0, float("nan"), "#VALUE!", "#N/A", "#DIV/0!"]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
+        # Verify ISERROR on the NaN neighbour (B1)
+        sheet.getCellByPosition(1, 1).setFormula("=ISERROR(B1)")
+        doc.calculateAll()
+
+        nan_cell = sheet.getCellByPosition(1, 0)
+        assert nan_cell.getError() == 503
+        assert nan_cell.getString() == "#NUM!"
+        assert sheet.getCellByPosition(1, 1).getValue() == 1.0
+
+        # Replace formula in A1, and replace E1 (#DIV/0!) with a user formula =1/0
+        sheet.getCellByPosition(0, 0).setFormula("")
+        sheet.getCellByPosition(4, 0).setFormula("=1/0")
+        doc.calculateAll()
+
+        cleanup_orphans(st, sheet, doc=doc, sheet_name=sheet.Name)
+
+        assert sheet.getCellByPosition(1, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(2, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(3, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(4, 0).getType() == FORMULA
+        assert sheet.getCellByPosition(4, 0).getFormula() == "=1/0"
+    finally:
+        WorkbookState.forget_key(st.key)
