@@ -498,9 +498,9 @@ class WarmChild(ChildSlot):
     def kill(self) -> bool:
         """Signal the child as ours.
 
-        A request that must not outlive this kill passes its ``SendCancellation`` to
-        ``lease`` and cancels it before calling ``kill``; a publish then either sees the
-        cancel or stores a child this call signals.
+        The child is read under the lock ``_publish`` holds, so a request that passes its
+        ``SendCancellation`` to ``lease`` and cancels it before calling ``kill`` either
+        sees the cancel at publish or stores a child this call signals.
         """
         with self._lifecycle_lock:
             self._killed_by_us = True

@@ -94,6 +94,8 @@ def engine_settings_changed(keys: Collection[str]) -> bool:
     """Return True when *keys* change the active grammar engine, model, or LLM endpoint."""
     if not _GRAMMAR_ENGINE_KEYS.isdisjoint(keys):
         return True
+    # Only the LLM engine uses the endpoint, and it falls back to text_model only when
+    # no grammar model is set (get_grammar_model).
     if provider() != "llm":
         return False
     return "endpoint" in keys or (
