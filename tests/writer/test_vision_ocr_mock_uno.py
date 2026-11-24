@@ -477,3 +477,52 @@ def test_mock_ocr_rerun_stacks_below_each_image(ctx, doc):
         _assert_graphics_named(doc, fixture["names"])
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer")
+def test_mock_ocr_delete_after_insert_skips_empty_and_reports_deleted_images_uno(ctx, doc):
+    """Delete removes the non-empty image, keeps the empty one, and reports deleted_images."""
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    names = fixture["names"]
+    assert len(names) == 2
+
+    def fake_run_trusted_vision(_ctx, _doc, *, helper, params=None, cancel=None, on_exported=None):
+        del cancel, on_exported
+        image_name = str((params or {}).get("image_name") or "")
+        if image_name == names[0]:
+            return {
+                "status": "ok",
+                "helper": helper,
+                "full_text": "FIRST_IMG_TEXT",
+                "html": "<p>FIRST_IMG_TEXT</p>",
+                "metrics": {"line_count": 1},
+                "warnings": [],
+            }
+        return {
+            "status": "ok",
+            "helper": helper,
+            "full_text": "",
+            "tables": [],
+            "html": "<h1>image</h1><p></p>",
+            "metrics": {"line_count": 0},
+            "warnings": [],
+        }
+
+    try:
+        _select_whole_document(doc)
+        with patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=fake_run_trusted_vision):
+            result = run_and_insert_vision_for_selection(
+                ctx,
+                doc,
+                helper="extract_structure",
+                params={"delete_image_after_insert": True},
+            )
+
+        remaining = {name for name, _unused in list_graphic_objects(doc)}
+        assert names[0] not in remaining
+        assert names[1] in remaining
+        assert "FIRST_IMG_TEXT" in doc.getText().getString()
+        assert result["deleted_images"] == [names[0]]
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])

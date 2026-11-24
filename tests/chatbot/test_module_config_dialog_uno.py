@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 import os
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from plugin._manifest import MODULES
 from plugin.chatbot import module_config_dialog
 from plugin.chatbot.dialogs import get_optional
 from plugin.chatbot.module_config_dialog import ModuleConfigDialog, PreviewImage, _active_dialogs
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.testing_runner import native_test
 from plugin.writer.images.image_tools import graphic_from_bytes
 
@@ -40,10 +42,14 @@ def _generate_standalone_config_dialog(module: dict) -> str:
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 )
+# Solid red 1x1 PNG (BGR b"\x00\x00\xff" when drawn into a DIB)
+_PNG_RED_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 
-@native_test
-def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
+@contextmanager
+def _open_vision_dialog(ctx):
     vision_mod = next(m for m in MODULES if m["name"] == "vision")
     xdl = _generate_standalone_config_dialog(vision_mod)
     fd, xdl_path = tempfile.mkstemp(prefix="wa_vision_dlg_", suffix=".xdl")
@@ -59,7 +65,28 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
         dialog = ModuleConfigDialog(ctx, "vision", preview_job=lambda *_a: None)
         with patch.object(module_config_dialog, "load_writeragent_dialog_detail", return_value=(real_dlg, "")):
             dialog._open()
+        yield dialog, real_dlg
+    finally:
+        if dialog is not None:
+            dialog.close()
+        _active_dialogs.pop("vision", None)
+        if os.path.exists(xdl_path):
+            os.remove(xdl_path)
 
+
+def _sample_pane_bgr(pane) -> bytes:
+    peer = pane._image.getPeer()
+    dev = peer.createDevice(20, 20)
+    g = dev.createGraphics()
+    peer.setGraphics(g)
+    peer.draw(0, 0)
+    dib = bytes(dev.createBitmap(0, 0, 20, 20).getDIB().value)
+    return dib[-60:-57]
+
+
+@native_test
+def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
+    with _open_vision_dialog(ctx) as (dialog, real_dlg):
         pane = dialog._pane
         assert pane is not None
         c_before = pane._container.getPosSize()
@@ -105,9 +132,31 @@ def test_module_config_dialog_preview_resize_and_scroll_uno(ctx):
 
         pane.scroll_to(100)
         assert pane._image.getPosSize().Y == -100
-    finally:
-        if dialog is not None:
-            dialog.close()
-        _active_dialogs.pop("vision", None)
-        if os.path.exists(xdl_path):
-            os.remove(xdl_path)
+
+
+@native_test
+def test_module_config_dialog_preview_clear_uno(ctx):
+    with _open_vision_dialog(ctx) as (dialog, _real_dlg):
+        pane = dialog._pane
+        assert pane is not None
+        bar = pane._bar
+        assert bar is not None
+
+        red = PreviewImage(graphic_from_bytes(ctx, _PNG_RED_1X1), 800, 1100, "ok")
+        pane.show(red)
+        assert _sample_pane_bgr(pane) == b"\x00\x00\xff"
+        assert bar.getMaximum() > 0
+
+        token = SendCancellation()
+        dialog._run_cancel = token
+        dialog._finish_run(token, "preview", "No text detected.")
+        assert _sample_pane_bgr(pane) != b"\x00\x00\xff"
+        assert bar.getMaximum() == 0
+
+        pane.relayout()
+        assert _sample_pane_bgr(pane) != b"\x00\x00\xff"
+        assert bar.getMaximum() == 0
+
+        pane.show(red)
+        assert _sample_pane_bgr(pane) == b"\x00\x00\xff"
+        assert bar.getMaximum() > 0

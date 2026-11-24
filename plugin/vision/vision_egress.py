@@ -17,11 +17,12 @@ from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after
 log = logging.getLogger(__name__)
 
 # Outcomes of insert_vision_result:
-# - "inserted": content was inserted (and any requested image delete ran).
+# - "inserted": content was inserted and no image delete was requested.
+# - "image_deleted": content was inserted and the source image was removed.
 # - "empty": OCR found nothing and the document was not touched.
 # - "image_kept_for_review": content was inserted, but the requested image delete
 #   was skipped because Agent edit review is recording changes.
-VisionInsertOutcome = Literal["inserted", "empty", "image_kept_for_review"]
+VisionInsertOutcome = Literal["inserted", "image_deleted", "empty", "image_kept_for_review"]
 
 
 def is_vision_result(value: Any) -> bool:
@@ -368,7 +369,7 @@ def insert_vision_result_into_writer(
     from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
     run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
-    return "image_kept_for_review" if keep_for_review else "inserted"
+    return "image_kept_for_review" if keep_for_review else ("image_deleted" if delete_image else "inserted")
 
 
 def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> VisionInsertOutcome:
@@ -391,6 +392,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
 
     if is_calc(doc):
         delete_image = resolve_delete_image_after_insert(ctx, params)
+        outcome: VisionInsertOutcome = "image_deleted" if delete_image else "inserted"
         if insert_mode == "structured" and helper == "extract_structure":
             with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
                 try:
@@ -410,14 +412,14 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                     insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
                 if delete_image:
                     _delete_inserted_image(doc, image_name)
-            return "inserted"
+            return outcome
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
             if delete_image:
                 _delete_inserted_image(doc, image_name)
-        return "inserted"
+        return outcome
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 
 

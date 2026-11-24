@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.module_config_dialog import (
     ModuleConfigDialog,
     get_module_config_dialog_id,
@@ -391,6 +393,7 @@ def test_close_during_run_cancels_and_drops_result():
 
     assert tokens == [token]
     pane.show.assert_not_called()
+    pane.clear.assert_not_called()
 
 
 def test_run_error_sets_status_and_reenables_run():
@@ -524,6 +527,7 @@ def test_run_and_preview_are_mutually_exclusive_and_toggle_both_buttons():
         assert btn_preview.setEnable.call_args_list[-1].args == (True,)
         assert lbl_status.setText.call_args_list[-1].args == ("Inserted: 10 characters.",)
         dialog._pane.show.assert_not_called()
+        dialog._pane.clear.assert_not_called()
 
         # Now start Preview while idle; Run cannot start until Preview finishes.
         dialog._start_job(dialog._preview_job, "preview")
@@ -560,3 +564,35 @@ def test_close_during_run_job_cancels_and_drops_status():
 
     assert tokens == [token]
     assert lbl_status.setText.call_args_list[-1].args == ("Running…",)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "is_error", "expected_status"),
+    [
+        ("No text detected.", False, "No text detected."),
+        ("Select an image", True, "Select an image"),
+    ],
+)
+def test_preview_text_result_clears_pane(outcome, is_error, expected_status):
+    from plugin.framework.errors import ToolExecutionError
+
+    def job(_ctx, _values, _cancel, _report):
+        if is_error:
+            raise ToolExecutionError(outcome, code="NO_IMAGE_SELECTED")
+        return outcome
+
+    dialog = _make_preview_dialog(job=job)
+    lbl_status = MagicMock()
+    with (
+        patch(
+            "plugin.chatbot.module_config_dialog.get_optional",
+            side_effect=lambda dlg, name: {"lbl_preview_status": lbl_status}.get(name),
+        ),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+
+    dialog._pane.clear.assert_called_once()
+    dialog._pane.show.assert_not_called()
+    assert lbl_status.setText.call_args_list[-1].args == (expected_status,)

@@ -180,6 +180,13 @@ class _PreviewPane:
             self._bar.setValue(0)
         self.relayout()
 
+    def clear(self) -> None:
+        # _aspect 0 keeps a later resize from laying out the removed image.
+        self._image.getModel().Graphic = None
+        self._aspect = 0.0
+        if self._bar is not None:
+            self._bar.setMaximum(0)
+
     def dispose(self) -> None:
         with suppress_disposed("module config: dispose preview container", logger=log):
             self._container.dispose()
@@ -462,7 +469,7 @@ class ModuleConfigDialog:
                     outcome = _("Preview failed: {error}").format(error=exc)
                 else:
                     outcome = _("Run failed: {error}").format(error=exc)
-            best_effort(lambda: main.post(self._finish_run, cancel, outcome), f"module config: post {kind} result")
+            best_effort(lambda: main.post(self._finish_run, cancel, kind, outcome), f"module config: post {kind} result")
 
         run_in_background(_worker, name=f"{self._module_name}-{kind}", dedicated=True)  # OCR can block for minutes
 
@@ -471,7 +478,7 @@ class ModuleConfigDialog:
             return
         self._set_status(text)
 
-    def _finish_run(self, token: SendCancellation, outcome: PreviewImage | str) -> None:
+    def _finish_run(self, token: SendCancellation, kind: str, outcome: PreviewImage | str) -> None:
         if self._closed or self._run_cancel is not token:
             return
         self._run_cancel = None
@@ -481,6 +488,8 @@ class ModuleConfigDialog:
                 self._pane.show(outcome)
             self._set_status(outcome.summary)
         else:
+            if kind == "preview" and self._pane is not None:
+                self._pane.clear()
             self._set_status(outcome)
 
 

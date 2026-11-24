@@ -37,7 +37,8 @@ config:
     type: float
     default: 0
     min: 0
-    max: 600
+    # Plus DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC (60) equals the 600 s python_exec_timeout ceiling.
+    max: 540
     widget: number
     page: general
     label: Document timeout (s)

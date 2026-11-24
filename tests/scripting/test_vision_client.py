@@ -75,3 +75,25 @@ def test_run_vision_non_dict_spec_uses_long_budget(ctx):
     assert kwargs["params"] == {}
     assert kwargs["timeout_sec"] == DOCLING_WORKER_TIMEOUT_SEC
 
+
+@pytest.mark.parametrize(
+    ("params", "worker_timeout_sec", "expected"),
+    [
+        ({"document_timeout": 0}, 300, 300),
+        ({"document_timeout": 240}, 300, 300),
+        ({"document_timeout": 240.5}, 300, 301),
+        ({"document_timeout": 500}, 300, 560),
+        ({"document_timeout": 540}, 300, 600),
+        ({"engine": "paddle", "document_timeout": 500}, 300, 120),
+        ({"document_timeout": 500}, 400, 400),
+    ],
+)
+def test_run_vision_timeout_budget_for_document_timeout(ctx, params, worker_timeout_sec, expected):
+    worker_result = {"status": "ok", "helper": "extract_structure", "full_text": "hi"}
+    with (
+        patch("plugin.scripting.client.get_config", return_value=worker_timeout_sec),
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
+    ):
+        run_vision(ctx, {"helper": "extract_structure", "params": params}, b"png")
+    assert mock_run.call_args.kwargs["timeout_sec"] == expected
+

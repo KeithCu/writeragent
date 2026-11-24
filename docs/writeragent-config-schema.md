@@ -192,7 +192,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `images_scale` | `float` | `1.0` | `0.5`–`3.0` | Upscale before OCR/layout. Try 2.0 for small screenshots. |
-| `document_timeout` | `float` | `0` | `0`–`600` | Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off. |
+| `document_timeout` | `float` | `0` | `0`–`540` | Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off. |
 | `ocr_backend` | `string` | `"rapidocr"` |  | OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be installed in the Python venv; Settings → Python → Test lists the installed ones. Options: rapidocr (RapidOCR (ONNX, default)), rapidocr_openvino (RapidOCR (OpenVINO)), rapidocr_paddle (RapidOCR (PaddlePaddle)), rapidocr_torch (RapidOCR (PyTorch)), easyocr (EasyOCR), tesseract (Tesseract (command line)), ocrmac (Apple Vision (macOS)), nemotron (NVIDIA Nemotron OCR (Linux, CUDA)) |
 | `lang` | `string` | `""` |  | Language codes such as en, de or zh-TW, comma separated. Docling engines read every code; the Paddle engine reads the first. Empty uses the language of the image or of LibreOffice. |
 | `device` | `string` | `"auto"` |  | Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU always works. Options: auto (Auto), cpu (CPU), cuda (CUDA), mps (MPS) |
