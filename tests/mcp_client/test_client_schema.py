@@ -745,6 +745,28 @@ def test_conditional_rename_follows_the_matching_if():
     assert unrename_tool_args(if_else_schema, {"kind": "a", "file_path": "/a"}) == {"kind": "a", "file path": "/a"}
     assert unrename_tool_args(if_else_schema, {"kind": "b", "file_path": "/b"}) == {"kind": "b", "file_path": "/b"}
 
+    redeclared_discriminator_schema = {
+        "type": "object",
+        "allOf": [
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "a"}}},
+                "then": {"properties": {"kind": {"type": "string"}, "file path": {"type": "string"}}},
+            },
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "b"}}},
+                "then": {"properties": {"kind": {"type": "string"}, "file_path": {"type": "string"}}},
+            },
+        ],
+    }
+    assert unrename_tool_args(redeclared_discriminator_schema, {"kind": "a", "file_path": "/a"}) == {
+        "kind": "a",
+        "file path": "/a",
+    }
+    assert unrename_tool_args(redeclared_discriminator_schema, {"kind": "b", "file_path": "/b"}) == {
+        "kind": "b",
+        "file_path": "/b",
+    }
+
 
 def test_pattern_properties_regex_is_not_run():
     schema = {

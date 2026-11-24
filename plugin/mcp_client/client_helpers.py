@@ -203,7 +203,7 @@ def validate_remote_url(server_name: str, url: Any) -> str:
     except ValueError as exc:
         raise _bad("it cannot be parsed") from exc
     if parsed.scheme.lower() not in {"http", "https"}:
-        raise _bad(f"scheme must be http or https, got {parsed.scheme!r}")
+        raise _bad("scheme must be http or https")
     if not parsed.hostname:
         raise _bad("missing host")
     return stripped

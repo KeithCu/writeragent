@@ -427,7 +427,15 @@ def _schema_branches(schema: Any, root: Any) -> list[dict[str, Any]]:
         # "then" applies only when "if" matches, so it is ranked with the consts "if" tests.
         tested, own = condition.get("properties"), consequence.get("properties")
         if isinstance(tested, dict) and isinstance(own, dict):
-            consequence = {**consequence, "properties": {**tested, **own}}
+            merged_props = {
+                k: (
+                    {**own[k], **tested[k]}
+                    if isinstance(own.get(k), dict) and isinstance(tested.get(k), dict)
+                    else own.get(k, tested.get(k))
+                )
+                for k in (*tested, *own)
+            }
+            consequence = {**consequence, "properties": merged_props}
     nested.extend((condition, consequence, schema.get("else")))
     for branch in nested:
         found.extend(_schema_branches(branch, root))
