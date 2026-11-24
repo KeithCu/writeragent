@@ -1219,3 +1219,55 @@ def test_perform_deferred_spill_allows_owned_spill_overwrite(monkeypatch: pytest
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
             SPILL_REGISTRY.pop(key, None)
         WorkbookState.forget_key(doc_id)
+
+
+def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-late-keep.ods", props={"RuntimeUID": "uid-spill-late-keep"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_grow")')
+    sheet.getCellByPosition(1, 0).setValue(10)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    old_record = _spill.SpillRecord(
+        code="code_grow",
+        cells=[_spill.SpillCell(row=0, col=1, kind="n", value=10)],
+    )
+    state.spills[("Sheet1", 0, 0)] = old_record
+    doc_id = "uid-spill-late-keep"
+    try:
+        prep = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "code_grow",
+            [[1, 2], [3, 4]],
+        )
+        assert isinstance(prep, _spill.PreparedSpill)
+
+        sheet.getCellByPosition(1, 1).setValue(99)
+
+        _spill.perform_deferred_spill(
+            prep.sheet_name,
+            prep.formula_row,
+            prep.formula_col,
+            [[1, 2], [3, 4]],
+            doc=doc,
+            sheet=sheet,
+            code=prep.code,
+            key=prep.key,
+        )
+
+        assert sheet.getCellByPosition(1, 0).getValue() == 10
+        assert sheet.getCellByPosition(1, 1).getValue() == 99
+        assert state.spills[("Sheet1", 0, 0)] is old_record
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)

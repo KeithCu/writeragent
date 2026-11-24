@@ -10,7 +10,7 @@ Cell outcomes for ``=PY()`` fall into four kinds:
 - **Payload NaN** (quiet NaN carrying a Calc ``FormulaError`` in its low 32 bits):
   ``py_addin_cell_value`` (error tokens and helper error dicts),
   ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes),
-  and the worker's ``NA_NAN`` and ``NESTED_ARRAY_NAN`` (``calc_functions_util.py``).
+  and the worker's ``NA_NAN``, ``NESTED_ARRAY_NAN``, and ``DIV0_NAN`` (``calc_functions_util.py``).
   LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
@@ -123,13 +123,20 @@ def nonfinite_error_code(val: float) -> int:
     return low or _ERR_NUM
 
 
+def published_err_code(text: str) -> int | None:
+    """FormulaError integer when *text* is a published ``Err:<n>`` token (case-insensitive), else None."""
+    match = _ERR_NUMBER_RE.fullmatch(text.strip())
+    if match is None:
+        return None
+    code = int(match.group(1))
+    return code if code in _PUBLISHED_ERROR_CODES else None
+
+
 def calc_error_code_for_token(text: str) -> int | None:
-    token = text.strip()
-    match = _ERR_NUMBER_RE.fullmatch(token)
-    if match is not None:
-        code = int(match.group(1))
-        return code if code in _PUBLISHED_ERROR_CODES else None
-    return _CALC_ERROR_TOKEN_CODES.get(token)
+    code = published_err_code(text)
+    if code is not None:
+        return code
+    return _CALC_ERROR_TOKEN_CODES.get(text.strip())
 
 
 def worker_exception_error_code(message: str) -> int:

@@ -599,6 +599,7 @@ def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture)
         ({"status": "error", "code": "#REF!", "message": "x"}, 524),
         ({"status": "error", "code": "#NAME?", "message": "x"}, 525),
         ({"status": "error", "code": "#NULL!", "message": "x"}, 521),
+        ({"status": "error", "code": "Err:502", "message": "x"}, 502),
         ({"status": "error", "code": "ZeroDivisionError", "message": "x"}, 532),
         ({"status": "error", "code": "OverflowError", "message": "x"}, 503),
         ({"status": "error", "code": "FloatingPointError", "message": "x"}, 503),
@@ -673,8 +674,15 @@ def test_published_err_tokens_and_coerce_parity() -> None:
         assert spill_val.kind == "s"
         assert spill_val.calc_value == non_err
 
-    for code in addin_values._PUBLISHED_ERROR_CODES:
-        assert coerce.is_error_token(f"Err:{code}")
+    expected_published = frozenset({*range(501, 505), *range(507, 526), *range(530, 534), *range(538, 541)})
+    for code in range(500, 600):
+        token = f"Err:{code}"
+        got = addin_values.calc_error_code_for_token(token)
+        if code in expected_published:
+            assert got == code
+            assert coerce.is_error_token(token)
+        else:
+            assert got is None
 
     for fn_res in (
         calc_functions.textjoin(",", True, ["Err:502"]),

@@ -25,7 +25,7 @@ from typing import Any
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
 from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
-from plugin.calc.python.addin_values import calc_error_code_for_token
+from plugin.calc.python.addin_values import published_err_code
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
 
@@ -117,7 +117,7 @@ def is_calc_error_display(value: object) -> str | None:
     mapped = _ERROR_PATTERN_BY_UPPER.get(token.upper())
     if mapped is not None:
         return mapped
-    code = calc_error_code_for_token(token)
+    code = published_err_code(token)
     return f"Err:{code}" if code is not None else None
 
 
