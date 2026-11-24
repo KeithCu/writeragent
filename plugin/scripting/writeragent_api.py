@@ -1396,7 +1396,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type))
 
     def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> _Item:
-        """Resize, re-anchor, or set the orientation of a text frame.
+        """Resize, re-anchor, or set the orientation of a text frame. Not for Word text boxes (frame_list entries with shape_index): resize those with shape_upsert.
 
         Args:
             name (required): Name of the text frame (from frame_list).
