@@ -316,3 +316,201 @@ def test_research_read_never_adopts_an_open_document_uno(ctx, doc):
         if model is not None:
             close_document_research_document(model, opened_for_document_research=opened)
         _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("calc")
+def test_user_open_during_research_read_survives_uno(ctx, doc):
+    import unittest
+
+    from plugin.doc.document_research import close_document_research_document, get_open_documents
+    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
+
+    if sys.platform == "win32":
+        raise unittest.SkipTest("Windows Hidden open test")
+
+    temp_dir = tempfile.mkdtemp(prefix="wa_user_open_")
+    txt_path = os.path.join(temp_dir, "note.txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("hello world")
+    url = uno.systemPathToFileUrl(txt_path)
+
+    research_model = None
+    opened = False
+    user_doc = None
+    try:
+        research_model, doc_type, err, opened = open_document_for_read(ctx, txt_path)
+        assert err is None
+        assert doc_type == "writer"
+        assert opened is True
+
+        desktop = get_desktop(ctx)
+        user_doc = desktop.loadComponentFromURL(url, "_default", 0, ())
+        assert user_doc is not None
+        user_uid = get_runtime_uid(user_doc)
+        assert user_uid != get_runtime_uid(research_model)
+        assert user_doc.getCurrentController().getFrame().getContainerWindow().isVisible() is True
+        assert user_doc.isReadonly() is False
+
+        resolved_doc, _ = resolve_document_by_url(ctx, url)
+        assert get_runtime_uid(resolved_doc) == user_uid
+        assert any(entry["uid"] == user_uid for entry in get_open_documents(ctx, doc))
+
+        close_document_research_document(research_model, opened_for_document_research=opened)
+        research_model = None
+        assert "hello world" in user_doc.getText().getString()
+    finally:
+        if research_model is not None:
+            close_document_research_document(research_model, opened_for_document_research=opened)
+        if user_doc is not None:
+            try:
+                user_doc.close(True)
+            except Exception:
+                pass
+        _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("calc")
+def test_document_open_during_research_read_uno(ctx, doc):
+    import unittest
+
+    from plugin.doc.document_research import close_document_research_document
+    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
+
+    if sys.platform == "win32":
+        raise unittest.SkipTest("Windows Hidden open test")
+
+    temp_dir = tempfile.mkdtemp(prefix="wa_doc_open_")
+    txt_path = os.path.join(temp_dir, "doc_open.txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("via document_open")
+    url = uno.systemPathToFileUrl(txt_path)
+
+    research_model = None
+    opened = False
+    user_doc = None
+    try:
+        research_model, _doc_type, err, opened = open_document_for_read(ctx, txt_path)
+        assert err is None
+        assert opened is True
+
+        tctx = ToolContext(doc, ctx, "calc", get_services(), "test")
+        res = get_tools().execute("document_open", tctx, path=txt_path)
+        assert res.get("status") == "ok", res
+        assert res.get("already_open") is False
+
+        user_doc, _ = resolve_document_by_url(ctx, url)
+        assert user_doc is not None
+        assert get_runtime_uid(user_doc) != get_runtime_uid(research_model)
+
+        close_document_research_document(research_model, opened_for_document_research=opened)
+        research_model = None
+        assert "via document_open" in user_doc.getText().getString()
+    finally:
+        if research_model is not None:
+            close_document_research_document(research_model, opened_for_document_research=opened)
+        if user_doc is not None:
+            try:
+                user_doc.close(True)
+            except Exception:
+                pass
+        _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+def test_overlapping_research_reads_are_independent_uno(ctx):
+    import unittest
+
+    from plugin.doc.document_research import close_document_research_document
+    from plugin.framework.uno_context import get_runtime_uid
+
+    if sys.platform == "win32":
+        raise unittest.SkipTest("Windows Hidden open test")
+
+    temp_dir = tempfile.mkdtemp(prefix="wa_overlap_")
+    txt_path = os.path.join(temp_dir, "overlap.txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("shared content")
+
+    m1 = m2 = None
+    o1 = o2 = False
+    try:
+        m1, _t1, e1, o1 = open_document_for_read(ctx, txt_path)
+        m2, _t2, e2, o2 = open_document_for_read(ctx, txt_path)
+        assert e1 is None and e2 is None
+        assert o1 is True and o2 is True
+        assert get_runtime_uid(m1) != get_runtime_uid(m2)
+
+        close_document_research_document(m1, opened_for_document_research=o1)
+        m1 = None
+        assert "shared content" in m2.getText().getString()
+    finally:
+        if m1 is not None:
+            close_document_research_document(m1, opened_for_document_research=o1)
+        if m2 is not None:
+            close_document_research_document(m2, opened_for_document_research=o2)
+        _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+def test_research_close_keeps_user_python_session_uno(ctx):
+    import unittest
+    from unittest.mock import patch
+
+    from plugin.calc.python import workbook_lifecycle
+    from plugin.doc.document_research import close_document_research_document
+    from plugin.tests.testing_utils import TestingFactory
+
+    if sys.platform == "win32":
+        raise unittest.SkipTest("Windows Hidden open test")
+
+    temp_dir = tempfile.mkdtemp(prefix="wa_py_session_")
+    ods_path = os.path.join(temp_dir, "shared.ods")
+    url = uno.systemPathToFileUrl(ods_path)
+
+    with TestingFactory.native_doc(ctx, "calc", reuse=False) as seed_doc:
+        seed_doc.storeAsURL(url, ())
+
+    had_global = workbook_lifecycle._global_listener is not None
+    if not had_global:
+        workbook_lifecycle.install_global_document_event_listener(ctx)
+
+    research_model = None
+    opened = False
+    user_doc = None
+    try:
+        research_model, doc_type, err, opened = open_document_for_read(ctx, ods_path)
+        assert err is None
+        assert doc_type == "calc"
+        assert opened is True
+
+        user_doc = get_desktop(ctx).loadComponentFromURL(url, "_default", 0, ())
+        assert user_doc is not None
+
+        with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock:
+            close_document_research_document(research_model, opened_for_document_research=opened)
+            research_model = None
+            reset_mock.assert_not_called()
+
+            user_doc.close(True)
+            user_doc = None
+            reset_mock.assert_called_once()
+    finally:
+        if research_model is not None:
+            close_document_research_document(research_model, opened_for_document_research=opened)
+        if user_doc is not None:
+            try:
+                user_doc.close(True)
+            except Exception:
+                pass
+        if not had_global and workbook_lifecycle._global_listener is not None:
+            try:
+                broadcaster = ctx.getServiceManager().createInstanceWithContext(
+                    "com.sun.star.frame.GlobalEventBroadcaster", ctx
+                )
+                broadcaster.removeDocumentEventListener(workbook_lifecycle._global_listener)
+            except Exception:
+                pass
+            workbook_lifecycle._global_listener = None
+        _cleanup_nearby_test_env(temp_dir)

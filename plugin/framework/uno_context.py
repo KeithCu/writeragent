@@ -538,10 +538,6 @@ def uno_same(a: Any, b: Any) -> bool:
         return False
 
 
-# Desktop component enums. A stuck UNO enum must not spin.
-_ENUM_CAP = 32
-
-
 def enum_has_more(enum: Any) -> bool:
     """True when a UNO XEnumeration reports more elements.
 
@@ -552,32 +548,13 @@ def enum_has_more(enum: Any) -> bool:
     return enum.hasMoreElements() is True
 
 
-def _desktop_enum_value_continues(enum: Any, seen: int, *, label: str) -> bool:
-    """True when *enum* has more elements and *seen* is below ``_ENUM_CAP``."""
-    if not enum_has_more(enum):
-        return False
-    if seen >= _ENUM_CAP:
-        log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
-        return False
-    return True
-
-
-def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # cross-module helper; imported by document_scripts.py
-    """False when *enum* is exhausted or past ``_ENUM_CAP``.
-
-    Swallows ``hasMoreElements`` errors and returns False. Callers that need
-    disposal re-raising (such as :func:`iter_open_models` with strict=True) must
-    handle ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
-    instead.
-    """
-    try:
-        return _desktop_enum_value_continues(enum, seen, label=label)
-    except Exception:
-        return False
-
-
 def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
+
+    LibreOffice's desktop enumeration is a finite snapshot
+    (``OComponentAccess::createEnumeration``, ``OComponentEnumeration::nextElement``
+    in ``framework/source/helper``), so the walk needs no limit. A failed
+    ``nextElement`` ends the walk.
 
     Handles frame controller unwrapping and guards against truthy mock loops.
     An element that fails to resolve is skipped; an enumeration failure ends
@@ -593,11 +570,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
         enum = comps.createEnumeration()
         if enum is None:
             return
-        seen = 0
-        while True:
-            if not _desktop_enum_value_continues(enum, seen, label=label):
-                break
-            seen += 1
+        while enum_has_more(enum):
             elem = enum.nextElement()
             try:
                 model = None

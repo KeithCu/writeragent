@@ -141,7 +141,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         self._teardown()
 
     def _session_has_new_listener(self, sid: str) -> bool:
-        """True when another live listener owns *sid*: the workbook was reopened."""
+        """True when another live listener owns *sid*: the workbook was reopened, or also open as another document."""
         with _LOCK:
             return any(
                 listener is not self
@@ -220,7 +220,13 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 return
             self._teardown_done = True
             _LISTENERS.pop(self._key, None)
-            session_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
+            # Another open document with the same file (a hidden research copy next
+            # to the user's window) still uses that session.
+            session_ids = tuple(
+                sid
+                for sid in (self._workbook_session_id, *tuple(self._extra_session_ids))
+                if sid and not self._session_has_new_listener(sid)
+            )
         if self._state is not None:
             WorkbookState.forget_key(self._state.key)
         self._release_calc_state(session_ids)

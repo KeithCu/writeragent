@@ -392,3 +392,40 @@ def test_cleanup_disposed_controllers(monkeypatch, review_registry) -> None:
     assert _click_handlers(review_registry)[0][0] is live_ctrl
 
 
+def test_register_controller_skips_scratch_and_defers_during_scratch_load(monkeypatch, review_registry) -> None:
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
+    )
+
+    scratch_model = FakeModel("scratch-1")
+    scratch_model.supportsService = lambda s: s == "com.sun.star.text.TextDocument"  # type: ignore[attr-defined]
+    user_model = FakeModel("user-1")
+    user_model.supportsService = lambda s: s == "com.sun.star.text.TextDocument"  # type: ignore[attr-defined]
+    scratch_ctrl = FakeController(model=scratch_model)
+    user_ctrl = FakeController(model=user_model)
+
+    desktop = MagicMock()
+
+    def _load(*_args):
+        rva._register_after_scratch_loads(scratch_ctrl)
+        rva._register_after_scratch_loads(user_ctrl)
+        assert review_registry == {}
+        return scratch_model
+
+    desktop.loadComponentFromURL.side_effect = _load
+    scratch_writer.load_scratch_document(desktop, "private:factory/swriter")
+
+    assert rva.attachment_key(scratch_model) not in review_registry
+    assert rva.attachment_key(user_model) in review_registry
+
+    # Direct register_controller also skips an already-registered scratch model.
+    rva.register_controller(scratch_ctrl)
+    assert rva.attachment_key(scratch_model) not in review_registry
+
+

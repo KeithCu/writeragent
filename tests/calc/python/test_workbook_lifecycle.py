@@ -673,4 +673,34 @@ def test_global_listener_disposed_view_controller_does_not_warn():
         warn.assert_not_called()
 
 
+def test_unload_keeps_session_shared_with_another_listener(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
+    sid = "calc:file:///tmp/shared.ods"
+    doc_a = CalcDocStub(url="file:///tmp/shared.ods", props={"RuntimeUID": "uid-a"})
+    doc_b = CalcDocStub(url="file:///tmp/shared.ods", props={"RuntimeUID": "uid-b"})
+    state_a = WorkbookState("uid-a")
+    state_b = WorkbookState("uid-b")
+
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_a, state=state_a)
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_b, state=state_b)
+    listener_a = lifecycle._LISTENERS["uid-a"]
+    listener_b = lifecycle._LISTENERS["uid-b"]
+
+    with (
+        patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock,
+        patch("plugin.calc.python.workbook_lifecycle.clear_in_memory_geometric_state") as geo_mock,
+    ):
+        listener_a.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_not_called()
+        geo_mock.assert_not_called()
+
+        listener_b.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_called_once_with(
+            sid,
+            timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+            lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+        )
+        geo_mock.assert_called_once_with(workbook_key=sid)
+
+
 

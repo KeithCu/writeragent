@@ -62,10 +62,10 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
 | `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
-| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. The walk also stops at 200000 elements. |
+| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. LibreOffice's desktop enumeration is a finite snapshot (`OComponentAccess::createEnumeration`, `OComponentEnumeration::nextElement`), so the walk needs no limit. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept; registered scratch documents, including hidden research reads, excluded). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
-| `open_document_for_read` | `document_research` | Hidden+read-only `load_scratch_document` (`_blank`, HTML files forced to `HTML (StarWriter)`), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
+| `open_document_for_read` | `document_research` | Hidden+read-only `load_scratch_document` (`_blank`, HTML files forced to `HTML (StarWriter)`, URL dropped with `attachResource("", ())` so every read loads its own copy and File > Open / `document_open` cannot adopt it), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close via `close_scratch_document` only if this call loaded a hidden sibling (not a user-visible doc). |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
@@ -112,7 +112,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | `detect_doc_type` | `doc_type_family_label(get_document_type(doc))` (unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
-| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` (excluding registered scratch documents by `RuntimeUID`, including hidden research reads; user-hidden documents count) and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes (deferred past in-progress scratch loads via `run_after_scratch_loads`) |
+| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` (excluding registered scratch documents by `RuntimeUID`, including hidden research reads; user-hidden documents count) and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes (deferred past in-progress scratch loads via `run_after_scratch_loads`, which keeps all distinct pending reports in order) |
 
 `get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
 
@@ -373,7 +373,7 @@ LibrePy and WriterAgent both use those helpers (`main_core.py` and `main.py`). W
 | `file:` / `file:///` | Documents, XDL, images, config | Document/path cluster only. |
 | `vnd.sun.star.extension://<id>` | Package URL fallback | `get_extension_url` already. |
 | `org.extension.librepy:` / `org.extension.writeragent:` | Menu dispatch | Product protocol handlers. |
-| `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank` by default, `Hidden=True`, `clear_writer_body`), with `html_export` (`target="_default"`) as the exception. |
+| `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank`, `Hidden=True`, `clear_writer_body`); Calc rich HTML uses `load_scratch_document` directly so a non-emptiable template is left open rather than closed. |
 | `private:factory/scalc` | Excel auto-open comment (OnNew vs OnLoadFinished) | Domain. |
 | `private:factory/simpress` | PPT-Master import | Domain. |
 | `private:factory/smath` | Math embed (`math_mml_export._MATH_FACTORY_URL`) | Domain. |

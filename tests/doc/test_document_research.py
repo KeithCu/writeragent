@@ -464,14 +464,16 @@ def test_resolve_path_or_name_expands_home(tmp_path, monkeypatch):
     assert url == path_to_file_url(expected)
 
 
-@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
-def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, mock_resolve):
-    model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
+def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile):
+    existing = MagicMock()
+    with patch("plugin.doc.document_research.resolve_document_by_url", return_value=(existing, "calc")) as mock_resolve:
+        model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
     assert err is None
     assert doc_type == "calc"
     assert opened_for_document_research is False
     mock_resolve.assert_called_once()
+    existing.attachResource.assert_not_called()
 
 
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
