@@ -441,3 +441,21 @@ def test_capture_placeholder_images_detects_picture_links(markup, want_linked, c
     if check_clean:
         assert "draw:frame" not in swapped
         assert "clear:both" not in swapped
+
+
+def test_capture_placeholder_images_keeps_horizontal_space_before_closing_a():
+    from plugin.writer.image_placeholders import capture_placeholder_images
+
+    swapped_space, kept_space = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/6"><span id="Pic1"><img src=""/></span> </a>caption',
+    )
+    assert [k.linked for k in kept_space] == [True]
+    assert swapped_space.endswith("</a> caption")
+
+    swapped_nl, kept_nl = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/7"><span id="Pic1"><img src=""/></span>\n</a>caption',
+    )
+    assert [k.linked for k in kept_nl] == [True]
+    assert swapped_nl.endswith("</a>caption")

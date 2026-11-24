@@ -71,7 +71,9 @@ _LINK_PROPS = ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
 # text link the pictures sit in. The frame comment before <a> and the clear:both <div> after </a>
 # stay outside when only the wrapper is linked, and are dropped with it.
 _LINKED_MARKERS_RE = re.compile(
-    _FRAME_HEAD + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)\s*</a>" + _FRAME_TAIL,
+    _FRAME_HEAD
+    + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(?:[^\S\r\n]*\n\s*|([^\S\r\n]*))</a>"
+    + _FRAME_TAIL,
     re.IGNORECASE,
 )
 _1PX_PNG_DATA_URI = (
@@ -196,7 +198,7 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
 
     def _note_link(match: re.Match[str]) -> str:
         linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", match.group(2)))
-        return match.group(1) + match.group(2) + "</a>"
+        return match.group(1) + match.group(2) + "</a>" + (match.group(3) or "")
 
     swapped = _LINKED_MARKERS_RE.sub(_note_link, swapped)
     return swapped, [k._replace(linked=k.marker in linked) for k in kept]
@@ -435,6 +437,8 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         # cell of a table this edit inserts keeps "Reject all" from removing that table. Accept is
         # right; Reject leaves the new table behind. Without the picture it would be lost instead.
         props = dict(image.props)
+        # An unlinked picture inside a text link also has the link on its marker, so without
+        # image.linked the marker's URL says nothing about the picture.
         if image.linked or props.get("HyperLinkURL"):
             # The imported marker's link wins: it is what the agent wrote, with relative URLs resolved.
             link = {prop: found.getPropertyValue(prop) for prop in _LINK_PROPS}

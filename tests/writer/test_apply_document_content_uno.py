@@ -1243,7 +1243,13 @@ def test_linked_picture_round_trip_uno(ctx, doc):
             rls = doc.getRedlines().createEnumeration()
             while enum_has_more(rls):
                 rl_types.add(str(rls.nextElement().getPropertyValue("RedlineType")))
-            assert rl_types <= {"Insert", "Delete"}, rl_types
+            assert rl_types == {"Insert", "Delete"}, rl_types
+            gfx_objs = doc.getGraphicObjects()
+            assert any(
+                gfx_objs.getByIndex(i).getPropertyValue("HyperLinkURL") == "https://example.org/rec"
+                and gfx_objs.getByIndex(i).getPropertyValue("HyperLinkTarget") == "_blank"
+                for i in range(gfx_objs.getCount())
+            )
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
             assert doc.getGraphicObjects().getCount() == 1
             pic = doc.getGraphicObjects().getByIndex(0)
