@@ -646,4 +646,143 @@ def test_vision_html_insert_heading_bolder_and_larger_than_body(ctx, doc):
     )
 
 
+def _first_para_portions(doc):
+    para = doc.getText().createEnumeration().nextElement()
+    pe = para.createEnumeration()
+    out = []
+    while pe.hasMoreElements():
+        p = pe.nextElement()
+        if p.getPropertyValue("TextPortionType") == "Text" and p.getString():
+            out.append((
+                p.getString(),
+                float(p.getPropertyValue("CharWeight")),
+                str(p.getPropertyValue("CharStyleName") or ""),
+                str(p.getPropertyValue("HyperLinkURL") or ""),
+                getattr(p.getPropertyValue("CharPosture"), "value", str(p.getPropertyValue("CharPosture"))),
+            ))
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_keeps_run_formatting_uno(ctx, doc):
+    """Untracked replace_preserving_format keeps bold, char style, link, plain, and multi-run splits."""
+    text = doc.getText()
+
+    def _replace_word(old_word, new_word):
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = old_word
+        found = doc.findFirst(sd)
+        assert found is not None, f"missing {old_word!r}"
+        _replace_text_preserving_format(doc, found, new_word, ctx)
+
+    # Bold word mid-paragraph: shorter, shared-end, 1-char, longer, prefixed
+    for new_word in ("Swap", "Xplace", "Sole", "SwapLonger", "XReplace"):
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "aaa ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "Replace", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " bbb", False)
+        _replace_word("Replace", new_word)
+        portions = _first_para_portions(doc)
+        assert [(s, w) for s, w, _, _, _ in portions] == [
+            ("aaa ", 100.0), (new_word, 150.0), (" bbb", 100.0)
+        ], (new_word, portions)
+
+    # Char-style word at paragraph end
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "aaa ", False)
+    cur.setPropertyValue("CharStyleName", "Emphasis")
+    text.insertString(cur, "Replace", False)
+    _replace_word("Replace", "Swap")
+    portions = _first_para_portions(doc)
+    assert [(s, cs) for s, _, cs, _, _ in portions] == [("aaa ", ""), ("Swap", "Emphasis")], portions
+
+    # Link: Swap, Replica, ReplacedIt all stay fully linked
+    for new_word in ("Swap", "Replica", "ReplacedIt"):
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyToDefault("CharStyleName")
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "aaa ", False)
+        link_start = cur.getEnd()
+        text.insertString(cur, "Replace", False)
+        link_cur = text.createTextCursorByRange(link_start)
+        link_cur.gotoRange(cur.getEnd(), True)
+        link_cur.setPropertyValue("HyperLinkURL", "https://example.com")
+        text.insertString(cur, " bbb", False)
+        _replace_word("Replace", new_word)
+        portions = _first_para_portions(doc)
+        assert [(s, url) for s, _, _, url, _ in portions] == [
+            ("aaa ", ""), (new_word, "https://example.com"), (" bbb", "")
+        ], (new_word, portions)
+
+    # Plain word between bold runs stays plain
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyToDefault("CharStyleName")
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "aaa ", False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    text.insertString(cur, "Replace", False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, " bbb", False)
+    _replace_word("Replace", "Swap")
+    portions = _first_para_portions(doc)
+    assert [(s, w) for s, w, _, _, _ in portions] == [
+        ("aaa ", 150.0), ("Swap", 100.0), (" bbb", 150.0)
+    ], portions
+
+    # Two runs bold + italic: Rep(bold) + lace(italic) -> Swap gives Swa(bold)/p(italic)
+    from com.sun.star.awt.FontSlant import ITALIC, NONE as SLANT_NONE
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyToDefault("CharStyleName")
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "Rep", False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    cur.setPropertyValue("CharPosture", ITALIC)
+    text.insertString(cur, "lace", False)
+    cur.setPropertyValue("CharPosture", SLANT_NONE)
+    _replace_word("Replace", "Swap")
+    portions = _first_para_portions(doc)
+    assert [(s, w, p) for s, w, _, _, p in portions] == [
+        ("Swa", 150.0, "NONE"), ("p", 100.0, "ITALIC")
+    ], portions
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_is_one_undo_step_uno(ctx, doc):
+    """replace_preserving_format groups its UNO writes into one undo step."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "aaa ", False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "Replace", False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    text.insertString(cur, " bbb", False)
+
+    um = doc.getUndoManager()
+    before = list(um.getAllUndoActionTitles())
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "Replace"
+    found = doc.findFirst(sd)
+    _replace_text_preserving_format(doc, found, "Swap", ctx)
+
+    after = list(um.getAllUndoActionTitles())
+    assert len(after) == len(before) + 1, (before, after)
+    um.undo()
+    assert text.getString() == "aaa Replace bbb"
+    portions = _first_para_portions(doc)
+    assert [(s, w) for s, w, _, _, _ in portions] == [
+        ("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)
+    ], portions
+
+
+
 

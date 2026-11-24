@@ -180,7 +180,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 
 ### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer) — Done
 - `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`) emits `Diagnostic` dicts in `result["warnings"]` instead of writing singular `warning`.
-- `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` returns diagnostic codes (`STYLE_IGNORED_PARTIAL_MATCH`, `STYLE_IGNORED_RECORDING`).
+- `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` returns `STYLE_IGNORED_PARTIAL_MATCH`.
 - `suggested_call` for `apply_style` follows §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
 - `attach_write_report` emits `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`) for dropped `data-lo-para` properties across `apply_document_content.py` and `page.py` header/footer writes.
 - Tests: `tests/writer/test_apply_document_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
