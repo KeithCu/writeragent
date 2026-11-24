@@ -20,6 +20,7 @@ offsets (``writer_char_count``, ``get_text_cursor_at_range*``,
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
@@ -568,12 +569,26 @@ def _range_is_paragraph(text_range: Any) -> bool:
     return uno_read(first_is_portion, False, object_type="TextRange")
 
 
+@dataclass
+class DeletionState:
+    """Tracked-deletion state across consecutive paragraphs of one ``XText``.
+
+    Redline marker portions exist only in a redline's start and end paragraphs
+    (``lcl_FillRedlineArray`` in ``sw/source/core/unocore/unoportenum.cxx``). Pass one
+    instance across every paragraph of a text, in order, so middle paragraphs
+    inside a multi-paragraph deletion are skipped too.
+    """
+
+    in_delete: bool = False
+
+
 def visible_portions(
     para: Any,
     *,
     abort_on_portion_error: bool = False,
     limit: int | None = None,
     truncated_out: list[int] | None = None,
+    state: DeletionState | None = None,
 ) -> Iterator[tuple[Any, str]]:
     """Yield ``(portion, text)`` for visible text, skipping tracked deletions.
 
@@ -592,7 +607,7 @@ def visible_portions(
         portion_enum = para.createEnumeration()
     except Exception:
         return
-    in_delete = False
+    state = state or DeletionState()
     seen = 0
     while enum_has_more(portion_enum):
         if limit is not None and seen >= limit:
@@ -616,11 +631,11 @@ def visible_portions(
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
                     # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
-                    in_delete = bool(portion.getPropertyValue("IsStart"))
+                    state.in_delete = bool(portion.getPropertyValue("IsStart"))
             except Exception as exc:
                 log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
             continue
-        if in_delete:
+        if state.in_delete:
             continue
         try:
             chunk = portion.getString()

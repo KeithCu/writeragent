@@ -651,6 +651,9 @@ class WriteReport:
     insert moved to after the caret's paragraph because the content was block-level.
     ``added_content`` is internal (not reported): False when the import added nothing
     (e.g. ``<p></p>``), so ``_replace_whole_paragraphs`` keeps the emptied paragraph.
+    ``links_retargeted`` counts outline hyperlinks updated after a heading rename, and
+    ``stale_links`` lists ``|outline`` URLs on field-backed links that could not be
+    rewritten as tracked changes while recording.
     all_matches merges one report per match with ``extend``.
     """
 
@@ -660,6 +663,8 @@ class WriteReport:
     math: list[dict[str, Any]] = field(default_factory=list)
     snapped_to_paragraph: bool = False
     added_content: bool = True
+    links_retargeted: int = 0
+    stale_links: list[str] = field(default_factory=list)
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
@@ -794,6 +799,18 @@ def attach_write_report(
                     f"Correct the formula and replace that literal text with target='search'."
                 ),
             })
+
+    if report.links_retargeted:
+        result["links_retargeted"] = report.links_retargeted
+    for url in report.stale_links:
+        diags.append({
+            "code": "LINK_TARGET_STALE",
+            "link_target": url,
+            "message": (
+                f'Links to "{url}" still use the old heading title: '
+                "they hold a field, which cannot be rewritten as a tracked change."
+            ),
+        })
 
     return append_warnings(result, diags)
 

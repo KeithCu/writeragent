@@ -100,6 +100,10 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
+* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`) are
+  recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
+  resolves them, and omitted from `ChangeRecord` so `wait_for_review` neither waits for them nor
+  reports them in `review.changes`.
 
 ### Surgical word-level edits
 

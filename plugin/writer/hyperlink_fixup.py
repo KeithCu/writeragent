@@ -53,16 +53,25 @@ and link styles captured before the replace are written on the whole
 paragraph after assigning the same URL. Failures raise
 ToolExecutionError(code="HYPERLINK_UPDATE_FAILED") and the caller rolls the text
 change back.
+
+When an edit renames a heading (``heading_renames``), ``retarget_outline_links``
+finds every ``#old|outline`` portion in the document and updates it to
+``#new|outline`` — directly when not recording or inside a tracked insert, and
+via tracked Delete + Insert when recording changes.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 import logging
 from typing import Any, Iterator
 
+import uno
+
 from plugin.doc.text_helpers import go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -580,3 +589,92 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     reports = public_hyperlink_reports(plans)
     log.debug("outline hyperlink updated: %s", reports)
     return reports
+
+
+def heading_renames(
+    before: list[tuple[int, str]],
+    after: list[tuple[int, str]],
+) -> dict[str, str]:
+    """Map unique renamed heading titles from *before* to *after*.
+
+    Matches ``(level, text)`` sequences with ``SequenceMatcher``; only ``replace``
+    opcodes whose levels match on both sides are paired index by index, and only
+    when *old* appeared once before, is absent after, and *new* appears once after.
+    """
+    old_titles = [text for _level, text in before]
+    new_titles = [text for _level, text in after]
+    renames: dict[str, str] = {}
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
+        if tag != "replace" or [lv for lv, _t in before[i1:i2]] != [lv for lv, _t in after[j1:j2]]:
+            continue
+        for old, new in zip(old_titles[i1:i2], new_titles[j1:j2]):
+            if old_titles.count(old) == 1 and old not in new_titles and new_titles.count(new) == 1:
+                renames[old] = new
+    return renames
+
+
+def _linked_ranges(doc: Any) -> list[Any]:
+    """One range per hyperlink and paragraph, in every text of *doc* (cells, frames, notes, headers)."""
+    search = doc.createSearchDescriptor()
+    search.ValueSearch = False  # search for the presence of HyperLinkURL, not a value
+    attr: Any = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    attr.Name = _URL
+    search.setSearchAttributes((attr,))
+    found = doc.findAll(search)
+    return [found.getByIndex(i) for i in range(found.getCount())]
+
+
+def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list[str]]:
+    """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
+
+    When recording changes, assigning ``HyperLinkURL`` directly is stripped by
+    ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx``) and cleared on
+    Reject by ``lcl_RejectRedline`` (``DocumentRedlineManager.cxx``). Plain-text
+    runs therefore re-insert the text with the new URL and delete the old run,
+    while runs already inside a tracked Insert are written directly because
+    Reject removes them whole. Field runs cannot be retyped and are reported
+    in the returned stale-URL list.
+    """
+    urls = {f"#{old}{_OUTLINE_SUFFIX}": f"#{new}{_OUTLINE_SUFFIX}" for old, new in renames.items()}
+    recording = is_recording_changes(doc)
+    stale: dict[str, None] = {}
+    count = 0
+    for linked in _linked_ranges(doc):
+        text = linked.getText()
+        runs: list[tuple[Any, str, bool]] = []
+        blocked: set[str] = set()  # per paragraph: one field link must not block the others
+        for portion in _iter_portions(text, linked.getStart()):
+            url = _prop(portion, _URL)
+            if url not in urls or not portion.getString():
+                continue
+            kinds = redline_kinds_covering(doc, portion)
+            if "Delete" in kinds:
+                continue
+            tracked = recording and "Insert" not in kinds
+            if tracked and _prop(portion, "TextPortionType") != "Text":
+                blocked.add(url)
+            runs.append((portion, url, tracked))
+        # Last run first: retyping a run moves the text after it.
+        for portion, url, tracked in reversed(runs):
+            if url in blocked:
+                stale[url] = None
+                continue
+            look = read_link_look(portion)
+            plan = {"new_url": urls[url], "new_name": None, "new_target": None}
+            target = text.createTextCursorByRange(portion)
+            if not tracked:
+                with record_changes(doc, False):
+                    _write_plan_on_cursor(target, plan, look)
+            else:
+                plan["new_name"], plan["new_target"] = _prop(portion, _NAME), _prop(portion, _TARGET)
+                start = text.createTextCursorByRange(target.getStart())
+                retyped = text.createTextCursorByRange(target.getEnd())
+                # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
+                text.insertString(retyped, target.getString(), True)
+                with record_changes(doc, False):
+                    _write_plan_on_cursor(retyped, plan, look)
+                # The insertion stretched the run's own range, so delete up to the new text.
+                start.gotoRange(retyped.getStart(), True)
+                start.setString("")
+            count += 1
+    return count, list(stale)
