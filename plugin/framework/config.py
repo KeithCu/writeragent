@@ -870,7 +870,7 @@ def get_api_config(*, with_api_key: bool = True) -> dict[str, Any]:
     ``with_api_key=False`` is for UI-thread callers. Reading a locked keyring
     opens an unlock prompt and blocks until the user answers, and on the UI
     thread LibreOffice stops repainting. The worker that sends the request
-    fills ``"api_key"``.
+    calls ``fill_api_key``.
     """
     from plugin.framework.client.model_fetcher import get_text_model
 
@@ -906,6 +906,17 @@ def get_api_config(*, with_api_key: bool = True) -> dict[str, Any]:
             api_config["openrouter_chat_extra"] = ore
 
     return api_config
+
+
+def fill_api_key(api_config: dict[str, Any]) -> None:
+    """Read the key that ``get_api_config(with_api_key=False)`` left out; a key already present is kept.
+
+    Call on the worker that sends the request: reading a locked keyring blocks
+    until the user answers its unlock prompt. Takes the dict, not the client,
+    because a shared client's ``config`` can be replaced while the prompt is open.
+    """
+    if "api_key" not in api_config:
+        api_config["api_key"] = get_api_key_for_endpoint(api_config.get("endpoint"))
 
 
 def validate_api_config(config: Any) -> tuple[bool, str]:

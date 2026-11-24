@@ -640,8 +640,14 @@ def test_header_read_does_not_repeat_run_formatting_uno(ctx, doc):
     assert len(lines) == 6, html
 
     p1 = lines[0]
-    assert ("font-style:italic" in p1 or "<em>italic</em>" in p1 or "<i>italic</i>" in p1) and "italic</" in p1, p1
-    assert not ("italic</span> <span" in p1 and "italic" in p1.split("italic</span>", 1)[1]), p1
+    p1_rest, n = re.subn(
+        r'<(?:em|i)\b[^>]*>italic</(?:em|i)>|<span\b[^>]*font-style\s*:\s*italic[^>]*>italic</span>',
+        "",
+        p1,
+        count=1,
+    )
+    assert n == 1, p1
+    assert "<em" not in p1_rest and "<i" not in p1_rest and "font-style" not in p1_rest, p1
 
     p2 = lines[1]
     assert "data-lo-para" not in p2, p2

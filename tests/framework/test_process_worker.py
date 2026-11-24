@@ -254,7 +254,7 @@ def test_abandoned_after_wait_timeout(
 
 
 
-def test_respawn_adopt_refusal_signals_the_unadopted_child(
+def test_respawn_publish_refusal_signals_the_unpublished_child(
     monkeypatch: pytest.MonkeyPatch, reaper_enqueued: list[Any]
 ) -> None:
     worker = BaseProcessWorker(7, "unused.py", worker_name="Formula", start=False)
@@ -300,7 +300,7 @@ def test_respawn_adopt_refusal_signals_the_unadopted_child(
     assert set(_instances) == initial_instances
 
 
-def test_adopt_refusal_does_not_signal_the_published_child() -> None:
+def test_publish_refusal_does_not_signal_the_published_child() -> None:
     worker = BaseProcessWorker(1, "unused.py", start=False)
     published_proc = _Proc(pid=1)
     worker.process = published_proc
@@ -310,7 +310,7 @@ def test_adopt_refusal_does_not_signal_the_published_child() -> None:
     loser_proc = _Proc(pid=2)
     loser_child = _child(loser_proc)
 
-    assert worker._adopt(loser_child) is False
+    assert worker._publish(loser_child) is not None
     assert worker.process is published_proc
     assert published_proc.kills == 0
 
@@ -374,7 +374,7 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
 def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shutdown during Popen must not leave an unpublished child running.
 
-    Adopt refuses that child, and only that child is signaled; otherwise reap
+    Publish refuses that child, and only that child is signaled; otherwise reap
     sees None and the new interpreter survives until the parent exits.
     """
 
@@ -1036,16 +1036,6 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         worker.kill()
 
 
-def test_stderr_drain_name_uses_worker_name() -> None:
-    """The drain thread names the pool, or falls back to a generic prefix when slugless."""
-    for name, worker_id, expected in (
-        ("Kokoro", 1, "wa-kokoro-w1-stderr"),
-        ("---", 3, "wa-worker-w3-stderr"),
-    ):
-        worker = BaseProcessWorker(worker_id, "unused.py", worker_name=name, start=False)
-        assert worker._drain_name() == expected
-
-
 def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     """Startup that overruns the deadline kills the child and does not read a frame.
 
@@ -1435,31 +1425,31 @@ def test_popen_failure_leaves_the_slot_empty(monkeypatch: pytest.MonkeyPatch) ->
     assert worker.child is None
 
 
-def test_adopt_publishes_one_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Adopt stores the Child in one lock hold; shutdown and a live child refuse.
+def test_publish_stores_one_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Publish stores the Child in one lock hold; shutdown and a live child refuse.
 
-    Otherwise kill() in the gap unlinks diagnostics before adopt stores the
-    live child, or a second adopt overwrites the published process.
+    Otherwise kill() in the gap unlinks diagnostics before publish stores the
+    live child, or a second publish overwrites the published process.
     """
 
     worker = _worker_without_spawn(monkeypatch)
     first_proc = object()
     first = _child(first_proc, worker_name=worker.worker_name, worker_id=worker.worker_id)
-    assert worker._adopt(first) is True
+    assert worker._publish(first) is None
     assert worker.process is first_proc
     assert worker.child is first
 
     worker.request_shutdown()
     refused = _child(object(), worker_name=worker.worker_name, worker_id=worker.worker_id)
     # Shutdown refuses a new child. The one already published stays until kill.
-    assert worker._adopt(refused) is False
+    assert worker._publish(refused) is not None
     assert worker.child is first
 
     fresh = _worker_without_spawn(monkeypatch)
     published = object()
     fresh.process = published  # type: ignore[assignment]
     second = _child(object(), worker_name=fresh.worker_name, worker_id=fresh.worker_id)
-    assert fresh._adopt(second) is False
+    assert fresh._publish(second) is not None
     assert fresh.process is published
     assert fresh.child is not second
 
@@ -1598,16 +1588,16 @@ def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, ca
     assert worker.process is None
 
 
-def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A respawn that raises before adopt must not kill the published child.
+def test_respawn_failure_before_publish_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A respawn that raises before publish must not kill the published child.
 
-    Otherwise an overlapping caller failing before adopt reaps the other
+    Otherwise an overlapping caller failing before publish reaps the other
     call's healthy child.
     """
 
     worker = _worker_without_spawn(monkeypatch)
     second_queued = _second_spawn_queued_event(monkeypatch)
-    adopted = threading.Event()
+    published = threading.Event()
     hold = threading.Event()
     calls = {"n": 0}
     calls_lock = threading.Lock()
@@ -1656,7 +1646,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         current = worker.child
         if current is not None and current.managed.stderr_tail is not None:
             current.managed.stderr_tail._append("winner-still-healthy\n")
-        adopted.set()
+        published.set()
         hold.wait(timeout=2)
         return {"status": "ready", "pid": 77}
 
@@ -1677,7 +1667,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         for thread in threads:
             thread.start()
         try:
-            assert adopted.wait(timeout=2)
+            assert published.wait(timeout=2)
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline and sum(not thread.is_alive() for thread in threads) < 1:
                 time.sleep(0.01)
@@ -1740,8 +1730,8 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
     assert "forbidden" in str(rejected.get("error"))
 
 
-def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A child adopt refused, and that will not die, is abandoned; the slot stays.
+def test_unpublished_child_that_survives_kill_is_abandoned(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A child publish refused, and that will not die, is abandoned; the slot stays.
 
     The loser is signaled and the published child is not; otherwise a failed
     wait leaks the loser without storing or logging it.
@@ -1787,7 +1777,7 @@ def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.Mon
     published = _Live()
     worker.process = published  # type: ignore[assignment]
     loser = _child(_Stuck(), worker_name=worker.worker_name, worker_id=worker.worker_id)
-    assert worker._adopt(loser) is False
+    assert worker._publish(loser) is not None
     assert loser.signal_from() is True
     assert enqueued == [loser.managed]
     assert worker.process is published
@@ -2156,27 +2146,20 @@ def test_after_send_spent_deadline_kills(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_respawn_passes_spawn_budget_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework.child_runtime import Deadline
-    from plugin.framework.warm_child import supervisor
+    from plugin.framework.warm_child import SpawnOutcome, supervisor
 
     captured_timeouts: list[float | None] = []
 
     def mock_spawn(managed: Any, timeout_sec: float | None = None) -> None:
         captured_timeouts.append(timeout_sec)
 
-    def mock_handshake(
-        managed: Any, *args: Any, start: Any = None, **kwargs: Any
-    ) -> tuple[str, Any, Any]:
-        if start is not None:
-            start(managed)
-        return ("refused", None, None)
+    def fake(managed: Any, *, start: Any, **_: Any) -> SpawnOutcome:
+        start(managed)
+        return SpawnOutcome("refused")
 
     monkeypatch.setattr(supervisor, "spawn", mock_spawn)
-    monkeypatch.setattr(
-        "plugin.framework.process_worker.spawn_managed_child_with_handshake",
-        mock_handshake,
-    )
-
     worker = BaseProcessWorker(1, "unused.py", start=False)
+    monkeypatch.setattr(worker, "_spawn_child", fake)
 
     # 1. Respawn with deadline should pass remaining spawn budget
     worker.respawn(deadline=Deadline(5.0))

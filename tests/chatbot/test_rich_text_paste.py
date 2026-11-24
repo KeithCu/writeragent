@@ -1427,7 +1427,7 @@ def test_plain_transcript_text_strips_html():
     from plugin.chatbot.rich_text_paste import plain_transcript_text
     from unittest.mock import MagicMock
 
-    session = MagicMock()
+    session = MagicMock(history_notice="")
     session.messages = [
         {"role": "user", "content": "<b>hello</b>"},
         {"role": "assistant", "content": "<p>done</p>"},

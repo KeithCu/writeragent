@@ -35,8 +35,8 @@ from plugin.framework.client.errors import (
     local_model_overflow_message,
 )
 from plugin.framework.config import (
+    fill_api_key,
     get_api_config,
-    get_api_key_for_endpoint,
     get_config,
     validate_api_config,
 )
@@ -714,7 +714,7 @@ class ToolCallingMixin:
                 # _do_send left the key out so a locked keyring's unlock prompt
                 # waits on this worker instead of freezing LibreOffice on the UI
                 # thread. Later rounds and the STT-fallback respawn find it filled.
-                config["api_key"] = get_api_key_for_endpoint(config.get("endpoint"))
+                fill_api_key(config)
                 if stopped_for_this_send():
                     # Stop clicked while the prompt was open ends the turn as
                     # stopped, not as a keyring error.

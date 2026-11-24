@@ -90,7 +90,7 @@ def test_delegate_writer_gateway_includes_vision(_mock_avail):
     from plugin.doc.specialized_base import DelegateToSubagent
 
     gateway = DelegateToSubagent()
-    domains = gateway.parameters["properties"]["domain"]["enum"]
+    domains = (gateway.get_parameters() or {})["properties"]["domain"]["enum"]
     assert "vision" in domains
 
 

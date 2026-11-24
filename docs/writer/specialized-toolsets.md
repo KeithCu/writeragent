@@ -243,7 +243,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 **File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
 
 - Tool name: `delegate_to_subagent`.
-- Parameters: `domain` (sorted enum aligned with `_AVAILABLE_DOMAINS`), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
+- Parameters: `domain` (sorted enum read from `get_specialized_domain_catalog` on each call), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
 - `tier = "core"`, `long_running = True`, `is_async()` → **True** so the sidebar drain loop is not blocked.
 - Tool gathering:
   - `registry.get_tools(filter_doc_type=False, exclude_tiers=())` — **all** tiers, no doc filter (needed so specialized tools are discoverable server-side).
@@ -451,7 +451,7 @@ All section tools live in `sections.py` (`sections` domain); `ToolWriterStructur
 
 - **`section_set_password(name, password, current_password?)`**
   - Sets or clears `ProtectionKey` using `SvPasswordHelper::GetHashPassword` (SHA-1 of UTF-16LE code units) when writing, and accepts `CompareHashPassword`'s four variants (20-byte SHA-1 of UTF-8 / UTF-16LE / UTF-16BE, 32-byte SHA-256 of UTF-8) when checking `current_password`. Setting a non-empty password also sets `IsProtected = True`.
-  - Note: passwords travel in tool-call arguments (chat history and `writeragent_debug.log`).
+  - Note: passwords are sent in tool-call arguments to the LLM or MCP client; chat history does not store them. Values of secret-named keys (`password`, `current_password`) are written to `writeragent_debug.log` as `<redacted>`. Prose and Python code that quote a password are not masked.
 
 - **`section_rename(name, new_name)`**
   - Renames a section (`section.setName(new_name)`), pre-checking for empty `new_name` and duplicate names (`SwXTextSection::setName` throws an empty `RuntimeException` on duplicates).

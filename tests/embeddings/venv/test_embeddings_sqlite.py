@@ -451,11 +451,11 @@ def test_windows_unc_and_remote_opts(monkeypatch):
 
 
 def test_path_is_local_disk_real_path_on_linux(tmp_path):
-    """Local scratch directory on Linux resolves to local disk via mountinfo inspection."""
+    """Local scratch directory on Linux resolves to local disk via the psutil mount table."""
     import sys
 
     if sys.platform != "linux":
-        pytest.skip("mountinfo inspection is Linux-specific")
+        pytest.skip("this check is Linux-only")
     assert embeddings_sqlite.path_is_local_disk(tmp_path) is True
 
 

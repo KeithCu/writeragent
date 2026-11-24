@@ -57,6 +57,7 @@ from .response_normalizers import normalize_message_content, prepare_chat_messag
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
 from plugin.framework.constants import USER_AGENT
+from plugin.framework.config import fill_api_key
 from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
 from plugin.framework.logging import redact_sensitive_payload_for_log
@@ -691,6 +692,11 @@ class LlmClient:
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None) -> str | None:
         """Stream a chat completions response via callbacks; returns finish_reason."""
+        # Extend/Edit and /formula build this client on the UI thread without a key.
+        # A stopped run must not open the keyring's unlock prompt.
+        if self._stop_latched(cancel):
+            raise stopped_error()
+        fill_api_key(self.config)
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -839,15 +845,31 @@ class LlmClient:
                     # OpenAI-compatible routes have appeared to continue one function's
                     # arguments under a new tool-call index; the completed snapshot alone
                     # cannot tell whether that index came from the wire or our accumulator.
+                    # Replace function.arguments with its length because split argument
+                    # fragments cannot be redacted per record; joined arguments are logged below.
                     raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
-                    if raw_tool_calls is not None:
+                    if raw_tool_calls is not None and log.isEnabledFor(logging.DEBUG):
+                        summarized = []
+                        for tc in raw_tool_calls:
+                            if not isinstance(tc, dict):
+                                summarized.append(tc)
+                                continue
+                            entry = {k: v for k, v in tc.items() if k != "function"}
+                            fn = tc.get("function")
+                            if isinstance(fn, dict):
+                                fn_summary: dict[str, Any] = {k: v for k, v in fn.items() if k != "arguments"}
+                                if "arguments" in fn:
+                                    args = fn["arguments"]
+                                    fn_summary["arguments_len"] = len(args) if isinstance(args, str) else args
+                                entry["function"] = fn_summary
+                            summarized.append(entry)
                         log.debug(
                             "streaming_loop: raw tool_call delta route_provider=%s chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s",
                             self._get_provider(),
                             chunk.get("provider"),
                             chunk.get("model"),
                             chunk.get("id"),
-                            json.dumps(raw_tool_calls, ensure_ascii=False),
+                            json.dumps(summarized, ensure_ascii=False),
                         )
 
                     # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"

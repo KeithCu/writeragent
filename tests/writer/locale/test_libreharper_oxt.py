@@ -15,112 +15,93 @@ def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
     from unittest.mock import patch
     from plugin.writer.locale.grammar_settings import checker_identity, is_grammar_enabled, provider
     from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
+    from plugin.framework.uno_context import set_package_extension_id
 
-    try:
-        set_package_extension_id(EXTENSION_ID_LIBREHARPER)
-        with patch("plugin.framework.config.get_config", return_value="off"):
-            assert is_grammar_enabled() is True
-            assert provider() == "harper"
-            assert checker_identity() == "harper"
+    set_package_extension_id(EXTENSION_ID_LIBREHARPER)
+    with patch("plugin.framework.config.get_config", return_value="off"):
+        assert is_grammar_enabled() is True
+        assert provider() == "harper"
+        assert checker_identity() == "harper"
 
-        with patch("plugin.framework.config.get_config", return_value="llm"):
-            assert is_grammar_enabled() is True
-            assert provider() == "harper"
-            assert checker_identity() == "harper"
-    finally:
-        reset_package_extension_id_for_tests()
+    with patch("plugin.framework.config.get_config", return_value="llm"):
+        assert is_grammar_enabled() is True
+        assert provider() == "harper"
+        assert checker_identity() == "harper"
 
 
 def test_harper_proofreader_identity_and_locale_check(monkeypatch) -> None:
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale import ai_grammar_proofreader
     from plugin.writer.locale.harper_proofreader import HarperProofreader
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
-    try:
-        ctx = MagicMock()
-        # __init__ calls maybe_start_harper_async when user_config_dir is set.
-        # The autouse config fixture supplies a real temp dir, so without this
-        # patch a unit test downloads/starts harper-ls and Windows xdist hangs.
-        with (
-            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
-        ):
-            proofreader = HarperProofreader(ctx)
-        from plugin.writer.locale.grammar_settings import GrammarProfile
+    ctx = MagicMock()
+    # __init__ calls maybe_start_harper_async when user_config_dir is set.
+    # The autouse config fixture supplies a real temp dir, so without this
+    # patch a unit test downloads/starts harper-ls and Windows xdist hangs.
+    with (
+        patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
+    ):
+        proofreader = HarperProofreader(ctx)
+    from plugin.writer.locale.grammar_settings import GrammarProfile
 
-        assert proofreader._profile == GrammarProfile("harper", "harper", True)
+    assert proofreader._profile == GrammarProfile("harper", "harper", True)
 
-        locale_en = SimpleNamespace(Language="en", Country="US", Variant="")
+    locale_en = SimpleNamespace(Language="en", Country="US", Variant="")
+    assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
+
+    locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
+    assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
+
+    monkeypatch.setattr(ai_grammar_proofreader, "_GRAMMAR_DISABLED_NOTICE_EMITTED", True)
+    with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
         assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
-
-        locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
-        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
-
-        monkeypatch.setattr(ai_grammar_proofreader, "_GRAMMAR_DISABLED_NOTICE_EMITTED", True)
-        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
-            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
-            assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
-    finally:
-        reset_package_extension_id_for_tests()
+        assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
 
 
 def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
-    try:
-        ctx = MagicMock()
-        with (
-            patch("plugin.writer.locale.harper_proofreader.init_config"),
-            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value="/tmp/lo-user"),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
-        ):
-            HarperProofreader(ctx)
-            mock_start.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
-    finally:
-        reset_package_extension_id_for_tests()
+    ctx = MagicMock()
+    with (
+        patch("plugin.writer.locale.harper_proofreader.init_config"),
+        patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value="/tmp/lo-user"),
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
+    ):
+        HarperProofreader(ctx)
+        mock_start.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
 
 
 def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:
     """uno.bin register/enable must not warmup harper-ls or schedule update check (#768)."""
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
-    try:
-        ctx = MagicMock()
-        with (
-            patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=True),
-            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once") as mock_update,
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
-        ):
-            HarperProofreader(ctx)
-        mock_update.assert_not_called()
-        mock_start.assert_not_called()
-        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
-    finally:
-        reset_package_extension_id_for_tests()
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=True),
+        patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once") as mock_update,
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
+    ):
+        HarperProofreader(ctx)
+    mock_update.assert_not_called()
+    mock_start.assert_not_called()
+    ctx.ServiceManager.createInstanceWithContext.assert_not_called()
 
 
 def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
-    try:
-        ctx = MagicMock()
-        with (
-            patch("plugin.writer.locale.harper_proofreader.init_config"),
-            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value=""),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
-        ):
-            HarperProofreader(ctx)
-            mock_start.assert_not_called()
-    finally:
-        reset_package_extension_id_for_tests()
+    ctx = MagicMock()
+    with (
+        patch("plugin.writer.locale.harper_proofreader.init_config"),
+        patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value=""),
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
+    ):
+        HarperProofreader(ctx)
+        mock_start.assert_not_called()
 
 
 def test_harper_locale_normalization_matrix() -> None:
@@ -149,7 +130,6 @@ def test_harper_locale_normalization_matrix() -> None:
 def test_locale_construction_failure_registers_degraded_and_retries() -> None:
     from unittest.mock import MagicMock, patch
 
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
     from plugin.writer.locale.harper_proofreader import HarperProofreader
 
     calls = {"n": 0}
@@ -160,49 +140,40 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
             raise RuntimeError("uno struct failed")
         return ("locale-obj",)
 
-    try:
-        with (
-            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
-        ):
-            proofreader = HarperProofreader(MagicMock())
-            assert proofreader._locales == ()
-            assert proofreader._locales_degraded is True
+    with (
+        patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
+        patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
+    ):
+        proofreader = HarperProofreader(MagicMock())
+        assert proofreader._locales == ()
+        assert proofreader._locales_degraded is True
 
-            locale = SimpleNamespace(Language="en", Country="US", Variant="")
-            with patch.object(proofreader, "_normalize_locale", return_value="en-US"):
-                assert proofreader.hasLocale(locale) is True
-            assert proofreader._locales_degraded is False
-            assert proofreader.getLocales() == ("locale-obj",)
-            assert calls["n"] == 2
-    finally:
-        reset_package_extension_id_for_tests()
+        locale = SimpleNamespace(Language="en", Country="US", Variant="")
+        with patch.object(proofreader, "_normalize_locale", return_value="en-US"):
+            assert proofreader.hasLocale(locale) is True
+        assert proofreader._locales_degraded is False
+        assert proofreader.getLocales() == ("locale-obj",)
+        assert calls["n"] == 2
 
 
 def test_locale_retry_failure_is_logged_once() -> None:
     from unittest.mock import MagicMock, patch
 
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
     from plugin.writer.locale.harper_proofreader import HarperProofreader
 
     def boom(*_args: object) -> tuple[object, ...]:
         raise RuntimeError("still broken")
 
-    try:
-        with (
-            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=boom),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
-            patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
-        ):
-            proofreader = HarperProofreader(MagicMock())
-            locale = SimpleNamespace(Language="en", Country="US", Variant="")
-            assert proofreader.hasLocale(locale) is False
-            assert proofreader.hasLocale(locale) is False
-            assert proofreader.getLocales() == ()
-        assert mock_log.warning.call_count == 1
-    finally:
-        reset_package_extension_id_for_tests()
-
-
+    with (
+        patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
+        patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=boom),
+        patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
+        patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
+    ):
+        proofreader = HarperProofreader(MagicMock())
+        locale = SimpleNamespace(Language="en", Country="US", Variant="")
+        assert proofreader.hasLocale(locale) is False
+        assert proofreader.hasLocale(locale) is False
+        assert proofreader.getLocales() == ()
+    assert mock_log.warning.call_count == 1

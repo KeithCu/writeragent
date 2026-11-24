@@ -52,7 +52,7 @@ Optional automation for translators:
 - Compares each locale’s `writeragent.po` to `writeragent.pot` and finds missing, empty, or **fuzzy** entries.
 - **`--preview`** prints the **completion table** (POT totals, pending, done, percentage) and exits; used by `make preview-translations` / `make build`.
 - With **`--execute`**, prints that same table at start unless `--skip-initial-status`, then fills gaps via the API.
-- Sends strings to an OpenAI-compatible chat API (default model `google/gemini-3.1-flash-lite-preview`, default endpoint OpenRouter) in batches; uses project auth helpers / `writeragent.json` keys / `OPENROUTER_API_KEY` when available.
+- Sends strings to an OpenAI-compatible chat API (default model `google/gemini-3.1-flash-lite-preview`, default endpoint OpenRouter) in batches; uses `OPENROUTER_API_KEY` when available.
 - Preserves leading/trailing whitespace on strings by peeling it before the API call and re-applying it to results.
 - Parses model JSON with [`safe_json_loads`](../plugin/framework/json_utils.py) (`strict=False` and repair fallbacks) so multiline UI strings (e.g. Calc Python editor errors with embedded newlines) do not fail batch fill with “invalid control character” from strict `json.loads`.
 

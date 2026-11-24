@@ -2202,6 +2202,7 @@ def test_download_image_to_cache_fetches_through_sync_request(tmp_path, monkeypa
         max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         cancel=scope,
         status_callback=None,
+        shared=False,
     )
 
 

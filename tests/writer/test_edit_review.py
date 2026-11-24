@@ -390,6 +390,25 @@ def test_review_payload_header_and_outcomes_stay_consistent_on_unreliable_rescan
     assert payload["changes"][0]["outcome"] == "pending"     # header and body agree
 
 
+def test_outcome_ignores_edge_paragraph_breaks():
+    from unittest.mock import patch as _patch
+
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+
+    rec = ChangeRecord("t1", "bm1", accepted_text="A\n", rejected_text="one\n", original_preview="", proposed_preview="")
+    with _patch.object(session, "_change_text_at_anchor", return_value="A"):
+        assert session._outcome(rec, pending_tokens=set(), pending_reliable=True) == "accepted"
+    with _patch.object(session, "_change_text_at_anchor", return_value="one"):
+        assert session._outcome(rec, pending_tokens=set(), pending_reliable=True) == "rejected"
+
+    rec_empty = ChangeRecord("t2", "bm2", accepted_text="\n", rejected_text="", original_preview="", proposed_preview="")
+    with _patch.object(session, "_change_text_at_anchor", return_value="\n\n"):
+        assert session._outcome(rec_empty, pending_tokens=set(), pending_reliable=True) == "modified"
+
+
 def test_record_mutation_does_not_tag_when_after_scan_incomplete():
     # before-snapshot reliable, but the post-edit scan is incomplete -> leave the edit untagged rather
     # than register a half-tagged change.

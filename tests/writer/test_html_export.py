@@ -827,9 +827,9 @@ def test_visible_portions_skips_tracked_deletions():
 
     para = _para_of([
         _text_portion("kept "),
-        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion("", "Redline", RedlineType="Delete", IsStart=True),
         _text_portion("deleted"),
-        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion("", "Redline", RedlineType="Delete", IsStart=False),
         _text_portion(" tail"),
     ])
 

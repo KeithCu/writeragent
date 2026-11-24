@@ -15,7 +15,7 @@ from plugin.chatbot.record_gesture import (
 )
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
-from plugin.framework.config import get_api_config, get_api_key_for_endpoint
+from plugin.framework.config import fill_api_key, get_api_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import is_cancelled
 from plugin.chatbot.send_state import spawn_scope
@@ -421,7 +421,7 @@ class PanelVoiceController:
                     # Read the key on this transcription worker so a locked keyring
                     # prompt does not block the UI thread; a locked key surfaces as
                     # a transcription error.
-                    client.config["api_key"] = get_api_key_for_endpoint(client.config.get("endpoint"))
+                    fill_api_key(client.config)
                 return transcribe(
                     wav_path,
                     client=client,

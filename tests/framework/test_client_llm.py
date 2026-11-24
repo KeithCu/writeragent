@@ -370,6 +370,29 @@ def test_stream_request_with_tools_text_and_tool(client):
         assert result["finish_reason"] == "tool_calls"
 
 
+def test_stream_tool_call_delta_log_omits_password_fragments(client, caplog):
+    import logging
+
+    mock_responses = [
+        b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_pw", "type": "function", "function": {"name": "section_set_password", "arguments": "{\\"name\\":\\"S\\",\\"password\\":\\"s3cr"}}]}}]}\n\n',
+        b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "et99\\"}"}}]}}]}\n\n',
+        b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+    with caplog.at_level(logging.DEBUG), _mock_https(create_mock_http_response(sse_lines=mock_responses)):
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "set pw"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "section_set_password"}}],
+        )
+
+    assert result["tool_calls"][0]["function"]["arguments"] == '{"name":"S","password":"s3cret99"}'
+    assert "s3cr" not in caplog.text
+    assert "et99" not in caplog.text
+    assert "section_set_password" in caplog.text
+    assert "<redacted>" in caplog.text
+
+
 def test_stream_delta_normalized_once(client, monkeypatch):
     from plugin.framework.client import llm_client as llm_mod
 

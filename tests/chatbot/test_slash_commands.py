@@ -705,6 +705,79 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
     assert "cancelled" in line.lower()
 
 
+@pytest.mark.parametrize("stop_in_prompt", [False, True], ids=["no-stop", "stop-in-prompt"])
+def test_compact_reads_key_on_worker(fake_keystore, stop_in_prompt: bool) -> None:
+    import threading
+    from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.queue_executor import main
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
+
+    endpoint = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
+    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    cancel = SendCancellation()
+    reads: list[bool] = []
+
+    def _on_get(_name: str) -> None:
+        reads.append(main.is_current())
+        if stop_in_prompt:
+            cancel.cancel()
+
+    fake_keystore.on_get = _on_get
+
+    host = SimpleNamespace(
+        slash_document_model=MagicMock(return_value=object()),
+        cached_doc_type="writer",
+        cached_uno_services=None,
+    )
+    session = MagicMock()
+    session.messages = [{"role": "user", "content": "hi"}]
+
+    with (
+        patch("plugin.app.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))),
+        agent_session(cancel),
+    ):
+        client, tools = prepare_slash_compact_on_ui_thread(host, object(), session)
+    assert client is not None
+    assert reads == []
+
+    out: dict[str, str] = {}
+
+    def _run() -> None:
+        out["line"] = run_slash_compact_sync(
+            focus="",
+            session=session,
+            cancel=cancel,
+            client=client,
+            tools=tools,
+        )
+
+    real_get_config = fw_config.get_config
+
+    def _get_config(key: str) -> object:
+        if key == "chat_compaction_enabled":
+            return True
+        return real_get_config(key)
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
+        patch("plugin.chatbot.compaction.compact_session") as mock_compact,
+    ):
+        t = threading.Thread(target=_run)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive()
+
+    assert reads == [False]
+    assert mock_compact.call_count == 0
+    expected = "cancelled" if stop_in_prompt else "locked"
+    assert expected in out["line"].lower()
+
+
 def test_run_slash_compact_sync_without_api_key_still_compacts():
     from plugin.chatbot.slash_commands import run_slash_compact_sync
     from plugin.framework.send_cancellation import SendCancellation

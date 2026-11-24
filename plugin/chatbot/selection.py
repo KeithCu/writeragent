@@ -144,7 +144,8 @@ PrepareTaskFn = Callable[[StreamCompletionTask], tuple[ApplyChunkFn, ErrorFn]]
 
 def create_validated_client(ctx: Any, title: str) -> LlmClient | None:
     """Return an LLM client for selection actions, or show the config error."""
-    api_config = get_api_config()
+    # Read the key on the request worker so a locked keyring does not freeze LibreOffice.
+    api_config = get_api_config(with_api_key=False)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
         msgbox(ctx, title, _(err_msg))

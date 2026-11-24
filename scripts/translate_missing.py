@@ -36,14 +36,12 @@ except ImportError:
     print("Error: `polib` is required. Run: pip install polib")
     exit(1)
 
-# Import WriterAgent modules for auth and configuration
+# Import WriterAgent constants and JSON helper
 try:
     # Add project root to path if running directly
     import sys
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     
-    # get_config_dict is looked up via globals() in _resolve_openrouter_api_key.
-    from plugin.framework.config import get_config_dict  # noqa: F401
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
     from plugin.framework.json_utils import safe_json_loads
 except ImportError:
@@ -273,33 +271,14 @@ def _build_translate_batch_prompt(texts: List[str], target_lang: str) -> str:
     )
 
 
-def _resolve_openrouter_api_key(endpoint: str, api_key: Optional[str]) -> Optional[str]:
-    if api_key:
-        return api_key
-    gcd = globals().get("get_config_dict")
-    if callable(gcd):
-        try:
-            raw = gcd(None)
-            if isinstance(raw, dict):
-                config: Dict[str, Any] = raw
-                key = config.get("api_keys_by_endpoint", {}).get(endpoint, "")
-                if not key and "api_key" in config:
-                    key = config.get("api_key", "")
-                if key:
-                    return str(key)
-        except Exception:
-            pass
-    return os.environ.get("OPENROUTER_API_KEY")
-
-
 def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAULT_TRANSLATE_MODEL, 
                          endpoint: str = "https://openrouter.ai/api/v1", api_key: Optional[str] = None) -> List[Optional[str]]:
     """Call AI with a list of strings and get corresponding translations back."""
     import urllib.request
 
-    api_key = _resolve_openrouter_api_key(endpoint, api_key)
+    api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        log.error("No API key available. Provide it via argument, config, or OPENROUTER_API_KEY env.")
+        log.error("No API key available. Provide it via argument or OPENROUTER_API_KEY env.")
         return [None] * len(texts)
 
     prompt = _build_translate_batch_prompt(texts, target_lang)
@@ -485,9 +464,9 @@ def call_review_batch(
     if n == 0:
         return []
 
-    api_key = _resolve_openrouter_api_key(endpoint, api_key)
+    api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        log.error("No API key available. Provide it via argument, config, or OPENROUTER_API_KEY env.")
+        log.error("No API key available. Provide it via argument or OPENROUTER_API_KEY env.")
         return []
 
     items: List[Dict[str, Any]] = []

@@ -46,7 +46,7 @@ from typing import Any, Callable, ClassVar, Sequence
 
 from plugin.framework import keystore
 from plugin.framework.client.errors import NetworkError
-from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets
+from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets, secrets_from_headers
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.config import get_config, resolve_entry_secret
 from plugin.framework.logging import is_secret_key, redact_sensitive_payload_for_log
@@ -78,6 +78,7 @@ from plugin.mcp_client.client_helpers import (
     restore_masked,
     safe_numeric,
     sanitize_error,
+    secret_spellings,
     server_enabled,
     server_trusted,
     strip_bearer_prefix,
@@ -263,17 +264,24 @@ class McpServerConnection:
                 self._token = resolve_token(self._server)
             if self._token:
                 headers["Authorization"] = f"Bearer {self._token}"
+        for key, value in headers.items():
+            # http.client quotes the whole value in its "Invalid header value" error, so never hand it one.
+            if "\r" in value or "\n" in value:
+                raise McpClientError(
+                    f"MCP server '{self.name}': the value of header '{key}' contains a line break. Paste it again on one line.",
+                    code="MCP_CLIENT_CONFIG",
+                )
         headers["Content-Type"] = "application/json"
         headers["Accept"] = "application/json, text/event-stream"
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
         if self._version_negotiated:
             headers["MCP-Protocol-Version"] = self._protocol_version
-        self._secrets = [s for s in ([self._token or ""] + secret_hdrs) if s]
+        self._secrets = [form for s in secret_hdrs + secrets_from_headers(headers) for form in secret_spellings(s)]
         return headers
 
     def _scrub(self, text: str) -> str:
-        """Scrub exact server credentials and common secret patterns from *text*."""
+        """Scrub this server's credentials (as written or escaped) and common secret patterns from *text*."""
         return sanitize_error(redact_secrets(text, self._secrets))
 
     def _transport_error(
@@ -786,8 +794,9 @@ class RemoteMcpTool(ToolBase):
     # The remote server applies its own defaults; filling them would change the call the user approves.
     fills_schema_defaults: ClassVar[bool] = False
 
-    def __init__(self, server: dict[str, Any], spec: dict[str, Any], schema: dict[str, Any]) -> None:
-        self._server: dict[str, Any] = server
+    def __init__(self, connection: McpServerConnection, spec: dict[str, Any], schema: dict[str, Any]) -> None:
+        # The delegation finishes on the connection its tools were listed on, so an old tool never replaces a newer connection in _connections.
+        self._connection: McpServerConnection = connection
         self._spec: dict[str, Any] = spec
         self._dispatch_schema: dict[str, Any] = schema["dispatch_schema"]
         self.name: str | None = schema["name"]
@@ -803,7 +812,7 @@ class RemoteMcpTool(ToolBase):
         arguments = unrename_tool_args(self._dispatch_schema, kwargs)
         tool_name = self._spec["name"]
         try:
-            conn = get_connection(self._server)
+            conn = self._connection
             arguments, refusal = self._confirm(ctx, conn, tool_name, arguments)
             if refusal is not None:
                 return refusal
@@ -895,12 +904,14 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
         raise McpClientError("No external MCP server is set up (Settings > Integrations).", code="MCP_CLIENT_NOT_CONFIGURED")
 
     cancel = ctx.send_cancellation
+    connections: dict[str, McpServerConnection] = {}
     candidates: list[ToolCandidate] = []
     notes: list[str] = []
     # A server that is down is noted for the sub-agent; the remaining servers still run.
     for server in servers:
         try:
-            specs = get_connection(server).list_tools(cancel=cancel)
+            connections[server["name"]] = get_connection(server)
+            specs = connections[server["name"]].list_tools(cancel=cancel)
         except McpClientError as e:
             if e.code == "USER_STOPPED":
                 raise
@@ -925,7 +936,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
     for candidate in resolve_name_collisions(candidates):
         try:
             schema = convert_mcp_schema(candidate.server["name"], candidate.spec)
-            tool = RemoteMcpTool(candidate.server, candidate.spec, schema)
+            tool = RemoteMcpTool(connections[candidate.server["name"]], candidate.spec, schema)
             get_tool_json_schema(SmolToolAdapter(tool, ctx, inputs_style="specialized"))
         except (AssertionError, KeyError, RecursionError, TypeError, ValueError) as e:
             log.warning(

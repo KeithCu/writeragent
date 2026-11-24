@@ -787,7 +787,20 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
     from plugin.writer.html_export import document_to_content
 
-    def _reset_and_build(layout: str) -> list[str]:
+    def _body_structure() -> list[str]:
+        from plugin.framework.uno_context import enum_has_more
+
+        enum = doc.getText().createEnumeration()
+        out = []
+        while enum_has_more(enum):
+            el = enum.nextElement()
+            if el.supportsService("com.sun.star.text.TextTable"):
+                out.append("TextTable")
+            else:
+                out.append(f"Paragraph:{el.getString()}")
+        return out
+
+    def _reset_and_build(layout: str) -> tuple[list[str], list[str]]:
         while doc.getTextTables().getCount() > 0:
             doc.getTextTables().getByIndex(0).dispose()
         text = doc.getText()
@@ -803,38 +816,41 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
             text.insertTextContent(text.getEnd(), tbl, False)
             tbl.getCellByName("A1").setString(cell_text)
 
-        def _add_para(s: str) -> None:
+        def _fill_trailing_para(s: str) -> None:
             cur.gotoEnd(False)
-            text.insertControlCharacter(cur, 0, False)
-            if s:
-                text.insertString(cur, s, False)
+            text.insertString(cur, s, False)
 
         if layout == "middle":
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
-            _add_para("Beta")
-            return ["Alpha", "Beta"]
+            _fill_trailing_para("Beta")
+            return ["Alpha", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
         if layout == "leading":
             _add_table("T1")
-            _add_para("Beta")
-            return ["Beta"]
+            _fill_trailing_para("Beta")
+            return ["Beta"], ["TextTable", "Paragraph:Beta"]
         if layout == "adjacent_and_later":
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
             _add_table("T2")
-            _add_para("Beta")
+            _fill_trailing_para("Beta")
             _add_table("T3")
-            _add_para("Gamma")
-            return ["Alpha", "Beta", "Gamma"]
+            _fill_trailing_para("Gamma")
+            return (
+                ["Alpha", "Beta", "Gamma"],
+                ["Paragraph:Alpha", "TextTable", "TextTable", "Paragraph:Beta", "TextTable", "Paragraph:Gamma"],
+            )
         # empty paragraph after table
         text.insertString(cur, "Alpha", False)
         _add_table("T1")
-        _add_para("")
-        _add_para("Gamma")
-        return ["Alpha", "Gamma"]
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        _fill_trailing_para("Gamma")
+        return ["Alpha", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
 
     for layout in ("middle", "leading", "adjacent_and_later", "empty_after"):
-        words = _reset_and_build(layout)
+        words, expected_structure = _reset_and_build(layout)
+        assert _body_structure() == expected_structure, (layout, _body_structure())
         whole = doc.getText().createTextCursor()
         whole.gotoStart(False)
         whole.gotoEnd(True)

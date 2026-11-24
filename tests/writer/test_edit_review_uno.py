@@ -320,3 +320,39 @@ def test_bookmark_reverted_with_edit_undo_uno(ctx, doc):
     um.undo()
     assert _wa_bookmarks(doc) == [], "undo must revert the anchor bookmark along with the edit"
     assert len(_redlines(doc)) == 0, "undo must revert the redline"
+
+
+@native_test
+@with_native_doc("writer")
+def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
+    from plugin.writer.edit_review import EditReviewSession, record_html_atomically
+    from plugin.writer.html_import import replace_single_range_with_content
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+
+    for accept, expected_outcome in ((True, "accepted"), (False, "rejected")):
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        _body(doc, ctx, "Intro", "Para one", "Para two", "Outro")
+        session = EditReviewSession(doc, ctx, enabled=True)
+        with session:
+            r1 = _find(doc, "Para one")
+            r2 = _find(doc, "Para two")
+            assert r1 is not None and r2 is not None
+            record_html_atomically(
+                session,
+                doc,
+                lambda: replace_single_range_with_content(doc, r1, "<p>Replaced one</p>", ctx),
+            )
+            record_html_atomically(
+                session,
+                doc,
+                lambda: replace_single_range_with_content(doc, r2, "<table><tr><td>Cell</td></tr></table>", ctx),
+            )
+            assert len(session.changes) == 2, session.changes
+            cmd = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+            helper.executeDispatch(frame, cmd, "", 0, ())
+            payload = session.wait_for_review(0)
+        assert payload["complete"] is True, payload
+        assert [c["outcome"] for c in payload["changes"]] == [expected_outcome, expected_outcome], payload

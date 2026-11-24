@@ -161,7 +161,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
         if kind == "Redline":
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = not in_delete
+                    in_delete = bool(portion.getPropertyValue("IsStart"))
             except Exception as exc:
                 log.debug("_iter_ruby_spans: RedlineType unreadable: %s", exc)
             continue

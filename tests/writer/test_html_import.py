@@ -359,17 +359,19 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, ex
     (an 18pt bold opening heading spread over the whole document)."""
 
     from plugin.writer import html_import
+    from plugin.writer.html_import_styles import WriteReport
 
     model = MagicMock()
     model.getPropertyValue.return_value = True  # RecordChanges
     text = model.getText.return_value
+    text.createTextCursor.return_value.getText.return_value = text
     leftover = text.createTextCursorByRange.return_value
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"), \
          patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
-        imp.return_value = ["margin-left"]
+        imp.return_value = WriteReport(added_content=True)
         dropped = html_import.replace_full_document(model, MagicMock(), content)
-    assert dropped == ["margin-left"]
+    assert dropped == WriteReport(added_content=True)
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
@@ -2207,5 +2209,42 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     end.getString.return_value = brk
     text.createTextCursorByRange.side_effect = [start, end]
     assert _without_trailing_break(rng) is start
+
+
+@pytest.mark.parametrize(
+    "portion_type, should_drop",
+    [
+        ("Bookmark", True),
+        ("SoftPageBreak", True),
+        ("Redline", True),
+        ("ReferenceMark", False),
+        ("Frame", False),
+    ],
+)
+def test_drop_leftover_paragraph_ignores_markers_but_keeps_real_objects(portion_type, should_drop):
+    from plugin.writer.html_import import _drop_leftover_paragraph
+
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = portion_type
+    para = MagicMock()
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True, False]
+    para_enum.nextElement.return_value = portion
+    para.createEnumeration.return_value = para_enum
+
+    leftover_enum = MagicMock()
+    leftover_enum.hasMoreElements.side_effect = [True, False]
+    leftover_enum.nextElement.return_value = para
+
+    leftover = MagicMock()
+    leftover.getString.side_effect = ["", "\n"]
+    leftover.createEnumeration.return_value = leftover_enum
+    leftover.goLeft.return_value = True
+
+    _drop_leftover_paragraph(leftover, merge_forward_after_table=False)
+    if should_drop:
+        leftover.setString.assert_called_once_with("")
+    else:
+        leftover.setString.assert_not_called()
 
 

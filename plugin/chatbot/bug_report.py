@@ -221,13 +221,16 @@ def _compose_issue_body(header: str, rest: str, extra_body: str, *, title: str =
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:
     """Build a GitHub new-issue URL with title and pre-filled body."""
     from plugin.framework.client.http_security import collect_secrets, redact_secrets, secrets_from_target
-    from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
+    from plugin.framework.config import api_key_needs_keystore_read, get_api_key_for_endpoint, get_current_endpoint
 
     header, rest = _issue_sections(ctx)
     title_clean = title.strip()
 
     endpoint = get_current_endpoint()
-    secrets = collect_secrets(secrets_from_target(endpoint), [get_api_key_for_endpoint(endpoint)])
+    # An uncached ref means this session never read the key, so it cannot be in
+    # the text, and reading it here would open the unlock prompt from an error box.
+    key_secrets = [] if api_key_needs_keystore_read(endpoint) else [get_api_key_for_endpoint(endpoint)]
+    secrets = collect_secrets(secrets_from_target(endpoint), key_secrets)
 
     header = redact_secrets(header, secrets)
     rest = redact_secrets(rest, secrets)

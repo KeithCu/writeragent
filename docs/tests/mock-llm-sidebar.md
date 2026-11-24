@@ -60,7 +60,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | Phrase / Trigger | Server Behavior |
 |------------------|-----------------|
 | `hello` | Streams two HTML paragraphs with rotating templates (bold, lists, tables, `<pre>`). |
-| `look up …` | Calls `web_research` (then executes smol search loop). |
+| `look up …` | Calls `delegate_to_subagent(domain="web_research")` (then executes smol search loop). |
 | `comment` | Calls `comment_add` (or empty-doc `apply_content`). |
 | `keep talking` / `ramble` / `stop me` | Streams ~200 content chunks (for testing **Stop**). |
 | `say nothing` / `empty reply` | No content, `finish_reason=length` → `[Response truncated -- the model ran out of tokens...]`. |
@@ -134,7 +134,7 @@ make test-mock-sidebar FILTER="B E"    # Run multiple packets
 
 #### Config isolation
 
-`start_mock_sidebar_session` snapshots `writeragent.json` into a sidecar file (`writeragent.json.mock-session`) before pointing the profile at the ephemeral mock, and `stop_mock_sidebar_session` writes that exact text back and deletes the sidecar (clearing the in-process config cache under `_config_write_lock`). Any settings changed in the visible LibreOffice during a run are therefore reverted at stop. If a previous run was killed before teardown, the next `start_mock_sidebar_session` restores the leftover sidecar first when `writeragent.json` still points at a `127.0.0.1` mock (`mock-model`), or drops the stale sidecar if the user already repointed the endpoint. No API key is stored for the mock (it is a custom `127.0.0.1` endpoint that requires no key), so no OS keyring item is created.
+`start_mock_sidebar_session` snapshots `writeragent.json` into a sidecar file (`writeragent.json.mock-session`) before pointing the profile at the ephemeral mock, and `stop_mock_sidebar_session` writes that exact text back and deletes the sidecar (clearing the in-process config cache under `_config_write_lock`). Any settings changed in the visible LibreOffice during a run are therefore reverted at stop. If a previous run was killed before teardown, the next `start_mock_sidebar_session` restores the leftover sidecar first when `writeragent.json` still points at a `127.0.0.1` mock (`mock-model`), or drops the stale sidecar if the user already repointed the endpoint. No API key is stored for the mock (it is a custom `127.0.0.1` endpoint that requires no key), so no OS keyring item is created. The suites never write `USER.md`; `chatbot.librarian_invoked` in the start save makes a new deck open in Chat.
 
 #### GitHub Actions (PR CI option)
 
@@ -297,7 +297,7 @@ Every test must satisfy:
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **E1** | CI | `--offline`, `look up latest Python` | Send query | Smol research steps execute; HTML summary in transcript; mock sees `### CURRENT QUERY:`; `next_hello_ok()` | **OK / Landed** |
+| **E1** | CI | `--offline`, `look up latest Python` | Send query | Query is delegated with `domain=web_research`; smol research steps execute; HTML summary in transcript; mock sees `### CURRENT QUERY:`; `next_hello_ok()` | **OK / Landed** |
 | **E2** | CI | `look up …` (online) | Send query with live DuckDuckGo | Single `web_search` → `visit_webpage` → HTML wrap-up (no infinite loop) | **Dropped** (live network; E1 offline covers the loop) |
 | **E3** | CI | Document with text "Welcome…", `add a comment` | Send query | Comment anchored on first word; log shows `comment_add`; sidebar mentions comment; `next_hello_ok()` | **OK / Landed** |
 | **E4** | CI | **Empty** doc, `insert a comment` | Send query | Two-round loop: `apply_content` then `comment_add`; doc nonempty; `next_hello_ok()` | **OK / Landed** |
@@ -523,7 +523,7 @@ Smol ReAct web-research subagent compaction is out of scope.
 | **R5** | CI | `list sheets` in Calc (delay 400ms) | Close the Calc doc mid-turn | No traceback; Writer chat still works | **Landed** |
 | **R6** | CI | `single agent edit` (record mode) | Undo, then accept the stale token | Accept returns False; body unchanged | **Landed** |
 | **R7** | CI | `style tools` | 5x apply_style + get_tree | Heading 1 applied each round; no new thread-guard violations (counted via `_notify_thread_violation`) | **Landed** |
-| **R8** | CI | `look up cats` (HITL on, mock online) | Stop then Accept on the approval | Turn settles; web_research runs at most once | **Landed** |
+| **R8** | CI | `look up cats` (HITL on, mock online) | Stop then Accept on the approval | Turn settles; the research delegate runs once | **Landed** |
 | **R9** | CI | `three agent edits` (3 paragraphs, record mode) | User redline in paragraph 2; resolve all | 2 resolved with a user note; the middle agent change stays pending | **Landed** |
 
 ### Packet M — Stream drain and teardown
