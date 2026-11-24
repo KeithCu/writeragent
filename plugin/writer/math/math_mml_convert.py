@@ -29,7 +29,7 @@ _PARAGRAPH_BREAK = 0
 _ANCHOR_AS_CHARACTER = 1
 
 # com.sun.star.style.ParagraphAdjust (CENTER=3)
-_PARA_CENTER = 3
+PARA_CENTER = 3
 
 
 @dataclass(frozen=True)
@@ -171,7 +171,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     # following run ("AAA|BBB" → "AAA" / "B[F]" / "BB" instead of "AAA" / "[F]" / "BBB").
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.setPropertyValue("ParaAdjust", _PARA_CENTER)
+        cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
 
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
     embed.CLSID = MATH_CLSID

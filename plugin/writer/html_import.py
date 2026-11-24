@@ -44,11 +44,17 @@ from plugin.framework.uno_context import create_property_value
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import strip_html_boilerplate
 from .math.html_math_segment import (
+    MathSegment,
     html_fragment_contains_mixed_math,
     html_fragment_contains_tex_math,
-    segment_html_with_mixed_math,
+    math_placeholders,
 )
-from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
+from .math.math_mml_convert import (
+    PARA_CENTER,
+    convert_latex_to_starmath,
+    convert_mathml_to_starmath,
+    insert_writer_math_formula,
+)
 from .table_nesting import raise_if_range_hosts_nested_table
 
 log = logging.getLogger("writeragent.writer")
@@ -121,17 +127,13 @@ def html_to_plain_text(html_string: str) -> str:
 def _parked_cursor(cursor: Any) -> Any:
     """A cursor parked at *cursor*'s end, in the same ``XText``.
 
-    Multi-segment inserts must not move the cursor to the END OF THE
-    BODY after each segment. That only works when inserting at the
-    end. A search replace whose content has math would leave "[Math import
-    failed] ..." and the rest of the content orphaned at the end of
-    the document, and any cursor in a frame, cell or header raises an
-    empty RuntimeException: it cannot go to a range in another text.
-    The HTML import, ``insertString``
-    and ``insertTextContent`` all leave a cursor parked at the insert
-    point AFTER what they insert (checked live; the import leaves
-    *cursor* itself BEFORE it), so going back to the parked cursor
-    continues right after the content, in any text.
+    Callers must not move *cursor* to the end of the body instead: a mid-document
+    insert would orphan later operations at the body end, and a cursor in a frame,
+    cell, or header raises an empty RuntimeException on a range in another text.
+    HTML import, ``insertString``, and ``insertTextContent`` all leave a cursor
+    parked at the insert point AFTER what they insert (while *cursor* itself
+    stays BEFORE it), so returning to the parked cursor continues right after
+    the imported content in any text.
     """
     return cursor.getText().createTextCursorByRange(cursor.getEnd())
 
@@ -149,8 +151,7 @@ def insert_html_fragment_at_cursor(
 
     When *wrap* is True, wraps bare fragments in a full HTML document.
     *extra_css* is injected into ``<head>`` (e.g. sidebar list margins).
-    When *advance* is True, moves *cursor* past the imported content
-    (multi-segment Writer inserts).
+    When *advance* is True, moves *cursor* past the imported content.
     """
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
@@ -197,47 +198,34 @@ def _math_attempt_entry(
     return entry
 
 
-def _insert_mixed_html_and_math_at_cursor(
-    model: Any, ctx: Any, cursor: Any, unescaped: str
+_MATH_TOKEN_RE = re.compile(r"\[\[WA-MATH:([a-zA-Z0-9]+):(\d+)\]\]")
+
+
+def _place_formulas(
+    model: Any,
+    ctx: Any,
+    text_obj: Any,
+    formulas: list[MathSegment],
+    nonce: str,
 ) -> list[dict[str, Any]]:
-    """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
-    _segs = segment_html_with_mixed_math(unescaped)
-    tail = _parked_cursor(cursor)
+    """Replace ``[[WA-MATH:<nonce>:<i>]]`` placeholders in *text_obj* with Math formulas.
+
+    Must run after style/ruby application (offsets are measured before formulas change the
+    text) and after ``restore_style`` (a style write resets a centred display-math paragraph).
+    """
+    if not formulas:
+        return []
+    prefix = f"[[WA-MATH:{nonce}:"
+    hits = field_restore.find_tokens(text_obj, prefix, _MATH_TOKEN_RE)
+    by_idx = {int(m.group(2)): cur for cur, m in hits}
     attempts: list[dict[str, Any]] = []
-    after_inline_math = False
-    for seg in _segs:
-        if seg.kind == "html":
-            chunk = seg.text
-            if not chunk:
-                continue
-            if not chunk.strip():
-                cursor.getText().insertString(cursor, chunk, False)
-                cursor.gotoRange(tail.getStart(), False)
-                after_inline_math = False
-                continue
-
-            lead = chunk[: len(chunk) - len(chunk.lstrip(" \t\r\n"))]
-            if (
-                after_inline_math
-                and lead
-                and lead.count("\n") < 2
-                and not html_import_styles.LINEBREAK_MARKUP_RE.match(chunk, len(lead))
-            ):
-                # The HTML filter drops ASCII leading whitespace of the fragment it imports;
-                # a no-break space (U+00A0) survives the filter.
-                cursor.getText().insertString(cursor, " ", False)
-                cursor.gotoRange(tail.getStart(), False)
-            after_inline_math = False
-
-            # Expand literal \n and \t for plain HTML without math
-            chunk = html_import_styles.expand_escapes(chunk)
-            chunk, seg_ruby = html_ruby.extract_and_strip_ruby(chunk)
-
-            sub = ensure_html_linebreaks(chunk)
-            seg_ruby_skip = html_ruby.ruby_skip(cursor.getText(), cursor, seg_ruby)
-            insert_html_fragment_at_cursor(cursor, sub, wrap=False, advance=True)
-            if seg_ruby:
-                html_ruby.apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
+    for idx, seg in enumerate(formulas):
+        cursor = by_idx.get(idx)
+        if cursor is None:
+            snippet = (seg.text or "").replace("\n", " ")[:120]
+            attempts.append(
+                _math_attempt_entry(seg, snippet, ok=False, error="formula position lost in the HTML import")
+            )
             continue
         if seg.kind == "tex":
             tex_text = html_import_styles.decode_complete_character_references(seg.text or "")
@@ -246,16 +234,24 @@ def _insert_mixed_html_and_math_at_cursor(
         else:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             res = convert_mathml_to_starmath(ctx, seg.text)
-        if res.ok and res.starmath:
-            insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
-            attempts.append(_math_attempt_entry(seg, snippet, ok=True))
-        else:
+        cursor.setString("")
+        if not (res.ok and res.starmath):
             fallback = "[Math import failed] " + snippet
             cursor.getText().insertString(cursor, fallback, False)
             log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
             attempts.append(_math_attempt_entry(seg, snippet, ok=False, error=res.error_message))
-        after_inline_math = not seg.display_block
-        cursor.gotoRange(tail.getStart(), False)
+            continue
+        if seg.display_block:
+            text = cursor.getText()
+            if not cursor.isEndOfParagraph():
+                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+                cursor.gotoPreviousParagraph(False)
+                cursor.gotoEndOfParagraph(False)
+            if not cursor.isStartOfParagraph():
+                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
+        insert_writer_math_formula(model, cursor, res.starmath, display_block=False)
+        attempts.append(_math_attempt_entry(seg, snippet, ok=True))
     return attempts
 
 
@@ -277,22 +273,6 @@ def _insert_start_from_anchor(text_obj: Any, anchor: Any, cursor: Any) -> Any:
     except Exception as exc:
         reraise_if_disposed(exc)
         return cursor
-
-
-def _paragraph_before(text_obj: Any, cursor: Any) -> Any:
-    """Cursor at the start of the paragraph before *cursor*'s, or None in the first one."""
-    cur = text_obj.createTextCursorByRange(cursor.getStart())
-    cur.gotoStartOfParagraph(False)
-    return cur if cur.gotoPreviousParagraph(False) else None
-
-
-def _paragraph_after(text_obj: Any, before_para: Any) -> Any:
-    """Start of the paragraph after *before_para* (the text start when it is None)."""
-    if before_para is None:
-        return text_obj.createTextCursorByRange(text_obj.getStart())
-    cur = text_obj.createTextCursorByRange(before_para.getStart())
-    cur.gotoNextParagraph(False)
-    return cur
 
 
 def _apply_ruby_and_restore_fields(
@@ -416,17 +396,14 @@ def _insert_mixed_or_plain_html(
     """
     nonce = uuid.uuid4().hex[:8]
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
+    unescaped_content, formulas = math_placeholders(unescaped_content, nonce)
     # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
     clean = html_import_styles.expand_escapes(clean)
-    has_math = html_fragment_contains_mixed_math(clean)
-    if not has_math:
-        # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
-        clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
-    else:
-        ruby_spans = []
+    # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
+    clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
     has_table = "<table" in clean.lower()
     tables_before = _table_count(model) if has_table else None
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
@@ -434,18 +411,12 @@ def _insert_mixed_or_plain_html(
     ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
-    # The math path moves *cursor* past each segment, so keep the paragraph before the insert.
-    before_para = _paragraph_before(text_obj, cursor) if styled and has_math else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
     # content, so anchor one character to the left and step back right after the import.
     start_anchor = _insert_start_anchor(text_obj, cursor)
 
-    if has_math:
-        math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
-    else:
-        math_entries = []
-        single = ensure_html_linebreaks(clean)
-        insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
+    single = ensure_html_linebreaks(clean)
+    insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
 
     tables_after = _table_count(model) if tables_before is not None else None
     tables_added = (
@@ -470,10 +441,7 @@ def _insert_mixed_or_plain_html(
 
     if styled:
         # Per-paragraph failures are already logged inside apply_block_lo_styles.
-        if has_math:
-            start = _paragraph_after(text_obj, before_para)
-        else:
-            start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
+        start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
         failures = html_import_styles.apply_block_lo_styles(
             model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
         )
@@ -488,6 +456,8 @@ def _insert_mixed_or_plain_html(
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+    # Run after styles and ruby so offsets are measured before formulas change the text.
+    math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
     return html_import_styles.WriteReport(
         unapplied_para=failures,
         style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
@@ -762,15 +732,56 @@ def _ensure_empty_absorb_for_styled_insert(
     return cursor
 
 
-def _prep_field_ruby(html: str) -> tuple[str, list[Any], str]:
+def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str]:
     nonce = uuid.uuid4().hex[:8]
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
+    inline_html, formulas = math_placeholders(inline_html, nonce)
     inline_html = html_import_styles.expand_escapes(inline_html)
     inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
-    return inline_html, ruby_spans, nonce
+    return inline_html, ruby_spans, formulas, nonce
 
 
-def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
+def _edge_inline_ws(run: str) -> str:
+    return "" if ("\n" in run or "\r" in run) else run
+
+
+def _insert_raw_inline_html(model: Any, text: Any, cursor: Any, inline_html: str) -> None:
+    """Import *inline_html* raw at *cursor*, keeping horizontal edge whitespace and leaving *cursor* at the end."""
+    core = inline_html.strip()
+    if not core:
+        edge = _edge_inline_ws(inline_html)
+        if edge:
+            text.insertString(cursor, edge, False)
+        return
+    # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
+    # its trailing space and fuse with the next word. Put horizontal edge whitespace in as text;
+    # runs containing CR/LF are dropped as the HTML filter did, avoiding line breaks or splits.
+    lead = _edge_inline_ws(inline_html[: len(inline_html) - len(inline_html.lstrip())])
+    trail = _edge_inline_ws(inline_html[len(inline_html.rstrip()):])
+    if lead:
+        text.insertString(cursor, lead, False)
+    insert_html_fragment_at_cursor(cursor, core, wrap=False, advance=True)
+    if trail:
+        anchor = _insert_start_anchor(text, cursor)
+        text.insertString(cursor, trail, False)
+        trail_cur = (
+            text.createTextCursor()
+            if anchor is None
+            else text.createTextCursorByRange(anchor.getStart())
+        )
+        if anchor is None:
+            trail_cur.gotoStart(False)
+        else:
+            trail_cur.goRight(1, False)
+        if trail_cur.goRight(len(trail), True) and trail_cur.getString() == trail:
+            # Clear direct char formatting inherited from the end of *core* (e.g. "<b>bold</b> ")
+            # without creating a Format redline when RecordChanges is on.
+            with record_changes.record_changes(model, False):
+                reset_direct_char_formatting(trail_cur)
+            cursor.gotoRange(trail_cur.getEnd(), False)
+
+
+def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> list[dict[str, Any]]:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
     ``insert_html_at_cursor`` routes plain text through ``ensure_html_linebreaks``, which
@@ -785,25 +796,13 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         if not content_needs_html_import(swapped):
             plain = html_import_styles.decode_complete_character_references(swapped)
             cursor.getText().insertString(cursor, plain, False)
-            return
-        inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
-        # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
-        # its trailing space and fuse with the next word. Put edge whitespace in as text.
-        core = inline_html.strip()
-        lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
-        trail = inline_html[len(inline_html.rstrip()):]
+            return []
+        inline_html, ruby_spans, formulas, nonce = _prep_inline_html(swapped)
         text = cursor.getText()
         ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
-        if lead:
-            text.insertString(cursor, lead, False)
-        if trail:
-            # The fragment import does not leave the cursor after the imported text, so the
-            # trailing whitespace goes in first and the fragment is imported just before it.
-            text.insertString(cursor, trail, False)
-            cursor.goLeft(len(trail), False)
-        if core:
-            insert_html_fragment_at_cursor(cursor, core, wrap=False)
+        _insert_raw_inline_html(model, text, cursor, inline_html)
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
+        return _place_formulas(model, ctx, text, formulas, nonce)
 
 
 def _range_covers_whole_paragraphs(text_range: Any) -> bool:
@@ -961,9 +960,10 @@ def _insert_inline(model: Any, ctx: Any, cursor: Any, content: str) -> html_impo
     Inline inserts never apply ``data-lo-para`` properties, so any requested names
     are reported as unapplied on the returned ``WriteReport``.
     """
-    insert_inline_at_cursor(model, ctx, cursor, content)
+    math_entries = insert_inline_at_cursor(model, ctx, cursor, content)
     return html_import_styles.WriteReport(
         unapplied_para=html_import_styles.unapplied_para_names_for_content(content),
+        math=math_entries,
     )
 
 
@@ -980,8 +980,6 @@ def _insert_at_caret(
       neither merges nor splits, and it is the only caret case where
       ``_lo_style_for_replaced_range`` allows ``data-lo-style``, so ``apply_styles``
       matters only there.
-    - Mixed math: the math path inserts segment by segment and still splits
-      mid-paragraph, so it delegates to ``_insert_mixed_or_plain_html``.
     - Inline content (no block markup and no real newline): insert inline via
       ``insert_inline_at_cursor`` so the host paragraph is not split by ``<p>`` wrapping.
     - Block content at paragraph start: ``_insert_mixed_or_plain_html`` already places new
@@ -990,7 +988,7 @@ def _insert_at_caret(
       ``insert_html_after_paragraph``, marking ``snapped_to_paragraph`` when the caret
       was mid-paragraph.
     """
-    if (cursor.isStartOfParagraph() and cursor.isEndOfParagraph()) or html_fragment_contains_mixed_math(content):
+    if cursor.isStartOfParagraph() and cursor.isEndOfParagraph():
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     if not content_is_block(content):
         return _insert_inline(model, ctx, cursor, content)
@@ -1025,10 +1023,10 @@ def insert_content_at_position(
     caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
     or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
     the empty one so Reject restores its style and direct formatting. When the selection
-    is non-collapsed and *content* is inline (no block markup, no real newline, no math),
-    it replaces the selection in place, keeping the host paragraph and its style with Track
-    Changes on or off. Pass *selection* to act on an explicit text range (such as a pinned
-    Send-time selection) instead of reading the live view.
+    is non-collapsed and *content* is inline (no block markup, no real newline), it replaces
+    the selection in place, keeping the host paragraph and its style with Track Changes on or
+    off. Pass *selection* to act on an explicit text range (such as a pinned Send-time
+    selection) instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
@@ -1106,17 +1104,13 @@ def insert_content_at_position(
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
                         raise_if_range_hosts_nested_table(rng)
-                        # Inline content (plain text or inline tags, no newline, no math)
+                        # Inline content (plain text or inline tags, no newline)
                         # replaces the selection in place, like typing over it. Otherwise
                         # ensure_html_linebreaks wraps it in <p>, which splits the host
                         # paragraph on import (SwHTMLParser::CallParser in
                         # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
                         # selections go through _replace_whole_paragraphs.
-                        inline = (
-                            not caret
-                            and not content_is_block(content)
-                            and not html_fragment_contains_mixed_math(content)
-                        )
+                        inline = not caret and not content_is_block(content)
                         # Trim a lone trailing break; otherwise a recorded Shift+Down selection
                         # deletes the paragraph break and Accept joins the next paragraph.
                         if not caret:
@@ -1323,10 +1317,14 @@ def replace_single_range_with_content(
 
         # Preserve the target paragraph style for INLINE replacements. The StarWriter
         # HTML import resets the paragraph to a default body style, silently demoting
-        # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
-        # block-level tags, no math), insert without jumping the cursor to the document
-        # end so we can reapply the original paragraph style across the inserted range.
-        inline_preserve = not content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
+        # headings (e.g. "Heading 3" -> "Text body"). Inline content (including inline
+        # math unless content_is_block is True — one token import would wrap it in <p>
+        # and split the host paragraph) is inserted without jumping to the document end
+        # so we can reapply the original paragraph style across the inserted range.
+        inline_preserve = not (
+            content_has_block_markup(prepared)
+            or (html_fragment_contains_mixed_math(prepared) and content_is_block(prepared))
+        )
         saved_style = None
         if inline_preserve:
             saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
@@ -1352,11 +1350,13 @@ def replace_single_range_with_content(
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an
-            # extra body paragraph). advance=False leaves the cursor at the end of the
-            # INSERTED content (not the document end), so [anchor, cursor] bounds it.
-            inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
+            # extra body paragraph). The import uses advance=True, so anchor (parked at
+            # the insert point) can end up after it too; [anchor, cursor] still lies in
+            # the host paragraph, and apply_paragraph_style_preserving_direct_char expands
+            # to whole paragraphs.
+            inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
             ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
-            insert_html_fragment_at_cursor(cursor, inline_html, wrap=False)
+            _insert_raw_inline_html(model, text_obj, cursor, inline_html)
             _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
@@ -1371,10 +1371,13 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
+            # Run after restore_style so a style write cannot reset a centred display-math paragraph.
+            math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
             # Inline content has no blocks, so data-lo-para exists only on stripped inline tags.
             _clean, _styles, _paras, skipped = html_import_styles.extract_block_lo_styles(prepared)
             return html_import_styles.WriteReport(
-                unapplied_para=html_import_styles.declared_para_names(skipped)
+                unapplied_para=html_import_styles.declared_para_names(skipped),
+                math=math_entries,
             )
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
@@ -1564,14 +1567,17 @@ def content_has_block_markup(content: str | None) -> bool:
 def content_is_block(content: str | None) -> bool:
     """Return ``True`` if *content* should be placed as separate paragraphs.
 
-    Content is block-level when it contains block HTML tags or a real newline
-    (plain ``"Novo A\\n\\nNovo B"`` on the inline path would become manual line breaks
-    glued onto the host paragraph). Only real newlines make plain content a block;
-    literal backslash-n in markup (which ``expand_escapes`` expands later) does not.
+    Content is block-level when it contains block HTML tags or a real newline in
+    prose (newlines inside TeX math do not count, while literal ``\\n`` in math
+    prose does because it becomes a paragraph). Only real newlines make plain
+    content without math a block.
     """
     if not content or not isinstance(content, str):
         return False
-    return content_has_block_markup(content) or "\n" in content
+    prose, formulas = math_placeholders(content, "")
+    return content_has_block_markup(content) or "\n" in (
+        html_import_styles.expand_escapes(prose) if formulas else content
+    )
 
 
 

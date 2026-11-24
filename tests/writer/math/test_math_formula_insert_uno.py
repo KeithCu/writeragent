@@ -283,3 +283,232 @@ def test_apply_content_inline_math_keeps_space_after_formula_uno(ctx: Any, doc: 
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any, doc: Any) -> None:
+    from unittest.mock import patch
+
+    from plugin.app import get_services, get_tools
+    from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import execute_dispatch, uno_same
+    from plugin.writer.math.math_mml_convert import MathConversionResult
+
+    text = doc.getText()
+    ctx_tool = ToolContext(doc, ctx, "writer", get_services(), "test")
+
+    def _paras(xtext: Any = text) -> list[Any]:
+        out = []
+        te = xtext.createEnumeration()
+        while enum_has_more(te):
+            el = te.nextElement()
+            if hasattr(el, "getString"):
+                out.append(el)
+        return out
+
+    def _portions(para: Any) -> list[str]:
+        out = []
+        pe = para.createEnumeration()
+        while enum_has_more(pe):
+            p = pe.nextElement()
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Redline":
+                continue
+            if ptype == "Frame":
+                out.append("Frame")
+            elif p.getString():
+                s = p.getString()
+                if out and out[-1] != "Frame":
+                    out[-1] += s
+                else:
+                    out.append(s)
+        return out
+
+    def _clear_untracked() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        for i in range(doc.getTextTables().getCount() - 1, -1, -1):
+            text.removeTextContent(doc.getTextTables().getByIndex(i))
+        doc.setPropertyValue("RecordChanges", rec)
+
+    for rec in (False, True):
+        # Recording opens an absorb break at target='end' so Reject keeps the empty doc's style.
+        extra = 1 if rec else 0
+        try:
+            # 1. Multiple formulas in one paragraph -> 1 paragraph with exact order
+            _clear_untracked()
+            r1 = get_tools().execute("apply_content", ctx_tool, content=r"<p>pre \(x\) and \(y\) post</p>", target="end")
+            assert r1.get("status") == "ok", r1
+            assert _embed_count(doc) == 2
+            paras1 = _paras()
+            assert len(paras1) == 1 + extra
+            assert _portions(paras1[extra]) == ["pre ", "Frame", " and ", "Frame", " post"]
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0 and not text.getString().strip()
+
+            # 2. Bare inline math -> 1 paragraph with exact order
+            _clear_untracked()
+            r2 = get_tools().execute("apply_content", ctx_tool, content=r"pre \(x\) post", target="end")
+            assert r2.get("status") == "ok", r2
+            assert _embed_count(doc) == 1
+            paras2 = _paras()
+            assert len(paras2) == 1 + extra
+            assert _portions(paras2[extra]) == ["pre ", "Frame", " post"]
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0 and not text.getString().strip()
+
+            # 3. Two paragraphs -> 2 paragraphs with exact text
+            _clear_untracked()
+            r3 = get_tools().execute("apply_content", ctx_tool, content=r"<p>a \(x\)</p><p>b</p>", target="end")
+            assert r3.get("status") == "ok", r3
+            paras3 = _paras()
+            assert len(paras3) == 2 + extra
+            assert _portions(paras3[extra]) == ["a ", "Frame"]
+            assert _portions(paras3[extra + 1]) == ["b"]
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0 and not text.getString().strip()
+
+            # 4. Heading style, two-item list, table cell (anchor inside A1), and \theta
+            _clear_untracked()
+            r4 = get_tools().execute(
+                "apply_content",
+                ctx_tool,
+                content=(
+                    r'<h1 data-lo-style="Heading1">Title \(\theta\)</h1>'
+                    r'<ul><li>one \(x\)</li><li>two</li></ul>'
+                    r'<table><tr><td>cell \(y\)</td><td>right</td></tr></table>'
+                ),
+                target="end",
+            )
+            assert r4.get("status") == "ok", r4
+            assert doc.getTextTables().getCount() == 1
+            tbl = doc.getTextTables().getByIndex(0)
+            a1 = tbl.getCellByName("A1")
+            assert "cell" in a1.getString()
+            paras4 = _paras()
+            assert paras4[extra].getPropertyValue("ParaStyleName") == "Heading 1"
+            list_paras = [
+                p
+                for p in paras4
+                if (p.getPropertyValue("NumberingStyleName") or "").strip().lower() not in ("", "outline")
+            ]
+            assert len(list_paras) == 2
+            embeds = doc.getEmbeddedObjects()
+            assert any(uno_same(embeds.getByIndex(i).getAnchor().getText(), a1) for i in range(embeds.getCount()))
+            formulas = [embeds.getByIndex(i).getEmbeddedObject().Formula or "" for i in range(embeds.getCount())]
+            assert any(("theta" in f or "\u03b8" in f) for f in formulas), formulas
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0 and not text.getString().strip()
+
+            # 5. Display math between paragraphs -> no empty neighbours, centered
+            _clear_untracked()
+            r5 = get_tools().execute("apply_content", ctx_tool, content="a\n\n$$x$$\n\nb", target="end")
+            assert r5.get("status") == "ok", r5
+            paras5 = _paras()[extra:]
+            assert [p.getString().strip() for p in paras5] == ["a", "", "b"]
+            assert paras5[1].getPropertyValue("ParaAdjust") == 3
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0 and not text.getString().strip()
+
+            # 6. Inline search replace mid-paragraph (with and without edge whitespace, Accept and Reject)
+            for new_c, expected_portions in (
+                (r"\(x\)", ["hello ", "Frame", " world"]),
+                (r" \(x\) ", ["hello  ", "Frame", "  world"]),
+            ):
+                _clear_untracked()
+                doc.setPropertyValue("RecordChanges", False)
+                text.setString("hello MATCH world")
+                doc.setPropertyValue("RecordChanges", rec)
+                r6 = get_tools().execute(
+                    "apply_content", ctx_tool, target="search", old_content="MATCH", content=new_c
+                )
+                assert r6.get("status") == "ok", r6
+                paras6 = _paras()
+                assert len(paras6) == 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+                    paras6 = _paras()
+                assert _portions(paras6[0]) == expected_portions, (new_c, _portions(paras6[0]))
+
+                if rec:
+                    _clear_untracked()
+                    doc.setPropertyValue("RecordChanges", False)
+                    text.setString("hello MATCH world")
+                    doc.setPropertyValue("RecordChanges", True)
+                    r6_rej = get_tools().execute(
+                        "apply_content", ctx_tool, target="search", old_content="MATCH", content=new_c
+                    )
+                    assert r6_rej.get("status") == "ok", r6_rej
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                    assert text.getString() == "hello MATCH world"
+                    assert _embed_count(doc) == 0
+
+            # 6b. Heading inline replace with trailing newline does not add a line break or split
+            _clear_untracked()
+            doc.setPropertyValue("RecordChanges", False)
+            text.setString("Old title")
+            cur_h = text.createTextCursor()
+            cur_h.gotoStart(False)
+            cur_h.gotoEnd(True)
+            cur_h.setPropertyValue("ParaStyleName", "Heading 1")
+            doc.setPropertyValue("RecordChanges", rec)
+            r6h = get_tools().execute(
+                "apply_content", ctx_tool, target="search", old_content="Old title", content="<b>New title</b>\n"
+            )
+            assert r6h.get("status") == "ok", r6h
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            paras6h = _paras()
+            assert len(paras6h) == 1
+            assert paras6h[0].getString() == "New title"
+            assert paras6h[0].getPropertyValue("ParaStyleName") == "Heading 1"
+
+            # 7. Inline search replace inside a table cell keeps cell paragraph and anchor
+            _clear_untracked()
+            doc.setPropertyValue("RecordChanges", False)
+            tbl7 = doc.createInstance("com.sun.star.text.TextTable")
+            tbl7.initialize(1, 2)
+            text.insertTextContent(text.getEnd(), tbl7, False)
+            tbl7.getCellByName("A1").setString("cell MATCH end")
+            doc.setPropertyValue("RecordChanges", rec)
+            r7 = get_tools().execute(
+                "apply_content", ctx_tool, target="search", old_content="MATCH", content=r"\(x\)"
+            )
+            assert r7.get("status") == "ok", r7
+            a1_7 = tbl7.getCellByName("A1")
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            a1_paras = _paras(a1_7)
+            assert len(a1_paras) == 1
+            assert _portions(a1_paras[0]) == ["cell ", "Frame", " end"]
+
+            # 8. Mid-body failed conversion stays in place and keeps following paragraphs
+            from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+            _clear_untracked()
+            doc.setPropertyValue("RecordChanges", False)
+            cur8 = text.createTextCursor()
+            text.insertString(cur8, "first", False)
+            text.insertControlCharacter(cur8, PARAGRAPH_BREAK, False)
+            text.insertString(cur8, "second MATCH third", False)
+            text.insertControlCharacter(cur8, PARAGRAPH_BREAK, False)
+            text.insertString(cur8, "fourth", False)
+            doc.setPropertyValue("RecordChanges", rec)
+            failed = MathConversionResult(False, None, "bad tex")
+            with patch("plugin.writer.html_import.convert_latex_to_starmath", return_value=failed):
+                r8 = get_tools().execute(
+                    "apply_content", ctx_tool, target="search", old_content="MATCH", content=r"\(bad\)"
+                )
+            assert r8.get("status") == "ok", r8
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            paras8 = [p.getString() for p in _paras()]
+            assert paras8 == ["first", "second [Math import failed] bad third", "fourth"], paras8
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+

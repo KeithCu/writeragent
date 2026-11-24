@@ -454,6 +454,25 @@ def _split_rows_hint(row_span: int) -> str:
     return "Split it repeatedly with table_split_cell (direction='rows')"
 
 
+def _column_wide_cell(table: Any, idx: int) -> tuple[str, int] | None:
+    """First cell in a row where column *idx* shares a merged cell with other columns, and max span.
+
+    ``SwXTableColumns::removeByIndex`` (``sw/source/core/unocore/unotbl.cxx``) calls
+    ``SwDoc::DeleteCol`` (``sw/source/core/docnode/ndtbl.cxx``), which expands the
+    selection across any wider cell; a full-width row makes LibreOffice delete the whole table.
+    """
+    by_row: dict[int, list[str]] = {}
+    for name in _band_cell_names(table, "column", idx):
+        pos = writer_cell_position(name)
+        if pos is not None:
+            by_row.setdefault(pos[1], []).append(name)
+    if not any(len(cells) > 1 for cells in by_row.values()):
+        return None
+    narrowest = min(by_row.values(), key=len)
+    widest = max(len(cells) for cells in by_row.values())
+    return narrowest[0], widest
+
+
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
     """Return leading *names* whose own creation is a pending Insert redline.
 
@@ -894,6 +913,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
         "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
+        "refuses to delete a column that a wider (merged) cell covers together with other columns; "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
@@ -966,6 +986,22 @@ class ManageTableStructure(ToolWriterTableBase):
                             "so its content would be deleted too. %s, move the content to keep into a lower row, "
                             "then delete the row." % (cell_name, row_span, _split_rows_hint(row_span)),
                             code="ROW_HAS_SPANNING_CELL",
+                        )
+                else:
+                    wide = _column_wide_cell(table, idx)
+                    if wide is not None:
+                        cell_name, col_span = wide
+                        split_hint = (
+                            "Split it with table_split_cell (direction='columns', parts=%d)" % col_span
+                            if col_span <= 20
+                            else "Split it repeatedly with table_split_cell (direction='columns')"
+                        )
+                        return self._tool_error(
+                            "Cannot delete this column: cell '%s' spans %d columns, so %d columns "
+                            "would be deleted. %s, move the text to keep into another part, then "
+                            "delete the column. If the column edges still do not line up, edit the "
+                            "cells instead." % (cell_name, col_span, col_span, split_hint),
+                            code="COLUMN_HAS_SPANNING_CELL",
                         )
             if insert:
                 edit_table_band(band, action, idx, axis_arg)
