@@ -736,3 +736,61 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert sheet.getCellByPosition(4, 0).getFormula() == "=1/0"
     finally:
         WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_inf_spill_neighbour_survives_ods_reload_uno(ctx, doc):
+    """±inf spill neighbours become #NUM! (503), ISERROR true, and survive ODS store and reload."""
+    from com.sun.star.beans import PropertyValue
+    import uno
+    from plugin.calc.python.spill import perform_deferred_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[1, float('inf'), float('-inf')]]"
+        sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+        perform_deferred_spill(
+            sheet.Name,
+            0,
+            0,
+            [[1.0, float("inf"), float("-inf")]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
+        sheet.getCellByPosition(1, 1).setFormula("=ISERROR(B1)")
+        sheet.getCellByPosition(2, 1).setFormula("=ISERROR(C1)")
+        doc.calculateAll()
+
+        for col in (1, 2):
+            c = sheet.getCellByPosition(col, 0)
+            assert c.getError() == 503
+            assert c.getString() == "#NUM!"
+            assert sheet.getCellByPosition(col, 1).getValue() == 1.0
+
+        with tempfile.TemporaryDirectory(prefix="wa-inf-ods-") as tmpdir:
+            ods_path = os.path.join(tmpdir, "inf_spill.ods")
+            ods_url = uno.systemPathToFileUrl(ods_path)
+            doc.storeToURL(ods_url, ())
+
+            desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            hidden_prop = PropertyValue()
+            hidden_prop.Name = "Hidden"
+            hidden_prop.Value = True
+            reloaded = desktop.loadComponentFromURL(ods_url, "_blank", 0, (hidden_prop,))
+            try:
+                rsheet = reloaded.getSheets().getByIndex(0)
+                reloaded.calculateAll()
+                for col in (1, 2):
+                    rc = rsheet.getCellByPosition(col, 0)
+                    assert rc.getError() == 503
+                    assert rc.getString() == "#NUM!"
+            finally:
+                reloaded.close(True)
+    finally:
+        WorkbookState.forget_key(st.key)

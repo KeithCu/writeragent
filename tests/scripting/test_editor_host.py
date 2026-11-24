@@ -990,6 +990,234 @@ def test_sync_save_with_pending_load_sets_load_follows_and_activates_next(monkey
     assert "load_follows" not in sent[0]
 
 
+def test_save_script_requested_ok_sends_load_follows_and_rereads_run_script(monkeypatch):
+    editor = PersistentEditor()
+    activated: list[dict] = []
+    closed_calls: list[str] = []
+    monkeypatch.setattr(
+        launch_mod,
+        "_activate_load",
+        lambda msg, on_save, on_closed: activated.append(dict(msg)),
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "handle_editor_script_message",
+        lambda kind, msg, **kw: kw["send"]({
+            "type": "scripts_list",
+            "sections": [],
+            "status_ok_text": "Saved.",
+        }),
+    )
+    doc_sentinel = object()
+    monkeypatch.setattr(launch_mod, "get_user_scripts", lambda: {"S1": "new_code"})
+    monkeypatch.setattr(launch_mod, "build_xdl_script_picker_state", lambda doc, scripts: {"doc": doc})
+    monkeypatch.setattr(launch_mod, "resolve_run_script_selection", lambda doc, st: ("S1", "re_read_code", "user"))
+
+    state = launch_mod.EditorSessionState(
+        "sid1",
+        "run_script",
+        {"script_name": "S1"},
+        on_save=lambda *_a: {"type": "saved", "ok": True},
+        on_closed=lambda: closed_calls.append("closed"),
+    )
+    state.pending_load = {
+        "type": "load",
+        "mode": "run_script",
+        "code": "stale_code",
+        "run_script_doc": doc_sentinel,
+    }
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    state.pending_on_closed = lambda: None
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({
+        "type": "save_script",
+        "session_id": "sid1",
+        "name": "S1",
+        "code": "new_code",
+        "origin": "user",
+        "requested": True,
+    })
+    assert sent[0]["type"] == "scripts_list"
+    assert sent[0].get("load_follows") is True
+    assert closed_calls == ["closed"]
+    assert "sid1" not in editor.sessions
+    assert len(activated) == 1
+    assert activated[0]["code"] == "re_read_code"
+    assert activated[0]["selected_script_name"] == "S1"
+    assert activated[0]["script_name"] == "S1"
+
+
+def test_save_script_requested_refused_drops_pending_load(monkeypatch):
+    editor = PersistentEditor()
+    activated: list[dict] = []
+    monkeypatch.setattr(
+        launch_mod,
+        "_activate_load",
+        lambda msg, on_save, on_closed: activated.append(dict(msg)),
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "handle_editor_script_message",
+        lambda kind, msg, **kw: kw["send"]({
+            "type": "scripts_list",
+            "sections": [],
+            "status_error_text": "Read-only",
+        }),
+    )
+    state = launch_mod.EditorSessionState("sid1", "run_script", {"script_name": "S1"})
+    state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({
+        "type": "save_script",
+        "session_id": "sid1",
+        "name": "S1",
+        "code": "x",
+        "origin": "vision",
+        "requested": True,
+    })
+    assert "load_follows" not in sent[0]
+    assert activated == []
+    assert state.pending_load is None
+
+
+def test_save_script_without_requested_leaves_pending_load(monkeypatch):
+    editor = PersistentEditor()
+    activated: list[dict] = []
+    monkeypatch.setattr(
+        launch_mod,
+        "_activate_load",
+        lambda msg, on_save, on_closed: activated.append(dict(msg)),
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "handle_editor_script_message",
+        lambda kind, msg, **kw: kw["send"]({
+            "type": "scripts_list",
+            "sections": [],
+            "status_ok_text": "Saved.",
+        }),
+    )
+    state = launch_mod.EditorSessionState("sid1", "run_script", {"script_name": "S1"})
+    queued = {"type": "load", "mode": "calc_cell", "code": "next"}
+    state.pending_load = queued
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({
+        "type": "save_script",
+        "session_id": "sid1",
+        "name": "S1",
+        "code": "x",
+        "origin": "user",
+    })
+    assert "load_follows" not in sent[0]
+    assert activated == []
+    assert state.pending_load is queued
+
+
+def test_save_script_requested_marshal_timeout_clears_pending_and_late_handler_activates_nothing(monkeypatch):
+    editor = PersistentEditor()
+    activated: list[dict] = []
+    late_fn: list[Any] = []
+    monkeypatch.setattr(
+        launch_mod,
+        "_activate_load",
+        lambda msg, on_save, on_closed: activated.append(dict(msg)),
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "handle_editor_script_message",
+        lambda kind, msg, **kw: kw["send"]({
+            "type": "scripts_list",
+            "sections": [],
+            "status_ok_text": "Saved.",
+        }),
+    )
+    state = launch_mod.EditorSessionState("sid1", "run_script", {"script_name": "S1"})
+    state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+
+    def _timeout(fn, *args, **kwargs):
+        late_fn.append(fn)
+        raise TimeoutError("timed out")
+
+    editor.executor.call.side_effect = _timeout
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({
+        "type": "save_script",
+        "session_id": "sid1",
+        "name": "S1",
+        "code": "x",
+        "origin": "user",
+        "requested": True,
+    })
+    assert state.pending_load is None
+    assert sent[0]["type"] == "error"
+
+    assert len(late_fn) == 1
+    late_fn[0]()
+    assert activated == []
+    assert "load_follows" not in sent[-1]
+
+
+def test_save_script_requested_reread_exception_keeps_session_and_sends_error(monkeypatch):
+    editor = PersistentEditor()
+    monkeypatch.setattr(
+        launch_mod,
+        "handle_editor_script_message",
+        lambda kind, msg, **kw: kw["send"]({
+            "type": "scripts_list",
+            "sections": [],
+            "status_ok_text": "Saved.",
+        }),
+    )
+    monkeypatch.setattr(launch_mod, "get_user_scripts", lambda: {})
+    monkeypatch.setattr(launch_mod, "build_xdl_script_picker_state", lambda doc, scripts: {})
+    monkeypatch.setattr(
+        launch_mod,
+        "resolve_run_script_selection",
+        lambda *_a: (_ for _ in ()).throw(RuntimeError("read failed")),
+    )
+    state = launch_mod.EditorSessionState("sid1", "run_script", {"script_name": "S1"})
+    state.pending_load = {"type": "load", "mode": "run_script", "code": "stale", "run_script_doc": object()}
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({
+        "type": "save_script",
+        "session_id": "sid1",
+        "name": "S1",
+        "code": "x",
+        "origin": "user",
+        "requested": True,
+    })
+    assert "sid1" in editor.sessions
+    assert any(m.get("type") == "error" for m in sent)
+
+
 def test_deferred_stale_deliver_does_not_clear_dirty():
     """A Run that finishes after a newer save must not mark the buffer clean."""
     editor = PersistentEditor()
