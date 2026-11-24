@@ -151,7 +151,13 @@ def plan_target(c1: int, r1: int, c2: int, r2: int, rows: int, cols: int) -> tup
         if rows > height or cols > width:
             notes.append(f"The result is {rows} x {cols} but the range is {height} x {width}: the rest is cut (result_does_not_fit).")
         elif rows < height or cols < width:
-            notes.append(f"The result is {rows} x {cols}, smaller than the range: the extra cells show #N/A.")
+            # ScMatrixImpl::ValidColRowReplicated (sc/source/core/tool/scmatrix.cxx): a block repeats a one-row or one-column result.
+            parts = []
+            if rows == 1 < height or cols == 1 < width:
+                parts.append("a single row or column is repeated")
+            if 1 < rows < height or 1 < cols < width:
+                parts.append("cells past the result show #N/A")
+            notes.append(f"The result is {rows} x {cols}, smaller than the range: {' and '.join(parts)}.")
         target = CellRect(c1, r1, c2, r2)
     else:
         if rows * cols > MAX_ARRAY_CELLS:
