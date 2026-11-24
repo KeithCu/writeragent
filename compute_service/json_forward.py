@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 from compute_service import error_codes as ec
@@ -37,6 +38,11 @@ _FORBIDDEN_META_KEYS = ("code", "data", "data_json", "init_script")
 _VISION_PART_NAMES = frozenset({"meta", "image"})
 _VISION_FORBIDDEN_META_KEYS = ("image", "image_b64")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
+
+# Matches in JSON text from json.dumps: an escaped backslash, a surrogate pair, or a lone
+# surrogate. The first two are matched so that the text "\\ud83d" and a real pair are not
+# read as a lone surrogate. Only the lone match is 6 characters long.
+_JSON_SURROGATE_RE = re.compile(r"\\\\|\\ud[89ab][0-9a-f]{2}\\ud[c-f][0-9a-f]{2}|\\ud[89a-f][0-9a-f]{2}")
 
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
@@ -129,8 +135,16 @@ class VisionRequestParts:
 
 
 def dumps_response(payload: dict[str, Any]) -> bytes:
-    """Encode one kit-safe execute response. Worker is the only dumps site."""
-    return json.dumps(payload, allow_nan=False).encode("utf-8")
+    """Encode one kit-safe JSON reply, with each lone surrogate replaced by U+FFFD.
+
+    Python strings may hold a lone surrogate (``os.fsdecode`` of a non-UTF-8 name).
+    POCO's JSON tokenizer in coolwsd rejects the whole body that carries one, which
+    would hide the real error text behind "Python compute returned non-JSON body".
+    """
+    text = json.dumps(payload, allow_nan=False)
+    if r"\ud" in text:
+        text = _JSON_SURROGATE_RE.sub(lambda m: r"\ufffd" if len(m[0]) == 6 else m[0], text)
+    return text.encode("utf-8")
 
 
 def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False, namespace_created: bool = False) -> dict[str, Any]:

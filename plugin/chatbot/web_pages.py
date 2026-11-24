@@ -277,6 +277,11 @@ class PageStore:
         with self._lock:
             return self._pages.get(key)
 
+    def snapshot(self) -> list[tuple[str, StoredPage]]:
+        """Return (url key, page) pairs, oldest stored first."""
+        with self._lock:
+            return list(self._pages.items())
+
 
 def _render_part(url: str, page: StoredPage, number: int) -> str:
     """Format one stored page part with its navigation header.
@@ -481,17 +486,44 @@ class ReadPageTool(Tool):
         return _render_part(url, page, part)
 
 
+def _find_snippets(page: StoredPage, needle: str, limit: int) -> tuple[int, list[str]]:
+    """Return the match count of `needle` in `page` and up to `limit` non-overlapping snippets."""
+    total = 0
+    snippets: list[str] = []
+    last_window_end = -1
+    for match in re.finditer(re.escape(needle), page.text, re.IGNORECASE):
+        total += 1
+        s, e = match.start(), match.end()
+        if s < last_window_end or len(snippets) >= limit:
+            continue
+        win_start = max(0, s - _FIND_CONTEXT_CHARS)
+        win_end = min(len(page.text), e + _FIND_CONTEXT_CHARS)
+        snippet = page.text[win_start:win_end].replace("\n", " ")
+        snippets.append(f"Part {page.part_at(s)}: …{snippet}…")
+        last_window_end = win_end
+    return total, snippets
+
+
+def _shown_note(total: int, shown: int) -> str:
+    return f" ({shown} shown)" if total > shown else ""
+
+
 class FindInPageTool(Tool):
-    """Searches a previously fetched webpage for a phrase and returns matching snippets with part numbers."""
+    """Searches one fetched page, or every fetched page, for a phrase and returns matching snippets with part numbers."""
 
     name: str = "find_in_page"
     description: str = (
-        "Searches the full text of a page fetched with visit_webpage for a phrase "
-        "(case-insensitive, exact characters) and returns each match with the text around it and its part number."
+        "Searches the full text of fetched pages for a phrase (case-insensitive, exact characters) "
+        "and returns each match with the text around it and its part number. "
+        "Without url, it searches every page fetched so far."
     )
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {
-        "url": {"type": "string", "description": "The url passed to visit_webpage."},
         "text": {"type": "string", "description": "The phrase to find."},
+        "url": {
+            "type": "string",
+            "description": "The url passed to visit_webpage. Omit to search all fetched pages.",
+            "nullable": True,
+        },
     }
     output_type: str = "string"
     _pages: PageStore
@@ -500,32 +532,53 @@ class FindInPageTool(Tool):
         super().__init__()
         self._pages = pages
 
-    def forward(self, url: str, text: str) -> str:
-        page = self._pages.get(url)
-        if page is None:
+    def forward(self, text: str, url: str | None = None) -> str:
+        # Models send null or "" for an optional argument they leave out.
+        target = (url or "").strip()
+        page = self._pages.get(target) if target else None
+        if target and page is None:
             return f"No text is stored for {url}; visit_webpage fetches it."
         needle = text.strip()
         if not needle:
             return "find_in_page needs a non-empty text."
         per_snippet = 2 * _FIND_CONTEXT_CHARS + len(needle) + _FIND_SNIPPET_OVERHEAD_CHARS
         max_matches = max(1, min(_FIND_MAX_MATCHES, self._pages.budget_chars // per_snippet))
-        total = 0
-        snippets: list[str] = []
-        last_window_end = -1
-        for match in re.finditer(re.escape(needle), page.text, re.IGNORECASE):
-            total += 1
-            s, e = match.start(), match.end()
-            if s < last_window_end:
-                continue
-            if len(snippets) < max_matches:
-                win_start = max(0, s - _FIND_CONTEXT_CHARS)
-                win_end = min(len(page.text), e + _FIND_CONTEXT_CHARS)
-                snippet = page.text[win_start:win_end].replace("\n", " ")
-                part_num = page.part_at(s)
-                snippets.append(f"Part {part_num}: …{snippet}…")
-                last_window_end = win_end
+        if page is None:
+            return self._find_in_all(needle, max_matches)
+        total, snippets = _find_snippets(page, needle, max_matches)
         if total == 0:
             return f'No match for "{needle}" in {url} ({page.part_count} part(s)).'
-        capped = f" ({len(snippets)} shown)" if total > len(snippets) else ""
-        header = f'{total} match(es) for "{needle}" in {url}{capped}'
+        header = f'{total} match(es) for "{needle}" in {url}{_shown_note(total, len(snippets))}'
         return header + "\n" + "\n".join(snippets)
+
+    def _find_in_all(self, needle: str, max_matches: int) -> str:
+        """Search every stored page, newest first, sharing max_matches and the budget across pages."""
+        pages = self._pages.snapshot()
+        if not pages:
+            return "No pages are stored yet; visit_webpage fetches them."
+        hits: list[tuple[str, int, list[str]]] = []
+        for url, page in reversed(pages):
+            total, snippets = _find_snippets(page, needle, max_matches)
+            if total:
+                hits.append((url, total, snippets))
+        if not hits:
+            return f'No match for "{needle}" in any of the {len(pages)} stored page(s).'
+        grand_total = sum(total for _url, total, _snippets in hits)
+        header = f'{grand_total} match(es) for "{needle}" in {len(hits)} of {len(pages)} stored page(s)'
+        # The extra characters leave room for the "(K page(s) shown)" note.
+        used = len(header) + _FIND_SNIPPET_OVERHEAD_CHARS
+        left = max_matches
+        blocks: list[str] = []
+        for idx, (url, total, snippets) in enumerate(hits):
+            # An even share of the snippets left; at least one until they run out.
+            quota = min(left, max(1, left // (len(hits) - idx)))
+            shown = snippets[:quota]
+            block = "\n".join([f"{total} match(es) in {url}{_shown_note(total, len(shown))}", *shown])
+            if blocks and used + len(block) + 2 > self._pages.budget_chars:
+                break
+            blocks.append(block)
+            used += len(block) + 2
+            left -= len(shown)
+        if len(blocks) < len(hits):
+            header += f" ({len(blocks)} page(s) shown)"
+        return "\n\n".join([header, *blocks])

@@ -83,8 +83,18 @@ def _join_http_error_body(base: str, content: str, *, is_snippet: bool = False) 
     return str(base) + sep + str(content)
 
 
-def format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:
+def format_http_error_response(
+    status: int,
+    reason: str,
+    err_body: str,
+    context_window: int | None = None,
+    *,
+    source: str | None = None,
+) -> str:
     """Build error message including response body for display in chat/UI.
+
+    ``source`` names the host for non-LLM callers; when omitted, the label
+    defaults to "AI Provider".
 
     This remains client-specific because it parses provider error JSON bodies
     and falls back to raw snippets — behavior that is only relevant on the
@@ -112,15 +122,16 @@ def format_http_error_response(status: int, reason: str, err_body: str, context_
         return local_model_overflow_message(context_window)
     body = err_body.strip()
     mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
+    label = source or _("AI Provider")
     if mapped is not None:
         base = mapped
     elif not reason_str:
-        formatted = _("HTTP Error {0} from AI Provider: {1}").format(status_num, "").rstrip()
+        formatted = _("HTTP Error {0} from {1}: {2}").format(status_num, label, "").rstrip()
         if formatted.endswith((":", "：")):
             formatted = formatted[:-1].rstrip()
         base = formatted
     else:
-        base = _("HTTP Error {0} from AI Provider: {1}").format(status_num, reason_str)
+        base = _("HTTP Error {0} from {1}: {2}").format(status_num, label, reason_str)
     if not body:
         return str(base)
     data = safe_json_loads(err_body)
