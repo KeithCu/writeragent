@@ -313,7 +313,8 @@ _D_H_BAD_INPUTS = [
     ("expondist-blank-flag", "expondist", (1, 1, None), 0.36787944117144233),
     ("expondist-omitted-flag", "expondist", (1, 1), 0.6321205588285577),
     ("expondist-zero", "expondist", (1, 0), _NAN),
-    ("expondist-oor", "expondist", (-1, 1), _NAN),
+    ("expondist-oor", "expondist", (-1, 1), 0.0),
+    ("expondist-oor-pdf", "expondist", (-1, 1, 0), 0.0),
     ("fact-text", "fact", ("x",), ValueError),
     ("fact-blank", "fact", ("",), ValueError),
     ("fact-oor", "fact", (-1,), _NAN),
@@ -357,7 +358,8 @@ _D_H_BAD_INPUTS = [
     ("gammadist-blank-flag", "gammadist", (1, 2, 1, None), 0.36787944117144233),
     ("gammadist-omitted-flag", "gammadist", (1, 2, 1), 0.2642411176571153),
     ("gammadist-zero", "gammadist", (1, 0, 1), _NAN),
-    ("gammadist-oor", "gammadist", (-1, 2, 1), _NAN),
+    ("gammadist-oor", "gammadist", (-1, 2, 1), 0.0),
+    ("gammadist-oor-pdf", "gammadist", (-1, 2, 1, 0), 0.0),
     ("gammainv-text", "gammainv", ("x", 2, 1), ValueError),
     ("gammainv-blank", "gammainv", ("", 2, 1), ValueError),
     ("gammainv-zero", "gammainv", (0.5, 0, 1), _NAN),
@@ -622,5 +624,10 @@ def test_dget_zero_row_database():
     assert calc.dget([], "x", [["x"], [1]]) == "#VALUE!"
     assert calc.dget([[]], "x", [["x"], [1]]) == "#VALUE!"
 
+
+def test_dsum_error_text_criteria_not_blank():
+    db = [["K", "V"], ["Err:502", 1], ["#DIV/0!", 2], [None, 4], [3, 8], ["x", 16]]
+    assert calc.dsum(db, "V", [["K"], ["Err:502"]]) == 1.0
+    assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 2.0
 
 

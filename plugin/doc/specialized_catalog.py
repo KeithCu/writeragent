@@ -138,7 +138,13 @@ def _special_base(agent_label: str | None) -> Any:
     return ToolWriterSpecialBase
 
 
-def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
+def get_specialized_domain_catalog(
+    *,
+    agent_label: str | None,
+    ctx: Any = None,
+    for_discovery: bool = False,
+    for_mcp: bool = False,
+) -> list[dict[str, str]]:
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
     ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
@@ -147,13 +153,14 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     ``for_discovery`` is set by MCP ``tool_find``: it keeps the domains whose exclusion only
     shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
     no-document merge uses the same flag as the per-app branches.
+    ``for_mcp`` hides ``tier == "chat"`` domains without widening Calc exclusions.
     """
     labels = (agent_label,) if agent_label in ("Writer", "Calc", "Draw") else ("Writer", "Calc", "Draw")
     seen: dict[str, str] = {}
     # for_discovery must be forwarded. python is hidden on Calc chat only.
     for label in labels:
         for entry in catalog_entries_from_base(
-            agent_label=label, ctx=ctx, for_discovery=for_discovery,
+            agent_label=label, ctx=ctx, for_discovery=for_discovery, for_mcp=for_mcp,
         ):
             dom = entry["domain"]
             desc = entry["description"]
@@ -206,7 +213,11 @@ def format_specialized_domains_description(
 
 
 class InnerToolCall(NamedTuple):
-    """One tool call the inner smol agent made, in call order."""
+    """One tool call the inner smol agent made, in call order.
+
+    ``mutating`` is the tool kind (``detects_mutation()``), except that a call that
+    never ran is recorded False.
+    """
 
     name: str
     result: Any

@@ -218,9 +218,7 @@ SCENARIO_IDS = frozenset(
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
 
-_DELEGATE_WRITER = "delegate_to_subagent"
-_DELEGATE_CALC = "delegate_to_subagent"
-_DELEGATE_DRAW = "delegate_to_subagent"
+_DELEGATE_TOOL = "delegate_to_subagent"
 # Packet E24: the venv-worker tool and a script slow enough to kill mid-run.
 PYTHON_TOOL = "python_run_script"
 PYTHON_SLOW_CODE = "import time\ntime.sleep(20)\nresult = 'slept'"
@@ -578,16 +576,6 @@ def _last_user_raw(messages: list[Any]) -> str:
     return ""
 
 
-def _delegate_for_tools(tool_names: set[str]) -> str | None:
-    calc_tools = {"write_range", "sheet_list", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
-    if _DELEGATE_CALC in tool_names and (bool(tool_names & calc_tools) or _DELEGATE_WRITER not in tool_names):
-        return _DELEGATE_CALC
-    for name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
-        if name in tool_names:
-            return name
-    return None
-
-
 def _pick_catalog_target(peers: list[dict[str, str]], *, prefer_type: str = "") -> str:
     """Return uid, url, or display name from the catalog. Prefer *prefer_type*."""
     ordered = list(peers)
@@ -854,9 +842,7 @@ def _is_main_chat(tool_names: set[str]) -> bool:
             "apply_content",
             "search",
             "get_tree",
-            _DELEGATE_WRITER,
-            _DELEGATE_CALC,
-            _DELEGATE_DRAW,
+            _DELEGATE_TOOL,
             "write_range",
             "sheet_list",
             "slide_list",
@@ -979,7 +965,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
     if tool_name == "apply_content":
         return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
-    if tool_name == "delegate_to_subagent":
+    if tool_name == _DELEGATE_TOOL:
         return (
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
@@ -1442,7 +1428,7 @@ def _scenario_user_turn(
     if scenario in {"delegate", "empty_nested", "nested_never_finish"}:
         return _tool_or_html(
             tool_names,
-            _DELEGATE_WRITER,
+            _DELEGATE_TOOL,
             {"domain": "document_research", "task": user_text or "outline the document"},
             user_text,
             turn,
@@ -1518,18 +1504,16 @@ def _scenario_user_turn(
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
     if scenario == "python_slow":
         # python_run_script is specialized-tier: delegate to the python domain.
-        delegate = _delegate_for_tools(tool_names)
-        if delegate:
-            return _tool_or_html(tool_names, delegate, {"domain": "python", "task": user_text}, user_text, turn)
+        if _DELEGATE_TOOL in tool_names:
+            return _tool_or_html(tool_names, _DELEGATE_TOOL, {"domain": "python", "task": user_text}, user_text, turn)
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     if scenario in ("image_one", "image_two"):
         # image_generate is specialized-tier: delegate to the images domain; the inner
         # turn (_specialized_inner_completion) issues the image_generate call(s).
         if "image_generate" in tool_names:
             return _image_generate_completion(scenario)
-        delegate = _delegate_for_tools(tool_names)
-        if delegate:
-            return _tool_or_html(tool_names, delegate, {"domain": "images", "task": user_text}, user_text, turn)
+        if _DELEGATE_TOOL in tool_names:
+            return _tool_or_html(tool_names, _DELEGATE_TOOL, {"domain": "images", "task": user_text}, user_text, turn)
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     if scenario == "mutate":
         return _tool_or_html(
@@ -1547,11 +1531,10 @@ def _scenario_user_turn(
     if scenario == "slide_list":
         return _tool_or_html(tool_names, "slide_list", {}, user_text, turn)
     if scenario in {"peer_total", "peer_wait"}:
-        delegate = _delegate_for_tools(tool_names)
-        if delegate:
+        if _DELEGATE_TOOL in tool_names:
             return _tool_or_html(
                 tool_names,
-                delegate,
+                _DELEGATE_TOOL,
                 {
                     "domain": "document_research",
                     "task": user_text or "Add a Total row and reply via peer_send_result.",
@@ -1567,9 +1550,8 @@ def _scenario_user_turn(
         # Packet O: OCR is the specialized "vision" domain (image_extract_structure).
         if "image_extract_structure" in tool_names:
             return _tool_or_html(tool_names, "image_extract_structure", {}, user_text, turn)
-        delegate = _delegate_for_tools(tool_names)
-        if delegate:
-            return _tool_or_html(tool_names, delegate, {"domain": "vision", "task": user_text}, user_text, turn)
+        if _DELEGATE_TOOL in tool_names:
+            return _tool_or_html(tool_names, _DELEGATE_TOOL, {"domain": "vision", "task": user_text}, user_text, turn)
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     return None
 
@@ -1613,7 +1595,6 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         if last_called_tool == "write_range" and (
             envelope or scenario in {"peer_total", "peer_wait"}
         ):
-            delegate = _delegate_for_tools(tool_names) or _DELEGATE_CALC
             env = envelope or {}
             task = (
                 "Reply to the peer envelope with peer_send_result: document_url=%s "
@@ -1622,7 +1603,7 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
             )
             return Completion(
                 reasoning=reasoning,
-                tool_name=delegate,
+                tool_name=_DELEGATE_TOOL,
                 tool_args={"domain": "document_research", "task": task},
                 finish_reason="tool_calls",
             )
@@ -1699,7 +1680,7 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
     if _is_main_chat(tool_names) and (config.always_research or _looks_like_research(user_text)):
         return _tool_or_html(
             tool_names,
-            _DELEGATE_WRITER,
+            _DELEGATE_TOOL,
             {"domain": "web_research", "task": user_text or "mock research"},
             user_text,
             turn,

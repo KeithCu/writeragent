@@ -26,6 +26,7 @@ from .calc_functions_util import (
     extract_numeric_array,
     finite_or_nan,
     format_quantized,
+    is_criteria_blank,
     match_criteria,
     npf_result,
     require_samples,
@@ -35,7 +36,7 @@ from .calc_functions_util import (
     serial_to_date,
     yearfrac,
 )
-from .coerce import header_label, is_missing_value
+from .coerce import header_label
 
 
 __all__ = [
@@ -245,7 +246,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         row = db_arr[r_idx]
         if not any(
             all(
-                is_missing_value(c) or match_criteria(row[crit_cols[j]], c)
+                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], c)
                 for j, c in enumerate(crit_arr[i])
             )
             for i in range(1, crit_arr.shape[0])
@@ -687,9 +688,9 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     # 0, the density. Calc requires the flag; the Python default 1 (cumulative)
     # is a convenience.
     cum = as_nonzero(c)
-    # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
-    # Excel EXPONDIST is #NUM! for both.
-    if x_val < 0 or lam <= 0:
+    # Lambda 0 would divide by zero, and Calc rejects lambda <= 0; a negative x is 0 in both forms,
+    # as in ScExpDist (interpr3.cxx), and scipy gives that.
+    if lam <= 0:
         return float("nan")
     if cum:
         return float(st.expon.cdf(x_val, scale=1.0 / lam))
@@ -884,8 +885,9 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     # ScGammaDist reads a fourth argument with GetBool (interpr3.cxx), so a blank
     # cell is 0, the density. Only an omitted flag is cumulative.
     cum = as_nonzero(c)
-    # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
-    if x_val < 0 or a <= 0 or b <= 0:
+    # A negative x is 0 in both forms (GetGammaDist, GetGammaDistPDF, interpr6.cxx);
+    # only the Excel-named GAMMA.DIST rejects it.
+    if a <= 0 or b <= 0:
         return float("nan")
     if cum:
         return float(st.gamma.cdf(x_val, a, scale=b))

@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Matches browser_cdp's per-call timeout.
+# Matches browser_cdp_tool.CDP_CALL_TIMEOUT_SEC.
 BIDI_CALL_TIMEOUT = 30.0
 # Generous launch wait for cold start (e.g. Windows ARM).
 FIREFOX_LAUNCH_TIMEOUT_SEC = 15.0

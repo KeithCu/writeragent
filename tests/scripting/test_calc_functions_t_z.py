@@ -541,6 +541,7 @@ def test_textjoin_propagates_errors_and_flattens_ranges():
     assert calc.textjoin(",", True, ["a", "#VALUE!", "b"]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "#VALUE!"]) == "#VALUE!"
     assert calc.textjoin(",", True, ["a", "#DIV/0!", "b"]) == "#DIV/0!"
+    assert calc.textjoin(",", True, ["a", "Err:502", "b"]) == "Err:502"
     assert math.isnan(calc.textjoin(",", True, ["a", float("nan"), "b"]))
     assert calc.textjoin(",", True, ["a", None, "b"]) == "a,b"
     assert calc.textjoin(",", False, ["a", None, "b"]) == "a,,b"
@@ -579,6 +580,10 @@ def test_text_date_time_formats():
     assert calc.text(0.5, "hh:mm:ss") == "12:00:00"
     assert calc.text(0.75, "hh:mm:ss") == "18:00:00"
     assert calc.text(-0.25, "hh:mm:ss") == "18:00:00"
+
+
+def test_xor_propagates_err_code():
+    assert calc.xor(["Err:502", True]) == "Err:502"
 
 
 def test_text_and_trend_shared_helpers_unchanged():

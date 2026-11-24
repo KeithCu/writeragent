@@ -158,6 +158,104 @@ def test_score_with_judge_llm_retries_unparseable(mock_client_cls: MagicMock) ->
     assert instance.request_with_tools.call_count == 2
 
 
+@patch("plugin.framework.client.llm_client.LlmClient")
+def test_judge_llm_gets_one_rendering(mock_client_cls: MagicMock) -> None:
+    from oracles import LO_ALT_RENDERING
+
+    instance = MagicMock()
+    mock_client_cls.return_value = instance
+    instance.request_with_tools.return_value = {
+        "content": json.dumps({
+            "thought_process": "ok",
+            "accuracy_score": 5,
+            "formatting_score": 5,
+            "naturalness_score": None,
+        }),
+    }
+    joined = LO_ALT_RENDERING.join(["<p>one</p>", "<p>two</p>"])
+    score_with_judge_llm(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="test-key",
+        judge_model="openai/gpt-oss-120b",
+        document_content="a",
+        user_question="q",
+        model_answer=joined,
+        task_category="structural",
+    )
+    user_msg = instance.request_with_tools.call_args[0][0][1]["content"]
+    assert "<p>one</p>" in user_msg
+    assert "<p>two</p>" not in user_msg
+
+
+def test_dspy_judge_gets_one_rendering(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import eval_core
+    from oracles import LO_ALT_RENDERING
+
+    recorded: dict[str, object] = {}
+
+    def fake_judge(**kwargs: object) -> SimpleNamespace:
+        recorded.update(kwargs)
+        return SimpleNamespace(score=1.0)
+
+    fake_dspy = SimpleNamespace(settings=SimpleNamespace(context=lambda **_: nullcontext()))
+    monkeypatch.setattr(eval_core, "dspy", fake_dspy)
+    monkeypatch.setattr(eval_core, "_get_judge_module", lambda: fake_judge)
+
+    joined = LO_ALT_RENDERING.join(["<p>one</p>", "<p>two</p>"])
+    score, _ = eval_core.score_with_judge(
+        MagicMock(),
+        document_content="a",
+        user_question="q",
+        model_answer=joined,
+    )
+    assert score == pytest.approx(1.0)
+    assert recorded["model_answer"] == "<p>one</p>"
+
+
+def test_generated_gold_is_one_rendering(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    import eval_core
+    import llm_chat_eval
+    from oracles import LO_ALT_RENDERING
+
+    joined = LO_ALT_RENDERING.join(["<p>first</p>", "<p>second</p>"])
+
+    def fake_chat(**kwargs: object) -> tuple[str, dict[str, int], str, list[object]]:
+        return joined, {"prompt_tokens": 1, "completion_tokens": 1}, "", []
+
+    monkeypatch.setattr(llm_chat_eval, "run_llm_chat_eval", fake_chat)
+
+    ex = SimpleNamespace(
+        task_id="test_task",
+        document_content="<p>in</p>",
+        user_question="rewrite",
+        expected_contains=[],
+        reject_contains=[],
+        rubric="",
+        gold_document="",
+        is_non_trivial=False,
+        category="structural",
+        use_quality_judge=False,
+        backend="string",
+        fixture="",
+    )
+    results = eval_core.run_eval_on_examples_llm(
+        [ex],
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="test-key",
+        model="student-m",
+        gold_model="gold-m",
+        no_judge=True,
+        quiet=True,
+    )
+    assert results[0].gold_document == "<p>first</p>"
+    assert results[0].final_document == joined
+
+
 def test_example_passed_keeps_hard_pass_when_judge_fails() -> None:
     from eval_core import ExampleEval, example_passed
 

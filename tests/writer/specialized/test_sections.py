@@ -319,7 +319,7 @@ class _Sections:
 def test_section_read_includes_table_content_and_accepts_name_or_section(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "plugin.writer.specialized.sections.get_string_without_tracked_deletions",
-        lambda obj: obj.text,
+        lambda obj, state=None: obj.text,
     )
     items: list[object] = [_Para("Intro"), _Table({"A1": _Cell("A1 text"), "B1": _Cell("B1 text")})]
     sections_map = _Sections({"S": _Section(items)})
@@ -470,7 +470,7 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
 
 
 def test_section_password_params_are_secret_keys() -> None:
-    from plugin.framework.logging import is_secret_key
+    from plugin.framework.log_redaction import is_secret_key
 
     props = SectionSetPassword().parameters["properties"]
     pw_keys = [k for k in props if "password" in k]

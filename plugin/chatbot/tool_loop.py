@@ -112,8 +112,8 @@ CHAT_STREAM_BATCH_INTERVAL = 0.25  # seconds
 
 def _last_user_message_with_image(session: Any) -> dict[str, Any] | None:
     """The session's last user message when it carries an image_url part."""
-    for msg in reversed(getattr(session, "messages", None) or []):
-        if isinstance(msg, dict) and msg.get("role") == "user":
+    for msg in reversed(session.messages):
+        if msg.get("role") == "user":
             content = msg.get("content")
             if isinstance(content, list) and any(isinstance(p, dict) and p.get("type") == "image_url" for p in content):
                 return msg
@@ -985,7 +985,7 @@ class ToolCallingMixin:
             # Vision strip targets session_for_turn, not host.session, so mode switches do not
             # mutate the wrong transcript.
             turn_session = session_for_turn(self._panel)
-            image_msg = _last_user_message_with_image(turn_session)
+            image_msg = _last_user_message_with_image(turn_session) if turn_session is not None else None
             if image_msg is not None:
                 # Old code tolerated a missing live turn; keep that.
                 _strip_user_image(turn_session, image_msg, getattr(live, "active_query_text", "") or "")

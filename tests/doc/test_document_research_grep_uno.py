@@ -131,3 +131,17 @@ def test_grep_writer_paragraph_snippet(ctx, doc):
         assert after == before
     finally:
         _cleanup_grep_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("writer")
+def test_grep_writer_hides_multi_para_tracked_deletion_uno(ctx, doc):
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    strike_across_paragraphs(doc, doc.getText())
+    services = get_services()
+    gone_matches, _ = _grep_text_in_writer(doc, services, "gone2", max_results=5)
+    assert gone_matches == [], gone_matches
+    after_matches, _ = _grep_text_in_writer(doc, services, "After", max_results=5)
+    assert len(after_matches) == 1, after_matches
