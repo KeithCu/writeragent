@@ -61,6 +61,7 @@ def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
         graphic_obj = selected_graphic_object(doc)
         png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj) if graphic_obj is not None else None
     except Exception as exc:
+        reraise_if_disposed(exc)
         raise ToolExecutionError(
             _("Could not export the selected image: {error}").format(error=exc),
             code="IMAGE_EXPORT_FAILED",
@@ -83,6 +84,7 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     try:
         png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj)
     except Exception as exc:
+        reraise_if_disposed(exc)
         raise ToolExecutionError(
             _("Image '{name}' could not be exported: {error}").format(name=name, error=exc),
             code="IMAGE_EXPORT_FAILED",
@@ -182,9 +184,19 @@ class VisionBatch:
     results: list[dict[str, Any]] = field(default_factory=list)
     failures: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     deleted_images: list[str] = field(default_factory=list)
+    kept_images: list[str] = field(default_factory=list)
     inserted_count: int = 0
     stopped_early: bool = False
     cancelled: bool = False
+
+    def _source_image_fields(self) -> dict[str, Any]:
+        """Names of images removed after insert, and of images kept because the delete cannot be tracked."""
+        fields: dict[str, Any] = {}
+        if self.deleted_images:
+            fields["deleted_images"] = list(self.deleted_images)
+        if self.kept_images:
+            fields["kept_images_delete_not_trackable"] = list(self.kept_images)
+        return fields
 
     def payload(self) -> dict[str, Any]:
         if self.cancelled:
@@ -195,8 +207,7 @@ class VisionBatch:
                 err_out["inserted"] = self.inserted_count > 0
                 err_out["partial"] = True
                 err_out["individual_results"] = list(self.results)
-                if self.deleted_images:
-                    err_out["deleted_images"] = list(self.deleted_images)
+                err_out.update(self._source_image_fields())
             return err_out
 
         if self.failures:
@@ -210,8 +221,7 @@ class VisionBatch:
             failed["inserted"] = self.inserted_count > 0
             failed["partial"] = bool(self.results)
             failed["individual_results"] = list(self.results)
-            if self.deleted_images:
-                failed["deleted_images"] = list(self.deleted_images)
+            failed.update(self._source_image_fields())
             if len(self.target_names) > 1:
                 failed["message"] = _("OCR failed for {failed} ({error}); {count} of {total} images completed.").format(
                     failed=", ".join(failed_names),
@@ -264,8 +274,7 @@ class VisionBatch:
         if self.stopped_early:
             res_out["stopped"] = True
             res_out["partial"] = True
-        if self.deleted_images:
-            res_out["deleted_images"] = list(self.deleted_images)
+        res_out.update(self._source_image_fields())
         return res_out
 
 
@@ -371,6 +380,8 @@ def run_and_insert_vision_for_selection(
                     batch.inserted_count += 1
                 if outcome == "image_deleted":
                     batch.deleted_images.append(image_name)
+                elif outcome == "image_kept":
+                    batch.kept_images.append(image_name)
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}
