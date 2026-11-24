@@ -453,3 +453,37 @@ def test_tree_hides_multi_para_deletion_in_headings_and_body_uno(ctx, doc):
         assert all("gone" not in t for t in child_texts), child_texts
     finally:
         events.unsubscribe("document:cache_invalidated", tree_svc._on_cache_invalidated)
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_heading_dropped_and_para_index_preserved_uno(ctx, doc):
+    from plugin.doc.text_helpers import build_heading_tree
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Live 1", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Struck H2", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 2")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Live 2", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    del_cur = text.createTextCursorByRange(paras[1].getStart())
+    del_cur.gotoRange(paras[1].getEnd(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tree = build_heading_tree(doc)
+    assert [c["text"] for c in tree["children"]] == ["Live 1", "Live 2"]
+    assert tree["children"][0]["body_paragraphs"] == 1
+    assert tree["children"][1]["para_index"] == 2

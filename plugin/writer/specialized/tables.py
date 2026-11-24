@@ -14,11 +14,9 @@ from typing import Any, Callable
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.text_helpers import (
     FAILED,
-    DeletionState,
     KeepViewSelection,
+    TrackedDeletions,
     get_string_without_tracked_deletions,
-    iter_elements,
-    visible_portions,
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
@@ -40,7 +38,6 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
-_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1)."}
 
 
 def _tables(doc: Any) -> Any:
@@ -240,26 +237,6 @@ def _delete_redline_count(doc: Any) -> int | None:
     return count if reliable else None
 
 
-def _cell_has_visible_text(cell: Any) -> bool:
-    """True when *cell* has any non-deleted text in its own paragraphs.
-
-    Shares one ``DeletionState`` across the cell's paragraphs so tracked
-    deletions spanning multiple paragraphs stay hidden. Nested tables are
-    skipped.
-    """
-    para_enum = uno_read(cell.createEnumeration, None)
-    if para_enum is None:
-        return bool(uno_read(cell.getString, ""))
-    state = DeletionState()
-    for para in iter_elements(para_enum):
-        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
-            # A nested table that opens a deleted cell can leave the start marker unexposed, which would make the recorded-delete check fail.
-            continue
-        if any(chunk for _portion, chunk in visible_portions(para, state=state)):
-            return True
-    return False
-
-
 def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
     """True when a Delete redline was added or all visible text in *cells* became tracked-deleted.
 
@@ -271,11 +248,12 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
         return False
     if after > before:
         return True
+    deletions = TrackedDeletions(doc)
     has_raw = False
     for cell in cells:
         if uno_read(cell.getString, ""):
             has_raw = True
-        if uno_read(lambda: _cell_has_visible_text(cell), True):
+        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
             return False
     return has_raw
 
@@ -577,7 +555,7 @@ class TableGetCells(ToolWriterTableBase):
                 "type": "string",
                 "description": "Optional. One A1-style address; return that cell only.",
             },
-            "page": _PAGE_PROPERTY,
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],
@@ -613,6 +591,7 @@ class TableGetCells(ToolWriterTableBase):
             else:
                 cell_names = all_cell_names
 
+            deletions = TrackedDeletions(ctx.doc)
             cells: dict[str, str] = {}
             nested_in_cells: dict[str, list[str]] = {}
             for cell_name in cell_names:
@@ -624,7 +603,8 @@ class TableGetCells(ToolWriterTableBase):
                     # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
                     # hides pending tracked deletions: getString() also returns deleted text, so a
                     # pending "velha" -> "nova" would read "celula novavelha" here.
-                    cells[cell_name] = cell_plain_siblings(c) if hosted else get_string_without_tracked_deletions(c)
+                    state = deletions.state_at(c)
+                    cells[cell_name] = cell_plain_siblings(c, state) if hosted else get_string_without_tracked_deletions(c, state)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
                     # That also swallows document disposal. Re-raise disposal and log
@@ -670,7 +650,7 @@ class TableSetCell(ToolWriterTableBase):
             "name": {"type": "string", "description": "Table name from table_list."},
             "cell": {"type": "string", "description": "A1-style cell address, e.g. 'B2'."},
             "text": {"type": "string", "description": "New plain text for the cell."},
-            "page": _PAGE_PROPERTY,
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": ["cell", "text"],
@@ -706,7 +686,7 @@ class TableSetCell(ToolWriterTableBase):
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
             nested = cell_hosted_table_names(cell)
             if nested:
-                old = cell_plain_siblings(cell)
+                old = cell_plain_siblings(cell, TrackedDeletions(ctx.doc).state_at(cell))
                 set_host_paragraphs(cell, str(text))
                 return {
                     "status": "ok",
@@ -745,7 +725,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 "type": "integer",
                 "description": "0-based row or column index (insert at count = append).",
             },
-            "page": _PAGE_PROPERTY,
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
             "shape_index": {
                 "type": "integer",
                 "description": "Draw/Impress: table shape index (not the row/column index).",
@@ -952,7 +932,7 @@ class TableInsert(ToolWriterTableBase):
                 "type": "string",
                 "description": "Writer: A1-style host cell (requires parent).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted)"},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (active if omitted)"},
             "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
             "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
             "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},
@@ -1071,7 +1051,7 @@ class TableDelete(ToolWriterTableBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
-            "page": _PAGE_PROPERTY,
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],

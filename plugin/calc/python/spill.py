@@ -333,16 +333,16 @@ def perform_deferred_spill(
     code: str,
     key: str,
 ) -> None:
-    """Clear old spilled cells and write new values deferred (collision check is done synchronously).
+    """Clear old spilled cells and write new values deferred after rechecking collisions.
 
-    After clearing old cells, this classifies the grid into ``SpillValue`` records,
+    After rechecking that targets are still free, this clears old cells, classifies the grid into ``SpillValue`` records,
     writes neighbour values/errors and updates the spill registry, then applies
     standard temporal number formats across coalesced blocks.
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
-    The state key, the sheet looked up by name and the origin formula are checked again here
-    on purpose: 0.1 s has passed since ``prepare_auto_spill``, and the sheet may have been
-    renamed or the formula edited in between.
+    The state key, the sheet looked up by name, the origin formula, and target collisions are
+    checked again here on purpose: 0.1 s has passed since ``prepare_auto_spill``, and the sheet
+    may have been renamed, the formula edited, or a target cell filled in between.
     """
     try:
         if not main.is_current():
@@ -389,6 +389,11 @@ def perform_deferred_spill(
 
             with sheet_modify_scope():
                 previous_record = state.spills.get(reg_key)
+                num_rows = len(grid)
+                num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
+                owned = set(previous_record.spills) if previous_record is not None else set()
+                if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+                    return
                 if previous_record is not None:
                     old_coords = previous_record.spills
                     for r, c in old_coords:
@@ -399,8 +404,6 @@ def perform_deferred_spill(
                             except Exception:
                                 log.debug("perform_deferred_spill: failed to clear cell (%d, %d)", r, c, exc_info=True)
 
-                num_rows = len(grid)
-                num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
                 if num_rows == 0 or num_cols == 0:
                     state.spills[reg_key] = SpillRecord(code=code, cells=[])
                     save_spill_registry_for_doc(doc, state)
@@ -465,8 +468,8 @@ def _record_spill_blocked(
     num_rows: int,
     num_cols: int,
     blocker: tuple[int, int] | None,
-) -> str:
-    """Record why a =PY spill was blocked in the diagnostics store and return ``#SPILL!``."""
+) -> None:
+    """Record why a =PY spill was blocked in the diagnostics store."""
     if blocker is not None:
         needed = qualify_a1(
             sheet_name,
@@ -492,7 +495,60 @@ def _record_spill_blocked(
         ),
         "record blocked spill",
     )
-    return "#SPILL!"
+
+
+def _spill_is_blocked(
+    doc: Any,
+    code: str,
+    sheet: Any,
+    sheet_name: str,
+    row: int,
+    col: int,
+    num_rows: int,
+    num_cols: int,
+    owned: set[tuple[int, int]],
+) -> bool:
+    """Return True and record diagnostics if any target cell is out of bounds or occupied outside ``owned``."""
+    max_cols = int(sheet.getColumns().getCount())
+    max_rows = int(sheet.getRows().getCount())
+
+    for r_idx in range(num_rows):
+        for c_idx in range(num_cols):
+            if r_idx == 0 and c_idx == 0:
+                continue
+            target_r = row + r_idx
+            target_c = col + c_idx
+            if target_r >= max_rows or target_c >= max_cols:
+                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
+                _record_spill_blocked(
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=row,
+                    col=col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=None,
+                )
+                return True
+            if (target_r, target_c) in owned:
+                continue
+            cell = sheet.getCellByPosition(target_c, target_r)
+            cell_type = cell.getType()
+            if cell_type != EMPTY:
+                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
+                _record_spill_blocked(
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=row,
+                    col=col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=(target_c, target_r),
+                )
+                return True
+    return False
 
 
 def prepare_auto_spill(
@@ -538,43 +594,8 @@ def prepare_auto_spill(
 
     log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
 
-    max_cols = int(sheet.getColumns().getCount())
-    max_rows = int(sheet.getRows().getCount())
-
-    for r_idx in range(num_rows):
-        for c_idx in range(num_cols):
-            if r_idx == 0 and c_idx == 0:
-                continue
-            target_r = formula_row + r_idx
-            target_c = formula_col + c_idx
-            if target_r >= max_rows or target_c >= max_cols:
-                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
-                return _record_spill_blocked(
-                    doc=doc,
-                    code=code,
-                    sheet_name=sheet_name,
-                    row=formula_row,
-                    col=formula_col,
-                    num_rows=num_rows,
-                    num_cols=num_cols,
-                    blocker=None,
-                )
-            if (target_r, target_c) in prev_spill_set:
-                continue
-            cell = sheet.getCellByPosition(target_c, target_r)
-            cell_type = cell.getType()
-            if cell_type != EMPTY:
-                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
-                return _record_spill_blocked(
-                    doc=doc,
-                    code=code,
-                    sheet_name=sheet_name,
-                    row=formula_row,
-                    col=formula_col,
-                    num_rows=num_rows,
-                    num_cols=num_cols,
-                    blocker=(target_c, target_r),
-                )
+    if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, prev_spill_set):
+        return "#SPILL!"
     return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
 

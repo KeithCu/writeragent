@@ -133,9 +133,8 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
     )
 
 
-def cell_plain_siblings(cell: Any) -> str:
+def cell_plain_siblings(cell: Any, state: DeletionState) -> str:
     """Host-cell paragraph text; pending tracked deletions stay hidden."""
-    state = DeletionState()
     parts = [get_string_without_tracked_deletions(para, state) for para in _host_paragraphs(cell)]
     return "\n".join(part for part in parts if part)
 

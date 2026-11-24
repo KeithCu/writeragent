@@ -377,11 +377,13 @@ def test_grep_text_in_writer_includes_table_text():
     model = MagicMock()
     services = MagicMock()
 
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     # Create paragraphs and a table
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "Normal text before table."
-    para1.createEnumeration.side_effect = RuntimeError("no enum")
+    para1.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "Normal text before table.")])
 
     table = MagicMock()
     table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
@@ -415,18 +417,20 @@ def test_grep_text_in_writer_includes_table_text():
 
 
 def test_grep_text_in_writer_caps_match_count_and_sets_partial():
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     model = MagicMock()
     services = MagicMock()
 
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "first keyword paragraph"
-    para1.createEnumeration.side_effect = RuntimeError("no enum")
+    para1.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "first keyword paragraph")])
 
     para2 = MagicMock()
     para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para2.getString.return_value = "second keyword paragraph"
-    para2.createEnumeration.side_effect = RuntimeError("no enum")
+    para2.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "second keyword paragraph")])
 
     services.document.get_paragraph_ranges.return_value = [para1, para2]
 
@@ -858,13 +862,15 @@ def test_grep_text_in_writer_table_cells_do_not_join_across_cells():
 
 
 def test_grep_text_in_writer_caps_context_snippet():
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     model = MagicMock()
     services = MagicMock()
 
     para = MagicMock()
     para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para.getString.return_value = "keyword" + "x" * 293  # total 300 chars
-    para.createEnumeration.side_effect = RuntimeError("no enum")
+    para.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "keyword" + "x" * 293)])
 
     services.document.get_paragraph_ranges.return_value = [para]
 

@@ -8,11 +8,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import DeletionState, iter_elements, visible_portions
+from plugin.doc.text_helpers import (
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    iter_xtext_paragraphs,
+)
 from plugin.framework.errors import uno_read
-from plugin.writer import range_copy, search as search_mod
+from plugin.writer import search as search_mod
 from plugin.writer.hyperlink_fixup import heading_renames, retarget_outline_links
-from plugin.writer.review_scan import document_has_tracked_deletions
 
 if TYPE_CHECKING:
     from plugin.writer.edit_review import EditReviewSession
@@ -39,17 +43,16 @@ def document_headings(doc: Any) -> list[tuple[int, str]]:
             if frame_text is not None:
                 texts.append(frame_text)
 
-    tracked = document_has_tracked_deletions(doc)
+    deletions = TrackedDeletions(doc)
     headings: list[tuple[int, str]] = []
     for text_obj in texts:
-        state = DeletionState()
-        for para in range_copy.iter_xtext_paragraphs(text_obj):
+        for para, state in iter_xtext_paragraphs(text_obj, deletions.state_at(text_obj)):
             level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
             is_heading = isinstance(level, int) and level > 0
-            if not is_heading and not tracked:
+            if not is_heading and not deletions:
                 continue
             text = uno_read(
-                lambda: "".join(chunk for _portion, chunk in visible_portions(para, state=state)),
+                lambda: get_string_without_tracked_deletions(para, state),
                 "",
             )
             if is_heading and text:

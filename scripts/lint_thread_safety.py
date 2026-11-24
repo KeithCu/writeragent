@@ -86,6 +86,7 @@ RED_UNO_SINKS = {
     "ensure_heading_bookmarks",
     "resolve_locator",
     "get_string_without_tracked_deletions",
+    "visible_range_text",
     "get_document_property",
     "set_document_property",
     "get_runtime_uid",

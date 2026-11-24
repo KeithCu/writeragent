@@ -80,12 +80,17 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | Symbol | Purpose |
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
-| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `visible_portions` with the `html_export._visible_portions` paint walk used by range copy (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
+| `DeletionState` | Carries `in_delete` across consecutive paragraphs of one `XText` (`visible_portions` / `get_string_without_tracked_deletions`). Redline markers exist only in start/end paragraphs (`lcl_FillRedlineArray`), so middle paragraphs and struck tables need the shared state. |
+| `TrackedDeletions` / `redline_bounds` | Reads a Writer document's pending `Delete` redlines once (`redline_bounds` resolves a table `RedlineStart` via `getAnchor()`). `state_at(text_range)` seeds `DeletionState` at the start of a range, paragraph, cursor, or table (seeding from a leading table's anchor when present); `covers(text_range)` is true when a range lies wholly inside one deletion. |
+| `visible_range_text` | Convenience wrapper: `get_string_without_tracked_deletions(text_range, TrackedDeletions(doc).state_at(text_range))`. |
+| `iter_xtext_paragraphs` / `iter_table_paragraphs` | Lazy `(para, state)` paragraph walks across an `XText` and its tables (including nested tables). Skips tables reached inside `state.in_delete`; each live cell gets a fresh `DeletionState()`. |
+| `get_string_without_tracked_deletions` | Skip redline Delete portions (accepts optional `state: DeletionState` for multi-paragraph walks). A paragraph concatenates visible portions without a mid-`\n` (an unenumerable paragraph returns `""` and resets `state.in_delete` rather than falling back to `getString()`); a document or multi-para range still joins with `\n` (keeping deleted paragraph breaks) and descends into table cells (nested included) unless the table is inside an open deletion. Shares `visible_portions` with the `html_export._visible_portions` paint walk used by range copy (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
+| `paragraph_deletion_flags` | Returns `list[bool]` for a text enumeration indicating whether each element starts inside a tracked deletion, seeded at the first element (all `False` without portion walks when the document has no redlines). |
 | `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
-| `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
+| `build_heading_tree` | Outline tree (`HeadingTreeNode`) skipping tracked-deleted heading text (uses `paragraph_deletion_flags`). A heading whose text is wholly struck is dropped from the tree and counted in `body_paragraphs` so `para_index` and block sizes stay intact (an empty live heading stays). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). `set_selection` offsets use this cursor-step space (the `writer_char_count` space), not `get_content`'s `document_length` space. |
 | `jump_view_cursor_to_page` | Move a Writer view cursor to 0-based *page*; returns `None` on hit or the page count on miss (guards `0 <= page < 0x7FFF` and compares `vc.getPage()` because `jumpToPage` clamps to the last page). |
@@ -305,7 +310,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 |--------|-------------------|
 | `get_runtime_uid` | Returns uid string or `""`. Accepts only `str`/`int` (mocks cannot fake it). |
 | `resolve_document_by_url` | `url` argument may be a RuntimeUID; matches unsaved docs. |
-| `get_open_documents` | Keeps untitled rows (`url=""`, `path=""`, `name="Untitled"`, `uid=…`), excluding registered scratch documents. Never drops them on type-lookup failure. |
+| `get_open_documents` | Keeps untitled rows (`url=""`, `path=""`, `name="Untitled"`, `uid=…`). Never drops them on type-lookup failure. |
 | `get_document_path` | Returns `None` (not a `file:` URL after repair). |
 | `document_scripts_identity` | Empty string for untitled (URL-only; **no** uid). |
 | MCP `_resolve_mcp_doc_key` | Prefers `uid:<RuntimeUID>`; else `url:<normalized>`; else active-document sentinel. Survives Save As. |
