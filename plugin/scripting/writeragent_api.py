@@ -2919,7 +2919,7 @@ class _TableProxy:
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a cell spanning several rows starts; refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, delete is recorded as a tracked change.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.

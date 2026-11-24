@@ -346,7 +346,7 @@ falls back to walking its host cells to name the direct parent. `table_list` als
 reads one address (Draw: `matrix` is that one cell). Host slots are the host cell's own paragraphs, not concatenated
 inner-table text. `table_set_cell` on a host cell rewrites those paragraph siblings and
 keeps the nested table (`setString` would destroy it). `table_manage_structure` delete
-refuses a host row/column (scans `getCellNames()`, not `range(cols)`). `table_merge_cells`
+refuses a host row/column (scans `getCellNames()`, not `range(cols)`). A row whose vertically merged cell is empty can be deleted; LibreOffice passes the remaining span to the row below. `table_merge_cells`
 merges a rectangular block and `table_split_cell` splits one cell into 2–20 row or column
 parts; both renumber cell names per row, return fresh `cell_names`, and are untracked even
 in review mode. `table_insert` with

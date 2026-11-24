@@ -520,7 +520,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # A trailing inline picture or formula stays in this paragraph and has no text.
     # Joining the paragraph keeps its bookmarks, so they need not block it.
     if any(
-        _paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
+        paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
         for para in iter_elements(leftover.createEnumeration())
     ):
         return
@@ -604,7 +604,7 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
         return
     # Redline and SoftPageBreak portions carry no content. A bookmark does count here:
     # dispose() would delete it.
-    if _paragraph_has_non_text_portion(first_para, ignore_markers=True):
+    if paragraph_has_non_text_portion(first_para, ignore_markers=True):
         return
     first_para.dispose()
 
@@ -639,7 +639,7 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
-def _paragraph_has_non_text_portion(
+def paragraph_has_non_text_portion(
     para: Any,
     *,
     ignore_markers: bool = False,
@@ -684,7 +684,7 @@ def _cursor_paragraph_has_content(cursor: Any) -> bool:
         para.gotoEndOfParagraph(True)
         # A cursor enumerates paragraphs; the portions are one level down.
         return para.getString() != "" or any(
-            _paragraph_has_non_text_portion(p, ignore_markers=True)
+            paragraph_has_non_text_portion(p, ignore_markers=True)
             for p in iter_elements(para.createEnumeration())
         )
 
@@ -1473,7 +1473,7 @@ def replace_xtext_with_html(
             if count > 1 and last is not None and not _uno_service_true(prev, "com.sun.star.text.TextTable"):
                 if not last.getString():
                     # Check for fields/portions before deleting
-                    has_content = _paragraph_has_non_text_portion(last)
+                    has_content = paragraph_has_non_text_portion(last)
                     if not has_content:
                         # To actually remove the trailing break, select from the end of the previous paragraph
                         # to the end of the document, and set String to empty.

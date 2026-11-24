@@ -327,7 +327,7 @@ Further testing is recommended before deployment.""",
     "expected_contains": ["uncertain", "Review this before finalizing"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Simulate comment addition via text annotation or note (use find_text + apply). Document reflects the review note. (Full UNO comments require LO backend.)",
+    "rubric": "Simulate comment addition via text annotation or note (use comment_add). Document reflects the review note. (Full UNO comments require LO backend.)",
 }
 
 # ---------------------------------------------------------------------------
@@ -393,7 +393,7 @@ FLOWCHART_GEN = {
     "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final shape_get_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
 }
 
-# Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcStringState.sort_range
+# Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcWorld.sort_range
 DATA_SORTING = {
     "document_content": (
         "Product\tRevenue\n"
@@ -411,10 +411,10 @@ DATA_SORTING = {
     "expected_contains": ["Tool", "2100", "Widget", "1200", "Aardvark"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Correct descending sort by Revenue. Final snapshot JSON shows Tool first. Uses CalcStringState.",
+    "rubric": "Correct descending sort by Revenue. Final snapshot JSON shows Tool first. Uses CalcWorld.",
 }
 
-# Basic Tax Column (eval/ideas.md Calc #1, hardened) - non-LO test using CalcStringState.write_cell_range
+# Basic Tax Column (eval/ideas.md Calc #1, hardened) - non-LO test using CalcWorld.write_range
 TAX_COLUMN = {
     "document_content": (
         "Item\tPrice\tTax\n"
@@ -433,7 +433,7 @@ TAX_COLUMN = {
     "expected_contains": ["Tax"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcStringState fully (no hallucinations on Total/?).",
+    "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcWorld fully (no hallucinations on Total/?).",
 }
 
 # Commas inside customer names make a CSV-style answer split cells wrongly,

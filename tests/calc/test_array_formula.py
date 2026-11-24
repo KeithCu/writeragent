@@ -99,3 +99,26 @@ def test_plan_target_rejects_explicit_range_over_cell_limit():
     # At the limit is still accepted.
     target, _notes = plan_target(0, 0, 9, MAX_ARRAY_CELLS // 10 - 1, 1, 1)
     assert (target.right, target.bottom) == (9, MAX_ARRAY_CELLS // 10 - 1)
+
+
+@pytest.mark.parametrize(
+    ("rows", "cols", "height", "width", "expect_repeated", "expect_na"),
+    [
+        (1, 1, 3, 1, True, False),
+        (1, 2, 3, 2, True, False),
+        (2, 2, 4, 2, False, True),
+        (2, 1, 4, 2, True, True),
+        (3, 2, 3, 2, False, False),
+    ],
+)
+def test_plan_target_smaller_result_notes(rows, cols, height, width, expect_repeated, expect_na):
+    from plugin.calc.array_formula import plan_target
+
+    _target, notes = plan_target(0, 0, width - 1, height - 1, rows, cols)
+    if not expect_repeated and not expect_na:
+        assert notes == []
+        return
+    assert len(notes) == 1
+    note = notes[0]
+    assert ("repeated" in note) is expect_repeated
+    assert ("#N/A" in note) is expect_na
