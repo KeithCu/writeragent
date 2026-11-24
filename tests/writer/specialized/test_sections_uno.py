@@ -417,3 +417,30 @@ def test_section_read_hides_multi_para_tracked_deletion_uno(ctx, doc):
     assert res["status"] == "ok", res
     assert "gone" not in res["content"], res
     assert "Keep" in res["content"] and "Tail" in res["content"] and "After" in res["content"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_starting_mid_deletion_hides_deleted_text_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.specialized.sections import SectionRead
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    # Wrap only middle + end + after paragraphs so the section starts mid-deletion.
+    sec_cur = text.createTextCursorByRange(paras[2].getStart())
+    sec_cur.gotoRange(paras[4].getEnd(), True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("MidSec")
+    text.insertTextContent(sec_cur, sec, True)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    res = SectionRead().execute(tctx, name="MidSec")
+    assert res["status"] == "ok", res
+    assert "gone" not in res["content"], res
+    assert "Tail" in res["content"] and "After" in res["content"], res

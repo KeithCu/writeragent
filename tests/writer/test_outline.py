@@ -28,7 +28,7 @@ class TestGetDocumentTreeMergedStats:
         ctx.services.writer_tree = tree_svc
         ctx.services.document = MagicMock()
 
-        with patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="one two three four!"):
+        with patch("plugin.writer.outline.visible_range_text", return_value="one two three four!"):
             result = GetDocumentTree().execute(ctx)
 
         assert result["stats"] == {
@@ -65,7 +65,7 @@ def test_collect_document_stats_counts_chars_words_and_headings():
             {"children": [{"children": []}]},
         ]
     }
-    with patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="hello world"):
+    with patch("plugin.writer.outline.visible_range_text", return_value="hello world"):
         stats = collect_document_stats(
             doc,
             heading_tree=tree,
@@ -81,7 +81,7 @@ def test_collect_document_stats_counts_chars_words_and_headings():
 def test_collect_document_stats_text_failure_propagates():
     doc = MagicMock()
     with patch(
-        "plugin.writer.outline.get_string_without_tracked_deletions",
+        "plugin.writer.outline.visible_range_text",
         side_effect=RuntimeError("no text"),
     ):
         with pytest.raises(RuntimeError):

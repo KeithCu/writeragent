@@ -157,3 +157,33 @@ def test_redline_kinds_covering():
 
     with pytest.raises(DocumentDisposedError):
         redline_kinds_covering(_Doc([_DisposedRL()]), target)
+
+
+def test_redline_kinds_covering_table_start():
+    text = MagicMock()
+    text.compareRegionStarts.return_value = 0
+    text.compareRegionEnds.return_value = 0
+    anchor = MagicMock()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getAnchor.return_value = anchor
+    end = MagicMock()
+    end.getText.return_value = text
+
+    rl = MagicMock()
+    rl.getPropertyValue.side_effect = lambda k: {
+        "RedlineStart": table,
+        "RedlineEnd": end,
+        "RedlineType": "Delete",
+    }[k]
+    redlines = MagicMock()
+    redlines.getCount.return_value = 1
+    redlines.createEnumeration.return_value = MagicMock(
+        hasMoreElements=MagicMock(side_effect=[True, False]),
+        nextElement=MagicMock(return_value=rl),
+    )
+    doc = MagicMock()
+    doc.getRedlines.return_value = redlines
+    assert redline_kinds_covering(doc, MagicMock()) == {"Delete"}
+    text.compareRegionStarts.assert_called_once()
+    assert text.compareRegionStarts.call_args[0][0] is anchor
