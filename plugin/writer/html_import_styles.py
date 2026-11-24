@@ -650,7 +650,7 @@ class WriteReport:
     formula conversion attempt. ``snapped_to_paragraph`` is True when a collapsed-caret
     insert moved to after the caret's paragraph because the content was block-level.
     ``added_content`` is internal (not reported): False when the import added nothing
-    (e.g. ``<p></p>``), so ``_insert_into_emptied_range`` keeps the emptied paragraph.
+    (e.g. ``<p></p>``), so ``_replace_whole_paragraphs`` keeps the emptied paragraph.
     all_matches merges one report per match with ``extend``.
     """
 

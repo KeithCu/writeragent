@@ -1388,16 +1388,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
             assert res.get("status") == "ok", (label, "record-accept", res)
             helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
             actual_accept = _body_structure_via_enum(text)
-            # In record mode, replace_single_range_with_content keeps tracked-deleted old text
-            # in the import-start paragraph (so getString() != "" and before-table cleanup
-            # skips it) and sets drop_leftover=False; Accept then empties both paragraphs.
-            if label in ("replace+tbl", "anchors+tbl"):
-                expected_accept = ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:", "Paragraph:Outro"]
-            elif label == "replace_first+tbl":
-                expected_accept = ["Paragraph:", "TextTable", "Paragraph:", "Paragraph:Body", "Paragraph:Outro"]
-            else:
-                expected_accept = expected
-            assert actual_accept == expected_accept, (label, "record-accept", actual_accept, expected_accept)
+            assert actual_accept == expected, (label, "record-accept", actual_accept, expected)
 
             _seed_three()
             res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
@@ -1539,6 +1530,352 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         _drop_empty_paragraph_before_table(text, text.getStart())
         assert doc.getGraphicObjects().getCount() == 1
         assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    seed = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", "Last")]
+
+    def _seed() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        for idx, (style, body) in enumerate(seed):
+            if idx:
+                text.insertControlCharacter(cur, 0, False)
+            cur.setPropertyValue("ParaStyleName", style)
+            text.insertString(cur, body, False)
+
+    def _select_para(needle: str, *, shift_down: bool = False) -> None:
+        vc = doc.getCurrentController().getViewCursor()
+        e = text.createEnumeration()
+        while e.hasMoreElements():
+            el = e.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph") and el.getString() == needle:
+                vc.gotoRange(el.getStart(), False)
+                vc.gotoRange(el.getEnd(), True)
+                if shift_down:
+                    vc.goRight(1, True)
+                return
+        raise AssertionError(f"missing paragraph {needle!r}")
+
+    tbl = "<table><tr><td>A</td></tr></table>"
+    contents = [
+        ("p", "<p>New</p>", False),
+        ("tbl", tbl, True),
+        ("p+tbl", f"<p>Lead</p>{tbl}", True),
+        ("tbl+p", f"{tbl}<p>Tail</p>", False),
+    ]
+
+    try:
+        for mode in ("search", "selection"):
+            for pos, needle in (("middle", "Middle"), ("last", "Last")):
+                for clabel, html, table_ending in contents:
+                    label = f"{mode}/{pos}/{clabel}"
+                    save({flag: "off"})
+                    _seed()
+                    if mode == "search":
+                        res = ApplyDocumentContent().execute(tctx, target="search", old_content=needle, content=[html])
+                    else:
+                        _select_para(needle)
+                        res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                    assert res.get("status") == "ok", (label, "off", res)
+                    untracked = _body_style_and_text(doc)
+
+                    save({flag: "record"})
+                    _seed()
+                    if mode == "search":
+                        res = ApplyDocumentContent().execute(tctx, target="search", old_content=needle, content=[html])
+                    else:
+                        _select_para(needle)
+                        res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                    assert res.get("status") == "ok", (label, "accept", res)
+                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                    actual_accept = _body_style_and_text(doc)
+                    if pos == "middle":
+                        assert actual_accept == untracked, (label, "accept", actual_accept, untracked)
+                    elif table_ending:
+                        assert [t for _s, t in actual_accept] == [t for _s, t in untracked], (label, "accept", actual_accept, untracked)
+                    else:
+                        assert actual_accept[:-1] == untracked and actual_accept[-1][1] == "", (label, "accept", actual_accept, untracked)
+
+                    _seed()
+                    if mode == "search":
+                        res = ApplyDocumentContent().execute(tctx, target="search", old_content=needle, content=[html])
+                    else:
+                        _select_para(needle)
+                        res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                    assert res.get("status") == "ok", (label, "reject", res)
+                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                    assert _body_style_and_text(doc) == seed, (label, "reject", _body_style_and_text(doc))
+
+        # Shift+Down selection on middle paragraph trims trailing break and matches untracked.
+        save({flag: "off"})
+        _seed()
+        _select_para("Middle", shift_down=True)
+        res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        untracked_sd = _body_style_and_text(doc)
+
+        save({flag: "record"})
+        _seed()
+        _select_para("Middle", shift_down=True)
+        res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert _body_style_and_text(doc) == untracked_sd
+
+        _seed()
+        _select_para("Middle", shift_down=True)
+        res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == seed
+
+        # Empty follower paragraph: Accept still keeps the blank follower and Reject keeps both styles.
+        seed_blank = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", ""), ("Standard", "Last")]
+
+        def _seed_blank() -> None:
+            doc.setPropertyValue("RecordChanges", False)
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.gotoEnd(True)
+            cur.setString("")
+            cur.gotoStart(False)
+            for idx, (style, body) in enumerate(seed_blank):
+                if idx:
+                    text.insertControlCharacter(cur, 0, False)
+                cur.setPropertyValue("ParaStyleName", style)
+                text.insertString(cur, body, False)
+
+        save({flag: "off"})
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        untracked_blank = _body_style_and_text(doc)
+
+        save({flag: "record"})
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert _body_style_and_text(doc) == untracked_blank
+
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == seed_blank
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    seed = [("Standard", "P1"), ("Heading 2", "P2"), ("Heading 3", "P3"), ("Standard", "P4")]
+
+    def _seed() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        for idx, (style, body) in enumerate(seed):
+            if idx:
+                text.insertControlCharacter(cur, 0, False)
+            cur.setPropertyValue("ParaStyleName", style)
+            text.insertString(cur, body, False)
+
+    try:
+        save({flag: "record"})
+        for order in (("P2", "P3"), ("P3", "P2")):
+            _seed()
+            for target_p in order:
+                res = ApplyDocumentContent().execute(
+                    tctx, target="search", old_content=target_p, content=[f"<p>{target_p} new</p>"]
+                )
+                assert res.get("status") == "ok", (order, target_p, res)
+            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            assert _body_style_and_text(doc) == [
+                ("Standard", "P1"),
+                ("Text body", "P2 new"),
+                ("Text body", "P3 new"),
+                ("Standard", "P4"),
+            ], order
+
+            _seed()
+            for target_p in order:
+                res = ApplyDocumentContent().execute(
+                    tctx, target="search", old_content=target_p, content=[f"<p>{target_p} new</p>"]
+                )
+                assert res.get("status") == "ok", (order, target_p, res)
+            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            assert _body_style_and_text(doc) == seed, order
+
+            _seed()
+            doc.getUndoManager().reset()
+            for target_p in order:
+                res = ApplyDocumentContent().execute(
+                    tctx, target="search", old_content=target_p, content=[f"<p>{target_p} new</p>"]
+                )
+                assert res.get("status") == "ok", (order, target_p, res)
+            um = doc.getUndoManager()
+            while um.isUndoPossible():
+                um.undo()
+            assert _body_style_and_text(doc) == seed, order
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_replace_empty_content_rejects_cleanly_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "one", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 2")
+        text.insertString(cur, "two", False)
+
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="two", content=["<p></p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == [("Standard", "one"), ("Heading 2", "two")]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed_bold() -> Any:
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "aaa ", False)
+        start = cur.getEnd()
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "Replace", False)
+        end = cur.getEnd()
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " bbb", False)
+        sel = text.createTextCursorByRange(start)
+        sel.gotoRange(end, True)
+        doc.getCurrentController().select(sel)
+        return sel
+
+    def _weight_of(word: str) -> float:
+        e = text.createEnumeration()
+        p = e.nextElement()
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            portion = pe.nextElement()
+            if portion.getPropertyValue("TextPortionType") == "Text" and word in portion.getString():
+                return float(portion.getPropertyValue("CharWeight"))
+        raise AssertionError(f"missing run {word!r}")
+
+    try:
+        save({flag: "record"})
+        _seed_bold()
+        res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert text.getString() == "aaa Swap bbb"
+        assert _weight_of("Swap") == 150.0
+
+        _seed_bold()
+        res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert text.getString() == "aaa Replace bbb"
+        assert _weight_of("Replace") == 150.0
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_paragraph_after_recorded_replace_stays_readable_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "Keep before", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "Replace me", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "Keep after", False)
+
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Replace me", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        paras = _body_paragraphs(doc)
+        para_after = next(p for p in paras if "Keep after" in p.getString())
+        assert get_string_without_tracked_deletions(para_after) == "Keep after"
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
