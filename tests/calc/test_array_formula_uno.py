@@ -121,8 +121,9 @@ def test_array_true_accepts_single_value(ctx, doc):
     assert res_sum.get("status") == "ok", f"SUM array write failed: {res_sum}"
     for row in range(3):
         assert sheet.getCellByPosition(2, row).getValue() == 3
-    warnings = " ".join(str(w) for w in res_sum.get("warnings", []))
-    assert "#N/A" not in warnings
+    warning = res_sum.get("warning", "")
+    assert "repeated" in warning
+    assert "#N/A" not in warning
 
 
 @native_test
@@ -139,8 +140,9 @@ def test_single_row_array_repeats_down_the_range(ctx, doc):
     for row in range(3):
         assert sheet.getCellByPosition(4, row).getValue() == 1
         assert sheet.getCellByPosition(5, row).getValue() == 2
-    warnings = " ".join(str(w) for w in res.get("warnings", []))
-    assert "#N/A" not in warnings
+    warning = res.get("warning", "")
+    assert "repeated" in warning
+    assert "#N/A" not in warning
 
 
 @native_test(timeout=60)
@@ -165,7 +167,7 @@ def test_array_true_py_list(ctx, doc):
             else:
                 assert res.get("status") == "error", f"expected refusal before 26.8: {res}"
                 assert res.get("code") == "INVALID_PARAM"
-                assert "suggested_call" in res.get("details", {})
+                assert res.get("suggested_call", {}).get("arguments", {}).get("range") == [f"{sheet.getName()}.A1"]
                 assert [sheet.getCellByPosition(0, r).getString() for r in range(3)] == ["", "", ""]
     finally:
         st = WorkbookState.known(doc)

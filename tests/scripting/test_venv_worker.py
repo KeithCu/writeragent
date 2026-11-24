@@ -343,6 +343,7 @@ def test_idle_worker_sigkill_recovers_on_next_execute(monkeypatch):
     finally:
         mgr._terminate_worker()
 
+
 def test_worker_child_dies_without_response_fails_promptly(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A child that dies without writing a response returns promptly with an error and retries once."""
     shutdown_venv_workers_for_tests()

@@ -102,60 +102,7 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
     assert all(row not in (0, 1) for _col, row, _formula in written)
 
 
-def test_measure_array_single_value_is_1x1():
-    cleared: list[tuple[int, int]] = []
-    written: dict[tuple[int, int], str] = {}
-
-    class _Cursor:
-        def gotoEndOfUsedArea(self, _expand):
-            return None
-
-        def getRangeAddress(self):
-            return _used(0, 0, 0)
-
-    class _Probe:
-        def __init__(self, col: int, row: int) -> None:
-            self.col = col
-            self.row = row
-
-        def setArrayFormula(self, formula: str) -> None:
-            written[(self.col, self.row)] = formula
-
-        def clearContents(self, _flags: int) -> None:
-            cleared.append((self.col, self.row))
-
-    class _Cell:
-        def __init__(self, col: int, row: int) -> None:
-            self.col = col
-            self.row = row
-
-        @property
-        def Error(self) -> int:
-            formula = written.get((self.col, self.row), "")
-            if formula.startswith(("=ROWS(", "=COLUMNS(")):
-                return 504
-            return 0
-
-        def getString(self) -> str:
-            return "Err:504" if self.Error else "5"
-
-    class _Sheet:
-        def createCursor(self) -> _Cursor:
-            return _Cursor()
-
-        def getCellRangeByPosition(self, col: int, row: int, _c2: int, _r2: int) -> _Probe:
-            return _Probe(col, row)
-
-        def getCellByPosition(self, col: int, row: int) -> _Cell:
-            return _Cell(col, row)
-
-    rows, cols = CellManipulator(MagicMock())._measure_array(_Sheet(), "=SUM(1;2)", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
-
-    assert (rows, cols) == (1, 1)
-    assert cleared == [(2, 0), (2, 1)]
-
-
-def test_measure_array_reports_the_formulas_own_error():
+def _make_measure_probe_sheet(own_error: int):
     cleared: list[tuple[int, int]] = []
     written: dict[tuple[int, int], str] = {}
 
@@ -188,11 +135,14 @@ def test_measure_array_reports_the_formulas_own_error():
             if formula.startswith(("=ROWS(", "=COLUMNS(")):
                 return 504
             if formula.startswith("=("):
-                return 532
+                return own_error
             return 0
 
         def getString(self) -> str:
-            return "#DIV/0!" if self.Error == 532 else "Err:504"
+            err = self.Error
+            if err == 504:
+                return "Err:504"
+            return f"Err:{err}" if err else "5"
 
     class _Sheet:
         def createCursor(self) -> _Cursor:
@@ -204,9 +154,23 @@ def test_measure_array_reports_the_formulas_own_error():
         def getCellByPosition(self, col: int, row: int) -> _Cell:
             return _Cell(col, row)
 
-    with pytest.raises(CalcError, match="code 532"):
-        CellManipulator(MagicMock())._measure_array(_Sheet(), "=1/0", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+    return _Sheet(), cleared
+
+
+def test_measure_array_single_value_is_1x1():
+    sheet, cleared = _make_measure_probe_sheet(0)
+    rows, cols = CellManipulator(MagicMock())._measure_array(sheet, "=SUM(1;2)", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+
+    assert (rows, cols) == (1, 1)
     assert cleared == [(2, 0), (2, 1)]
+
+
+def test_measure_array_reports_the_formulas_own_error():
+    sheet, cleared = _make_measure_probe_sheet(532)
+    with pytest.raises(CalcError, match="code 532"):
+        CellManipulator(MagicMock())._measure_array(sheet, "=1/0", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+    assert cleared == [(2, 0), (2, 1)]
+
 
 def test_write_formula_range_rejects_wide_array():
     bridge = MagicMock()
