@@ -185,7 +185,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Custom Shows** | ❌ Missing | — | Non-linear presentation paths |
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
 | **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
-| **Templates / design** | ✅ current-doc only | `design_list`, `design_apply` | `design_apply` Hidden-opens the listed `.otp`, **clones** its master into the **open** deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`), then assigns `page.MasterPage` to every slide. Does **not** open a new presentation (a second Impress window would spawn a fresh sidebar agent). Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. Create-from-template (`loadComponentFromURL` + `AsTemplate`) remains an **internal/test helper** (`create_presentation_from_design`); start from a blank deck or File→Templates, then `design_list` → `design_apply`. **`design_list` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Hidden in Draw; the guard covers callers that only pass the family label. |
+| **Templates / design** | ✅ current-doc only | `design_list`, `design_apply` | `design_apply` Hidden-opens the listed `.otp` with `AsTemplate` as a scratch document, **clones** its master into the **open** deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`), then assigns `page.MasterPage` to every slide. Does **not** open a new presentation (a second Impress window would spawn a fresh sidebar agent). Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. Start from a blank deck or File→Templates, then `design_list` → `design_apply`. **`design_list` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Hidden in Draw; the guard covers callers that only pass the family label. |
 | **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `slide_get_header_footer`, `slide_set_header_footer` (Impress only) |
 | **Tables** | ✅ | same names as Writer | `table_insert`, `table_delete`, list/get/set, `table_manage_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
@@ -431,7 +431,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - **Custom Shows**: Non-linear presentation paths
 - **Presenter Console**: Presenter view with notes timer
 - **Themes**: Color schemes, font schemes — **no Theme apply API** (M0′). Look = applied `.otp` + master.
-- **Templates**: Current-doc `.otp` merge remains an LO wall; new-doc create-from-template shipped as M1′.
+- **Templates**: Current-doc restyle is `design_apply`; there is no create-from-template tool.
 - **Macros**: Recording and execution
 - **Versioning**: Document history and rollback
 - **3D Objects**: 3D shape creation and manipulation
@@ -502,7 +502,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - `tests/draw/test_draw_specialized_tiers.py` - Specialized tier registration
 - `tests/draw/test_draw_forms_uno.py` - ControlShapes (list/edit by name, checkbox State) + `shape_fill_fields`
 - `tests/draw/test_headers_footers.py` - Headers/footers
-- `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, current-doc Metropolis clone+assign, internal create-from-template helper
+- `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, current-doc Metropolis clone+assign
 
 ----
 

@@ -27,7 +27,6 @@ from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_
 from plugin.framework.errors import append_warnings, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
-    attach_sheets_create_completion_instruction,
     build_specialized_sub_agent_instructions,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
@@ -131,15 +130,15 @@ def _main_thread_or_warn(fn: Any, what: str) -> Any:
 class _DelegationCapture:
     """State gathered during the inner agent's execution loop.
 
-    Inner tool results that carry a web-research-style instruction (such as sheet_create)
-    are captured so specialized finish can forward them to the outer agent. When an accepted
-    inner peer send runs, the outer agent must go Ready rather than continuing with tools.
+    The first inner tool result that carries an ``instruction`` (such as
+    ``sheet_create`` or web research) is captured so specialized finish can
+    forward it to the outer agent. When an accepted inner peer send runs, the
+    outer agent must go Ready rather than continuing with tools.
     """
 
     calls: list[InnerToolCall] = field(default_factory=list)
-    # Forwarded to the outer agent as an instruction payload (e.g. sheet_create).
-    captured_tool_results: list[dict[str, Any]] = field(default_factory=list)
-    create_sheet_ran: bool = False
+    # First non-empty instruction from an inner tool result, forwarded to the outer agent.
+    instruction: str = ""
     # Outer agent must transition to Ready instead of continuing with tools after peer delivery.
     peer_send_invoked: bool = False
     peer_result_send_invoked: bool = False
@@ -166,8 +165,8 @@ class _CaptureInstructionAdapter(InnerCallRecorder):
         result = super().forward(*args, **kwargs)
         if not isinstance(result, dict):
             return result
-        if result.get("instruction"):
-            self._capture.captured_tool_results.append(result)
+        if not self._capture.instruction:
+            self._capture.instruction = result.get("instruction", "")
         # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
         # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE leave both flags false.
         if (
@@ -542,8 +541,6 @@ class DelegateToSubagent(ToolBase):
             examples_key = f"{agent_label.lower()}:{domain}"
 
             def tool_call_handler(step: Any) -> None:
-                if step.name == "sheet_create":
-                    cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
                 if domain == "document_research" and step.name == "research_delegate_read" and ctx.chat_append_callback:
@@ -598,7 +595,7 @@ class DelegateToSubagent(ToolBase):
     ) -> dict[str, Any]:
         """Attach shapes outcome counts, completion instructions, and peer annotations to the payload.
 
-        The annotation helpers return early unless the payload status is ok. Running
+        The peer annotation helpers return early unless the payload status is ok. Running
         them on the initial ok shell before apply_inner_outcome ensures their notes,
         counts, and instructions are preserved even if the outcome subsequently marks
         the run as incomplete or a tool error.
@@ -608,14 +605,10 @@ class DelegateToSubagent(ToolBase):
             append_warnings(payload, summary.pop("warnings", []))
             payload.update(summary)
 
-        # Outer never sees sheet_create's inner-only ok string; forward the same
-        # `instruction` field web research uses when empty tabs were created.
-        if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
-            payload = attach_sheets_create_completion_instruction(
-                payload,
-                create_sheet_ran=cap.create_sheet_ran,
-                tool_results=cap.captured_tool_results,
-            )
+        # The outer agent never sees inner tool results, so forward the first
+        # `instruction` (empty new sheet, web research).
+        if cap.instruction:
+            payload["instruction"] = cap.instruction
 
         # Peer-work receiving turn: nested specialize (or research without an
         # accepted peer_send_result) is not delivery — stamp still-required

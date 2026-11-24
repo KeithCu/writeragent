@@ -1111,3 +1111,29 @@ def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx
         measure.gotoStart(False)
         measure.gotoRange(c_shapes[0][0].getAnchor().getStart(), True)
         assert measure.getString() == "A", (anchor_type.value, measure.getString())
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_back_color_string_transparent_and_alpha_roundtrip_uno(ctx, doc):
+    from com.sun.star.drawing.FillStyle import NONE, SOLID
+    from plugin.writer.page import get_page_style_properties
+
+    tool = PageSetStyleProperties()
+    tool_ctx = _tool_ctx(doc, ctx)
+    style, s_name = _style(doc)
+
+    res = tool.execute(tool_ctx, style=s_name, back_color="red")
+    assert res["status"] == "ok", res
+    assert style.getPropertyValue("FillStyle") == SOLID
+    assert style.getPropertyValue("FillColor") == 0xFF0000
+
+    style.setPropertyValue("FillTransparence", 50)
+    props = get_page_style_properties(doc, s_name)["properties"]
+    res_rt = tool.execute(tool_ctx, style=s_name, back_color=props["back_color"])
+    assert res_rt["status"] == "ok", res_rt
+    assert style.getPropertyValue("FillTransparence") == 50
+
+    res_none = tool.execute(tool_ctx, style=s_name, back_color="transparent")
+    assert res_none["status"] == "ok", res_none
+    assert style.getPropertyValue("FillStyle") == NONE

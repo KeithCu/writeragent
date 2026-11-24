@@ -21,6 +21,7 @@ import numpy as np
 
 from .calc_functions_util import (
     NA_NAN,
+    approx_floor,
     as_nonzero,
     build_holiday_set,
     calc_function,
@@ -29,11 +30,11 @@ from .calc_functions_util import (
     criteria_numbers,
     extract_numeric_array,
     finite_or_nan,
+    first_error,
     is_calc_error,
     is_number,
     npf_result,
     parse_weekend,
-    round_sig,
     scipy_stats,
     serial_to_date,
     yearfrac,
@@ -111,10 +112,10 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = scipy_stats()
     if st is None:
         return float("nan")
-    # int(float(+inf)) and int() of an oversized count raise OverflowError,
-    # which the worker returns as #NUM! (Excel NEGBINOMDIST is #NUM!).
-    k = int(float(x))
-    r_val = int(float(r))
+    # approx_floor(float(+inf)) raises OverflowError, which the worker returns
+    # as #NUM! (Excel NEGBINOMDIST is #NUM!).
+    k = approx_floor(float(x))
+    r_val = approx_floor(float(r))
     prob = float(p)
     if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
         return float("nan")
@@ -231,17 +232,22 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float | str:
-    # ScNPV (interpr2.cxx): the first error among the cash flows is the result; blank and
-    # text cells are skipped without consuming a discount period.
+    # ScNPV (interpr2.cxx): the first error among the cash flows is the result;
+    # booleans are numbers; blank and text cells are skipped without a period.
     r = float(rate)
-    for arg in args:
-        for v in np.asarray(arg, dtype=object).ravel():
-            if is_calc_error(v):
-                return v.strip() if isinstance(v, str) else float(v)
+    cells = [v for arg in args for v in np.asarray(arg, dtype=object).ravel()]
+    err = first_error(cells)
+    if err is not None:
+        return err
     res = 0.0
+    period = 0
     try:
-        for i, v in enumerate(extract_numeric_array(*args).tolist()):
-            res += v / ((1 + r) ** (i + 1))
+        for v in cells:
+            num = _cell_number(v)
+            if num is None:
+                continue
+            period += 1
+            res += num / ((1 + r) ** period)
     except (ZeroDivisionError, OverflowError, ValueError):
         return float("nan")
     return res
@@ -475,16 +481,16 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
 
 
 def permut(n: Any, k: Any) -> float:
-    n_val = int(float(n))
-    k_val = int(float(k))
+    n_val = approx_floor(float(n))
+    k_val = approx_floor(float(k))
     if n_val < 0 or k_val < 0 or n_val < k_val:
         return float("nan")
     # ScPermut: reject via lgamma before math.perm to prevent large factorial stalls.
     log_p = math.lgamma(n_val + 1) - math.lgamma(n_val - k_val + 1)
     if not math.isfinite(log_p) or log_p > math.log(sys.float_info.max):
         return float("nan")
-    # int(float(+inf)) and float() of a huge permutation raise
-    # OverflowError. lgamma of int(float(1e308)) raises OverflowError
+    # approx_floor(float(+inf)) and float() of a huge permutation raise
+    # OverflowError. lgamma of approx_floor(float(1e308)) raises OverflowError
     # too. Excel PERMUT is #NUM!.
     return float(math.perm(n_val, k_val))
 
@@ -496,9 +502,9 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
-    # ScPoissonDist floors x with approxFloor (interpr3.cxx); math.floor(inf) raises OverflowError,
-    # which the worker shows as #NUM!.
-    k = math.floor(round_sig(float(x), 15))
+    # ScPoissonDist (interpr3.cxx) floors x with approxFloor; inf raises
+    # OverflowError, which the worker shows as #NUM!.
+    k = approx_floor(float(x))
     m = float(mean)
     # ScPoissonDist (interpr3.cxx) rejects mean <= 0 (tdf#105019).
     if k < 0 or m <= 0:
@@ -952,7 +958,7 @@ def _cell_number(val: Any) -> float | None:
         return None
 
 
-def subtotal(fn_num: Any, r: Any) -> float:
+def subtotal(fn_num: Any, r: Any) -> float | str:
     # A text fn_num raises ValueError here, which the worker returns as #VALUE!.
     fn = int(float(fn_num))
     # dtype=object keeps True and "5" distinct. Default asarray turned
@@ -966,20 +972,19 @@ def subtotal(fn_num: Any, r: Any) -> float:
         fn -= 100
     if fn < 1 or fn > 11:
         return float("nan")
+    # ScSubTotal returns the first error except for COUNT (2) and COUNTA (3), so only COUNT and COUNTA reach the loop with a NaN.
+    if fn not in (2, 3):
+        err = first_error(flat)
+        if err is not None:
+            return err
     nums: list[float] = []
     for x in flat:
         try:
             v = _cell_number(x)
         except OverflowError:
             return float("nan")
-        if v is None:
-            continue
-        # ScSubTotal: formula errors (NaN) propagate for functions other than COUNT/COUNTA.
-        if math.isnan(v):
-            if fn == 2 or fn == 3:
-                continue
-            return float("nan")
-        nums.append(v)
+        if v is not None and not math.isnan(v):
+            nums.append(v)
     arr = np.asarray(nums, dtype=float)
     if fn == 1:
         # Empty AVERAGE is #DIV/0!.
@@ -1037,7 +1042,7 @@ def sumifs(sr: Any, *args: Any) -> float:
 
 
 @calc_function
-def sumproduct(*args: Any) -> float:
+def sumproduct(*args: Any) -> float | str:
     if not args:
         return 0.0
     arrays = [np.asarray(a, dtype=object) for a in args]
@@ -1046,33 +1051,34 @@ def sumproduct(*args: Any) -> float:
     shape = arrays[0].shape
     if any(a.shape != shape for a in arrays):
         return float("nan")
-    flat = [a.ravel() for a in arrays]
     total = 0.0
-    for i in range(flat[0].size):
-        prod = 1.0
-        for arr in flat:
-            val = _cell_number(arr[i])
-            # Blank and text are a zero factor. A numeric NaN stays NaN.
-            if val is None:
-                prod = 0.0
-                break
-            prod *= val
-        total += prod
+    for cells in zip(*(a.ravel() for a in arrays)):
+        # MergeDoubleArrayMultiply (scmatrix.cxx): text makes the row count as 0, even beside an error.
+        if any(isinstance(v, str) and v != "" and not is_calc_error(v) for v in cells):
+            continue
+        # The arrays are multiplied from the last one, so its error wins. A blank is 0 and keeps an error.
+        err = first_error(reversed(cells))
+        if err is not None:
+            return err
+        total += math.prod(_cell_number(v) or 0.0 for v in reversed(cells))
     # ScSumProduct (TreatDoubleError): overflow produces NaN.
     return finite_or_nan(float(total))
 
 
 @calc_function
-def sumsq(*args: Any) -> float:
+def sumsq(*args: Any) -> float | str:
+    flat = [np.asarray(arg, dtype=object).ravel() for arg in args]
+    # ScSumSQ -> IterateParameters (interpr6.cxx) pops arguments from the last,
+    # so the first error of the last argument containing one is the result; text and blanks are skipped.
+    err = first_error(v for cells in reversed(flat) for v in cells)
+    if err is not None:
+        return err
     total = 0.0
-    for arg in args:
-        for val in np.asarray(arg, dtype=object).ravel():
+    for cells in flat:
+        for val in cells:
             num = _cell_number(val)
             if num is None:
                 continue
-            # ScSumSQ: formula errors (NaN) propagate rather than skipping like blanks.
-            if math.isnan(num):
-                return float("nan")
             total += num * num
     # TreatDoubleError: overflow produces NaN.
     return finite_or_nan(float(total))

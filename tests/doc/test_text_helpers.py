@@ -1311,3 +1311,129 @@ def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
     assert tree["children"][0]["body_paragraphs"] == 1  # h_struck counted as body
     assert [c["text"] for c in tree["children"][0]["children"]] == [""]
     assert tree["children"][1]["para_index"] == 3
+
+
+def test_build_heading_tree_keeps_unseen_live_headings():
+    from plugin.doc.text_helpers import build_heading_tree
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    class _RawTextPara(FakeUnoPara):
+        def __init__(self, portions, raw_text: str, **props):
+            super().__init__(portions, **props)
+            self._raw_text = raw_text
+
+        def getString(self) -> str:
+            return self._raw_text
+
+    class _UnenumerablePara(FakeUnoPara):
+        def getString(self) -> str:
+            return "Unreadable"
+
+        def createEnumeration(self):
+            raise RuntimeError("unenumerable")
+
+    h_ctl = _RawTextPara([FakeUnoPortion("ContentControl", "")], "Ctl Heading", OutlineLevel=1)
+    h_bad = _UnenumerablePara([], OutlineLevel=1)
+    h_next = FakeUnoPara([FakeUnoPortion("Text", "After")], OutlineLevel=1)
+
+    body = MagicMock()
+    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_bad, h_next])
+    model = MagicMock()
+    model.getText.return_value = body
+    model.getRedlines.return_value.hasElements.return_value = False
+
+    tree = build_heading_tree(model)
+    assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
+        ("Ctl Heading", 0),
+        ("Unreadable", 1),
+        ("After", 2),
+    ]
+
+
+def test_visible_point_in_paragraph():
+    from plugin.doc.text_helpers import visible_point_in_paragraph
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _Point:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self.steps = 0
+
+    class _Cursor:
+        def __init__(self, point: _Point) -> None:
+            self.label = point.label
+            self.steps = point.steps
+
+        def goRight(self, n: int, _expand: bool) -> bool:
+            self.steps += n
+            return True
+
+    class _PosPortion(FakeUnoPortion):
+        def __init__(self, ptype: str, text: str = "", *, start: str = "", end: str = "", **kw):
+            super().__init__(ptype, text, **kw)
+            self._start = _Point(start)
+            self._end = _Point(end)
+
+        def getStart(self) -> _Point:
+            return self._start
+
+        def getEnd(self) -> _Point:
+            return self._end
+
+    class _PosPara(FakeUnoPara):
+        def __init__(self, portions):
+            super().__init__(portions)
+            self._start = _Point("para_start")
+            self._end = _Point("para_end")
+
+        def getStart(self) -> _Point:
+            return self._start
+
+        def getEnd(self) -> _Point:
+            return self._end
+
+    p_text1 = _PosPortion("Text", "Line ", start="t1_start", end="t1_end")
+    p_del_s = _PosPortion("Redline", redline_type="Delete", is_start=True)
+    p_struck = _PosPortion("Text", "OLD ", start="del_start", end="del_end")
+    p_del_e = _PosPortion("Redline", redline_type="Delete", is_start=False)
+    p_text3 = _PosPortion("Text", "2 match More", start="t3_start", end="t3_end")
+    para = _PosPara([p_text1, p_del_s, p_struck, p_del_e, p_text3])
+
+    fake_text = MagicMock()
+    fake_text.createTextCursorByRange.side_effect = lambda pt: _Cursor(pt)
+    for pt in (p_text1._start, p_text1._end, p_text3._start, p_text3._end, para._start, para._end):
+        pt.getText = lambda ft=fake_text: ft  # type: ignore[attr-defined]
+
+    pos_12 = visible_point_in_paragraph(para, 12, opened=False, at_end=True)
+    assert (pos_12.label, pos_12.steps) == ("t3_start", 7)
+
+    pos_5_end = visible_point_in_paragraph(para, 5, opened=False, at_end=True)
+    assert (pos_5_end.label, pos_5_end.steps) == ("t1_start", 5)
+
+    pos_5_start = visible_point_in_paragraph(para, 5, opened=False, at_end=False)
+    assert (pos_5_start.label, pos_5_start.steps) == ("t3_start", 0)
+
+    field_p = _PosPortion("TextField", "Ann Lee", start="f_start", end="f_end")
+    field_para = _PosPara([field_p])
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=False).label == "f_start"
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=True).label == "f_end"
+
+    assert visible_point_in_paragraph(para, 999, opened=False, at_end=True).label == "para_end"
+
+
+def test_get_selection_text_writer_none_and_disposal():
+    from plugin.doc.text_helpers import get_selection_text
+    from plugin.framework.errors import DocumentDisposedError
+
+    model = MagicMock()
+    model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    controller = MagicMock()
+    model.getCurrentController.return_value = controller
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=None):
+        assert get_selection_text(model) is None
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=MagicMock()):
+        with patch("plugin.doc.text_helpers.visible_range_text", side_effect=DocumentDisposedError("gone")):
+            with pytest.raises(DocumentDisposedError):
+                get_selection_text(model)

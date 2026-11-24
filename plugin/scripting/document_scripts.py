@@ -31,7 +31,7 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError, is_disposal
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_desktop, iter_open_models, normalize_doc_url
+from plugin.framework.uno_context import get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
     PICKER_WIRING,
@@ -43,7 +43,7 @@ from plugin.scripting.domain_registry import (
     picker_display_name,
 )
 from plugin.scripting.named_scripts import script_body_hash
-from plugin.scripting.session_manager import calc_init_session_id
+from plugin.scripting.session_manager import calc_init_session_id, only_open_calc_document
 
 log = logging.getLogger(__name__)
 
@@ -229,20 +229,6 @@ def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
     return set_document_scripts(doc, scripts)
 
 
-def _enumerate_calc_documents(desktop: Any) -> list[Any]:
-    """Calc models from desktop.getComponents(), in enumeration order."""
-    matches: list[Any] = []
-    for model in iter_open_models(desktop, strict=False, label="document_scripts"):
-        try:
-            if is_calc(model):
-                matches.append(model)
-        except Exception:
-            # Catch per element so one disposed or broken element does not abort enumeration
-            log.debug("document_scripts: skipping invalid component during enumeration", exc_info=True)
-            continue
-    return matches
-
-
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:
     try:
         desktop = get_desktop(ctx)
@@ -254,11 +240,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         # Writer and Impress (is_draw) skip Calc init binding when focused; Base/Math still enumerate Calc documents.
         return None
     if doc is None or not is_calc(doc):
-        matches = _enumerate_calc_documents(desktop)
-        # UNO order is not the focused file, so 0 or several workbooks is not a safe pick.
-        if len(matches) != 1:
-            return None
-        return guard_uno(matches[0])
+        return only_open_calc_document(ctx)
     return guard_uno(doc)
 
 

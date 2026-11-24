@@ -334,3 +334,34 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
     assert visible_range_text(doc, text) == "cellA1\n\nthree"
     # get_document_length uses a cursor from body.getStart(), which skips the leading table.
     assert get_document_length(doc) == len("\nthree")
+
+
+@native_test
+@with_native_doc("writer")
+def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_selection_text
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    controller = doc.getCurrentController()
+    rng_cur = text.createTextCursorByRange(paras[2].getStart())
+    rng_cur.gotoRange(text.getEnd(), True)
+    controller.select(rng_cur)
+    assert get_selection_text(doc) == "\nTail\nAfter"
+
+    para2_cur = text.createTextCursorByRange(paras[2].getStart())
+    para2_cur.gotoRange(paras[2].getEnd(), True)
+    controller.select(para2_cur)
+    assert get_selection_text(doc) == ""
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    controller.select(tbl.getCellRangeByName("A1:B2"))
+    assert get_selection_text(doc) is None

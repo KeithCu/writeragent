@@ -55,44 +55,41 @@ def no_image_selected_error() -> ToolExecutionError:
     )
 
 
-def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
-    """Export the currently selected embedded graphic as raw PNG bytes."""
-    try:
+def resolve_vision_image(ctx: Any, doc: Any, image_name: str) -> tuple[Any, bytes]:
+    """Return the graphic to OCR and its PNG bytes; the only image lookup for a vision run.
+
+    *image_name* names a graphic; an empty name means the selected graphic.
+    """
+    if image_name:
+        graphic_obj = _get_graphic_object(doc, image_name)
+        if graphic_obj is None:
+            raise ToolExecutionError(
+                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=image_name),
+                code="IMAGE_NOT_FOUND",
+                details={"image_name": image_name},
+            )
+    else:
         graphic_obj = selected_graphic_object(doc)
-        png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj) if graphic_obj is not None else None
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        raise ToolExecutionError(
-            _("Could not export the selected image: {error}").format(error=exc),
-            code="IMAGE_EXPORT_FAILED",
-        ) from exc
-    if not png_bytes:
-        raise no_image_selected_error()
-    return png_bytes
-
-
-def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = None, graphic_obj: Any = None) -> bytes:
-    """Export PNG bytes from *image_name* or the current graphic selection."""
-    name = str(image_name or "").strip()
-    if not name and graphic_obj is None:
-        return get_selected_image_bytes(ctx, doc)
-
-    if graphic_obj is None:
-        graphic_obj = _get_graphic_object(doc, name)
-    if graphic_obj is None:
-        raise ToolExecutionError(_("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name), code="IMAGE_NOT_FOUND", details={"image_name": name})
+        if graphic_obj is None:
+            raise no_image_selected_error()
     try:
         png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj)
     except Exception as exc:
         reraise_if_disposed(exc)
-        raise ToolExecutionError(
-            _("Image '{name}' could not be exported: {error}").format(name=name, error=exc),
-            code="IMAGE_EXPORT_FAILED",
-            details={"image_name": name},
-        ) from exc
+        if image_name:
+            message = _("Image '{name}' could not be exported: {error}").format(name=image_name, error=exc)
+        else:
+            message = _("Could not export the selected image: {error}").format(error=exc)
+        raise ToolExecutionError(message, code="IMAGE_EXPORT_FAILED", details={"image_name": image_name}) from exc
     if not png_bytes:
-        raise ToolExecutionError(_("Image '{name}' could not be exported.").format(name=name), code="IMAGE_NOT_FOUND", details={"image_name": name})
-    return png_bytes
+        if not image_name:
+            raise no_image_selected_error()
+        raise ToolExecutionError(
+            _("Image '{name}' could not be exported.").format(name=image_name),
+            code="IMAGE_NOT_FOUND",
+            details={"image_name": image_name},
+        )
+    return graphic_obj, png_bytes
 
 
 def _validate_helper(helper: str) -> str:
@@ -107,13 +104,12 @@ def _validate_helper(helper: str) -> str:
 def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
     # Keep the region so zh-TW reaches Docling and Paddle as Traditional Chinese.
     # 1. CharLocale from the target graphic
-    if graphic_obj is not None:
-        try:
-            locale = graphic_obj.getPropertyValue("CharLocale")
-            if locale and locale.Language:
-                return f"{locale.Language}-{locale.Country}" if locale.Country else locale.Language
-        except Exception as exc:
-            reraise_if_disposed(exc)
+    try:
+        locale = graphic_obj.getPropertyValue("CharLocale")
+        if locale and locale.Language:
+            return f"{locale.Language}-{locale.Country}" if locale.Country else locale.Language
+    except Exception as exc:
+        reraise_if_disposed(exc)
 
     # 2. LibreOffice UI locale
     from plugin.framework.i18n import get_lo_locale
@@ -145,17 +141,13 @@ def run_trusted_vision(
     params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
-        # Graphic lookup, locale, and PNG export are UNO. OCR itself is not.
+        # Graphic lookup, PNG export, and locale are UNO. OCR itself is not.
         local_params = dict(params_dict)
-        image_name = local_params.get("image_name")
-        name_str = str(image_name).strip() if image_name is not None else ""
-        graphic_obj = _get_graphic_object(doc, name_str) if name_str else selected_graphic_object(doc)
-
+        image_name = str(local_params.get("image_name") or "").strip()
+        graphic_obj, png_bytes = resolve_vision_image(ctx, doc, image_name)
         if not local_params.get("lang"):
             local_params["lang"] = _resolve_locale_language(ctx, graphic_obj)
-
-        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=name_str or None, graphic_obj=graphic_obj)
-        context: dict[str, Any] = {"source": "graphic_name", "image_name": name_str} if name_str else {"source": "selection"}
+        context: dict[str, Any] = {"source": "graphic_name", "image_name": image_name} if image_name else {"source": "selection"}
         return png_bytes, local_params, context
 
     try:

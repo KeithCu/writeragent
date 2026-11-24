@@ -672,7 +672,7 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     at or before the cut keeps the list object and moves the row. Either
     way the summary belongs to a transcript this list no longer has.
     """
-    state = getattr(session, "compaction", None)
+    state = session.compaction
     if state is None:
         return None
     if 1 <= state.first_kept_index < len(messages) and id(messages[state.first_kept_index]) == state.kept_message_id:
@@ -964,7 +964,7 @@ def compact_session(
 
     tool_tokens = tool_schema_tokens(tools)
     view = messages_for_llm(session)
-    state = getattr(session, "compaction", None)
+    state = session.compaction
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
     gate_tokens = estimate_tokens(view) + tool_tokens

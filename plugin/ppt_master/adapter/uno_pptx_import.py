@@ -21,7 +21,7 @@ from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.draw.shape_clone import clone_shape
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import create_property_value, get_desktop
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -62,8 +62,16 @@ def load_pptx_as_impress_doc(ctx: Any, pptx_path: Path) -> Any | None:
     if not pptx_path.is_file():
         return None
     try:
-        desktop = get_desktop(ctx)
-        doc = load_scratch_document(desktop, pptx_path.resolve().as_uri())
+        # ReadOnly: an editable load shares the lock file of a deck the user has open, and
+        # closing the copy then deletes that file (SfxMedium::LockOrigFileOnDemand,
+        # SfxMedium::UnlockFile in sfx2/source/doc/docfile.cxx).
+        doc = load_scratch_document(
+            get_desktop(ctx), pptx_path.as_uri(), props=(create_property_value("ReadOnly", True),)
+        )
+        if doc is not None:
+            # Drop the URL so File > Open and document_open load the file themselves instead of
+            # this hidden copy (LoadEnv::impl_searchAlreadyLoaded, resolve_document_by_url).
+            doc.attachResource("", ())
         return doc
     except Exception as exc:
         log.warning("PPTX load failed for %s: %s", pptx_path, exc)

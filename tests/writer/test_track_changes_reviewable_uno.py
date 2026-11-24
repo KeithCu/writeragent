@@ -452,23 +452,132 @@ def test_tool_never_blocks_on_main_thread_even_with_wait_flag_uno(ctx, doc):
         _reject_all(doc, ctx)
 
 
-# --- style changes are not redline-trackable; the tool says so under review mode ---------
+# --- paragraph apply_style records ParagraphFormat redlines in review mode ---------------
 
 @native_test
 @with_native_doc("writer")
-def test_apply_style_flags_unreviewed_when_review_on_uno(ctx, doc):
+def test_apply_style_records_in_review_mode_on_non_recording_doc_uno(ctx, doc):
+    from plugin.writer import review_authors
     from plugin.writer.styles import ApplyStyle
 
-    _reset(doc, ctx, "Heading target text.")
     prev = get_config(_FLAG)
-    save({_FLAG: "record"})
     try:
-        res = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
-        assert res.get("status") == "ok", res
-        assert res.get("style_unreviewed") is True, "style edit must flag unreviewed under review mode: %r" % res
-        assert _redline_types(doc) == [], "a paragraph-style change creates no redline"
+        for mode in ("record", "wait"):
+            _reset(doc, ctx, "First bold.")
+            doc.setPropertyValue("RecordChanges", False)
+            para = doc.getText().createEnumeration().nextElement()
+            para.setPropertyValue("ParaLeftMargin", 500)
+            save({_FLAG: mode})
+            res = ApplyStyle().execute(
+                _tool_ctx(doc, ctx),
+                style="Heading 2",
+                family="ParagraphStyles",
+                target="full_document",
+                clear_direct="none",
+            )
+            assert res.get("status") == "ok", res
+            assert res.get("tracked") is True, res
+            assert "style_unreviewed" not in res, res
+            rls = _redlines(doc)
+            assert [r["type"] for r in rls] == ["ParagraphFormat"], rls
+            assert rls[0]["RedlineAuthor"] == review_authors.INSERT_AUTHOR, rls
+            assert doc.getPropertyValue("RecordChanges") is False
+            _reject_all(doc, ctx)
+            para = doc.getText().createEnumeration().nextElement()
+            assert para.getPropertyValue("ParaStyleName") == "Standard"
+            assert abs(para.getPropertyValue("ParaLeftMargin") - 500) <= 2
     finally:
         save({_FLAG: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+
+    def _setup(text_str: str, *, bold_first_word: bool = False):
+        _reset(doc, ctx, text_str)
+        doc.setPropertyValue("RecordChanges", False)
+        para = doc.getText().createEnumeration().nextElement()
+        para.setPropertyValue("ParaLeftMargin", 500)
+        if bold_first_word:
+            c = doc.getText().createTextCursor()
+            c.gotoStart(False)
+            c.goRight(len(text_str.split()[0]), True)
+            c.setPropertyValue("CharWeight", 150.0)
+        doc.setPropertyValue("RecordChanges", True)
+        return doc.getText().createTextCursor()
+
+    def _select_all(cur):
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        doc.getCurrentController().select(cur)
+
+    def _select_first_word(cur, word_len: int):
+        cur.gotoStart(False)
+        cur.goRight(word_len, True)
+        doc.getCurrentController().select(cur)
+
+    def _margin() -> int:
+        return doc.getText().createEnumeration().nextElement().getPropertyValue("ParaLeftMargin")
+
+    try:
+        # 1. Para then whole Char: flagged, margin lost on Reject All (LibreOffice ResetAttrs).
+        cur = _setup("Alpha beta.")
+        _select_all(cur)
+        r1 = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        assert r1.get("status") == "ok", r1
+        r2 = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
+        assert r2.get("status") == "ok", r2
+        assert r2.get("style_unreviewed") is True, r2
+        assert "direct paragraph formatting" in r2.get("warning", ""), r2
+        _reject_all(doc, ctx)
+        assert _margin() <= 2
+
+        # 2. Para then character apply_style: flagged.
+        cur = _setup("Alpha beta.")
+        _select_all(cur)
+        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        r_char = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Emphasis", family="CharacterStyles")
+        assert r_char.get("status") == "ok", r_char
+        assert r_char.get("style_unreviewed") is True, r_char
+        assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
+        _reject_all(doc, ctx)
+        assert _margin() <= 2
+
+        # 3. Char then Para: not flagged, margin kept.
+        cur = _setup("Alpha beta.")
+        _select_all(cur)
+        StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
+        r_para = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        assert r_para.get("status") == "ok", r_para
+        assert "style_unreviewed" not in r_para, r_para
+        _reject_all(doc, ctx)
+        assert abs(_margin() - 500) <= 2
+
+        # 4. Para then one word: not flagged, margin kept.
+        cur = _setup("Alpha beta.")
+        _select_all(cur)
+        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        _select_first_word(cur, 5)
+        r_word = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
+        assert r_word.get("status") == "ok", r_word
+        assert "style_unreviewed" not in r_word, r_word
+        _reject_all(doc, ctx)
+        assert abs(_margin() - 500) <= 2
+
+        # 5. Para then whole Char on a paragraph with one bold word: not flagged, margin kept.
+        cur = _setup("Alpha beta.", bold_first_word=True)
+        _select_all(cur)
+        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        r_two = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharPosture": 2})
+        assert r_two.get("status") == "ok", r_two
+        assert "style_unreviewed" not in r_two, r_two
+        _reject_all(doc, ctx)
+        assert abs(_margin() - 500) <= 2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test

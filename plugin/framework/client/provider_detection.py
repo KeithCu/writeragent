@@ -19,6 +19,7 @@ import ipaddress
 import urllib.parse
 from typing import Optional
 
+from plugin.framework.client.http_security import log_target
 from plugin.framework.errors import ConfigError
 from plugin.framework.url_utils import get_url_hostname, host_matches, normalize_endpoint_url
 
@@ -50,7 +51,8 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
     if not endpoint:
         return None
 
-    url = normalize_endpoint_url(endpoint).lower()
+    base = normalize_endpoint_url(endpoint)
+    url = base.lower()
     host = get_url_hostname(url).lower()
     # ``ParseResult.port`` raises ValueError for ``:1a34`` and for ports
     # outside 0–65535; urllib checks the port only when ``.port`` is read.
@@ -60,8 +62,9 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
     # bracket URL is ConfigError, the same contract as other invalid settings.
     try:
         port = urllib.parse.urlparse(url).port
-    except ValueError as exc:
-        raise ConfigError("Invalid URL port", code="CONFIG_INVALID_URL", details={"endpoint": url.split("?", 1)[0]}) from exc
+    except ValueError:
+        # ``base`` keeps its case: an all-lowercase path token is not recognised as a secret.
+        raise ConfigError("Invalid URL port", code="CONFIG_INVALID_URL", details={"endpoint": log_target(base)}) from None
 
     # Hostname or subdomain, not a substring (notollama.example, z.ai.example).
     for provider, names in _PROVIDER_HOSTS:

@@ -106,6 +106,8 @@ def test_get_calc_document_from_ctx_enumerates_from_base():
         patch("plugin.scripting.document_scripts.is_writer", return_value=False),
         patch("plugin.scripting.document_scripts.is_draw", return_value=False),
         patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model is calc),
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=lambda model: model is calc),
     ):
         assert get_calc_document_from_ctx(MagicMock()) is calc
     desktop.getComponents.assert_called_once()
@@ -120,6 +122,8 @@ def test_get_calc_document_from_ctx_returns_only_enumerated_workbook():
     with (
         patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
         patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model is calc),
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=lambda model: model is calc),
     ):
         assert get_calc_document_from_ctx(MagicMock()) is calc
 
@@ -135,6 +139,8 @@ def test_get_calc_document_from_ctx_ambiguous_enumeration_returns_none():
     with (
         patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
         patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=lambda model: model in (first, second)),
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
 
@@ -1414,60 +1420,6 @@ def test_picker_delete_missing_script_returns_error():
         )
     assert "status_ok_text" not in sent_user[-1]
     assert "does not exist" in sent_user[-1].get("status_error_text", "")
-
-
-def test_enumerate_calc_documents_ends_on_failed_next_element():
-    from plugin.scripting.document_scripts import _enumerate_calc_documents
-
-    enum = MagicMock()
-    enum.hasMoreElements.return_value = True
-    enum.nextElement.side_effect = RuntimeError("stuck")
-    comps = MagicMock()
-    comps.createEnumeration.return_value = enum
-    desktop = MagicMock()
-    desktop.getComponents.return_value = comps
-
-    results = _enumerate_calc_documents(desktop)
-    assert results == []
-    assert enum.nextElement.call_count == 1
-
-
-def test_enumerate_calc_documents_finds_calc_past_32():
-    from plugin.scripting.document_scripts import _enumerate_calc_documents
-
-    non_calcs = [MagicMock(name=f"non_calc_{i}") for i in range(39)]
-    calc = MagicMock(name="calc")
-    calc.getURL.return_value = "file:///calc.ods"
-    for m in non_calcs:
-        m.getURL.return_value = "file:///other.ods"
-
-    comps = _calc_component_enum(*(non_calcs + [calc]))
-    desktop = MagicMock()
-    desktop.getComponents.return_value = comps
-
-    with patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda m: m is calc):
-        results = _enumerate_calc_documents(desktop)
-    assert results == [calc]
-
-
-def test_enumerate_calc_documents_skips_disposed_element_and_continues():
-    """Cleanup: per-element try/except in _enumerate_calc_documents continues on broken component."""
-    broken_elem = MagicMock()
-    broken_elem.getURL.side_effect = RuntimeError("disposed")
-    broken_elem.getController.side_effect = RuntimeError("disposed")
-
-    valid_calc = MagicMock()
-    valid_calc.getURL.return_value = "file:///valid.ods"
-
-    comps = _calc_component_enum(broken_elem, valid_calc)
-    desktop = MagicMock()
-    desktop.getComponents.return_value = comps
-
-    with patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda m: m is valid_calc):
-        from plugin.scripting.document_scripts import _enumerate_calc_documents
-
-        results = _enumerate_calc_documents(desktop)
-    assert results == [valid_calc]
 
 
 def test_shared_save_selected_script_user_and_doc_and_builtin():

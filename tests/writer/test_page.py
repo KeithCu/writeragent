@@ -1969,3 +1969,61 @@ def test_page_set_header_footer_text_flags_layout_change_only():
 
     assert first.get("style_unreviewed") is True
     assert "style_unreviewed" not in second
+
+
+@pytest.mark.parametrize(
+    ("raw_color", "expected_uno"),
+    [
+        ("#FF0000", 0xFF0000),
+        ("red", 0xFF0000),
+        ("transparent", -1),
+        (-1, -1),
+        (2147418112, 2147418112),
+    ],
+)
+def test_page_set_style_properties_back_color_variants(raw_color, expected_uno):
+    from plugin.framework.tool import prepare_tool_call
+
+    style = MagicMock()
+    doc = MagicMock()
+    family = MagicMock()
+    family.hasByName.return_value = True
+    family.getByName.return_value = style
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    tool = PageSetStyleProperties()
+    prepared = prepare_tool_call(tool, ctx, "page_set_style_properties", {"style": "Standard", "back_color": raw_color})
+    assert prepared.error is None, prepared.error
+    with patch("plugin.writer.page.flag_style_unreviewed"):
+        res = tool.execute(ctx, **prepared.kwargs)
+
+    assert res["status"] == "ok", res
+    style.setPropertyValue.assert_called_once_with("BackColor", expected_uno)
+
+
+def test_page_set_style_properties_invalid_back_color_writes_nothing():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.framework.tool import prepare_tool_call
+
+    style = MagicMock()
+    doc = MagicMock()
+    family = MagicMock()
+    family.hasByName.return_value = True
+    family.getByName.return_value = style
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    tool = PageSetStyleProperties()
+    prepared = prepare_tool_call(
+        tool,
+        ctx,
+        "page_set_style_properties",
+        {"style": "Standard", "width_mm": 210, "back_color": "notacolor"},
+    )
+    assert prepared.error is None, prepared.error
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(ctx, **prepared.kwargs)
+
+    assert exc_info.value.code == "INVALID_PARAM"
+    style.setPropertyValue.assert_not_called()
