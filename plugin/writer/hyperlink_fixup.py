@@ -628,9 +628,9 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
     """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
 
     When recording changes, a tracked attribute write keeps the new URL, but
-    ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx:1318``) clears
+    ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx``) clears
     ``RES_TXTATR_INETFMT`` from the saved old attributes so ``lcl_RejectRedline``
-    (``DocumentRedlineManager.cxx:956``, ``ResetAttrs``) loses the old link on
+    (``DocumentRedlineManager.cxx``, ``ResetAttrs``) loses the old link on
     Reject. Plain-text runs therefore re-insert the text with the new URL and
     delete the old run, while runs already inside a tracked Insert are written
     directly because Reject removes them whole. Field runs cannot be retyped and
