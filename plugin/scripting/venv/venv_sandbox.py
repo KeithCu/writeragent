@@ -956,9 +956,9 @@ def _is_non_value_result(obj: Any) -> bool:
     A ``def`` or ``class`` statement evaluates to the object it created.
     Those objects cannot cross the LibreOffice pickle boundary. Nulling
     them keeps a helper-only script (and an init session) successful.
-    Instances stay values: a cell that ends on an instance still errors.
-    Import statements already return None, so a module expression still
-    errors on purpose.
+    Instances stay values: a cell that ends on an instance errors when no pyplot
+    figure is open. Import statements already return None, so a module
+    expression also errors when no pyplot figure is open.
     """
     return isinstance(
         obj,
@@ -1042,8 +1042,10 @@ def _serialize_cell_result(
     list of them, becomes those images in that order, and every other open figure is closed
     without being shown. An artist (plt.plot's lines, plt.title's Text, an Axes or an Axes
     array) or a blank figure shows every open figure that has a drawing. Artists and
-    returned figures are handled before serialize_result, which would reject them, and every
-    open figure is closed afterwards; a figure left open would be what the next cell returns.
+    returned figures are handled before serialize_result so a `(fig, axs)` tuple does
+    not render `fig` twice and a bare blank figure is replaced by open figures that have
+    drawings. Every open figure is closed afterwards; a figure left open would be what
+    the next cell returns.
 
     A non-image value is replaced when a figure is still open. That includes `result = 42`,
     and a value with no wire form, such as the tuple `plt.hist` returns, the dict `plt.boxplot`

@@ -2855,6 +2855,20 @@ def test_process_callables_allowed_when_os_true():
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+_EXIT_MANAGER = (
+    "class M:\n"
+    "    def __init__(self, exc=None, suppress=False):\n"
+    "        self.exc = exc\n"
+    "        self.suppress = suppress\n"
+    "    def __enter__(self):\n"
+    "        return self\n"
+    "    def __exit__(self, *args):\n"
+    "        if self.exc is not None:\n"
+    "            raise self.exc\n"
+    "        return self.suppress\n\n"
+)
+
+
 @pytest.mark.parametrize(
     "code",
     [
@@ -3019,63 +3033,19 @@ def test_process_callables_allowed_when_os_true():
             id="except_non_class",
         ),
         pytest.param(
-            "class M:\n"
-            "    def __init__(self, exc=None, suppress=False):\n"
-            "        self.exc = exc\n"
-            "        self.suppress = suppress\n"
-            "    def __enter__(self):\n"
-            "        return self\n"
-            "    def __exit__(self, *args):\n"
-            "        if self.exc is not None:\n"
-            "            raise self.exc\n"
-            "        return self.suppress\n\n"
-            "with M(RuntimeError('outer')), M(ValueError('inner')):\n"
-            "    1/0",
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(ValueError('inner')):\n    1/0",
             id="with_two_exits",
         ),
         pytest.param(
-            "class M:\n"
-            "    def __init__(self, exc=None, suppress=False):\n"
-            "        self.exc = exc\n"
-            "        self.suppress = suppress\n"
-            "    def __enter__(self):\n"
-            "        return self\n"
-            "    def __exit__(self, *args):\n"
-            "        if self.exc is not None:\n"
-            "            raise self.exc\n"
-            "        return self.suppress\n\n"
-            "with M(RuntimeError('outer')), M(suppress=True):\n"
-            "    1/0",
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(suppress=True):\n    1/0",
             id="with_inner_exit_suppresses",
         ),
         pytest.param(
-            "class M:\n"
-            "    def __init__(self, exc=None, suppress=False):\n"
-            "        self.exc = exc\n"
-            "        self.suppress = suppress\n"
-            "    def __enter__(self):\n"
-            "        return self\n"
-            "    def __exit__(self, *args):\n"
-            "        if self.exc is not None:\n"
-            "            raise self.exc\n"
-            "        return self.suppress\n\n"
-            "with M(), M(ValueError('inner')):\n"
-            "    pass",
+            _EXIT_MANAGER + "with M(), M(ValueError('inner')):\n    pass",
             id="with_normal_inner_exit_raises",
         ),
         pytest.param(
-            "class M:\n"
-            "    def __init__(self, exc=None, suppress=False):\n"
-            "        self.exc = exc\n"
-            "        self.suppress = suppress\n"
-            "    def __enter__(self):\n"
-            "        return self\n"
-            "    def __exit__(self, *args):\n"
-            "        if self.exc is not None:\n"
-            "            raise self.exc\n"
-            "        return self.suppress\n\n"
-            "with M(RuntimeError('outer')), M(ValueError('inner')):\n"
-            "    pass",
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(ValueError('inner')):\n    pass",
             id="with_normal_both_exits_raise",
         ),
     ],
@@ -3347,6 +3317,6 @@ def test_with_inner_exit_error_reaches_outer_manager() -> None:
 
     with pytest.raises(InterpreterError) as exc_info:
         executor(code.replace("Outer(suppress=True)", "Outer(suppress=False)"))
-    assert isinstance(exc_info.value.__cause__, ValueError) or "ValueError: boom" in exc_info.value.user_traceback
+    assert exc_info.value.user_traceback.splitlines()[-1] == "ValueError: boom"
     assert executor.state["seen"] == [ValueError]
 
