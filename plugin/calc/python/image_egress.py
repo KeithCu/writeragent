@@ -40,11 +40,10 @@ DEFAULT_CHART_SIZE_HEIGHT = 6000
 MIN_CHART_PLACEHOLDER_WIDTH = 4000
 MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 
-# Slot 0 starts this far (1/100 mm) inside the cell's far edge. Calc anchors a moved shape to
-# the cell under its top-left corner (ScDrawView adjustAnchoredPosition, drawvie3.cxx); exactly
-# on the edge that is the next column, and smaller insets round onto the next column for some
-# widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none). Anchored there, the plot would not
-# follow a cut and pasted formula, and would lose its owner in XLSX, which drops the wa-plot tag.
+# Slot 0 starts this far (1/100 mm) inside the far edge of the cell or spill row. Calc
+# anchors a moved shape to the cell under its top-left corner (ScDrawView adjustAnchoredPosition,
+# drawvie3.cxx); exactly on the edge that is the next column, and smaller insets round onto the
+# next column for some widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none).
 _PLOT_EDGE_INSET = 10
 
 # Only shapes we created for a plot are replaced on the next insert. A user
@@ -304,9 +303,9 @@ def _slot_cursor(
 ) -> tuple[int, int]:
     """Calculate the cursor (x, y) for placing a non-fill shape at image_index.
 
-    Starts just inside the cell's or merged range's far edge (right in LTR, left in RTL;
-    matching Collabora Online's ``ScViewFunc::InsertPythonPlotPictures`` in ``viewfun7.cxx``
-    for direction) so the plot does not cover the cell. For each slot index < image_index, if
+    Starts just inside the far edge of the cell, merged range, or spill row (right in LTR, left
+    in RTL; matching Collabora Online's ``ScViewFunc::InsertPythonPlotPictures`` in ``viewfun7.cxx``
+    for direction) so the plot does not cover the cell or its spilled values. For each slot index < image_index, if
     the slot shape is resolved, advances the cursor to that shape's live outer edge and aligns
     to its top Y. If any intermediate slot is missing, stops advancing and places at the last
     known edge.
@@ -357,15 +356,15 @@ def _holds_py_formula(sheet: Any, cell: tuple[int, int]) -> bool:
     return isinstance(formula, str) and match_py_alias(normalize_formula_string(formula), require_equals=True) is not None
 
 
-def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool:
+def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any, spill_cols: int = 1) -> bool:
     """True when the plot shape belongs to the formula cell *target_cell*.
 
     Positioning a cell-anchored shape makes stock Calc move its anchor to the cell under
     the shape's top-left corner (``ScDrawView::adjustAnchoredPosition``, ``drawvie3.cxx:175-224``,
-    calling ``ScDrawLayer::SetCellAnchoredFromPosition``). Slots after the first lie beyond the
-    formula cell, so they end up anchored to other cells, and LibrePy cannot pin the anchor
-    back. The ``wa-plot`` tag therefore decides ownership; only a shape without a tag is matched
-    by its anchor.
+    calling ``ScDrawLayer::SetCellAnchoredFromPosition``). Slots after the first (and slot 0
+    past a multi-column spill) lie beyond the formula cell, so they end up anchored to other
+    cells, and LibrePy cannot pin the anchor back. The ``wa-plot`` tag therefore decides
+    ownership; only a shape without a tag is matched by its anchor.
 
     When a tagged shape's anchor has moved since the tag was written:
     - If the owner shifted by the same delta equals *target_cell*, the formula and plot moved
@@ -380,7 +379,16 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
     """
     tag = _read_plot_tag(shape)
     if tag is None:
-        return _shape_anchor_matches_cell(shape, target_cell)
+        if _shape_anchor_matches_cell(shape, target_cell):
+            return True
+        if spill_cols > 1 and uno_read(lambda: shape.getPropertyValue("Name"), "") == _PLOT_SHAPE_NAME_PREFIX:
+            # XLSX drops the tag; another formula cannot live in this formula's spill row.
+            # In RTL the reloaded anchor is one column nearer than the placed cell.
+            anchor = _anchor_cell(shape)
+            addr_key = _cell_address_key(target_cell)
+            if anchor is not None and addr_key is not None:
+                return anchor[1] == addr_key[2] and addr_key[1] <= anchor[0] < addr_key[1] + spill_cols
+        return False
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return False
@@ -393,7 +401,7 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
     return tag.owner == here and not _holds_py_formula(sheet, moved)
 
 
-def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
+def _anchored_plot_slots(sheet: Any, target_cell: Any, spill_cols: int = 1) -> list[tuple[Any, int]]:
     """Return (shape, slot_index) for all plot shapes belonging to target_cell, in draw-page order."""
     try:
         draw_page = sheet.DrawPage
@@ -406,7 +414,7 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
             slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
             if slot_idx is None:
                 continue
-            if not _shape_matches_target_cell(sheet, shape, target_cell):
+            if not _shape_matches_target_cell(sheet, shape, target_cell, spill_cols):
                 continue
             slots.append((shape, slot_idx))
         return slots
@@ -601,12 +609,15 @@ def insert_image_result_on_sheet(
     image_path: str | None = None,
     image_count: int | None = None,
     notify_cell: bool = False,
+    spill_cols: int = 1,
 ) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
     *doc* is required (=PY() passes its caller argument; tools pass their target
     document). With no doc the insert fails rather than using the front window.
+    *spill_cols* is the number of columns the formula's result spills into; a new slot 0
+    stands past the last one.
 
     Raises:
         ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
@@ -630,6 +641,7 @@ def insert_image_result_on_sheet(
             image_index=image_index,
             image_path=image_path,
             image_count=image_count,
+            spill_cols=spill_cols,
         )
         if notify_cell:
             _clear_image_cell_annotation(doc, code)
@@ -659,6 +671,7 @@ def _position_new_plot(
     image_index: int,
     slots: list[tuple[Any, int]],
     rtl: bool,
+    spill_cols: int = 1,
 ) -> None:
     """Anchor, size, position, and set initial visibility on a new plot shape."""
     from com.sun.star.awt import Point
@@ -678,16 +691,23 @@ def _position_new_plot(
 
     shape.setPropertyValue("Anchor", target_cell)
 
-    # Slot 0 stands beside the cell unless it fills a merged placeholder block. Later slots
-    # stand beside the merged block at their intrinsic aspect ratio so they do not stack on
-    # top of each other or stretch to the same placeholder.
+    # Slot 0 stands beside the cell (or past its spill row) unless it fills a merged placeholder
+    # block. Later slots stand beside the merged block at their intrinsic aspect ratio so they do
+    # not stack on top of each other or stretch to the same placeholder.
     if image_index == 0 and is_large_placeholder:
         shape.setPropertyValue("ResizeWithCell", True)
         shape.setSize(cell_size)
         shape.setPosition(Point(int(cell_pos.X), int(cell_pos.Y)))
     else:
+        edge_pos, edge_size = cell_pos, cell_size
+        if spill_cols > 1:
+            addr = target_cell.getCellAddress()
+            last_col = min(addr.Column + spill_cols, sheet.getColumns().getCount()) - 1
+            spill_row = sheet.getCellRangeByPosition(addr.Column, addr.Row, last_col, addr.Row)
+            if spill_row.Size.Width > cell_size.Width:  # a merged banner may already be wider
+                edge_pos, edge_size = spill_row.Position, spill_row.Size
         cursor_x, cursor_y = _slot_cursor(
-            cell_pos, cell_size, image_index, slots, rtl
+            edge_pos, edge_size, image_index, slots, rtl
         )
         shape.setPropertyValue("ResizeWithCell", False)
         shape.setSize(aspect_size)
@@ -712,6 +732,7 @@ def _place_new_plot(
     image_index: int,
     slots: list[tuple[Any, int]],
     rtl: bool,
+    spill_cols: int = 1,
 ) -> Any:
     """Create, load, anchor, and place a new plot shape on the sheet.
 
@@ -751,6 +772,7 @@ def _place_new_plot(
             image_index,
             slots,
             rtl,
+            spill_cols,
         )
         # A placeholder gets no digest, so the next recalc loads the image again.
         _record_plot_tag(shape, target_cell, data_sha if graphic_exc is None else None)
@@ -834,6 +856,7 @@ def _insert_image_result_on_sheet_impl(
     *,
     image_path: str | None = None,
     image_count: int | None = None,
+    spill_cols: int = 1,
 ) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
@@ -893,7 +916,7 @@ def _insert_image_result_on_sheet_impl(
         aspect = _intrinsic_aspect(data_bytes) if data_bytes else None
         aspect_size = _aspect_size(aspect)
 
-        slots = _anchored_plot_slots(sheet, target_cell) if target_cell is not None else []
+        slots = _anchored_plot_slots(sheet, target_cell, spill_cols) if target_cell is not None else []
         shape = _resolve_slot(slots, image_index)
         rtl = sheet_is_rtl(sheet)
 
@@ -907,7 +930,7 @@ def _insert_image_result_on_sheet_impl(
                     # a plot without a formula then gets its own insert/remove entry.
                     with undo_lock(doc, hide=False) as place_um:
                         placed = _place_new_plot(
-                            doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
+                            doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl, spill_cols
                         )
                     if not code and place_um is not None:
                         best_effort(

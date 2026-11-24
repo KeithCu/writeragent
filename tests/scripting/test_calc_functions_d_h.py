@@ -15,6 +15,7 @@ import math
 from typing import Any
 
 import pytest
+import numpy as np
 
 import plugin.scripting.calc_functions as calc
 
@@ -163,6 +164,26 @@ def test_growth_rejects_non_positive_known_y():
     assert len(calc.growth([[1, 2], [4, 8]], [[1, 2], [3, 4]])) == 4
     assert math.isclose(calc.growth(5, 3, 4, False)[0], math.exp(math.log(5.0) * 4.0 / 3.0), rel_tol=1e-9)
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
+
+
+def test_growth_multivariate_and_edge_cases():
+    y = [3, 5, 20, 25, 90]
+    x = [[1, 2], [2, 1], [3, 5], [4, 4], [5, 7]]
+    expected = [3.21355929722245, 4.63419579784973, 18.7720997753485, 27.0707890689699, 89.1926991956556]
+    assert np.allclose(calc.growth(y, x), expected, rtol=1e-9)
+
+    pred_const = calc.growth(y, x, [[6, 8]])
+    assert len(pred_const) == 1
+    assert math.isclose(pred_const[0], 194.418475572597, rel_tol=1e-9)
+
+    assert np.allclose(
+        calc.growth(y, [100000001, 100000002, 100000003, 100000004, 100000005]),
+        calc.growth(y, [1, 2, 3, 4, 5]),
+        rtol=1e-9,
+    )
+    assert calc.growth([1, 2, 4], [7, 7, 7]) == "#VALUE!"
+    assert calc.growth([1, 2, 4], [0, 0, 0], None, False) == "#VALUE!"
+    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "#VALUE!"
 
 
 def test_days360_us_february_month_end():

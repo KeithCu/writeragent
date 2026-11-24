@@ -1245,6 +1245,65 @@ def test_mixed_aspect_slots_chain_edges():
     assert slot1.getPosition() == Point(13990, 2000)
 
 
+def test_slot0_and_slot1_after_multi_column_spill_and_sheet_edge_clamp():
+    """Slot 0 starts past a multi-column spill row and clamps at the sheet's last column."""
+    class _SpillSheetStub(_SheetStub):
+        def __init__(self, page: _DrawPage, col_count: int = 1024):
+            super().__init__(page)
+            self._col_count = col_count
+            self.requested_ranges: list[tuple[int, int, int, int]] = []
+
+        def getColumns(self):
+            cols = super().getColumns()
+            cols.getCount.return_value = self._col_count
+            return cols
+
+        def getCellRangeByPosition(self, c1: int, r1: int, c2: int, r2: int):
+            self.requested_ranges.append((c1, r1, c2, r2))
+            width = (c2 - c1 + 1) * 3000
+            return SimpleNamespace(Position=Point(1000, 2000), Size=Size(width, 1000))
+
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SpillSheetStub(page, col_count=1024)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    cell_pos = Point(1000, 2000)
+    cell_size = Size(3000, 1000)
+    payload0 = _make_png_payload(100, 50)
+    payload1 = _make_png_payload(50, 100)
+
+    with _sheet_insert_ctx(sheet, cell, temp_path=["/tmp/p0.png", "/tmp/p1.png"], geometry=(cell_pos, cell_size)):
+        insert_image_result_on_sheet(payload0, code="plt.show()", doc=doc, image_index=0, spill_cols=3)
+        insert_image_result_on_sheet(payload1, code="plt.show()", doc=doc, image_index=1, spill_cols=3)
+
+    assert sheet.requested_ranges == [(1, 2, 3, 2), (1, 2, 3, 2)]
+    slot0, slot1 = created_shapes
+    assert slot0.getPosition() == Point(9990, 2000)
+    assert slot1.getPosition() == Point(19990, 2000)
+
+    # Clamped when spill_cols extends past the sheet's last column.
+    edge_cell = CalcCellStub(col=1022, row=2)
+    edge_page = _DrawPage([])
+    edge_sheet = _SpillSheetStub(edge_page, col_count=1024)
+    edge_shapes: list[_AnchoredShape] = []
+    doc.createInstance.side_effect = lambda svc: edge_shapes.append(_AnchoredShape(svc, "", edge_cell)) or edge_shapes[-1]
+    with _sheet_insert_ctx(edge_sheet, edge_cell, temp_path="/tmp/p2.png", geometry=(cell_pos, cell_size)):
+        insert_image_result_on_sheet(payload0, code="plt.show()", doc=doc, image_index=0, spill_cols=5)
+    assert edge_sheet.requested_ranges == [(1022, 2, 1023, 2)]
+    assert edge_shapes[0].getPosition() == Point(6990, 2000)
+
+
 def test_zero_width_cell_keeps_slot0_at_cell_origin():
     """A zero-width (hidden) column clamps the inset so slot 0 starts at cell_pos.X."""
     cell = CalcCellStub(col=1, row=2)

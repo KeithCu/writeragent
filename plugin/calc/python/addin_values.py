@@ -15,7 +15,7 @@ Cell outcomes for ``=PY()`` fall into four kinds:
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
 - **Spill neighbour error or void**: ``coerce_spill_value`` returns a ``SpillValue``
-  with ``kind == "err"`` for error tokens and NaN values, and ``spill.perform_deferred_spill``
+  with ``kind == "err"`` for error tokens and non-finite values, and ``spill.perform_deferred_spill``
   writes ``setDataArray`` of ``None`` (UNO void,
   which ``lcl_PutDataArray`` in ``sc/source/ui/unoobj/cellsuno.cxx`` turns into
   ``FormulaError::NotAvailable`` / ``#N/A``) or ``=#ERRn!`` formulas.
@@ -108,8 +108,8 @@ def calc_formula_error_double(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", bits))[0]
 
 
-def nan_error_code(val: float) -> int:
-    """FormulaError code LibreOffice reads from a NaN (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+def nonfinite_error_code(val: float) -> int:
+    """FormulaError code LibreOffice reads from a NaN or infinity (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
     low = struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
     if low & 0xFFFF0000:
         return _ERR_VALUE
@@ -334,7 +334,7 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         # Computed NaN (or NaN from a numeric grid that contained blanks) is returned as-is.
         # The Calc add-in bridge renders a raw NaN double as a cascading error (#NUM! or #VALUE!).
         # Python None is mapped to "" (empty cell). We intentionally do NOT collapse NaN here.
-        # ±inf passes through (may also error in formulas). Do not collapse inf to empty.
+        # ±inf is returned as-is too; the add-in bridge shows it as #NUM! (GetDoubleErrorValue).
         return val
     if isinstance(val, str):
         return val
@@ -448,8 +448,8 @@ def _spill_error(code: int) -> SpillValue:
 
 def _spill_from_calc(calc_val: Any) -> SpillValue:
     if isinstance(calc_val, float):
-        if math.isnan(calc_val):
-            return _spill_error(nan_error_code(calc_val))
+        if not math.isfinite(calc_val):
+            return _spill_error(nonfinite_error_code(calc_val))
         return SpillValue(calc_val, "n")
     if isinstance(calc_val, str):
         return SpillValue(calc_val, "s")
@@ -505,13 +505,6 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
         return SpillValue(val, "s")
 
     return _spill_from_calc(to_calc_compatible(val))
-
-
-def spill_value_from_json(kind: str, value: Any) -> Any:
-    """Restore the "inf" / "-inf" text written by save_spill_registry_for_doc (JSON has no non-finite floats)."""
-    if kind != "n" or not isinstance(value, str):
-        return value
-    return {"inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
 
 
 def format_addin_error_for_display(exc: BaseException) -> str:

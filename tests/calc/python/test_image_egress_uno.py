@@ -636,3 +636,67 @@ def test_beside_plot_follows_cut_paste_and_xlsx_uno(ctx, doc):
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))
         um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_spill_plot_stands_past_spill_row_and_xlsx_uno(ctx, doc):
+    """Multi-column spill places slot 0 past the last spilled column (LTR/RTL) and survives XLSX reload."""
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _PLOT_EDGE_INSET, _anchored_plot_slots, _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    um = doc.getUndoManager()
+    code = "result = [[1, 2, fig]]"
+    payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+    b3 = sheet.getCellByPosition(1, 2)
+    d3 = sheet.getCellByPosition(3, 2)
+
+    try:
+        for rtl in (False, True):
+            while draw_page.getCount():
+                draw_page.remove(draw_page.getByIndex(0))
+            sheet.setPropertyValue("TableLayout", 1 if rtl else 0)
+            b3.setFormula(f'=PY("{code}")')
+            _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1, spill_cols=3)
+            assert draw_page.getCount() == 1
+            shape = draw_page.getByIndex(0)
+            pos = shape.getPosition()
+            size = shape.getSize()
+            if rtl:
+                assert abs((pos.X + size.Width) - (d3.Position.X + _PLOT_EDGE_INSET)) <= 2
+            else:
+                assert abs(pos.X - (d3.Position.X + d3.Size.Width - _PLOT_EDGE_INSET)) <= 2
+            _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1, spill_cols=3)
+            assert draw_page.getCount() == 1
+
+        sheet.setPropertyValue("TableLayout", 0)
+        with tempfile.TemporaryDirectory(prefix="wa-spill-plot-xlsx-") as tmpdir:
+            xlsx_path = os.path.join(tmpdir, "spill_plot.xlsx")
+            xlsx_url = uno.systemPathToFileUrl(xlsx_path)
+            save_prop = PropertyValue()
+            save_prop.Name = "FilterName"
+            save_prop.Value = "Calc MS Excel 2007 XML"
+            doc.storeToURL(xlsx_url, (save_prop,))
+
+            desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            hidden_prop = PropertyValue()
+            hidden_prop.Name = "Hidden"
+            hidden_prop.Value = True
+            reloaded = desktop.loadComponentFromURL(xlsx_url, "_blank", 0, (hidden_prop,))
+            try:
+                reloaded_sheet = reloaded.getSheets().getByIndex(0)
+                reloaded_b3 = reloaded_sheet.getCellByPosition(1, 2)
+                assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3, 3)) == 1
+            finally:
+                reloaded.close(True)
+    finally:
+        sheet.setPropertyValue("TableLayout", 0)
+        b3.setFormula("")
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        um.clear()
