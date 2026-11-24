@@ -603,8 +603,8 @@ def test_two_plots_in_single_call_create_distinct_shapes():
     assert len(page.shapes) == 2
     assert shape0.props["GraphicURL"] == "file:///tmp/chart0.svg"
     assert shape1.props["GraphicURL"] == "file:///tmp/chart1.svg"
-    assert shape0.props["Name"] == _PLOT_SHAPE_NAME_PREFIX
-    assert shape1.props["Name"] == f"{_PLOT_SHAPE_NAME_PREFIX}_2"
+    assert shape0.props["Name"] == f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:3,6@3,6"
+    assert shape1.props["Name"] == f"{_PLOT_SHAPE_NAME_PREFIX}_2 wa-plot:3,6@3,6"
 
 
 def test_subsequent_call_replaces_slot_0_and_leaves_slot_1():
@@ -1063,6 +1063,7 @@ def test_plot_slot_index_round_trip_and_rejects_int_junk():
     assert _plot_slot_name(1) == "WriterAgentPlot_2"
     assert _plot_slot_index("WriterAgentPlot_2") == 1
     assert _plot_slot_index("WriterAgentPlot_10") == 9
+    assert _plot_slot_index("WriterAgentPlot_2 wa-plot:1,2@6,2") == 1
 
     assert _plot_slot_index("WriterAgentPlot_1") is None
     assert _plot_slot_index("WriterAgentPlot_02") is None
@@ -1070,6 +1071,8 @@ def test_plot_slot_index_round_trip_and_rejects_int_junk():
     assert _plot_slot_index("WriterAgentPlot_1_0") is None
     assert _plot_slot_index("WriterAgentPlot_ 2") is None
     assert _plot_slot_index("WriterAgentPlot_2 ") is None
+    assert _plot_slot_index("WriterAgentPlot wa-plot:1,2@1, 1") is None
+    assert _plot_slot_index("WriterAgentPlot 1") is None
 
 
 def test_image_count_keeps_non_decimal_names():
@@ -1304,20 +1307,18 @@ def test_slot0_and_slot1_after_multi_column_spill_and_sheet_edge_clamp():
     assert edge_shapes[0].getPosition() == Point(6990, 2000)
 
 
-def test_untagged_spill_row_match_skips_other_formula_cell():
-    """An untagged slot 0 on a plain spilled cell matches, but one on another =PY() cell does not."""
+def test_name_tag_routes_untagged_shape_to_recorded_owner():
+    """An untagged shape with a wa-plot tag in its Name belongs to its recorded owner, not its anchor cell."""
     from plugin.calc.python.image_egress import _anchored_plot_slots
 
-    formula_cell = CalcCellStub(col=1, row=2)
-    spilled_cell = CalcCellStub(col=2, row=2)
-    other_formula_cell = CalcCellStub(col=3, row=2)
-    on_spilled = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "WriterAgentPlot", spilled_cell)
-    on_other_formula = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "WriterAgentPlot", other_formula_cell)
-    page = _DrawPage([on_spilled, on_other_formula])
-    sheet = _SheetStub(page, formulas={(3, 2): '=PY("other()")'})
+    owner_cell = CalcCellStub(col=3, row=6)
+    anchor_cell = CalcCellStub(col=9, row=6)
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "WriterAgentPlot_2 wa-plot:3,6@9,6", anchor_cell)
+    page = _DrawPage([shape])
+    sheet = _SheetStub(page)
 
-    slots = _anchored_plot_slots(sheet, formula_cell, spill_cols=3)
-    assert slots == [(on_spilled, 0)]
+    assert _anchored_plot_slots(sheet, owner_cell) == [(shape, 1)]
+    assert _anchored_plot_slots(sheet, anchor_cell) == []
 
 
 def test_zero_width_cell_keeps_slot0_at_cell_origin():
