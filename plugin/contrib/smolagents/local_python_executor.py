@@ -29,6 +29,7 @@ import os
 import re
 import string as _stdlib_string
 import _string
+# WriterAgent local patch (2026-11): sys and FrameType for thread-pool timeout stack sampling.
 import sys
 import threading
 import functools
@@ -155,13 +156,14 @@ def _format_user_frames(
             lines.append(f"  [Previous line repeated {count - 3} more times]")
     try:
         message = str(exc)
-    except Exception:
-        # A user-defined __str__ can raise; CPython prints this text (traceback.py, _safe_string).
+    except _TRACED_ERRORS:
+        # A user-defined __str__ can raise or hit the expired _Ops deadline (ExecutionTimeoutError is a BaseException, not Exception); CPython prints this text (traceback.py, _safe_string).
         message = "<exception str() failed>"
     lines.append(f"{type(exc).__name__}: {message}" if message else type(exc).__name__)
     return "\n".join(lines)
 
 
+# WriterAgent local patch (2026-11): walk chained exceptions oldest-first without leaking host frames.
 def _format_user_traceback(exc: BaseException, code: str) -> str:
     """CPython-style traceback of *exc* and the exceptions it chains from, oldest first.
 
@@ -933,6 +935,7 @@ def timeout(timeout_seconds: Any):
                 # The _Ops deadline stops pure-Python loops, but a blocked C call still
                 # runs until it returns; host IPC kill remains the stop for a hung worker.
                 executor = ThreadPoolExecutor(max_workers=1)
+                # WriterAgent local patch (2026-11): the ident lets a timeout read this thread's stack; 0 (worker not started) matches no thread.
                 worker_ident = 0
 
                 def run_on_worker():

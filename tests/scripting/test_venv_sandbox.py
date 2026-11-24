@@ -125,7 +125,7 @@ def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
     real_signal = signal.signal
 
     def _signal(signum, handler):
-        if signum == signal.SIGALRM:
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
             raise ValueError("SIGALRM unavailable")
         return real_signal(signum, handler)
 
@@ -825,7 +825,6 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
     code: str,
 ) -> None:
     import io
-    import signal
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
@@ -834,13 +833,7 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
     monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
-
-    def refuse_sigalrm(signum: int, handler: object) -> object:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    _refuse_sigalrm(monkeypatch)
 
     req_data = pack_pickle_frame(
         {

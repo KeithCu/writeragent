@@ -993,7 +993,10 @@ def _returned_figures(obj: Any) -> list[Any]:
 
 
 def _is_mpl_artist_result(obj: Any) -> bool:
-    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them, or a list or tuple mixing both, such as the `(fig, axs)` that `plt.subplots(1, 2)` returns."""
+    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns), or a list or tuple mixing both, such as the `(fig, axs)` that `plt.subplots(1, 2)` returns.
+
+    Checks one level deep only; recursion would overflow on a self-referential list that `to_wire` reports cleanly.
+    """
     artist_mod = sys.modules.get("matplotlib.artist")
     if artist_mod is None:
         return False

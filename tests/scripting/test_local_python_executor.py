@@ -2991,7 +2991,7 @@ def test_process_callables_allowed_when_os_true():
             id="chain_finally",
         ),
         pytest.param(
-            "def f():\n    try:\n        return 1\n    finally:\n        int('x')\n\nf()",
+            "def f():\n    try:\n        1/0\n    except ZeroDivisionError:\n        return 1\n    finally:\n        int('x')\n\nf()",
             id="chain_return_then_finally",
         ),
         pytest.param(
@@ -3147,14 +3147,9 @@ def test_user_traceback_survives_failing_str_in_chain() -> None:
     assert tb.splitlines()[-1].startswith("ValueError:")
 
 
-def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.MonkeyPatch) -> None:
+def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
     import signal
-    import time
     from typing import Any
-    import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
-
-    lpe.abandoned_timeout = False
 
     def refuse_sigalrm(signum: Any, handler: Any) -> Any:
         if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
@@ -3162,6 +3157,36 @@ def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.Mo
         return signal.SIG_DFL
 
     monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+
+def test_user_traceback_survives_timeout_in_str_during_chain() -> None:
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    code = (
+        "class E(Exception):\n"
+        "    def __str__(self):\n"
+        "        return ''.join(str(i) for i in range(500))\n"
+        "try:\n"
+        "    raise E()\n"
+        "except E:\n"
+        "    while True:\n"
+        "        pass"
+    )
+    with pytest.raises(ExecutionTimeoutError) as exc_info:
+        executor(code)
+    tb = exc_info.value.user_traceback
+    assert "E: <exception str() failed>" in tb
+    assert tb.splitlines()[-1].startswith("ExecutionTimeoutError:")
+
+
+def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+    _refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -3182,20 +3207,12 @@ def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.Mo
 
 
 def test_thread_pool_timeout_wins_over_later_worker_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    import signal
     import time
-    from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
-
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    _refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
