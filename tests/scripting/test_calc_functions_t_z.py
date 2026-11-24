@@ -692,4 +692,3 @@ def test_text_before_after_empty_delimiter_and_text():
     assert calc.textafter("a-b", "", 2, 0, 1, "NF") == "NF"
     empty_res = calc.textafter("", "-", 1, 0, 1, "NF")
     assert isinstance(empty_res, float) and math.isnan(empty_res) and nan_error_code(empty_res) == 0x7FFF
-

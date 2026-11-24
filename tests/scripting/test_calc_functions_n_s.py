@@ -623,6 +623,8 @@ def test_negbinomdist_and_permut_approx_floor():
     assert calc.negbinomdist(1e20, 3, 0.5) == 0.0
     zero_neg = calc.negbinomdist(5, -1, 0)
     assert math.isnan(zero_neg) and nan_error_code(zero_neg) == 0
+    na_prob = calc.negbinomdist(2, 0, calc.na())
+    assert math.isnan(na_prob) and nan_error_code(na_prob) == 0x7FFF
     assert math.isnan(calc.permut(5, -0.5))
     assert calc.permut(0.29 * 100, 1) == 29
 

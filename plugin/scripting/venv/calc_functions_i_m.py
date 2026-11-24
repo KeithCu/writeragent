@@ -567,8 +567,10 @@ def _regression_inputs(
     Checks y <= 0 (for LOGEST, Err:502), then shape (Err:502 via regression_x),
     then sample count (Err:504 via require_samples): CheckMatrix, CalculateRGPRKP
     (interpr5.cxx). Other bad inputs raise ValueError. Omitted known_x (the
-    one-argument call) is ``1..n``; a present ``None`` raises ValueError.
-    The fourth argument, ``stats``, is ignored.
+    one-argument call) is ``1..n``; a present blank (``None``) is not that
+    omission: ``ScLinest`` uses ``1..n`` only for ``IsMissing``. The fourth
+    argument, ``stats``, is ignored; ``CalculateRGPRKP`` builds a 5-row
+    statistics matrix this helper does not port.
     """
     known_y = _numeric_only(args[0])
     if log:

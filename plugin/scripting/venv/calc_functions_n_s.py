@@ -110,6 +110,7 @@ def n(val: Any) -> float:
     return 0.0
 
 
+@propagate_errors
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = scipy_stats()
     if st is None:

@@ -92,7 +92,9 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     # ScTDist (interpr3.cxx) floors df and tails with approxFloor; float()
     # keeps large df accepted by scipy (it refuses ints above int64).
     d = float(approx_floor(float(df)))
-    # ``t`` is the public T() function, so the local is tail_count.
+    # ``t`` is the public T() function, so the local is tail_count. A text
+    # tails raises ValueError (#VALUE!) and inf raises OverflowError (#NUM!)
+    # in the worker.
     tail_count = approx_floor(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
         return ILLEGAL_ARGUMENT_NAN
@@ -216,7 +218,8 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         # "aİb" on "b" included the b. rfind also sees overlapping matches
         # ("aaa" / "aa" at 1) that the split count above it did not.
         flags = re.IGNORECASE if match_mode == 1 else 0
-        # An empty delimiter matches nothing, but match_end still adds its boundary.
+        # An empty delimiter matches nothing (re.finditer("") would otherwise match at
+        # every position), while match_end still adds its boundary.
         spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)] if delim else []
         n_matches = len(spans)
         abs_inst = abs(inst)
@@ -915,6 +918,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         return if_not_found
     if ret.ndim == 2:
         return _scalar_if_singleton(ret.take(best_idx, axis=axis).tolist())
+    # A 1-D numeric return is an np.int64 / np.float64, so unwrap numpy scalars.
     cell = ret.ravel()[best_idx]
     return cell.item() if isinstance(cell, np.generic) else cell
 

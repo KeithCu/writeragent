@@ -539,9 +539,10 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         n = approx_floor(float(number))
         r = approx_floor(float(radix))
         m = approx_floor(float(min_length))
-        # ScBase (interpr2.cxx) floors with approxFloor, caps min_length at
-        # 65534 (zfill(1e9) would hang the worker), and returns Err:502 on
-        # domain failure.
+        # Literal "NaN" is not a Calc error token, so bad BASE input would show up
+        # as text; returning token strings avoids that. ScBase (interpr2.cxx)
+        # floors with approxFloor, caps min_length at 65534 (zfill(1e9) would hang
+        # the worker), and returns Err:502 on domain failure.
         if n < 0 or r < 2 or r > 36 or m < 0 or m > 65534:
             return "Err:502"
         return np.base_repr(n, r).zfill(m)
@@ -951,7 +952,7 @@ def _cum_payment(
     type_val: Any,
 ) -> float:
     """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
-    # rate must be > 0. Zero is #NUM!, same as a negative rate.
+    # rate must be > 0. Zero is Err:502, same as a negative rate.
     r = float(rate)
     # ScCumIpmt/ScCumPrinc (interpr2.cxx) use nper unrounded, floor start and end
     # with approxFloor, and require type to be exactly 0 or 1.

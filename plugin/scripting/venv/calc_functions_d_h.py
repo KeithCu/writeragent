@@ -759,6 +759,7 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
 
     x_val = float(x)
     # ScFDist (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # st.f.sf of a negative x is 1, and df below 1 is finite; Calc returns Err:502.
     df1 = approx_floor(float(r1))
     df2 = approx_floor(float(r2))
     if x_val < 0 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:
@@ -776,8 +777,13 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         crit = np.asarray(criteria, dtype=object)
         # ScFilter (interpr1.cxx) checks 2-D include first (#VALUE!), then evaluates
         # include errors and checks for an empty match before checking shape (Err:504).
+        # A two-dimensional include must be refused here because an empty mask would
+        # otherwise select nothing and return if_empty.
         if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1):
             return "#VALUE!"
+        # ScFilter (interpr1.cxx) reads include in order: an error element is the result,
+        # other non-empty text is an error (Calc's internal 536, shown here as #VALUE!),
+        # and an empty cell is 0.
         include: list[bool] = []
         for x in crit.ravel():
             if is_calc_error(x):
@@ -815,6 +821,7 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
 
     prob = float(p)
     # ScFInv (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # It also rejects fP <= 0 and fP > 1; prob == 0 would otherwise return inf from isf.
     df1 = approx_floor(float(r1))
     df2 = approx_floor(float(r2))
     if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:

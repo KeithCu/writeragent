@@ -608,6 +608,8 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     # Calc shifts the other way. BITLSHIFT(8, -1) is 4, BITRSHIFT(8, -1) is 16.
     assert calc.bitlshift(1, 2) == 4.0
     assert calc.bitlshift(1, 54) == 2.0**54
+    assert math.isnan(calc.bitlshift(2, 1023))
+    assert math.isnan(calc.bitlshift(0, 1024))
     assert math.isnan(calc.bitlshift(1, 1024))
     assert calc.bitlshift(8, -0.5) == 4.0
     assert calc.bitrshift(8, 1) == 4.0
@@ -626,7 +628,7 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     # math.comb(3, 5) is 0. ScCombin rejects k > n.
     assert math.isnan(calc.combin(3, 5))
     assert math.isnan(calc.combin(5, -1))
-    # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are #NUM!.
+    # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are Err:502.
     assert math.isnan(calc.combina(-2, 6))
     assert math.isnan(calc.combina(-1, 2))
     # ScCombinA rejects k > n (Err:502); COMBINA(0, 0) is 0 in Calc.
@@ -638,6 +640,27 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     # Reduced k ~ 5e8 does not fit in float64. Without the lgamma guard
     # math.comb builds that integer and this hits the 60s pytest timeout.
     assert math.isnan(calc.combin(10**9, 5 * 10**8))
+
+
+@pytest.mark.parametrize(
+    ("fn", "args"),
+    [
+        (calc.bitand, (-1, 1)),
+        (calc.bitlshift, (-1, 1)),
+        (calc.tdist, (1, 10, 3)),
+        (calc.tinv, (1.5, 10)),
+        (calc.tinv, (0.05, 0.5)),
+        (calc.trimmean, ([1, 2, 3, 4], 1)),
+        (calc.trimmean, ([1, 2, 3, 4], -0.1)),
+        (calc.ttest, ([1, 2, 3], [2, 3, 4], 3, 1)),
+        (calc.ttest, ([1, 2, 3], [2, 3, 4], 2, 4)),
+        (calc.hypgeomdist, (1, 2, 11, 10)),
+        (calc.combina, (-1, 2)),
+    ],
+)
+def test_domain_errors_return_illegal_argument_502(fn, args):
+    res = fn(*args)
+    assert math.isnan(res) and nan_error_code(res) == 502
 
 
 def test_chidist_chiinv_and_critbinom_reject_bad_arguments():
