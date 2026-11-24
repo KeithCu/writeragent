@@ -266,7 +266,7 @@ def test_nan_cells_propagate_in_npv_sumsq_subtotal_sumifs():
 
     assert math.isnan(calc.sumifs([1.0, nan, 3.0], [1.0, 1.0, 1.0], ">0"))
     assert calc.sumifs([1.0, nan, 3.0], [1.0, 0.0, 1.0], ">0") == 4.0
-    assert math.isnan(calc.sumifs([1.0, "#N/A", 3.0], [1.0, 1.0, 1.0], ">0"))
+    assert calc.sumifs([1.0, "#N/A", 3.0], [1.0, 1.0, 1.0], ">0") == "#N/A"
     assert calc.sumifs([1.0, "#N/A", 3.0], [1.0, 0.0, 1.0], ">0") == 4.0
 
 
@@ -575,7 +575,7 @@ def test_n_text_returns_zero():
 
 
 def test_sumif_error_propagation_and_shapes():
-    assert math.isnan(calc.sumif(["a", "a"], "a", [1, "#VALUE!"]))
+    assert calc.sumif(["a", "a"], "a", [1, "#VALUE!"]) == "#VALUE!"
     assert math.isnan(calc.sumif(["a", "b"], "a", [1, 2, 3]))  # mismatched shapes
     assert calc.sumif(["a", "b"], "a", [1, "#VALUE!"]) == 1.0
 

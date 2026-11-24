@@ -402,7 +402,7 @@ def test_ztest_skips_blanks_and_propagates_errors():
     assert math.isclose(calc.ztest([1, "x", 3], 2), pair)
     assert not math.isclose(calc.ztest([1, True, 3], 2), pair)
     assert math.isnan(calc.ztest([1, float("nan"), 3], 2))
-    assert math.isnan(calc.ztest([1, "#VALUE!", 3], 2))
+    assert calc.ztest([1, "#VALUE!", 3], 2) == "#VALUE!"
     assert math.isnan(calc.ztest([1], 0, 1))
     assert math.isnan(calc.ztest([1, 2, 3], 2, float("inf")))
 

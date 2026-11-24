@@ -1052,4 +1052,20 @@ def test_translate_match_types():
     assert non_lit.reason == "UNSUPPORTED_FUNCTION"
 
 
+def test_translate_lookup_ifs_switch_miss_is_na():
+    def _eval(formula: str, data: object) -> object:
+        res = translate_formula(formula, "C1")
+        assert res.ok and res.code is not None
+        ns: dict[str, object] = {"data": data, "np": np, "calc": calc}
+        exec(f"result = {res.code}", ns)
+        return ns["result"]
+
+    table = [[1, 10], [2, 20]]
+    assert _eval('=IFNA(VLOOKUP(9;A1:B2;2;0);"x")', table) == "x"
+    assert _eval('=IFNA(HLOOKUP(9;A1:B2;2;0);"x")', [[1, 2], [10, 20]]) == "x"
+    assert _eval('=IFNA(IFS(FALSE;1);"x")', None) == "x"
+    assert _eval('=IFNA(SWITCH(A1;1;10);"x")', 3) == "x"
+    assert calc.isna(_eval("=VLOOKUP(9;A1:B2;2;0)", table)) is True
+
+
 
