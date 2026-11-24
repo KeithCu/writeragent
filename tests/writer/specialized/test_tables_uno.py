@@ -673,7 +673,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     from plugin.tests.testing_utils import strike_across_paragraphs
-    from plugin.writer.specialized.tables import _cell_has_visible_text
+    from plugin.writer.range_copy import cell_has_visible_text
     from plugin.writer.table_nesting import cell_plain_siblings
 
     text = doc.getText()
@@ -693,7 +693,7 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     assert "gone" not in res["cells"]["A1"], res["cells"]
     assert "Tail" in res["cells"]["A1"], res["cells"]
 
-    # _cell_has_visible_text is False for a cell whose three paragraphs are one Delete.
+    # cell_has_visible_text is False for a cell whose three paragraphs are one Delete.
     cell_b1 = tbl.getCellByName("B1")
     b_cur = cell_b1.createTextCursor()
     for idx, line in enumerate(["d1", "d2", "d3"]):
@@ -715,4 +715,4 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     mid_enum = b_paras[1].createEnumeration()
     while mid_enum.hasMoreElements():
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
-    assert _cell_has_visible_text(cell_b1) is False
+    assert cell_has_visible_text(cell_b1) is False
