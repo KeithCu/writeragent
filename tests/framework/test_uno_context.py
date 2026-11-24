@@ -1,6 +1,7 @@
 from plugin.framework.queue_executor import main
 
 import builtins
+import os
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -1035,4 +1036,59 @@ def test_resolve_reraises_when_next_element_is_disposed():
         with pytest.raises(DocumentDisposedError):
             resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
     assert calls["next"] == 1
+
+
+@pytest.mark.parametrize("kind", ["file_symlink", "dir_symlink", "hardlink"])
+def test_match_by_url_same_file(tmp_path, kind):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real_file = real_dir / "doc.odt"
+    real_file.write_bytes(b"content")
+
+    try:
+        if kind == "file_symlink":
+            alt = tmp_path / "link.odt"
+            os.symlink(real_file, alt)
+        elif kind == "dir_symlink":
+            link_dir = tmp_path / "linkdir"
+            os.symlink(real_dir, link_dir)
+            alt = link_dir / "doc.odt"
+        else:
+            alt = tmp_path / "hard.odt"
+            os.link(real_file, alt)
+    except OSError as exc:
+        pytest.skip(f"links unsupported: {exc}")
+
+    open_doc = _resolve_model(real_file.as_uri(), "uid-real")
+    doc, doc_type = _resolve_by_url([open_doc], alt.as_uri())
+    assert doc is open_doc
+    assert doc_type == "writer"
+
+
+def test_exact_url_match_wins_over_same_file(tmp_path):
+    real_file = tmp_path / "real.odt"
+    real_file.write_bytes(b"content")
+    link_file = tmp_path / "link.odt"
+    try:
+        os.symlink(real_file, link_file)
+    except OSError as exc:
+        pytest.skip(f"symlinks unsupported: {exc}")
+
+    same_file_doc = _resolve_model(real_file.as_uri(), "uid-real")
+    exact_doc = _resolve_model(link_file.as_uri(), "uid-link")
+    doc, doc_type = _resolve_by_url([same_file_doc, exact_doc], link_file.as_uri())
+    assert doc is exact_doc
+    assert doc_type == "writer"
+
+
+def test_same_file_needs_file_identity(tmp_path):
+    first = tmp_path / "first.odt"
+    second = tmp_path / "second.odt"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+
+    open_doc = _resolve_model(first.as_uri(), "uid-first")
+    zero_stat = os.stat_result((0o100644, 0, 0, 1, 0, 0, 3, 0, 0, 0))
+    with patch("plugin.framework.uno_context.os.stat", return_value=zero_stat):
+        assert _resolve_by_url([open_doc], second.as_uri()) == (None, None)
 
