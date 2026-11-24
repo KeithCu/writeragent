@@ -696,9 +696,8 @@ _AUTO_COLOR_WORDS = frozenset({"automatic", "auto", "transparent", "none"})
 
 
 def style_color_to_uno(val: Any) -> int | None:
-    # Style properties allow -1 / auto / transparent for automatic or no fill.
-    # parse_color_to_uno_int masks integers to 24-bit RGB (& 0xFFFFFF) turning -1 into
-    # white (0xFFFFFF), so handle -1 and auto words before passing to parse_color_to_uno_int.
+    # Style properties allow -1 and auto words for automatic or no fill;
+    # parse_color_to_uno_int refuses them, so handle them here first.
     if isinstance(val, bool):
         return None
     if val == -1:

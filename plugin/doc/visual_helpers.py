@@ -255,7 +255,7 @@ def color_param(description: str) -> dict[str, Any]:
 def parse_color_to_uno_int(color_val: Any) -> int | None:
     """Convert hex, named, rgb()/rgba(), non-negative int, or RGB tuple/list to a UNO RGB int.
 
-    Returns ``None`` when *color_val* is falsy, negative, or unparseable.
+    Returns ``None`` when *color_val* is None, empty, negative, or unparseable.
     Non-negative integers are masked to 24-bit RGB. Negatives are not colours;
     the style tools handle ``-1`` in ``style_color_to_uno``.
     """

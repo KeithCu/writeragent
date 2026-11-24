@@ -354,6 +354,7 @@ def parse_html_fragment_list(text: str) -> list[Any] | None:
     quoted = first in ('"', "'") and last in ('"', "'")
     if not quoted and not isinstance(safe_json_loads(stripped, strict=True), list):
         return None
+    # Strict decides; the lenient load also repairs LaTeX escapes such as \times.
     parsed = safe_json_loads(stripped)
     return parsed if isinstance(parsed, list) else None
 

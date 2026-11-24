@@ -647,7 +647,11 @@ class ApplyDocumentContent(ToolBase):
 
     @staticmethod
     def _content_text(content: Any) -> tuple[str, str | None]:
-        """Normalize ``content`` (str, list[str], or serialized list) to one string, or ``("", error)``."""
+        """Normalize ``content`` (str, list[str], or serialized list) to one string, or ``("", error)``.
+
+        A model sometimes sends the list as a JSON string; without the parse its brackets and commas
+        become document text.
+        """
         if isinstance(content, str):
             parsed = parse_html_fragment_list(content)
             if parsed is not None:
