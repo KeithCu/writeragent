@@ -1341,9 +1341,9 @@ class _WriterStreamedSessionBase:
         """Finalize the streamed edit, collapsing it into a single tracked change."""
         try:
             if not (self.was_recording or self.track_reviewable):
-                warning = _stream_write_warning(self.last_write_error) or self._retarget_links()
+                link_warning = self._retarget_links()
                 self._exit_stream_recording()
-                return warning
+                return _stream_write_warning(self.last_write_error) or link_warning
 
             try:
                 before_ids = None

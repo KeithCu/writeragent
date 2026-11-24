@@ -897,34 +897,46 @@ def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, do
 @native_test
 @with_native_doc("writer")
 def test_recorded_bold_mixed_single_link_hint_uno(ctx, doc):
-    from com.sun.star.awt.FontWeight import BOLD
+    from com.sun.star.awt.FontWeight import BOLD, NORMAL
     from plugin.writer.record_changes import record_changes
 
-    # Fully linked mixed-bold match keeps the link.
-    text, cursor = _clear(doc)
-    _append_linked(text, cursor, "Old", _OUTLINE)
-    sel = text.createTextCursorByRange(cursor.getEnd())
-    sel.goLeft(3, True)
-    sel.setPropertyValue("CharWeight", BOLD)
-    _append_linked(text, cursor, " title", _OUTLINE)
+    def _setup_single_hint(trailing: str):
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "LongBold xy", _OUTLINE)
+        sel = text.createTextCursorByRange(cursor.getStart())
+        sel.gotoStartOfParagraph(False)
+        sel.goRight(len("LongBold"), True)
+        sel.setPropertyValue("CharWeight", BOLD)
+        if trailing:
+            text.insertString(cursor, trailing, False)
+            tail_sel = text.createTextCursorByRange(cursor.getEnd())
+            tail_sel.goLeft(len(trailing), True)
+            tail_sel.setPropertyValue("CharWeight", NORMAL)
+            tail_sel.setPropertyValue("HyperLinkURL", "")
+
+    # (a) Fully linked match ending inside one bold-mixed hint: Swap keeps the link on Accept.
+    _setup_single_hint("")
     with record_changes(doc, True):
-        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+        res = _apply(doc, ctx, old_content="LongBold xy", content="Swap")
     assert res.get("status") == "ok", res
     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
     assert _portion_urls(doc) == [("Swap", _OUTLINE)]
 
-    # Partly linked mixed-bold match comes out unlinked.
-    text, cursor = _clear(doc)
-    _append_linked(text, cursor, "Old ", _OUTLINE)
-    sel = text.createTextCursorByRange(cursor.getEnd())
-    sel.goLeft(4, True)
-    sel.setPropertyValue("CharWeight", BOLD)
-    text.insertString(cursor, "title", False)
+    # (b) Match extends past the link while the longest run is inside the hint:
+    # Accept leaves Swap unlinked; Reject restores the original runs and URLs.
+    _setup_single_hint(" z")
     with record_changes(doc, True):
-        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+        res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
     assert res.get("status") == "ok", res
     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
     assert _portion_urls(doc) == [("Swap", "")]
+
+    _setup_single_hint(" z")
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert _portion_urls(doc) == [("LongBold", _OUTLINE), (" xy", _OUTLINE), (" z", "")]
 
 
 @native_test

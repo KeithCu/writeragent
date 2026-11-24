@@ -1235,3 +1235,20 @@ def test_streamed_retarget_failure_returns_warning_without_fallback_set_string()
     text_range.setString.assert_not_called()
 
 
+def test_streamed_plain_mode_retargets_even_after_write_error():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
+        session.generated_text = "New"
+        session.last_write_error = RuntimeError("chunk failed")
+        warning = session.finish()
+    mock_retarget.assert_called_once()
+    assert warning is not None and "chunk failed" in warning
+
+

@@ -1437,8 +1437,8 @@ def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_tex
 def _replace_recorded(
     model: Any, text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
-    # Track Changes: the run-by-run diff records separate redlines or scrambles edits, so replace
-    # the whole range in one shot as a single Delete + Insert the user can accept or reject cleanly.
+    # Track Changes: run-by-run redlines scramble the edit, so insert the new text once after
+    # the longest run (leaving the deletion in two parts when that run is not last).
     cursor = text.createTextCursorByRange(target_range)
     runs = _text_runs(target_range)
     lengths = [len(run.getString()) for run in runs]
@@ -1584,14 +1584,16 @@ def replace_preserving_format(
     Refuses a host cell that contains a nested TextTable (setString / whole-range
     replace would delete it — use table_set_cell).
 
-    When recording tracked changes, *split_author* selects the rendering:
-    ``True`` (default) authors the deletion and insertion separately so
-    LibreOffice's by-author coloring shows removed vs new text in two distinct
-    colors; ``False`` records the whole replace as a single atomic op authored
-    once (one color). The split-author two-step is only safe inside an open undo
-    context (``in_undo_context``) that can roll back a half-applied edit, so it is
-    used only when BOTH ``split_author`` and ``in_undo_context`` hold; otherwise
-    the atomic single-op path keeps the edit all-or-nothing.
+    When recording tracked changes, single-paragraph plain-text ranges insert the new text
+    after the longest run first, then delete the old text in one or two parts (regardless of
+    ``in_undo_context``). For deletions, fields, and multi-paragraph ranges, *split_author*
+    selects the rendering: ``True`` (default) authors the deletion and insertion separately so
+    LibreOffice's by-author coloring shows removed vs new text in two distinct colors;
+    ``False`` records the whole replace as a single atomic op authored once (one color).
+    The split-author two-step is only safe inside an open undo context (``in_undo_context``)
+    that can roll back a half-applied edit, so it is used only when BOTH ``split_author`` and
+    ``in_undo_context`` hold; otherwise the atomic single-op path keeps those edits
+    all-or-nothing.
     """
     # Use the range's OWN text object, not the document body. When target_range
     # lives inside a table cell, model.getText() (the body) is the wrong XText and

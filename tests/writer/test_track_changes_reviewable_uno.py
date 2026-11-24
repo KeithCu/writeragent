@@ -1122,6 +1122,9 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
     _reset(doc, ctx, "Alpha b")
     cur = doc.getText().createTextCursor()
     cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharWeight", NORMAL)
+    cur.gotoStart(False)
     cur.goRight(6, True)
     cur.setPropertyValue("CharWeight", BOLD)
     with _recording(doc):
@@ -1130,7 +1133,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "Swap", ctx)
     _reject_all(doc, ctx)
-    assert doc.getText().getString() == "Alpha b"
+    assert _runs() == [("Alpha ", float(BOLD)), ("b", float(NORMAL))], _runs()
 
     # Plain longest last -> Accept plain
     _reset(doc, ctx, "Note: blah blah")

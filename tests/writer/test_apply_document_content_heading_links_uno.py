@@ -938,48 +938,45 @@ def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) ->
         cur.gotoEndOfParagraph(True)
         return cur
 
-    # Streamed rewrite: plain, user recording, review
-    for mode in ("plain", "recording", "review"):
-        cur = _setup("Old Head")
-        if mode == "recording":
-            doc.setPropertyValue("RecordChanges", True)
-        try:
-            sess = WriterStreamedRewriteSession(
-                doc, cur, "Old Head", track_reviewable=(mode == "review")
-            )
-            sess.append_chunk("New Head")
-            warn = sess.finish()
-            assert warn is None, warn
-            assert doc.getPropertyValue("RecordChanges") is (mode == "recording")
-            if mode == "plain":
-                assert _read_portion_urls(doc) == [("go", "#New Head|outline")]
-                doc.getUndoManager().undo()
-                assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
-            else:
-                helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
-                assert _read_portion_urls(doc) == [("go", "#New Head|outline")]
-        finally:
-            doc.setPropertyValue("RecordChanges", False)
+    def _first_para() -> str:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEndOfParagraph(True)
+        return str(cur.getString() or "")
 
-    # Streamed append: plain, user recording, review
-    for mode in ("plain", "recording", "review"):
-        cur = _setup("Old Head")
-        if mode == "recording":
-            doc.setPropertyValue("RecordChanges", True)
-        try:
-            sess = WriterStreamedAppendSession(
-                doc, cur, "Old Head", track_reviewable=(mode == "review")
-            )
-            sess.append_chunk(" Two")
-            warn = sess.finish()
-            assert warn is None, warn
-            assert doc.getPropertyValue("RecordChanges") is (mode == "recording")
-            if mode == "plain":
-                assert _read_portion_urls(doc) == [("go", "#Old Head Two|outline")]
-                doc.getUndoManager().undo()
-                assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
-            else:
-                helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
-                assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
-        finally:
-            doc.setPropertyValue("RecordChanges", False)
+    for kind, cls, chunk, expected in (
+        ("rewrite", WriterStreamedRewriteSession, "New Head", "New Head"),
+        ("append", WriterStreamedAppendSession, " Two", "Old Head Two"),
+    ):
+        for mode in ("plain", "recording", "review"):
+            outcomes = ("plain",) if mode == "plain" else ("accept", "reject", "undo")
+            for outcome in outcomes:
+                cur = _setup("Old Head")
+                if mode == "recording":
+                    doc.setPropertyValue("RecordChanges", True)
+                try:
+                    sess = cls(doc, cur, "Old Head", track_reviewable=(mode == "review"))
+                    sess.append_chunk(chunk)
+                    warn = sess.finish()
+                    assert warn is None, (kind, mode, outcome, warn)
+                    assert doc.getPropertyValue("RecordChanges") is (mode == "recording")
+                    if outcome == "plain":
+                        assert _first_para() == expected
+                        assert _read_portion_urls(doc) == [("go", f"#{expected}|outline")]
+                        doc.getUndoManager().undo()
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                    elif outcome == "accept":
+                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+                        assert _first_para() == expected
+                        assert _read_portion_urls(doc) == [("go", f"#{expected}|outline")]
+                    elif outcome == "reject":
+                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                    else:
+                        doc.getUndoManager().undo()
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                finally:
+                    doc.setPropertyValue("RecordChanges", False)
