@@ -67,6 +67,8 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
 | `open_document_for_read` | `document_research` | Hidden+read-only `load_scratch_document` (`_blank`, HTML files forced to `HTML (StarWriter)`, URL dropped with `attachResource("", ())` so every read loads its own copy and File > Open / `document_open` cannot adopt it), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close via `close_scratch_document` only if this call loaded a hidden sibling (not a user-visible doc). |
+| `load_pptx_as_impress_doc` | `uno_pptx_import` | Hidden+read-only `load_scratch_document` (`ReadOnly=True`) with URL dropped (`attachResource("", ())`) so the import copy takes no lock file and cannot be adopted. |
+| `only_open_calc_document` | `session_manager` | Return the only open Calc document (excluding registered scratch documents), or `None` when zero or several are open. |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
 `DocumentService.resolve_document_by_url` / `get_active_document` are thin wrappers (see §1.4). MCP mutation-gate keys import `normalize_doc_url` + `get_runtime_uid` from `uno_context`.

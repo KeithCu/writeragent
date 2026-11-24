@@ -15,10 +15,10 @@ from plugin.draw.designs import (
     ApplyDesign,
     ClonedMaster,
     _blank_master_signal,
+    _match_listed_design,
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
-    resolve_design,
 )
 from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
 from plugin.draw.shape_clone import ClonedShape
@@ -100,20 +100,18 @@ def test_enumerate_includes_derived_look(tmp_path):
     assert designs[0]["look"] == "dark background; blue accents; graphic chrome"
 
 
-def test_resolve_design_by_id_and_name(tmp_path):
+def test_match_listed_design_by_id_and_name(tmp_path):
     d = {
         "id": "metropolis",
         "name": "Metropolis",
         "path": str(tmp_path / "Metropolis.otp"),
         "url": "file:///tmp/Metropolis.otp",
     }
-    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[d]) as enum:
-        m1 = resolve_design(None, "Metropolis")
-        assert m1 is not None and m1["id"] == "metropolis"
-        m2 = resolve_design(None, "metropolis")
-        assert m2 is not None and m2["name"] == "Metropolis"
-        assert resolve_design(None, "missing") is None
-    enum.assert_called_with(None, include_look=False)
+    m1 = _match_listed_design([d], "Metropolis")
+    assert m1 is not None and m1["id"] == "metropolis"
+    m2 = _match_listed_design([d], "metropolis")
+    assert m2 is not None and m2["name"] == "Metropolis"
+    assert _match_listed_design([d], "missing") is None
 
 
 def test_apply_design_current_doc_calls_import_path():
@@ -163,12 +161,10 @@ def test_apply_design_ignores_legacy_new_document_kwarg():
     with (
         patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
-        patch("plugin.draw.designs.create_presentation_from_design") as create_new,
     ):
         out = ApplyDesign().execute(ctx, design="Metropolis", new_document=True)
     assert out["status"] == "ok"
     apply_cur.assert_called_once()
-    create_new.assert_not_called()
 
 
 def test_apply_design_to_current_doc_uses_clone_not_clipboard():
@@ -543,8 +539,8 @@ def test_open_design_source_hidden_closes_doc_when_guard_uno_raises():
 
     ctx = MagicMock()
     with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop),
-        patch("plugin.framework.thread_guard.guard_uno", side_effect=RuntimeError("guard failed")),
+        patch("plugin.draw.designs.get_desktop", return_value=mock_desktop),
+        patch("plugin.draw.designs.guard_uno", side_effect=RuntimeError("guard failed")),
         patch("plugin.draw.designs._close_hidden_doc") as mock_close,
     ):
         with pytest.raises(RuntimeError, match="guard failed"):

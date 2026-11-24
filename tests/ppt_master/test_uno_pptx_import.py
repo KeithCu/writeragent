@@ -506,3 +506,63 @@ def test_import_pptx_public_entry_points_raise_off_main(monkeypatch, tmp_path: P
             import_pptx_to_doc(MagicMock(), MagicMock(), pptx)
     finally:
         tg.GUARD_ON = was
+
+
+def test_load_pptx_is_read_only_and_drops_url(monkeypatch, tmp_path: Path) -> None:
+    pptx = tmp_path / "deck.pptx"
+    pptx.write_bytes(b"pptx")
+
+    class _FakeModel:
+        def __init__(self, url: str) -> None:
+            self._url = url
+
+        def getRuntimeUID(self) -> str:
+            return "uid-1"
+
+        def getURL(self) -> str:
+            return self._url
+
+        def attachResource(self, url: str, _args: tuple[Any, ...]) -> None:
+            self._url = url
+
+    seen: dict[str, Any] = {}
+
+    class _FakeDesktop:
+        def loadComponentFromURL(self, url: str, target: str, flags: int, props: tuple[Any, ...]) -> _FakeModel:
+            seen["url"] = url
+            seen["target"] = target
+            seen["flags"] = flags
+            seen["props"] = props
+            return _FakeModel(url)
+
+    monkeypatch.setattr(uno_pptx_import, "get_desktop", lambda _ctx: _FakeDesktop())
+    monkeypatch.setattr(
+        uno_pptx_import,
+        "create_property_value",
+        lambda name, value: SimpleNamespace(Name=name, Value=value),
+    )
+
+    doc = uno_pptx_import.load_pptx_as_impress_doc(MagicMock(), pptx)
+    assert doc is not None
+    assert doc.getURL() == ""
+    prop_map = {p.Name: p.Value for p in seen["props"]}
+    assert prop_map.get("Hidden") is True
+    assert prop_map.get("ReadOnly") is True
+
+
+def test_load_pptx_returns_none_when_load_returns_none(monkeypatch, tmp_path: Path) -> None:
+    pptx = tmp_path / "deck.pptx"
+    pptx.write_bytes(b"pptx")
+
+    class _FakeDesktop:
+        def loadComponentFromURL(self, *_args: Any) -> None:
+            return None
+
+    monkeypatch.setattr(uno_pptx_import, "get_desktop", lambda _ctx: _FakeDesktop())
+    monkeypatch.setattr(
+        uno_pptx_import,
+        "create_property_value",
+        lambda name, value: SimpleNamespace(Name=name, Value=value),
+    )
+
+    assert uno_pptx_import.load_pptx_as_impress_doc(MagicMock(), pptx) is None

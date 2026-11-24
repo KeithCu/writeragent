@@ -54,8 +54,7 @@ def page_preview_view_prop() -> Any:
 def load_scratch_document(
     desktop: Any,
     url: str,
-    target: str = "_blank",
-    flags: int = 0,
+    *,
     props: tuple[Any, ...] = (),
 ) -> Any:
     """Load *url* hidden as a WriterAgent scratch document and register its RuntimeUID.
@@ -69,7 +68,7 @@ def load_scratch_document(
         _scratch_loads += 1
     try:
         doc = desktop.loadComponentFromURL(
-            url, target, flags, (create_property_value("Hidden", True), *props)
+            url, "_blank", 0, (create_property_value("Hidden", True), *props)
         )
         uid = get_runtime_uid(doc) if doc is not None else ""
         if uid:
