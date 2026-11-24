@@ -871,7 +871,7 @@ def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: py
     calls: list[tuple] = []
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         lambda doc, *, state: calls.append((doc, state)),
@@ -891,7 +891,7 @@ def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytes
         raise RuntimeError("listener failed")
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         _boom,
@@ -1692,3 +1692,33 @@ def test_every_argument_is_an_input_like_online(varargs: tuple[Any, ...], online
             ]
     finally:
         _function.clear_python_addin_cache()
+
+
+def test_build_cell_context_marks_shared_session_for_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_shared_flag.ods")
+    seen_shared: list[bool] = []
+
+    def _stub(d: Any, *, shared_session: bool = False) -> dict[str, Any]:
+        seen_shared.append(shared_session)
+        return {}
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", _stub)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
+    build_cell_context(MagicMock(), doc, "x", on_main=True)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: None)
+    build_cell_context(MagicMock(), doc, "x", on_main=True)
+    assert seen_shared == [True, False]
+
+
+def test_failed_init_read_names_no_init_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_init_fail.ods")
+
+    def _boom(_doc: Any, *, shared_session: bool = False) -> dict[str, Any]:
+        raise RuntimeError("read failed")
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", _boom)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
+    cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
+    assert cell.init_kwargs == {}
