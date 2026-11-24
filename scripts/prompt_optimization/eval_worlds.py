@@ -771,6 +771,7 @@ class DrawWorld:
         action = args.get("action", "create")
         name = str(args.get("name") or "").strip()
         taken = f"A shape named {name!r} already exists on this page; choose another name or edit that shape."
+        rename_to: str | None = None
         if action == "create":
             if name and name in self._names():
                 return make_tool_error(taken, code="INVALID_PARAM")
@@ -792,12 +793,14 @@ class DrawWorld:
             if "index" in args and name and name != shape.Name:
                 if name in self._names():
                     return make_tool_error(taken, code="INVALID_PARAM")
-                shape.Name = name
+                rename_to = name
             box = tuple(args.get(k, cur) for k, cur in zip(_SHAPE_DEFAULTS, shape.box()))
         else:
             return make_tool_error(f"Unknown action: '{action}'. Must be 'create' or 'edit'")
         if action == "create" or any(k in args for k in _SHAPE_DEFAULTS):
             shape.set_box(*box)
+        if rename_to is not None:
+            shape.Name = rename_to
         if "text" in args:
             shape.text = str(args["text"])
         shape.props.update(props)

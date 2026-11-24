@@ -170,6 +170,10 @@ def test_draw_names_are_unique() -> None:
     nxt = draw.shape_upsert(action="create", shape_type="rectangle")
     assert nxt["name"] == "Shape3"
 
+    with pytest.raises(TypeError):
+        draw.shape_upsert(action="edit", index=1, name="Z", x="abc")
+    assert [n["name"] for n in draw.get_tree()["tree"]] == ["StartBox", "Shape2", "Shape3"]
+
 
 def test_draw_negative_span_reads_back_normalised() -> None:
     draw = DrawWorld()
@@ -217,10 +221,20 @@ def test_draw_group_rejects_bad_members() -> None:
     assert draw.shape_group(indices=[0, 1])["status"] == "ok"
     draw.shape_upsert(action="create", shape_type="rectangle", text="C")
     before = draw.get_tree()
-    for bad in (None, [0], [0, 0], [0, 9], ["1.0", 0]):
+    for bad in (None, [0], [0, 9]):
         res = draw.shape_group(indices=bad)
         assert res["status"] == "error"
         assert draw.get_tree() == before
+
+    dup = draw.shape_group(indices=[1, 1])
+    assert dup["status"] == "error"
+    assert "Duplicate" in dup["message"]
+    assert draw.get_tree() == before
+
+    nested = draw.shape_group(indices=["0.0", 1])
+    assert nested["status"] == "error"
+    assert "not a top-level shape" in nested["message"]
+    assert draw.get_tree() == before
 
 
 def test_draw_upsert_records_arrowheads() -> None:

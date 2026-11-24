@@ -44,10 +44,9 @@ Today it does not:
 
 - (Shipped) `build_eval_tool_schemas()` uses live `ToolRegistry.get_schemas`
   for that doc type. Unimplemented names still return `unsupported_in_eval`.
-- `StringDocState` is one HTML string. `DrawDocState` has no
-  `shape_connect`. `CalcStringState` writes values, not formula text
-  or dest. So `style_consistency`, `comment_management`, and flowchart
-  connections cannot be honest.
+- `StringDocState` is one HTML string. `CalcStringState` writes values,
+  not formula text or dest. So `style_consistency` and
+  `comment_management` cannot be honest.
 - Scoring is result-only. Two models can both leave a correct table;
   one dumped the sheet into chat. IpD sees cost, not *why*.
 
