@@ -102,7 +102,7 @@ class GetDocumentContent(ToolBase):
     name: str | None = "get_content"
     description: str = (
         "Get document (or selection/range) content. Result includes document_length (counts the visible "
-        "body text: body paragraphs and table cells, one character per paragraph or cell break, without "
+        "body text: body paragraphs and table cells, including hidden sections, one character per paragraph or cell break, without "
         "text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and "
         "comment text are not counted) and length (HTML characters). scope: full, selection, or range "
         "(requires start, end as plain-text offsets in the document_length space). max_chars counts "

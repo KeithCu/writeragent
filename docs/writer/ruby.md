@@ -18,19 +18,15 @@ Surgical edit already treats Ruby as offset-unsafe (`edit_review.py`). Leave tha
 
 ## Write (`apply_content`)
 
-StarWriter HTML import concatenates ruby children (`前漢字かんじ後`, no Ruby portions). Before import, `<ruby>…<rt>…</rt></ruby>` is reduced to the **base** only. After import, `RubyText` / `RubyIsAbove` are set on each base run (the same cursor properties used to seed tests).
+StarWriter HTML import concatenates ruby children (`前漢字かんじ後`, no Ruby portions). Before import, `<ruby>…<rt>…</rt></ruby>` is replaced by a `[[WA-RUBY:<nonce>:<i>]]` placeholder before the **base** (`ruby_placeholders`). After import, `field_restore.find_tokens` locates each token (in body, table cells, or frames), deletes it, and sets `RubyText` / `RubyIsAbove` / `RubyAdjust` on the following base characters (`_place_ruby`).
 
 ```html
 <p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>
 ```
 
-becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again. An under ruby keeps `<ruby style="ruby-position: under">`; the import writes `RubyIsAbove` from that.
-
-When the same base occurs more than once, the reading is applied at that `<ruby>` element's visible-text offset. The visible offset is measured after `\n` / `\t` expansion, on the HTML StarWriter imports. A `<br>` or paragraph end counts as one character. A search from the start of the imported string used to paint the first copy (`漢字` before `<ruby>漢字</ruby>`).
+becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again. An under ruby keeps `<ruby style="ruby-position: under">`; the import writes `RubyIsAbove` from that. When a token is not found or its following text does not match the base, the mismatch is logged and the base stays plain.
 
 Format-preserving (plain-text) replace of the base does not drop existing ruby: `setString` is skipped when characters match, so the Ruby portions stay.
-
-Mixed math applies ruby per HTML segment because a formula is not the length of its source.
 
 ## Unchanged / out of scope
 
