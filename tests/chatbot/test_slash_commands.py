@@ -1280,3 +1280,17 @@ def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
     es_line = format_slash_item(help_cmd)
     assert es_line.startswith("/ayuda — ")
     assert "Print the command list" not in es_line
+
+
+def test_writer_selection_explain_block_reads_get_selection_text():
+    from plugin.chatbot.slash_commands import _writer_selection_explain_block
+
+    model = MagicMock()
+    with patch("plugin.chatbot.slash_commands.get_selection_text", return_value="  Visible words  "):
+        block = _writer_selection_explain_block(model)
+    assert block is not None
+    assert "Visible words" in block
+
+    for empty in (None, "", "   \n\t "):
+        with patch("plugin.chatbot.slash_commands.get_selection_text", return_value=empty):
+            assert _writer_selection_explain_block(model) is None

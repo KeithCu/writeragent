@@ -487,3 +487,41 @@ def test_struck_heading_dropped_and_para_index_preserved_uno(ctx, doc):
     assert [c["text"] for c in tree["children"]] == ["Live 1", "Live 2"]
     assert tree["children"][0]["body_paragraphs"] == 1
     assert tree["children"][1]["para_index"] == 2
+
+
+@native_test
+@with_native_doc("writer")
+def test_build_heading_tree_keeps_content_control_heading_and_drops_struck_uno(ctx, doc):
+    from plugin.doc.text_helpers import build_heading_tree
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Ctl Heading", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Struck H1", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "After", False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    ctl_cur = text.createTextCursorByRange(paras[0].getStart())
+    ctl_cur.gotoRange(paras[0].getEnd(), True)
+    ctl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(ctl_cur, ctl, True)
+
+    del_cur = text.createTextCursorByRange(paras[1].getStart())
+    del_cur.gotoRange(paras[1].getEnd(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tree = build_heading_tree(doc)
+    assert [c["para_index"] for c in tree["children"]] == [0, 2]

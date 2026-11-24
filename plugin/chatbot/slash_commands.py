@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Protocol, Sequence
 
+from plugin.doc.text_helpers import get_selection_text
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -547,38 +548,19 @@ def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     return base
 
 
+def _writer_selection_text(model: Any) -> str:
+    """Selected Writer text with tracked deletions hidden; "" when no text is selected."""
+    return (get_selection_text(model) or "").strip()
+
+
 def _writer_has_selection(model: Any) -> bool:
-    from plugin.doc.text_helpers import get_selection_text, selected_text_range
-
-    controller = model.getCurrentController()
-    if controller is None:
-        return False
-    rng = selected_text_range(controller)
-    if rng is not None:
-        from plugin.doc.text_helpers import visible_range_text
-
-        return bool(visible_range_text(model, rng).strip())
-    text = get_selection_text(model)
-    return bool(text and str(text).strip())
+    return bool(_writer_selection_text(model))
 
 
 def _writer_selection_explain_block(model: Any) -> str | None:
     """Selected Writer text for /explain; None when nothing is selected."""
-    if not _writer_has_selection(model):
-        return None
-    from plugin.doc.text_helpers import get_selection_text, selected_text_range, visible_range_text
-
-    controller = model.getCurrentController()
-    if controller is None:
-        return None
-    rng = selected_text_range(controller)
-    if rng is not None:
-        text = visible_range_text(model, rng).strip()
-    else:
-        text = (get_selection_text(model) or "").strip()
-    if not text:
-        return None
-    return _("Selected text:\n{0}").format(text)
+    text = _writer_selection_text(model)
+    return _("Selected text:\n{0}").format(text) if text else None
 
 
 def _calc_active_cell_explain_line(model: Any) -> str:
