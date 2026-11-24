@@ -13,6 +13,7 @@ import pytest
 from plugin.mcp_client.client import render_call_result
 from plugin.mcp_client.client_helpers import (
     annotation_read_only_hint,
+    bad_header_position,
     format_approval_arguments,
     make_tool_filter,
     names_unknown_tool,
@@ -102,6 +103,26 @@ def test_validate_remote_url():
     for bad in (None, "", "ftp://example.com/mcp", "file:///etc/passwd", "http://:8080/mcp", "http://[::1/mcp", "http:///x"):
         with pytest.raises(ValueError, match="srv"):
             validate_remote_url("srv", bad)
+
+    with pytest.raises(ValueError) as bad_scheme_exc:
+        validate_remote_url("srv", "htp://u:pw12345@h/?token=abcd1234")
+    assert "pw12345" not in str(bad_scheme_exc.value)
+    assert "abcd1234" not in str(bad_scheme_exc.value)
+
+    with pytest.raises(ValueError) as nfkc_exc:
+        validate_remote_url("srv", "https://tok\u2100en@h/")
+    assert "tok\u2100en" not in str(nfkc_exc.value)
+
+    with pytest.raises(ValueError) as token_scheme_exc:
+        validate_remote_url("srv", "s3cr3tTok:@host/mcp")
+    assert "s3cr3ttok" not in str(token_scheme_exc.value).lower()
+
+
+def test_bad_header_position():
+    assert bad_header_position({"headers": {"X-Ok": "v", "X Bad": "v"}}) == 2
+    assert bad_header_position({"headers": {"X-Ok": "v", "Authorization": "Bearer x"}}) is None
+    assert bad_header_position({}) is None
+    assert bad_header_position({"headers": ["X-Ok"]}) is None
 
 
 def test_safe_numeric():

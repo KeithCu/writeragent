@@ -632,11 +632,23 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
         cur.setPropertyValue("ParaStyleName", "Standard")
         text.insertString(cur, "Keep after", False)
 
+    def _para_props(needle):
+        p = _para_by_text(doc, needle)
+        return (
+            p.getPropertyValue("ParaLeftMargin"),
+            p.getPropertyValue("ParaAdjust"),
+            p.getPropertyValue("FillColor"),
+        )
+
     content = (
         '<p data-lo-style="Heading2" '
         'data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New heading</p>'
     )
     _seed()
+    seed_before = _para_props("Keep before")
+    seed_mid = _para_props("Replace me")
+    seed_after = _para_props("Keep after")
+
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyDocumentContent().execute(
@@ -664,6 +676,8 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
     assert p2.getPropertyValue("ParaAdjust") == 3
     assert 1990 <= p2.getPropertyValue("ParaLeftMargin") <= 2010
     assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+    assert _para_props("Keep before") == seed_before
+    assert _para_props("Keep after") == seed_after
 
     _seed()
     doc.setPropertyValue("RecordChanges", True)
@@ -682,12 +696,9 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
         ("Standard", "Replace me"),
         ("Standard", "Keep after"),
     ]
-    enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
-        p = enum.nextElement()
-        if hasattr(p, "supportsService") and p.supportsService("com.sun.star.text.Paragraph"):
-            if "New heading" in p.getString():
-                assert p.getPropertyValue("ParaLeftMargin") == 0
+    assert _para_props("Keep before") == seed_before
+    assert _para_props("Replace me") == seed_mid
+    assert _para_props("Keep after") == seed_after
 
 
 @native_test

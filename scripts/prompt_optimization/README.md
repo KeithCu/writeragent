@@ -20,7 +20,7 @@ make eval-ab SUITE=calc           # A/B compare origin/master vs working tree (c
 
 - Defaults: `SUITE=all`, `MODELS=openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro`, `REPEATS=3`, `OUT_DIR=/tmp/wa-eval-ab`, optional `TASKS=task1,task2`.
 - Runs `scripts/generate_manifest.py` first, then executes one `run_eval_multi.py` at a time in the foreground (`-j 1 --lo-workers 2 --backend auto`).
-- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<side>-<source>-<config>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table plus a `B better` / `B worse` / `B same` summary line. Any change to the Side A commit, the Side B HEAD commit or uncommitted `plugin/` or `scripts/` changes, the model list, or the task list starts fresh files and ignores older ones.
+- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<side>-<source>-<config>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table (header shows the Side A ref and both source ids) plus a `B better` / `B worse` / `B same` summary line. Any change to the Side A commit, the Side B HEAD commit or uncommitted `plugin/` or `scripts/` changes, the model list, or the task list starts fresh files and ignores older ones. Old results are not removed; delete `<OUT_DIR>/<suite>` to clear them.
 
 Local OpenAI-compatible (Ollama, vLLM, etc.):
 
@@ -46,7 +46,7 @@ Endpoint:
 
 - `--api-base` / `WRITERAGENT_API_BASE`, `OPENAI_API_BASE` — default `https://openrouter.ai/api/v1`
 
-`EVAL_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. `EVAL_GEMINI_API_KEY` (or `GEMINI_API_KEY`) routes Gemini-shaped ids on an OpenRouter base to `https://generativelanguage.googleapis.com/v1beta/openai`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
+`EVAL_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. `EVAL_GEMINI_API_KEY` (or `GEMINI_API_KEY`) routes Gemini-shaped ids on an OpenRouter base to `https://generativelanguage.googleapis.com/v1beta/openai`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. An id without a `model_configs.py` row is accepted without `--allow-unknown-model` only when it is routed to its native provider.
 
 Judge model (`run_eval_multi.py`):
 

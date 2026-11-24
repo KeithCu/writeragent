@@ -672,3 +672,114 @@ def test_rename_prefers_branch_declaring_more_args_and_never_collapses_keys():
     assert unrename_tool_args(nested_vs_direct_schema, [{"kind": "b", "file_path": "x"}]) == [
         {"kind": "b", "file_path": "x"}
     ]
+
+
+def test_renames_map_back_in_prefix_items_pattern_properties_and_conditionals():
+    spec = {
+        "name": "complex_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tuple_arg": {
+                    "type": "array",
+                    "prefixItems": [
+                        {"type": "object", "properties": {"first key": {"type": "string"}}},
+                    ],
+                    "items": {"type": "object", "properties": {"rest key": {"type": "string"}}},
+                },
+                "bag": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^x_": {"type": "object", "properties": {"pat key": {"type": "string"}}},
+                    },
+                },
+                "cond": {
+                    "type": "object",
+                    "properties": {"mode": {"type": "string"}},
+                    "if": {"properties": {"mode": {"const": "full"}}},
+                    "then": {"properties": {"then key": {"type": "string"}}},
+                    "else": {"properties": {"else key": {"type": "string"}}},
+                },
+            },
+        },
+    }
+    dispatch = convert_mcp_schema("srv", spec)["dispatch_schema"]
+    mapped = unrename_tool_args(
+        dispatch,
+        {
+            "tuple_arg": [{"first_key": "1"}, {"rest_key": "2"}],
+            "bag": {"x_1": {"pat_key": "3"}},
+            "cond": {"mode": "full", "then_key": "4", "else_key": "5"},
+        },
+    )
+    assert mapped == {
+        "tuple_arg": [{"first key": "1"}, {"rest key": "2"}],
+        "bag": {"x_1": {"pat key": "3"}},
+        "cond": {"mode": "full", "then key": "4", "else key": "5"},
+    }
+
+
+def test_conditional_rename_follows_the_matching_if():
+    all_of_schema = {
+        "type": "object",
+        "allOf": [
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "a"}}},
+                "then": {"properties": {"file path": {"type": "string"}}},
+            },
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "b"}}},
+                "then": {"properties": {"file_path": {"type": "string"}}},
+            },
+        ],
+    }
+    assert unrename_tool_args(all_of_schema, {"kind": "a", "file_path": "/a"}) == {"kind": "a", "file path": "/a"}
+    assert unrename_tool_args(all_of_schema, {"kind": "b", "file_path": "/b"}) == {"kind": "b", "file_path": "/b"}
+
+    if_else_schema = {
+        "type": "object",
+        "if": {"properties": {"kind": {"type": "string", "const": "a"}}},
+        "then": {"properties": {"file path": {"type": "string"}}},
+        "else": {"properties": {"file_path": {"type": "string"}}},
+    }
+    assert unrename_tool_args(if_else_schema, {"kind": "a", "file_path": "/a"}) == {"kind": "a", "file path": "/a"}
+    assert unrename_tool_args(if_else_schema, {"kind": "b", "file_path": "/b"}) == {"kind": "b", "file_path": "/b"}
+
+    redeclared_discriminator_schema = {
+        "type": "object",
+        "allOf": [
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "a"}}},
+                "then": {"properties": {"kind": {"type": "string"}, "file path": {"type": "string"}}},
+            },
+            {
+                "if": {"properties": {"kind": {"type": "string", "const": "b"}}},
+                "then": {"properties": {"kind": {"type": "string"}, "file_path": {"type": "string"}}},
+            },
+        ],
+    }
+    assert unrename_tool_args(redeclared_discriminator_schema, {"kind": "a", "file_path": "/a"}) == {
+        "kind": "a",
+        "file path": "/a",
+    }
+    assert unrename_tool_args(redeclared_discriminator_schema, {"kind": "b", "file_path": "/b"}) == {
+        "kind": "b",
+        "file_path": "/b",
+    }
+
+
+def test_pattern_properties_regex_is_not_run():
+    schema = {
+        "type": "object",
+        "properties": {
+            "bag": {
+                "type": "object",
+                "patternProperties": {
+                    "(": {"type": "object", "properties": {"nested key": {"type": "string"}}},
+                },
+            }
+        },
+    }
+    assert unrename_tool_args(schema, {"bag": {"anything": {"nested_key": "v"}}}) == {
+        "bag": {"anything": {"nested key": "v"}}
+    }

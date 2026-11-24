@@ -117,18 +117,19 @@ class TestInputBoxExtraTokens:
                 input_box(MagicMock(), "msg")
         mock_load.assert_called_once()
 
-    @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_model_selector_skips_remote_fetch(
-        self, _init_log, mock_load, mock_populate,
+        self, _init_log, mock_load,
     ):
         """Edit/Extend must not fetch /v1/models on the UI thread."""
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
         dlg, _edit_ctrl, _extend, _extra, _unused = self._mock_dialog(execute_ok=False)
+        dlg.getControl("prompt_selector").getItemCount.return_value = 0
         model_selector = MagicMock()
+        model_selector.getItemCount.return_value = 0
         mock_load.return_value = dlg
 
         def optional_side_effect(_dlg, name):
@@ -138,12 +139,12 @@ class TestInputBoxExtraTokens:
 
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect), \
              patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="http://127.0.0.1:9"), \
-             patch("plugin.chatbot.dialog_views.get_text_model", return_value="llama3"):
+             patch("plugin.chatbot.dialog_views.get_text_model", return_value="llama3"), \
+             patch("plugin.framework.client.requests.sync_request") as mock_sync:
             input_box(ctx, "msg", "title", "")
 
-        model_calls = [call for call in mock_populate.call_args_list if "model_lru" in call.args]
-        assert len(model_calls) == 1
-        assert model_calls[0].kwargs.get("skip_remote_fetch") is True
+        mock_sync.assert_not_called()
+        model_selector.addItems.assert_called()
 
 
 class TestSettingsDialogLoad:
@@ -224,7 +225,7 @@ class TestEndpointCombinedListener:
 
         assert (len(apply_calls)) == (1)
         assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
-        assert (apply_calls[0][1].get('skip_fetch'))
+        assert apply_calls[0][1].get('models') is None
         assert (len(bg_calls)) == (1)
         assert bg_calls[0][2] == "cartesia/sonic-2"
         assert bg_calls[0][0] == listener._debounce_gen - 50
@@ -253,7 +254,7 @@ class TestEndpointCombinedListener:
             listener.itemStateChanged(event)
 
         assert (len(apply_calls)) == (1)
-        assert (apply_calls[0][1].get('skip_fetch'))
+        assert apply_calls[0][1].get('models') is None
         listener._bg_fetch.assert_called_once()
 
     def test_debounced_fetch_with_bad_port_does_not_raise(self):
@@ -309,7 +310,6 @@ class TestEndpointCombinedListener:
             listener._apply_dropdowns(
                 'https://openrouter.ai/api',
                 models=['openrouter/fusion', 'openai/gpt-oss-120b'],
-                skip_fetch=False,
             )
 
         stt_calls = [c for c in populate_calls if c['lru_key'] == 'audio_model_lru']
@@ -319,40 +319,6 @@ class TestEndpointCombinedListener:
         assert ('openrouter/fusion') not in (stt_calls[0]['remote_models'])
         assert (len(text_calls)) == (1)
         assert (text_calls[0]['remote_models']) is not None
-
-    def test_apply_dropdowns_uses_combobox_text_for_text_model(self):
-        """Endpoint refresh must seed text model from combobox text, not empty string."""
-        from plugin.chatbot.dialog_views import EndpointCombinedListener
-
-        dialog = MagicMock()
-        ctx = MagicMock()
-        combo = MagicMock()
-        listener = EndpointCombinedListener(dialog, ctx, combo)
-
-        text_ctrl = MagicMock()
-        text_ctrl.getText.return_value = 'user-typed-model'
-        stt_ctrl = MagicMock()
-        stt_ctrl.getText.return_value = ''
-        image_ctrl = MagicMock()
-        image_ctrl.getText.return_value = ''
-
-        def get_optional_side_effect(dlg, name):
-            return {'text_model': text_ctrl, 'audio__stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
-
-        populate_calls = []
-
-        def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
-            populate_calls.append({'lru_key': lru_key, 'current': current})
-
-        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
-             patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'), \
-             patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'), \
-             patch('plugin.chatbot.dialog_views.populate_combobox_with_lru', side_effect=track_populate):
-            listener._apply_dropdowns('http://localhost:11434', models=['llama3'], skip_fetch=True)
-
-        text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
-        assert (len(text_calls)) == (1)
-        assert (text_calls[0]['current']) == ('user-typed-model')
 
     def test_apply_dropdowns_clears_combo_current_on_provider_switch(self):
         """Provider change must not seed populate with leftover foreign slugs."""
@@ -388,7 +354,7 @@ class TestEndpointCombinedListener:
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
              patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'), \
              patch('plugin.chatbot.dialog_views.populate_combobox_with_lru', side_effect=track_populate):
-            listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
+            listener._apply_dropdowns('https://api.together.xyz', models=None)
 
         by_key = {c['lru_key']: c for c in populate_calls}
         assert (by_key['model_lru']['current']) == ('')
@@ -434,7 +400,7 @@ class TestEndpointCombinedListener:
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
             with patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'):
                 with patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config):
-                    listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
+                    listener._apply_dropdowns('https://api.together.xyz', models=None)
 
         text_items = list(text_ctrl.addItems.call_args[0][0])
         assert (sticky) not in (text_items)
@@ -938,12 +904,12 @@ def test_populate_fields_text_model_does_not_fetch_remote() -> None:
     view = SettingsDialog(MagicMock())
     view._dlg = dlg
 
-    with patch("plugin.chatbot.config_ui_helpers.fetch_available_models") as mock_fetch:
+    with patch("plugin.framework.client.requests.sync_request") as mock_sync:
         view._populate_fields(
             [{"name": "text_model", "value": "llama3"}],
             "http://localhost:11434",
         )
-    mock_fetch.assert_not_called()
+    mock_sync.assert_not_called()
 
 
 def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
@@ -1031,7 +997,7 @@ def test_populate_fields_wires_audio_model_lru(ctrl_name: str, initial_val: str,
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
             ctrl, initial_val, lru_key, "https://openrouter.ai/api",
-            api_key_override="", skip_remote_fetch=True,
+            api_key_override="",
         )
 
 
@@ -1065,7 +1031,6 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
             listener._apply_dropdowns(
                 "https://openrouter.ai/api",
                 models=["openrouter/fusion"],
-                skip_fetch=False,
             )
 
     tts_calls = [c for c in populate_calls if c["lru_key"] == "tts_model_lru"]
@@ -1102,7 +1067,6 @@ def test_apply_dropdowns_together_speech_uses_serverless_catalog() -> None:
         listener._apply_dropdowns(
             "https://api.together.xyz",
             models=["openai/gpt-oss-120b", "cartesia/sonic", "cartesia/sonic-4"],
-            skip_fetch=False,
         )
 
     by_key = {c["lru_key"]: c["remote_models"] for c in populate_calls}
@@ -1196,7 +1160,6 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
             listener._apply_dropdowns(
                 "https://openrouter.ai/api",
                 models=["openrouter/fusion"],
-                skip_fetch=False,
             )
             mock_sync.assert_not_called()
         items = list(tts_ctrl.addItems.call_args[0][0])

@@ -854,10 +854,6 @@ class SortRange(ToolCalcRangeBase):
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         sort_column: int = kwargs["sort_column"]
-        # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound for every key lives in range_sort.
-        if sort_column < 0:
-            return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
-
         ascending: bool = kwargs["ascending"]
 
         then_by = parse_then_by(kwargs.get("then_by", []))
@@ -873,8 +869,9 @@ class SortRange(ToolCalcRangeBase):
             ctx.doc,
             rn,
             "WriterAgent: Sort range",
-            lambda r: manipulator.range_sort(r, keys, has_header=has_header),
+            lambda plan: manipulator.range_sort(plan, has_header=has_header),
             format_result=(lambda results: make_tool_ok(message=" ".join(results))) if len(rn) > 1 else None,
+            plan_one=lambda r: manipulator.plan_sort(r, keys),
         )
 
 

@@ -1102,6 +1102,41 @@ def shape_is_text_box(shape: Any) -> bool:
     return uno_read(lambda: bool(shape.getPropertyValue("TextBox")), False)
 
 
+def text_box_frame(shape: Any) -> Any | None:
+    """The hidden TextFrame holding a Word-style text box's text, or None for any other shape.
+
+    A Word text box is a draw shape whose text lives in a hidden TextFrame (the shape's
+    TextBoxContent). getTextFrames() hides those frames from getElementNames() but still
+    serves them by name (sw/source/core/unocore/unocoll.cxx:SwXFrames::getByName vs
+    SwXFrameEnumeration). Fly entries on the draw page have no TextBox property.
+    """
+    if shape_is_text_box(shape):
+        return shape.getPropertyValue("TextBoxContent")
+    return None
+
+
+def text_box_shapes(doc: Any) -> list[tuple[int, Any, str]]:
+    """(draw-page index, shape, frame name) for every Word-style text box."""
+    page = doc.getDrawPage()
+    boxes = []
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        frame = text_box_frame(shape)
+        if frame is not None:
+            boxes.append((i, shape, frame.getName()))
+    return boxes
+
+
+def iter_text_frame_names(doc: Any) -> Iterator[str]:
+    """Names of every text frame including Word text boxes, all served by getTextFrames().getByName().
+
+    Boxes inside group shapes are not included.
+    """
+    yield from doc.getTextFrames().getElementNames()
+    for _idx, _shape, name in text_box_shapes(doc):
+        yield name
+
+
 def _lower_with_origins(text: str) -> tuple[str, list[int]]:
     lowered_chars: list[str] = []
     origins: list[int] = []
@@ -1468,7 +1503,7 @@ MAX_MISS_HAYSTACK_CHARS = 2_000_000
 
 
 def get_search_miss_haystack(doc: Any) -> str:
-    """Read document body, text frames, and header/footer regions (without tracked deletions) for near-miss search."""
+    """Read document body, text frames (Word text boxes included), and header/footer regions (without tracked deletions) for near-miss search."""
     try:
         body_text = get_string_without_tracked_deletions(doc.getText())
     except Exception as exc:
@@ -1479,7 +1514,7 @@ def get_search_miss_haystack(doc: Any) -> str:
     parts = [body_text]
     try:
         frames = doc.getTextFrames()
-        for name in frames.getElementNames():
+        for name in iter_text_frame_names(doc):
             try:
                 frame = frames.getByName(name)
                 frame_text = get_string_without_tracked_deletions(frame.getText())

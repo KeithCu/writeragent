@@ -14,7 +14,7 @@
 3. **`DEFAULT_MODELS`:** provider-keyed walk, then any-id match for custom (`writeragent-mock` → 32768).
 4. **`None`** → `compact_session` returns `reason="no_window"` (proactive **and** force compact skip).
 
-Harvest only. Compact never GETs `/v1/models`. Edit/Extend model combos pass `skip_remote_fetch` (LRU plus provider defaults, no UI-thread catalog HTTP). The sidebar text combo uses `memo_text_models_or_fetch` (warm memo on the UI thread, or an off-thread background fetch including OpenRouter and Together). Live lengths for every provider, including Groq / DeepSeek / Mistral / Gemini / LM Studio / custom / mock, exist once Settings `_bg_fetch` or the sidebar background catalog fetch has populated the memo when the row publishes a length field.
+Harvest only. Compact never GETs `/v1/models`. Edit/Extend model combos fill from LRU plus provider defaults (no UI-thread catalog HTTP). The sidebar text combo uses `memo_text_models_or_fetch` (warm memo on the UI thread, or an off-thread background fetch including OpenRouter and Together). Live lengths for every provider, including Groq / DeepSeek / Mistral / Gemini / LM Studio / custom / mock, exist once Settings `_bg_fetch` or the sidebar background catalog fetch has populated the memo when the row publishes a length field.
 
 Do **not** harvest `max_context_length` (LM Studio trained max ≠ loaded window; #570-class). Ignore `top_provider.context_length`. `openrouter/free` uses the catalog **200000** (OpenRouter’s advertised Free Models Router window); the routed hop may be smaller.
 

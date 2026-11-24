@@ -12,6 +12,7 @@ from typing import Any, Iterable, cast
 
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
 from plugin.ppt_master.venv.ipc import UserStopped, emit_worker_event, rpc_tool
 from plugin.ppt_master.venv.model import HostRpcModel
@@ -279,6 +280,8 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     # Pass system_prompt_examples. ToolCallingAgent otherwise fills in the
     # web-research demo (web_search / final_answer). This agent finishes with
     # ppt_master_finished.
+    # stdout is dup'd onto stderr here and the host quotes the stderr tail in errors,
+    # so the agent console stays off.
     agent = ToolCallingAgent(
         tools=tools,
         model=smol_model,
@@ -286,6 +289,7 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
         instructions=instructions,
         final_answer_tool_name="reply_to_user",
         system_prompt_examples=get_examples_block("ppt-master"),
+        verbosity_level=LogLevel.OFF,
     )
 
     from plugin.chatbot.web_research_chat import clip_sub_agent_history

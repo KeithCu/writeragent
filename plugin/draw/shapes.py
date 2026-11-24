@@ -717,6 +717,20 @@ def _outside_page(page: Any, shape: Any) -> bool:
     return x < 0 or y < 0 or x + sw > w or y + sh > h
 
 
+_ARROWHEAD_PROPERTIES: dict[str, Any] = {
+    "line_start": {
+        "type": "string",
+        "enum": ["none", "arrow"],
+        "description": "Arrowhead at the start of a line or connector ('none' clears).",
+    },
+    "line_end": {
+        "type": "string",
+        "enum": ["none", "arrow"],
+        "description": "Arrowhead at the end of a line or connector ('none' clears).",
+    },
+}
+
+
 class UpsertShape(_AnyDocumentShapeTool):
     name: str | None = "shape_upsert"
     description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields."
@@ -743,16 +757,7 @@ class UpsertShape(_AnyDocumentShapeTool):
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
             "line_color": {"type": "string", "description": "Line border color"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
-            "line_start": {
-                "type": "string",
-                "enum": ["none", "arrow"],
-                "description": "Arrowhead at the start of a line or connector ('none' clears).",
-            },
-            "line_end": {
-                "type": "string",
-                "enum": ["none", "arrow"],
-                "description": "Arrowhead at the end of a line or connector ('none' clears).",
-            },
+            **_ARROWHEAD_PROPERTIES,
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
@@ -1000,6 +1005,7 @@ class ConnectShapes(_AnyDocumentShapeTool):
             "page": DRAW_PAGE_PROPERTY,
             "line_color": {"type": "string", "description": "Color of the connector line"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
+            **_ARROWHEAD_PROPERTIES,
         },
         "required": ["start", "end"],
     }

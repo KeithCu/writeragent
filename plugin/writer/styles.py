@@ -26,7 +26,7 @@ from contextlib import nullcontext
 import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -132,6 +132,25 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
             reraise_if_disposed(exc)
             continue
     return cleared
+
+
+_LANGUAGE_PROPERTIES = ("CharLocale", "CharLocaleAsian", "CharLocaleComplex")
+
+
+def reset_direct_char_formatting(cursor: Any) -> None:
+    """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
+
+    Resetting any one Char* name on an empty paragraph drops its whole character
+    attribute set, language included, so the language is read first and put back.
+    """
+    names = _writable_char_names(cursor)
+    if not isinstance(names, list):
+        return
+    language = {name: cursor.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+    reset_properties_to_default(cursor, names)
+    for name, value in language.items():
+        if cursor.getPropertyValue(name) != value:
+            cursor.setPropertyValue(name, value)
 
 
 def convert_direct_properties(updates: dict[str, Any]) -> dict[str, Any]:
@@ -271,6 +290,25 @@ def _writable_char_names(portion: Any) -> list[str] | object:
     ]
 
 
+def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str]) -> Iterator[Any]:
+    """Yield the paragraphs of *para_enum*, descending into table cells (nested tables too)."""
+    seen = 0
+    for el in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
+        seen += 1
+        if not hasattr(el, "supportsService"):
+            continue
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            yield el
+        elif el.supportsService("com.sun.star.text.TextTable"):
+            names = read(el.getCellNames)
+            for name in () if names is _READ_FAILED else names:
+                cell = read(el.getCellByName, name)
+                cell_enum = _READ_FAILED if cell is _READ_FAILED else read(cell.createEnumeration)
+                if cell_enum is not _READ_FAILED:
+                    yield from _capture_paragraphs(read, cell_enum, notes)
+    record_walk_cap(para_enum, seen, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
+
+
 def _capture_direct_char_overrides(
     doc: Any,
     cursor: Any,
@@ -294,12 +332,7 @@ def _capture_direct_char_overrides(
     if para_styles is _READ_FAILED or para_enum is _READ_FAILED:
         return [], read.failures, notes
 
-    paras = 0
-    for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
-        paras += 1
-        if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
-            continue
-
+    for para in _capture_paragraphs(read, para_enum, notes):
         name = read(para.getPropertyValue, "ParaStyleName")
         if name is _READ_FAILED:
             continue
@@ -355,7 +388,6 @@ def _capture_direct_char_overrides(
                     overrides.append((pc, props))
 
         record_walk_cap(portion_enum, portions, _CAPTURE_PORTION_LIMIT, "text portions", notes)
-    record_walk_cap(para_enum, paras, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
     return overrides, read.failures, notes
 
 
@@ -543,12 +575,16 @@ _UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_P
 
 
 # ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center). Schema
-# is the words; these maps are the UNO integers (ParagraphAdjust).
-_PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3}
-_PARA_ADJUST_FROM_INT = {0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify"}
+# is the words; these maps are the UNO integers (ParagraphAdjust). START/END exist
+# since LO 26.2, and older SvxAdjustItem::PutValue ignores 5/6, so the tool schema
+# does not offer them.
+_PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3, "start": 5, "end": 6}
+_PARA_ADJUST_FROM_INT = {
+    0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify", 5: "start", 6: "end",
+}
 _PARA_ADJUST_FROM_ENUM = {
     "LEFT": "left", "RIGHT": "right", "BLOCK": "justify",
-    "CENTER": "center", "STRETCH": "justify",
+    "CENTER": "center", "STRETCH": "justify", "START": "start", "END": "end",
 }
 
 
@@ -853,6 +889,27 @@ _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES = ("NumberingStyleName", "PageDescName", "
 
 def _is_paragraph_property(name: str) -> bool:
     return name.startswith("Para") or name in _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES
+
+
+# Writer rejects setting these to their own default, so a reset of them cannot be recorded.
+_UNRECORDABLE_CHAR_RESETS = frozenset({"CharStyleName", "CharAutoStyleName", "CharInteropGrabBag"})
+
+
+def _recordable_reset_values(cursor: Any, names: Iterable[str]) -> dict[str, Any]:
+    """Values to set before a reset so Track Changes records it.
+
+    SwDoc::ResetAttrs (docfmt.cxx) records nothing. lcl_SetRedline
+    (DocumentContentOperationsManager.cxx) stores each portion's old character
+    attributes when a value is set. The value itself is irrelevant because the
+    reset drops it.
+    """
+    values: dict[str, Any] = {}
+    for name in names:
+        if name.startswith("Char") and name not in _UNRECORDABLE_CHAR_RESETS:
+            default = cursor.getPropertyDefault(name)
+            if default is not None:  # void for property-map entries without a pool item
+                values[name] = default
+    return values
 
 
 def _convert_value(prop_name: str, value: Any) -> Any:
@@ -1561,6 +1618,7 @@ class ApplyStyle(FrameworkToolBase):
         family: str,
         target: str,
         reports: list[ParagraphStyleApplyReport | None],
+        doc: Any,
     ) -> dict[str, Any]:
         res: dict[str, Any] = {
             "status": "ok",
@@ -1575,7 +1633,7 @@ class ApplyStyle(FrameworkToolBase):
         else:
             res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
         res.update(self._merge_reports(reports))
-        flag_style_unreviewed(res)
+        flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
         return res
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1629,7 +1687,7 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        res = self._success(style_name, family, target, reports)
+        res = self._success(style_name, family, target, reports, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -1725,11 +1783,15 @@ class StyleFormatText(ToolWriterStyleBase):
         if prop_err is not None:
             return prop_err
 
+        reset_values = _recordable_reset_values(cursors[0], reset_names)
+        tracked = False
+
         # One body-spanning cursor covers tables (including nested tables) because
         # lcl_InsAttr and ResetAttrs walk every node in the range.
         def apply_one(cursor: Any) -> list[str]:
-            if updates:
-                set_cursor_properties(cursor, updates)
+            pre_updates = {**reset_values, **updates} if tracked else updates
+            if pre_updates:
+                set_cursor_properties(cursor, pre_updates)
             if not reset_names:
                 return []
             cleared = reset_properties_to_default(cursor, reset_names)
@@ -1747,15 +1809,14 @@ class StyleFormatText(ToolWriterStyleBase):
                 actually_cleared.append(name)
             return actually_cleared
 
-        # SwDoc::ResetAttrs has no redline branch, so resets cannot be tracked and flag style_unreviewed instead.
-        record = review_recording_enabled() and bool(updates)
+        record = review_recording_enabled() and bool(updates or reset_values)
         label = "direct formatting"
         # Catch ValueError here so a single-cursor type rejection from setPropertyValues
         # reports INVALID_PARAM with "Nothing was changed" (matching the multi-cursor path)
         # instead of escaping to execute_safe as a generic tool crash; disposal already re-raised.
         try:
             with (record_changes(ctx.doc, True) if record else nullcontext()):
-                tracked = bool(updates) and is_recording_changes(ctx.doc)
+                tracked = bool(updates or reset_values) and is_recording_changes(ctx.doc)
                 reports, err = apply_to_cursors(
                     self, ctx, cursors, apply_one, label, single_action=not reset_names
                 )
@@ -1826,8 +1887,9 @@ class StyleFormatText(ToolWriterStyleBase):
 
         if tracked:
             res = annotate_review_status(res)
-        if reset_done or not tracked:
-            flag_style_unreviewed(res)
+        untracked_resets = [n for n in reset_done if not (tracked and n in reset_values)]
+        if untracked_resets or not tracked:
+            flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -1951,7 +2013,7 @@ class StyleUpdate(ToolWriterStyleBase):
             if warning:
                 result["warning"] = warning
 
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result
 
 
@@ -2076,7 +2138,7 @@ class StyleCreate(ToolWriterStyleBase):
             warning = _font_not_installed_warning(ctx, applied["CharFontName"])
             if warning:
                 result["warning"] = warning
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result
 
 
@@ -2147,7 +2209,7 @@ class StyleClone(ToolWriterStyleBase):
             "new_style": new_name,
             **stats,
         }
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, doc)
         return result
 
 
@@ -2205,5 +2267,5 @@ class StyleImport(ToolWriterStyleBase):
         ctx.doc.loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result

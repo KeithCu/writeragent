@@ -703,9 +703,7 @@ def attach_write_report(
         token = style_tokens[0] if len(style_tokens) == 1 else None
         subject = f"data-lo-style='{token}'" if token else "data-lo-style"
 
-        partial_count = report.style_skips.count("STYLE_IGNORED_PARTIAL_MATCH")
-
-        style_diags: list[Diagnostic] = []
+        partial_count = len(report.style_skips)
         if partial_count > 0:
             scope_clause = (
                 f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
@@ -728,16 +726,9 @@ def attach_write_report(
                 suggested = suggest_style_fix(token, total_matches)
                 if suggested is not None:
                     partial_diag["suggested_call"] = suggested
-            style_diags.append(partial_diag)
-
-        if style_diags:
-            diags.extend(style_diags)
-            note_text = " ".join(d["message"] for d in style_diags)
+            diags.append(partial_diag)
             existing_message = result.get("message") or ""
-            if existing_message:
-                result["message"] = f"{existing_message} {note_text}"
-            else:
-                result["message"] = note_text
+            result["message"] = f"{existing_message} {msg}" if existing_message else msg
 
     if report.unapplied_para:
         deduped = list(dict.fromkeys(report.unapplied_para))

@@ -753,6 +753,20 @@ def test_replace_keeps_run_formatting_uno(ctx, doc):
         ("Swa", 150.0, "NONE"), ("p", 100.0, "ITALIC")
     ], portions
 
+    # Bookmark inside replaced range: text is replaced and the bookmark survives
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyToDefault("CharStyleName")
+    cur.setPropertyValue("CharWeight", 100.0)
+    text.insertString(cur, "aaa Re", False)
+    bm = doc.createInstance("com.sun.star.text.Bookmark")
+    bm.setName("mid_bm")
+    text.insertTextContent(cur, bm, False)
+    text.insertString(cur, "place bbb", False)
+    _replace_word("Replace", "Swap")
+    assert text.getString() == "aaa Swap bbb"
+    assert doc.getBookmarks().hasByName("mid_bm")
+
 
 @native_test
 @with_native_doc("writer")

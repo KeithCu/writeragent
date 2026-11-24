@@ -173,6 +173,21 @@ def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, s
     return endpoint, api_key, model
 
 
+def active_native_route(endpoint: str, model: str) -> NativeRoute | None:
+    """Return the native route that calls for *model* on *endpoint* really use, else None.
+
+    A Claude- or Gemini-shaped id alone is not enough: without the provider's env key
+    it stays on OpenRouter, and a local or custom base is never rewritten.
+    """
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
+
+    route = native_route_for(model)
+    if route is None:
+        return None
+    routed_base, _key, _model = route_eval_llm(endpoint, "", model)
+    return route if get_provider_from_endpoint(routed_base) == route.provider else None
+
+
 def require_eval_keys(*, endpoint: str, api_key: str, models: Sequence[str]) -> None:
     """Validate that necessary API keys are present for the models being evaluated."""
     if not models:

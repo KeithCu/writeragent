@@ -494,3 +494,29 @@ def test_refresh_document_context_forwards_selection():
     assert mock_get_ctx.call_args.kwargs["selection"] is sel
 
 
+def test_messages_for_request_tool_list_content_separates_tail():
+    from plugin.framework.client.shim_helpers import split_snapshot_text
+
+    session = ChatSession(system_prompt="Base system")
+    session.add_user_message("Inspect image")
+    session.add_assistant_message(tool_calls=[{"id": "c1", "function": {"name": "image_get"}}])
+    tool_parts = [
+        {"type": "text", "text": "Image captured."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+    ]
+    session.add_tool_result("c1", tool_parts)
+    session.document_context = "Doc"
+
+    req = session.messages_for_request()
+    last = req[-1]
+    assert last["role"] == "tool"
+    assert len(last["content"]) == 3
+    assert last["content"][:2] == tool_parts
+    assert last["content"][2] == {"type": "text", "text": f"\n\n{snapshot_text('Doc')}"}
+    assert session.messages[-1]["content"] == tool_parts
+
+    body, snap = split_snapshot_text(last["content"])
+    assert body == tool_parts
+    assert snap == snapshot_text("Doc")
+
+

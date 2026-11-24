@@ -130,7 +130,7 @@ Rules for constructing suggestions:
 ### 3.5 Partial-match style skips (item 4) in detail
 
 **Behavior:**
-`data-lo-style` is skipped when replacing text that does not span whole paragraphs (`_range_covers_whole_paragraphs`, `plugin/writer/html_import.py`) or while tracked changes are recording (`record_changes.is_recording_changes`). For each style skip, `result["warnings"]` receives a `Diagnostic` (via `html_import_styles.attach_write_report`):
+`data-lo-style` is skipped when replacing text that does not span whole paragraphs (`_range_covers_whole_paragraphs`, `plugin/writer/html_import.py`). For each style skip, `result["warnings"]` receives a `Diagnostic` (via `html_import_styles.attach_write_report`):
 
 ```json
 {
@@ -159,7 +159,7 @@ Rules for constructing suggestions:
 6. **Case sensitivity:** Always supply `case_sensitive: true`.
 7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `apply_style` will restyle the entire host paragraph.
 8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `apply_style` already supports).
-9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Because `_lo_style_for_replaced_range` checks partial match before recording, a partial match during recording triggers `STYLE_IGNORED_PARTIAL_MATCH`. Gating on recording status prevents emitting an untracked `apply_style` suggestion during redline recording.
+9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Gating on recording status prevents emitting an untracked `apply_style` suggestion for a partial match during redline recording.
 10. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
 11. **Before/after insertions:** `before` imports at the start of the match's paragraph via `insert_html_at_cursor` (default `apply_styles=True`); `after` uses `insert_html_after_paragraph(apply_styles=True)`, which opens a fresh paragraph. Neither merges, so styles apply and no warning is needed.
 

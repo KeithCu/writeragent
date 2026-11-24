@@ -244,3 +244,41 @@ def test_heading_links_resolve_table_frame_and_variants_uno(ctx, doc) -> None:
 
     _jump_to_mark(ctx, doc, "Frame Heading|outline")
     assert _view_cursor_paragraph_text(doc) == "Frame Heading"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_links_resolve_text_box_heading_uno(ctx, doc) -> None:
+    from com.sun.star.awt import Point, Size
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Body start.", False)
+
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    shape.setName("HeadingBox")
+    shape.setSize(Size(5000, 2000))
+    shape.setPosition(Point(1000, 1000))
+    text.insertTextContent(cur, shape, False)
+    shape.setPropertyValue("TextBox", True)
+    box_text = shape.getPropertyValue("TextBoxContent").getText()
+    box_text.setString("Box Heading")
+    bcur = box_text.createTextCursor()
+    bcur.gotoStart(False)
+    bcur.gotoEnd(True)
+    bcur.setPropertyValue("ParaStyleName", "Heading 2")
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="end",
+        content='<p><a href="#Box Heading">box link</a></p>',
+    )
+    assert res.get("status") == "ok", res
+    assert not res.get("warnings"), res
+
+    portion_urls = [url for _text, url in _read_portion_urls(doc)]
+    assert portion_urls == ["#Box Heading|outline"], portion_urls
+
+    _jump_to_mark(ctx, doc, "Box Heading|outline")
+    assert _view_cursor_paragraph_text(doc) == "Box Heading"

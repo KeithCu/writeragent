@@ -1443,3 +1443,19 @@ def test_shape_upsert_arrowheads_create_and_edit() -> None:
         warned = UpsertShape().execute(ctx, action="edit", index=0, line_end="arrow")
         assert warned["status"] == "ok"
         assert any("line_end" in w for w in warned.get("warnings", []))
+
+
+def test_shape_connect_prepare_keeps_arrowhead_params():
+    from types import SimpleNamespace
+    from plugin.draw.shapes import ConnectShapes
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(
+        ConnectShapes(),
+        SimpleNamespace(doc_type="draw"),
+        "shape_connect",
+        {"start": 0, "end": 1, "line_end": "arrow"},
+    )
+    assert prep.error is None
+    assert prep.kwargs["line_end"] == "arrow"
+    assert not prep.ignored

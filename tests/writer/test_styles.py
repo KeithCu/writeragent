@@ -190,6 +190,41 @@ def test_get_style_info_para_adjust_is_word():
     assert res["ParaAdjust"] == "justify"
 
 
+@pytest.mark.parametrize(
+    "raw_adjust, expected",
+    [
+        (5, "start"),
+        (6, "end"),
+        (MagicMock(value="START"), "start"),
+        (MagicMock(value="END"), "end"),
+    ],
+)
+def test_get_style_info_para_adjust_start_and_end(raw_adjust, expected):
+    """ParaAdjust START (5) and END (6) read back as 'start'/'end', and write back as 5/6."""
+    from plugin.writer.styles import para_adjust_to_uno
+
+    style = create_mock_style("Standard", is_in_use=True)
+    props = {
+        "DisplayName": "Standard",
+        "IsPhysical": True,
+        "IsHidden": False,
+        "ParentStyle": "Default",
+        "Category": 0,
+        "ParaAdjust": raw_adjust,
+    }
+    style.getPropertyValue.side_effect = lambda p: props.get(p)
+    style.getParentStyle.return_value = "Default"
+    family = _style_family({"Standard": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+
+    res = StyleGetInfo().execute(mock_ctx, style="Standard", family="ParagraphStyles")
+
+    assert res["status"] == "ok"
+    assert res["ParaAdjust"] == expected
+    assert para_adjust_to_uno("start") == 5
+    assert para_adjust_to_uno("end") == 6
+
+
 def _page_style_for_info():
     """Page-style mock with the UNO properties get_page_style_properties reads."""
     style = MagicMock()
@@ -2032,6 +2067,37 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     assert overrides[0][1] == {"CharWeight": 150}
 
 
+def test_capture_direct_char_overrides_descends_into_table_cells():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight")
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+    cell_para = _make_para([portion])
+
+    cell_ok = MagicMock()
+    cell_enum = MagicMock()
+    cell_enum.hasMoreElements.side_effect = [True, False]
+    cell_enum.nextElement.side_effect = [cell_para]
+    cell_ok.createEnumeration.return_value = cell_enum
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ["A1", "B1"]
+    table.getCellByName.side_effect = lambda name: (
+        (_ for _ in ()).throw(RuntimeError("bad cell")) if name == "A1" else cell_ok
+    )
+
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, _make_style_cursor([table]), {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
+
+
 # ---- style_format_text -------------------------------------------------------
 
 def _font_ctx(recording=False):
@@ -2203,30 +2269,52 @@ def test_style_format_text_records_set_and_warns_for_para_props():
     assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
 
-def test_style_format_text_reset_under_review_mode_is_unreviewed_and_untracked():
+def test_recordable_reset_values():
+    from plugin.writer.styles import _recordable_reset_values
+
+    cursor = MagicMock()
+    defaults = {
+        "CharFontName": "Liberation Serif",
+        "CharStyleName": "Default Character Style",
+        "CharTopBorderComplexColor": None,
+        "ParaLeftMargin": 0,
+    }
+    cursor.getPropertyDefault.side_effect = defaults.get
+    got = _recordable_reset_values(
+        cursor,
+        ["ParaLeftMargin", "CharStyleName", "CharTopBorderComplexColor", "CharFontName"],
+    )
+    assert got == {"CharFontName": "Liberation Serif"}
+
+
+def test_style_format_text_reset_under_review_mode_is_tracked():
     cursor = _noncollapsed_cursor()
-    ctx = _font_ctx(recording=False)
+    ctx = _style_ctx()
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = StyleFormatText().execute(ctx, reset=["CharFontName"])
     assert res["status"] == "ok"
-    assert res["tracked"] is False
-    assert res["style_unreviewed"] is True
-    assert "pending_review" not in res
+    assert res["tracked"] is True
+    assert res["pending_review"] is True
+    assert "style_unreviewed" not in res
     rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
-    assert rec_calls == []
+    assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
-    # Mixed set + reset under record mode carries both pending_review and style_unreviewed.
-    rec_states = [False, True, True]
+    # Mixed set + recordable reset under record mode is tracked and has no style_unreviewed.
+    rec_states2 = [False, True, True]
     ctx2 = _style_ctx()
-    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states2.pop(0) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         mixed = StyleFormatText().execute(ctx2, properties={"CharWeight": 150}, reset=["CharFontName"])
     assert mixed["status"] == "ok"
     assert mixed["tracked"] is True
     assert mixed["pending_review"] is True
-    assert mixed["style_unreviewed"] is True
+    assert "style_unreviewed" not in mixed
+    rec_calls2 = [c.args for c in ctx2.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls2 == [("RecordChanges", True), ("RecordChanges", False)]
 
 
 def test_style_format_text_warns_when_font_not_installed():

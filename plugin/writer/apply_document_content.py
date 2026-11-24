@@ -445,7 +445,7 @@ _ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
 
 
 def _document_heading_texts(doc: Any) -> list[str]:
-    """Collect heading texts from the body, table cells, and text frames.
+    """Collect heading texts from the body, table cells, and text frames (Word text boxes included).
 
     ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
     with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
@@ -458,7 +458,7 @@ def _document_heading_texts(doc: Any) -> list[str]:
         texts.append(body_text)
     frames = uno_read(lambda: doc.getTextFrames(), None)
     if frames is not None:
-        frame_names: tuple[Any, ...] = uno_read(lambda: tuple(frames.getElementNames()), ())
+        frame_names: tuple[Any, ...] = uno_read(lambda: tuple(search_mod.iter_text_frame_names(doc)), ())
         for name in frame_names:
             frame_text = uno_read(lambda: frames.getByName(name).getText(), None)
             if frame_text is not None:

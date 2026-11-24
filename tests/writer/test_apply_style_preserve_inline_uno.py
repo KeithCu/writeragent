@@ -334,3 +334,73 @@ def test_apply_style_preserve_italic_char_posture_uno(ctx, doc):
     assert res.get("status") == "ok", f"apply_style failed: {res}"
     assert res.get("preserved_char_overrides", {}).get("CharPosture") == 2
 
+
+@native_test
+@with_native_doc("writer")
+def test_apply_style_full_document_keeps_cell_formatting_uno(ctx, doc):
+    """apply_style captures and preserves direct formatting inside table cells and nested tables."""
+    text = doc.getText()
+    text.setString("")
+    body_cur = text.createTextCursor()
+    text.insertString(body_cur, "Before", False)
+    text.insertControlCharacter(body_cur, 0, False)
+    tbl_anchor = body_cur.getStart()
+    text.insertString(body_cur, "After table", False)
+
+    def _format_cell(cell, content):
+        cell.setString(content)
+        cur = cell.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("CharWeight", 150.0)
+        cur.setPropertyValue("CharColor", 0xFF0000)
+        cur.setPropertyValue("CharFontName", _DIRECT_FONT)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 2)
+    text.insertTextContent(tbl_anchor, tbl, False)
+    _format_cell(tbl.getCellByName("A1"), "Outer bold red mono")
+
+    host = tbl.getCellByName("B1")
+    host.setString("")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    host.insertTextContent(host.getEnd(), nested, False)
+    _format_cell(nested.getCellByName("A1"), "Nested bold red mono")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res_none = ApplyStyle().execute(
+        tool_ctx, style="Quotations", family="ParagraphStyles",
+        target="full_document", clear_direct="none",
+    )
+    assert res_none.get("status") == "ok", res_none
+    assert res_none.get("preserved_char_overrides"), res_none
+
+    for idx, cell in enumerate((tbl.getCellByName("A1"), nested.getCellByName("A1"))):
+        chk = cell.createTextCursor()
+        chk.gotoStart(False)
+        chk.gotoEnd(True)
+        assert chk.getPropertyValue("CharWeight") == 150.0, (idx, res_none)
+        assert int(chk.getPropertyValue("CharColor")) == 0xFF0000, (idx, res_none)
+        assert chk.getPropertyValue("CharFontName") == _DIRECT_FONT, (idx, res_none)
+
+    res_default = ApplyStyle().execute(
+        tool_ctx, style="Standard", family="ParagraphStyles",
+        target="full_document", clear_direct="style_props",
+    )
+    assert res_default.get("status") == "ok", res_default
+    style_font = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard").getPropertyValue("CharFontName")
+    for idx, cell in enumerate((tbl.getCellByName("A1"), nested.getCellByName("A1"))):
+        chk = cell.createTextCursor()
+        chk.gotoStart(False)
+        chk.gotoEnd(True)
+        assert chk.getPropertyValue("CharWeight") == 150.0, (idx, res_default)
+        assert int(chk.getPropertyValue("CharColor")) == 0xFF0000, (idx, res_default)
+        assert chk.getPropertyValue("CharFontName") == style_font, (
+            idx,
+            chk.getPropertyValue("CharFontName"),
+            style_font,
+            chk.getPropertyValue("ParaStyleName"),
+            res_default,
+        )
+

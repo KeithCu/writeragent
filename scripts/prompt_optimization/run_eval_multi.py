@@ -29,7 +29,7 @@ from typing import Any, Iterable, Sequence
 
 from dataset import ALL_EXAMPLES, to_dspy_examples, to_eval_examples
 from eval_auth import (
-    native_route_for,
+    active_native_route,
     require_eval_keys,
     resolve_api_base,
     resolve_api_key,
@@ -71,18 +71,18 @@ def _model_id_for_llm_client(model_id: str) -> str:
     return m
 
 
-def _filter_unknown_models(model_ids: Iterable[str]) -> list[str]:
-    """Return ids not present in MODEL_BY_ID and not recognized native-routed models."""
+def _filter_unknown_models(model_ids: Iterable[str], *, endpoint: str) -> list[str]:
+    """Return ids with no catalog row that are not routed to a native provider on *endpoint*."""
     return [
         mid
         for mid in model_ids
         if mid not in MODEL_BY_ID
         and resolve_openrouter_catalog_id(mid, set(MODEL_BY_ID)) not in MODEL_BY_ID
-        and native_route_for(mid) is None
+        and active_native_route(endpoint, mid) is None
     ]
 
 
-def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
+def _model_config_for_id(model_id: str) -> ModelConfig:
     model_id = MODEL_ALIASES.get(model_id, model_id)
     if model_id in MODEL_BY_ID:
         return MODEL_BY_ID[model_id]
@@ -100,17 +100,15 @@ def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
-    # Native-routed ids route by name (e.g. ANTHROPIC_API_KEY / GEMINI_API_KEY); no catalog price.
-    if allow_unknown or native_route_for(model_id) is not None:
-        return ModelConfig(
-            openrouter_id=model_id,
-            display_name=model_id,
-            context_window_tokens=None,
-            input_cost_per_million=0.0,
-            output_cost_per_million=0.0,
-            notes="unknown pricing (use MODEL_BY_ID or OpenRouter catalog for cost/IpD)",
-        )
-    raise KeyError(model_id)
+    # main() has already refused ids that are not priced, natively routed or allowed by --allow-unknown-model, so the rest run without a price.
+    return ModelConfig(
+        openrouter_id=model_id,
+        display_name=model_id,
+        context_window_tokens=None,
+        input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
+        notes="unknown pricing (use MODEL_BY_ID or OpenRouter catalog for cost/IpD)",
+    )
 
 
 def _estimate_cost_usd(
@@ -421,7 +419,6 @@ def _run_one_model(
     judge_model_id: str | None,
     gold_model_id: str | None,
     backend: str,
-    allow_unknown: bool,
     student: str = "llm",
     no_judge: bool = False,
     repeats: int = 1,
@@ -444,7 +441,7 @@ def _run_one_model(
             examples = [ex for ex in examples if getattr(ex, "task_id", "") in _task_id_set(example_arg)]
         if n is not None:
             examples = examples[:n]
-    cfg = _model_config_for_id(model_id, allow_unknown=allow_unknown)
+    cfg = _model_config_for_id(model_id)
     model = _model_id_for_llm_client(model_id)
     jm = _model_id_for_llm_client(judge_model_id) if judge_model_id else None
     gm = _model_id_for_llm_client(gold_model_id) if gold_model_id else None
@@ -731,11 +728,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    unknown = _filter_unknown_models(model_ids)
+    unknown = _filter_unknown_models(model_ids, endpoint=api_base)
     if unknown and not args.allow_unknown_model:
         print(f"Unknown model id(s): {unknown}", file=sys.stderr)
         print(f"Known ids: {sorted(MODEL_BY_ID.keys())}", file=sys.stderr)
-        print("Pass --allow-unknown-model for local/custom endpoints.", file=sys.stderr)
+        print("Pass --allow-unknown-model to run ids with no catalog price.", file=sys.stderr)
         return 1
 
     judge_model_id: str | None = None
@@ -894,7 +891,6 @@ def main(argv: list[str] | None = None) -> int:
         judge_model_id=judge_model_id,
         gold_model_id=args.gold_model if args.generate_golds else None,
         backend=args.backend,
-        allow_unknown=args.allow_unknown_model,
         student=args.student,
         no_judge=args.no_judge or args.student == "scripted",
         repeats=max(1, args.repeats),
@@ -915,7 +911,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if jobs <= 1:
             for model_id in model_ids:
-                cfg = _model_config_for_id(model_id, allow_unknown=args.allow_unknown_model)
+                cfg = _model_config_for_id(model_id)
                 print("=" * 60)
                 print(f"Model: {cfg.display_name} ({cfg.openrouter_id})")
                 if cfg.context_window_tokens:
@@ -926,7 +922,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"${cfg.output_cost_per_million}/M output"
                     )
                 else:
-                    route = native_route_for(model_id)
+                    route = active_native_route(api_base, model_id)
                     if route is not None:
                         print(f"  Pricing: n/a (native {route.label}, no catalog row)")
                     else:
@@ -979,18 +975,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     except Exception as e:
                         print(f"Model {model_id} failed: {e}", file=sys.stderr)
-                        try:
-                            cfg = _model_config_for_id(
-                                model_id, allow_unknown=args.allow_unknown_model
-                            )
-                        except KeyError:
-                            cfg = ModelConfig(
-                                openrouter_id=model_id,
-                                display_name=model_id,
-                                context_window_tokens=None,
-                                input_cost_per_million=0.0,
-                                output_cost_per_million=0.0,
-                            )
+                        cfg = _model_config_for_id(model_id)
                         model_summaries.append({
                             "openrouter_id": cfg.openrouter_id,
                             "display_name": cfg.display_name,

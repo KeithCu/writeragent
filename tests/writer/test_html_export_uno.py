@@ -778,3 +778,88 @@ def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx:
     partial_open0 = partial_blocks[0].split(">", 1)[0]
     assert "data-lo-para=" in partial_open0 and "font-family:" in partial_open0, partial_blocks[0]
 
+
+@native_test
+@with_native_doc("writer")
+def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
+    """_offset_window stays aligned with get_string_without_tracked_deletions across tables."""
+    import re
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.writer.html_export import document_to_content
+
+    def _body_structure() -> list[str]:
+        from plugin.framework.uno_context import enum_has_more
+
+        enum = doc.getText().createEnumeration()
+        out = []
+        while enum_has_more(enum):
+            el = enum.nextElement()
+            if el.supportsService("com.sun.star.text.TextTable"):
+                out.append("TextTable")
+            else:
+                out.append(f"Paragraph:{el.getString()}")
+        return out
+
+    def _reset_and_build(layout: str) -> tuple[list[str], list[str]]:
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        text = doc.getText()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+
+        def _add_table(cell_text: str) -> None:
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getEnd(), tbl, False)
+            tbl.getCellByName("A1").setString(cell_text)
+
+        def _fill_trailing_para(s: str) -> None:
+            cur.gotoEnd(False)
+            text.insertString(cur, s, False)
+
+        if layout == "middle":
+            text.insertString(cur, "Alpha", False)
+            _add_table("T1")
+            _fill_trailing_para("Beta")
+            return ["Alpha", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
+        if layout == "leading":
+            _add_table("T1")
+            _fill_trailing_para("Beta")
+            return ["Beta"], ["TextTable", "Paragraph:Beta"]
+        if layout == "adjacent_and_later":
+            text.insertString(cur, "Alpha", False)
+            _add_table("T1")
+            _add_table("T2")
+            _fill_trailing_para("Beta")
+            _add_table("T3")
+            _fill_trailing_para("Gamma")
+            return (
+                ["Alpha", "Beta", "Gamma"],
+                ["Paragraph:Alpha", "TextTable", "TextTable", "Paragraph:Beta", "TextTable", "Paragraph:Gamma"],
+            )
+        # empty paragraph after table
+        text.insertString(cur, "Alpha", False)
+        _add_table("T1")
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        _fill_trailing_para("Gamma")
+        return ["Alpha", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
+
+    for layout in ("middle", "leading", "adjacent_and_later", "empty_after"):
+        words, expected_structure = _reset_and_build(layout)
+        assert _body_structure() == expected_structure, (layout, _body_structure())
+        whole = doc.getText().createTextCursor()
+        whole.gotoStart(False)
+        whole.gotoEnd(True)
+        full_str = get_string_without_tracked_deletions(whole)
+        for word in words:
+            offset = full_str.index(word)
+            html = document_to_content(
+                doc, ctx, scope="range", range_start=offset, range_end=offset + len(word)
+            )
+            plain = re.sub(r"<[^>]+>", "", html).strip()
+            assert plain == word, (layout, word, offset, html)
+

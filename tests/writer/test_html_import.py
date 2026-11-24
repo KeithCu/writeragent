@@ -359,17 +359,19 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, ex
     (an 18pt bold opening heading spread over the whole document)."""
 
     from plugin.writer import html_import
+    from plugin.writer.html_import_styles import WriteReport
 
     model = MagicMock()
     model.getPropertyValue.return_value = True  # RecordChanges
     text = model.getText.return_value
+    text.createTextCursor.return_value.getText.return_value = text
     leftover = text.createTextCursorByRange.return_value
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"), \
          patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
-        imp.return_value = ["margin-left"]
+        imp.return_value = WriteReport(added_content=True)
         dropped = html_import.replace_full_document(model, MagicMock(), content)
-    assert dropped == ["margin-left"]
+    assert dropped == WriteReport(added_content=True)
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
@@ -378,16 +380,19 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, ex
 
 def test_full_document_without_review_imports_in_place():
     from plugin.writer import html_import
+    from plugin.writer.html_import_styles import WriteReport
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import, "_deletion_author"):
-        imp.return_value = ["margin-left"]
+         patch.object(html_import, "_deletion_author"), \
+         patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
+        imp.return_value = WriteReport(added_content=True)
         dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
-    assert dropped == ["margin-left"]
+    assert dropped == WriteReport(added_content=True)
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
+    drop_leftover.assert_called_once()
 
 
 def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
@@ -792,30 +797,24 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    ("content", "recording", "start_edge", "end_edge", "expected_apply", "expected_note"),
+    ("content", "start_edge", "end_edge", "expected_apply", "expected_note"),
     [
-        ('<p data-lo-style="Heading2">content</p>', False, True, True, True, None),
-        ('<p data-lo-style="Heading2">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, True, True, True, None),
-        ('<p data-lo-para="text-align:center">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', True, True, True, True, None),
-        # Geometry checked first: partial match while recording returns partial note.
-        pytest.param('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="style_partial_while_recording"),
-        ('<p data-lo-para="text-align:center">content</p>', True, True, True, True, None),
-        pytest.param('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="para_partial_while_recording"),
+        ('<p data-lo-style="Heading2">content</p>', True, True, True, None),
+        ('<p data-lo-style="Heading2">content</p>', True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', True, True, True, None),
+        ('<p data-lo-para="text-align:center">content</p>', True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
     ],
 )
-def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, expected_apply, expected_note):
+def test_lo_style_for_replaced_range(content, start_edge, end_edge, expected_apply, expected_note):
     from plugin.writer.html_import import _lo_style_for_replaced_range
 
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=recording):
-        apply, note = _lo_style_for_replaced_range(
-            content, make_paragraph_edge_range(start_edge, end_edge)
-        )
+    apply, note = _lo_style_for_replaced_range(
+        content, make_paragraph_edge_range(start_edge, end_edge)
+    )
     assert apply is expected_apply
     assert note == expected_note
 
@@ -2145,5 +2144,42 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     end.getString.return_value = brk
     text.createTextCursorByRange.side_effect = [start, end]
     assert _without_trailing_break(rng) is start
+
+
+@pytest.mark.parametrize(
+    "portion_type, should_drop",
+    [
+        ("Bookmark", True),
+        ("SoftPageBreak", True),
+        ("Redline", True),
+        ("ReferenceMark", False),
+        ("Frame", False),
+    ],
+)
+def test_drop_leftover_paragraph_ignores_markers_but_keeps_real_objects(portion_type, should_drop):
+    from plugin.writer.html_import import _drop_leftover_paragraph
+
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = portion_type
+    para = MagicMock()
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True, False]
+    para_enum.nextElement.return_value = portion
+    para.createEnumeration.return_value = para_enum
+
+    leftover_enum = MagicMock()
+    leftover_enum.hasMoreElements.side_effect = [True, False]
+    leftover_enum.nextElement.return_value = para
+
+    leftover = MagicMock()
+    leftover.getString.side_effect = ["", "\n"]
+    leftover.createEnumeration.return_value = leftover_enum
+    leftover.goLeft.return_value = True
+
+    _drop_leftover_paragraph(leftover, merge_forward_after_table=False)
+    if should_drop:
+        leftover.setString.assert_called_once_with("")
+    else:
+        leftover.setString.assert_not_called()
 
 
