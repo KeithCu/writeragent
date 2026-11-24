@@ -344,7 +344,9 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document 
 **Done (Writer side):** [`new_blank_writer(ctx, *, target=...)`](../../plugin/framework/scratch_writer.py) in
 `scratch_writer.py` is the shared factory. `create_hidden_html_writer`, the range export
 (`_range_to_content_via_temp_doc`), `xtext_to_content`'s hidden Writer and `html_to_plain_text` all
-go through it.
+go through it. Every hidden scratch document is opened and closed through
+`load_scratch_document` / `close_scratch_document` in that module so it is excluded from the MCP
+document catalog by `RuntimeUID`.
 
 It does more than dedupe: `private:factory/swriter` honours the user's **default template**, and
 these callers append to the scratch doc and read the whole body back — so a firm whose default
@@ -354,11 +356,10 @@ drawing shapes as well as the text — a letterhead is often just an empty table
 body string is "").
 
 **Still local:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) reuses a keeper Writer
-(`CREATE|GLOBAL` on `_wa_calc_html`) rather than going through `new_blank_writer`, loading and
-closing it via `load_scratch_document` / `close_scratch_document` so it is excluded from the MCP
-document catalog by `RuntimeUID`. It calls `clear_writer_body` on that Writer after every load,
-including the reused keeper, so a default-template letterhead (table or logo) is not pasted into
-the cell.
+(`CREATE|GLOBAL` on `_wa_calc_html`) rather than going through `new_blank_writer`, using
+`load_scratch_document` / `close_scratch_document` directly. It calls `clear_writer_body` on that
+Writer after every load, including the reused keeper, so a default-template letterhead (table or
+logo) is not pasted into the cell.
 
 ### Smaller cleanups
 

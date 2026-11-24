@@ -109,6 +109,7 @@ def test_writer_snapshot_lists_chart_frame_image_and_names_delete_them_uno(ctx, 
 def test_scratch_documents_excluded_from_open_documents_and_events_uno(ctx):
     """Scratch documents stay out of open_documents and deferred event reports; user-hidden docs count."""
     from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.errors import best_effort
     from plugin.framework.scratch_writer import (
         close_scratch_document,
         is_scratch_document,
@@ -152,15 +153,17 @@ def test_scratch_documents_excluded_from_open_documents_and_events_uno(ctx):
 
         close_scratch_document(scratch_doc)
         assert is_scratch_document(scratch_doc) is False
+        assert all(scratch_uid not in uids for uids in reported_uid_sets), reported_uid_sets
+        assert scratch_uid not in [get_runtime_uid(d) for d in svc.open_documents()]
         scratch_doc = None
     finally:
         if listener is not None:
             broadcaster = ctx.getServiceManager().createInstanceWithContext(
                 "com.sun.star.frame.GlobalEventBroadcaster", ctx
             )
-            broadcaster.removeDocumentEventListener(listener)
+            best_effort(lambda: broadcaster.removeDocumentEventListener(listener), "remove listener")
         if scratch_doc is not None:
-            close_scratch_document(scratch_doc)
+            best_effort(lambda: close_scratch_document(scratch_doc), "close scratch draw doc")
         if user_hidden is not None:
-            user_hidden.close(True)
+            best_effort(lambda: user_hidden.close(True), "close user hidden calc doc")
 

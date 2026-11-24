@@ -25,6 +25,10 @@ from plugin.framework.uno_context import create_property_value, get_desktop, get
 log = logging.getLogger("writeragent.scratch_writer")
 
 # _scratch_lock guards the three names below it.
+# Scratch documents are excluded from DocumentService.open_documents: counting one broadens
+# tools/list, fires a false tools/list_changed, and breaks single-open-document fallback
+# (NO_ACTIVE_DOCUMENT). Keyed by RuntimeUID rather than Hidden because user-hidden documents
+# must still count, and LibreOffice never reuses a uid in a process so stale entries are safe.
 _scratch_lock = threading.Lock()
 _scratch_uids: set[str] = set()
 _scratch_loads = 0
@@ -85,8 +89,9 @@ def is_scratch_document(doc: Any) -> bool:
 def run_after_scratch_loads(report: Callable[[], object]) -> None:
     """Run *report* now, or once when the scratch loads in progress finish.
 
-    ``OnViewCreated`` is broadcast inside ``loadComponentFromURL``, before the id can be
-    registered (``sfxbasemodel.cxx`` assigns ``RuntimeUID``; the caller sees the model only
+    ``OnViewCreated`` is broadcast inside ``loadComponentFromURL`` when the model is already
+    enumerated on the desktop, so an immediate report would count it before its ``RuntimeUID``
+    can be registered (``sfxbasemodel.cxx`` assigns the uid; the caller sees the model only
     when the load returns). One pending report is kept: there is one catalog listener and
     the report reads current state.
     """

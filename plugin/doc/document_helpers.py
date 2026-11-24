@@ -662,7 +662,11 @@ class DocumentService(ServiceBase):
         return "writer" if family == "unknown" else family
 
     def open_documents(self) -> list[Any]:
-        """Every open real document (Start Center and WriterAgent's scratch documents excluded; user-hidden documents included), in desktop order. Main-thread only."""
+        """Every open real document, in desktop order. Main-thread only.
+
+        Start Center and WriterAgent's scratch documents are excluded (see
+        ``plugin.framework.scratch_writer``); user-hidden documents are included.
+        """
         docs = []
         try:
             desktop = get_desktop()
