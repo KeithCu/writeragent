@@ -1096,3 +1096,4 @@ def test_stop_during_unlock_prompt_stops_and_sends_nothing(fake_keystore, locked
 
     assert mock_send.call_count == 0
     assert events == ["stopped"]
+    assert fake_keystore.last_cancel is scope

@@ -172,3 +172,226 @@ def test_live_backend_roundtrip():
         assert backend.get(f"missing_{uuid.uuid4().hex}") is None
     finally:
         backend.delete(name)
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_concurrent_readers_share_one_backend_call(fake_keystore, locked: bool):
+    import threading
+    from plugin.framework import keystore
+
+    fake_keystore.store["k"] = "secret-val"
+    fake_keystore.locked = locked
+    entered = threading.Event()
+    release = threading.Event()
+    results: list[str | None] = []
+
+    def _on_get(_name: str) -> None:
+        entered.set()
+        release.wait(timeout=5)
+
+    fake_keystore.on_get = _on_get
+
+    threads = [threading.Thread(target=lambda: results.append(keystore.get_secret("k"))) for _ in range(3)]
+    for t in threads:
+        t.start()
+    assert entered.wait(timeout=5)
+    release.set()
+    for t in threads:
+        t.join(timeout=5)
+        assert not t.is_alive()
+
+    assert fake_keystore.get_calls == 1
+    expected = None if locked else "secret-val"
+    assert results == [expected, expected, expected]
+
+
+def test_stopped_waiter_leaves_without_locking_while_leader_caches(fake_keystore):
+    import threading
+    from plugin.framework import keystore
+    from plugin.framework.send_cancellation import SendCancellation
+
+    fake_keystore.store["k"] = "secret-val"
+    entered = threading.Event()
+    release = threading.Event()
+    waiter_result: list[str | None] = []
+    leader_result: list[str | None] = []
+
+    def _on_get(_name: str) -> None:
+        entered.set()
+        release.wait(timeout=5)
+
+    fake_keystore.on_get = _on_get
+    waiter_scope = SendCancellation()
+
+    leader = threading.Thread(target=lambda: leader_result.append(keystore.get_secret("k")))
+    leader.start()
+    assert entered.wait(timeout=5)
+
+    waiter = threading.Thread(target=lambda: waiter_result.append(keystore.get_secret("k", cancel=waiter_scope)))
+    waiter.start()
+    waiter_scope.cancel()
+    waiter.join(timeout=5)
+    assert not waiter.is_alive()
+    assert waiter_result == [None]
+    assert keystore.is_locked("k") is False
+
+    release.set()
+    leader.join(timeout=5)
+    assert not leader.is_alive()
+    assert leader_result == ["secret-val"]
+    assert keystore.is_cached("k") is True
+    assert fake_keystore.get_calls == 1
+
+
+def test_already_stopped_scope_makes_no_backend_call(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.send_cancellation import SendCancellation
+
+    fake_keystore.store["k"] = "secret-val"
+    scope = SendCancellation()
+    scope.cancel()
+    assert keystore.get_secret("k", cancel=scope) is None
+    assert fake_keystore.get_calls == 0
+    assert keystore.is_locked("k") is False
+    assert keystore.is_cached("k") is False
+
+
+def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monkeypatch):
+    import ctypes
+    from plugin.framework import keystore
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    cancelled = {"val": 0}
+    freed = {"errors": 0, "unref": 0}
+    lookup_calls = {"n": 0}
+
+    def _noop(*_args):
+        return None
+
+    def _g_cancellable_new():
+        return 0x1234
+
+    def _g_cancellable_cancel(_ptr):
+        cancelled["val"] = 1
+
+    def _g_cancellable_is_cancelled(_ptr):
+        return cancelled["val"]
+
+    def _g_object_unref(_ptr):
+        freed["unref"] += 1
+
+    def _g_error_free(_err):
+        freed["errors"] += 1
+
+    def _lookupv_sync(_schema, _table, _cancellable, err_out):
+        lookup_calls["n"] += 1
+        scope.cancel()
+        gerr = keystore._GError(domain=1, code=19, message=b"Operation was cancelled")
+        err_out._obj.contents = gerr
+        return None
+
+    class _FakeLib:
+        def __init__(self, mapping):
+            for k, v in mapping.items():
+                setattr(self, k, v)
+
+    fake_libsecret = _FakeLib({
+        "secret_password_lookupv_sync": _lookupv_sync,
+        "secret_password_storev_sync": _noop,
+        "secret_password_clearv_sync": _noop,
+        "secret_password_free": _noop,
+    })
+    fake_glib = _FakeLib({
+        "g_str_hash": _noop,
+        "g_str_equal": _noop,
+        "g_hash_table_new": lambda *_a: 0x1,
+        "g_hash_table_insert": lambda *_a: 1,
+        "g_hash_table_unref": _noop,
+        "g_error_free": _g_error_free,
+        "g_list_free_full": _noop,
+    })
+    fake_gio = _FakeLib({
+        "g_cancellable_new": _g_cancellable_new,
+        "g_cancellable_cancel": _g_cancellable_cancel,
+        "g_cancellable_is_cancelled": _g_cancellable_is_cancelled,
+    })
+    fake_gobject = _FakeLib({"g_object_unref": _g_object_unref})
+
+    def _cdll(name):
+        if "secret" in name:
+            return fake_libsecret
+        if "glib" in name:
+            return fake_glib
+        if "gio" in name:
+            return fake_gio
+        if "gobject" in name:
+            return fake_gobject
+        raise AssertionError(name)
+
+    monkeypatch.setattr(ctypes, "CDLL", _cdll)
+    backend = object.__new__(keystore._LibSecret)
+    backend._g_str_hash = fake_glib.g_str_hash
+    backend._g_str_equal = fake_glib.g_str_equal
+    backend._g_hash_table_new = fake_glib.g_hash_table_new
+    backend._g_hash_table_insert = fake_glib.g_hash_table_insert
+    backend._g_hash_table_unref = fake_glib.g_hash_table_unref
+    backend._g_error_free = fake_glib.g_error_free
+    backend._lookupv_sync = fake_libsecret.secret_password_lookupv_sync
+    backend._searchv_sync = None
+    backend._g_object_unref = fake_gobject.g_object_unref
+    backend._g_cancellable_new = fake_gio.g_cancellable_new
+    backend._g_cancellable_cancel = fake_gio.g_cancellable_cancel
+    backend._g_cancellable_is_cancelled = fake_gio.g_cancellable_is_cancelled
+    backend._secret_password_free = fake_libsecret.secret_password_free
+    backend._schema = keystore._SecretSchema(name=b"org.freedesktop.Secret.Generic", flags=2)
+
+    keystore.reset_for_tests(backend)
+    try:
+        assert keystore.get_secret("k", cancel=scope) is None
+        assert lookup_calls["n"] == 1
+        assert freed["errors"] == 1
+        assert keystore.is_locked("k") is True
+        assert keystore.is_cached("k") is False
+        assert scope._hooks == []
+
+        with keystore._cache_lock:
+            keystore._locked["k"] -= keystore.LOCKED_RETRY_S + 1.0
+
+        scope2 = SendCancellation()
+        cancelled["val"] = 0
+        scope = scope2
+        assert keystore.get_secret("k", cancel=scope2) is None
+        assert lookup_calls["n"] == 2
+    finally:
+        keystore.reset_for_tests()
+
+
+def test_keystore_unlocked_event_fires_only_after_locked_read(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.event_bus import get_event_bus
+
+    events: list[str] = []
+    bus = get_event_bus()
+
+    def handler(**_kw):
+        events.append("unlocked")
+
+    bus.subscribe("keystore:unlocked", handler)
+    try:
+        fake_keystore.store["ordinary"] = "v1"
+        assert keystore.get_secret("ordinary") == "v1"
+        assert events == []
+
+        fake_keystore.store["locked_one"] = "v2"
+        fake_keystore.locked = True
+        assert keystore.get_secret("locked_one") is None
+        assert events == []
+
+        fake_keystore.locked = False
+        with keystore._cache_lock:
+            keystore._locked["locked_one"] -= keystore.LOCKED_RETRY_S + 1.0
+        assert keystore.get_secret("locked_one") == "v2"
+        assert events == ["unlocked"]
+    finally:
+        bus.unsubscribe("keystore:unlocked", handler)

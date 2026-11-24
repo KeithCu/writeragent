@@ -1638,6 +1638,140 @@ def test_sync_tunnel_passes_resolved_keystore_token(monkeypatch, fake_keystore):
     assert tunnel.start.call_args.kwargs["provider_token"] == "tok-a"
 
 
+def test_sync_tunnel_from_main_thread_reads_keystore_off_thread(monkeypatch, fake_keystore):
+    import threading
+    import plugin.mcp_server as mcp_mod
+    from plugin.framework import keystore
+    from plugin.framework.queue_executor import main
+
+    keystore.set_secret("mcp.tunnel_provider_token", "tok-worker")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.store["mcp.tunnel_provider_token"] = "tok-worker"
+
+    caller = threading.current_thread()
+    entered = threading.Event()
+    release = threading.Event()
+    read_on_main: list[bool] = []
+
+    def _on_get(_name: str) -> None:
+        read_on_main.append(main.is_current())
+        entered.set()
+        release.wait(timeout=5)
+
+    fake_keystore.on_get = _on_get
+
+    cfg_data = {
+        "mcp.mcp_enabled": True,
+        "mcp.tunnel_enabled": True,
+        "mcp.mcp_port": "18765",
+        "mcp.tunnel_provider": "cloudflare",
+    }
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    mod._services = MagicMock()
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod.server = bound
+    tunnel = MagicMock()
+    tunnel.last_error = None
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
+    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: threading.current_thread() is caller)
+
+    threads: list[threading.Thread] = []
+
+    def _spawn(fn, **_kw):
+        t = threading.Thread(target=fn, daemon=True)
+        threads.append(t)
+        t.start()
+        return t
+
+    with patch("plugin.framework.worker_pool.run_in_background", side_effect=_spawn):
+        mod._sync_tunnel()
+        assert len(threads) == 1
+        assert entered.wait(timeout=5)
+        release.set()
+        threads[0].join(timeout=5)
+        assert not threads[0].is_alive()
+
+    assert read_on_main == [False]
+    assert tunnel.start.call_args.kwargs["provider_token"] == "tok-worker"
+
+
+def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatch, fake_keystore):
+    import threading
+    import plugin.mcp_server as mcp_mod
+    from plugin.framework import keystore
+
+    fake_keystore.store["mcp.tunnel_provider_token"] = "tok-2"
+
+    caller = threading.current_thread()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _on_get(_name: str) -> None:
+        entered.set()
+        release.wait(timeout=5)
+
+    fake_keystore.on_get = _on_get
+
+    cfg_data = {
+        "mcp.mcp_enabled": True,
+        "mcp.tunnel_enabled": True,
+        "mcp.mcp_port": "18765",
+        "mcp.tunnel_provider": "cloudflare",
+    }
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    mod._services = MagicMock()
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod.server = bound
+    tunnel = TunnelManager()
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
+    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: threading.current_thread() is caller)
+    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: "cloudflared missing")
+
+    threads: list[threading.Thread] = []
+
+    def _spawn(fn, **_kw):
+        t = threading.Thread(target=fn, daemon=True)
+        threads.append(t)
+        t.start()
+        return t
+
+    starts: list[bool] = []
+    orig_start = tunnel.start
+
+    def _spy_start(*args, **kwargs):
+        res = orig_start(*args, **kwargs)
+        starts.append(res)
+        return res
+
+    with (
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_spawn),
+        patch.object(tunnel, "start", side_effect=_spy_start),
+    ):
+        mod._sync_tunnel()
+        assert entered.wait(timeout=5)
+        mod._sync_tunnel()
+        release.set()
+        for t in threads:
+            t.join(timeout=5)
+            assert not t.is_alive()
+
+    assert len(starts) == 2
+    assert starts.count(False) == 2
+    assert tunnel.last_error == "cloudflared missing"
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
 def test_tunnel_child_dies_with_parent(tmp_path) -> None:

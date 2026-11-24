@@ -714,7 +714,7 @@ class ToolCallingMixin:
                 # _do_send left the key out so a locked keyring's unlock prompt
                 # waits on this worker instead of freezing LibreOffice on the UI
                 # thread. Later rounds and the STT-fallback respawn find it filled.
-                fill_api_key(config)
+                fill_api_key(config, bound_scope)
                 if stopped_for_this_send():
                     # Stop clicked while the prompt was open ends the turn as
                     # stopped, not as a keyring error.

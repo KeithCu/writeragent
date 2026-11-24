@@ -319,13 +319,13 @@ class McpModule(ModuleBase):
             log.warning("tunnel_enabled but no usable MCP port (%r)", port)
             return
         provider = str(get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
-        provider_token = get_secret_config("mcp.tunnel_provider_token")
         # Armed before the thread is queued. stop() clears it, so a disable
         # that lands while this start is still waiting to run cannot lose.
         start_token = object()
         tunnel.note_pending_start(start_token)
 
         def _start() -> None:
+            provider_token = get_secret_config("mcp.tunnel_provider_token")
             before = tunnel.last_error
             ok = tunnel.start(port_i, provider, provider_token=provider_token, start_token=start_token)
             # A superseded start (stop, or a newer arm) returns False without
@@ -333,12 +333,12 @@ class McpModule(ModuleBase):
             if not ok and tunnel.last_error and tunnel.last_error != before:
                 log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
 
-        # config:changed runs this on the UI thread, and start() calls
-        # binary_available() (subprocess, timeout 10s). A hung provider
-        # --version would freeze Settings for that whole wait. Leave the UI
-        # thread first. The probe also runs outside TunnelManager._lock so
-        # stop() is not stuck behind it. dedicated so the wait does not
-        # occupy the shared background pool.
+        # config:changed runs this on the UI thread, and get_secret_config() /
+        # start()'s binary_available() (subprocess, timeout 10s) can block on
+        # an OS unlock prompt or a hung provider --version, freezing Settings.
+        # Leave the UI thread first. The probe also runs outside
+        # TunnelManager._lock so stop() is not stuck behind it. dedicated so
+        # the wait does not occupy the shared background pool.
         from plugin.framework.queue_executor import main
 
         if main.is_current():

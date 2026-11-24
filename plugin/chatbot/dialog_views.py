@@ -58,6 +58,7 @@ from plugin.framework.client.model_fetcher import (
     settings_catalog_is_warm,
 )
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
@@ -998,6 +999,11 @@ def _provider_for_catalog(resolved: str) -> str | None:
     )
 
 
+def _catalog_family(resolved: str) -> str:
+    """Catalog identity for comparing Settings fills: provider name, else normalized URL."""
+    return _provider_for_catalog(resolved) or resolved
+
+
 class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _dlg: Any
     _ctx: Any
@@ -1007,7 +1013,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _timer: threading.Timer | None
     _synced_endpoint: str | None
     _applied_catalog: tuple[str, str] | None
-    _painted_provider: str | None
+    _painted_identity: str
     _painted_models: dict[str, str]
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
@@ -1020,10 +1026,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Endpoint + live key last painted from the in-memory catalog.
         # A later keystroke with the same pair must not refetch or rewrite.
         self._applied_catalog = None
-        # Provider the model combos were last filled for. Initialized to the
-        # saved endpoint's provider so the first fill compares against it.
-        self._painted_provider = get_provider_from_endpoint(get_current_endpoint())
-        # lru_key to the model id last painted for _painted_provider; box text that differs is the user's edit.
+        # Catalog identity (provider, else normalized URL) the model combos were last filled for.
+        # Initialized to the saved endpoint's identity so the first fill compares against it.
+        self._painted_identity = _catalog_family(normalize_endpoint_url(get_current_endpoint()))
+        # lru_key to the model id last painted for _painted_identity; box text that differs is the user's edit.
         self._painted_models = {}
 
         # URL whose saved key the field was last aligned to. Set from the
@@ -1098,9 +1104,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ak_ctrl = get_optional(self._dlg, "api_key")
         api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
         resolved_provider = _provider_for_catalog(resolved)
-        baseline_provider = self._painted_provider
-        same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
-        self._painted_provider = resolved_provider
+        identity = _catalog_family(resolved)
+        same_provider = bool(identity) and identity == self._painted_identity
+        self._painted_identity = identity
 
         text_models = (
             drop_non_text_models(resolved, models, api_key_override=self._api_key_override())
