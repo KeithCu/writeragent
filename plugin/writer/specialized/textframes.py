@@ -34,7 +34,7 @@ from plugin.framework.uno_context import uno_same
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
 from ..edit_review import flag_untracked, flag_untracked_delete
 from ..search import text_box_shapes
-from ..specialized_base import ToolWriterTextFramesBase, target_params
+from ..specialized_base import ToolWriterTextFramesBase, grouped_text_box_error, target_params
 from ..target_resolver import insert_at_target
 
 _FRAME_INFO_MAX_CHARS = 4000
@@ -71,7 +71,7 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     )
 
 
-def _text_box_owner(doc: Any, frame_name: str) -> tuple[int, Any] | None:
+def _text_box_owner(doc: Any, frame_name: str) -> tuple[int | str, Any] | None:
     return next(((i, shape) for i, shape, name in text_box_shapes(doc) if name == frame_name), None)
 
 
@@ -112,7 +112,7 @@ class FrameList(ToolWriterTextFramesBase):
     """List all text frames in the document."""
 
     name: str | None = "frame_list"
-    description: str = "List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box)."
+    description: str = "List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box, except one inside a group, whose shape_index is a dotted path)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -155,18 +155,22 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         if isinstance(frame, dict):
             return frame
 
+        owner = _text_box_owner(ctx.doc, frame_name)
+        # LibreOffice gives an inline box's hidden frame AT_CHARACTER (sw/source/core/doc/textboxhelper.cxx:SwTextBoxHelper::mapAnchorType).
+        anchored = owner[1] if owner is not None else frame
         size = frame.getPropertyValue("Size")
-        anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
-        hori_orient = int(frame.getPropertyValue("HoriOrient"))
-        vert_orient = int(frame.getPropertyValue("VertOrient"))
+        anchor_type = anchor_type_index(anchored.getPropertyValue("AnchorType"))
+        hori_orient = int(anchored.getPropertyValue("HoriOrient"))
+        vert_orient = int(anchored.getPropertyValue("VertOrient"))
         full_content = _frame_text(frame, TrackedDeletions(ctx.doc))
         content_length = len(full_content)
         truncated = content_length > _FRAME_INFO_MAX_CHARS
 
-        anchor = frame.getAnchor()
+        anchor = anchored.getAnchor()
         text_obj = ctx.doc.getText()
         paragraph_index = None
-        # getAnchor() is None for an AT_PAGE frame with a page number (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor), so it has no paragraph index.
+        # getAnchor() is None for an AT_PAGE frame with a page number (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor)
+        # and for an AT_PAGE shape (sw/source/core/unocore/unodraw.cxx:SwXShape::getAnchor), so it has no paragraph index.
         if anchor is not None and uno_same(anchor.getText(), text_obj):
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
@@ -195,7 +199,6 @@ class FrameGetInfo(ToolWriterTextFramesBase):
                 else {}
             ),
         }
-        owner = _text_box_owner(ctx.doc, frame_name)
         if owner is not None:
             result["shape_index"] = owner[0]
             result["shape_name"] = owner[1].getName()
@@ -243,7 +246,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             shape_index, shape = owner
             return self._tool_error(
                 "Text frame '%s' is the text of a Word text box, so its size comes from the shape. "
-                "Resize it with shape_upsert(action='edit', index=%d, width=..., height=...) in 1/100 mm "
+                "Resize it with shape_upsert(action='edit', index=%r, width=..., height=...) in 1/100 mm "
                 "(shapes toolset, delegate_to_subagent domain='shapes'). "
                 "Its anchor and orientation cannot be set." % (frame_name, shape_index),
                 code="TEXT_BOX_SHAPE",
@@ -431,7 +434,7 @@ class FrameDelete(ToolWriterTextFramesBase):
     """Delete a text frame by name."""
 
     name: str | None = "frame_delete"
-    description: str = "Delete a text frame by name (see frame_list). A Word text box is removed together with its shape."
+    description: str = "Delete a text frame by name (see frame_list). A Word text box is removed together with its shape. A text box inside a group cannot be deleted alone."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -448,9 +451,11 @@ class FrameDelete(ToolWriterTextFramesBase):
             return frame
 
         doc = ctx.doc
+        owner = _text_box_owner(doc, frame_name)
+        if owner is not None and isinstance(owner[0], str):
+            return grouped_text_box_error(self, owner[0])
 
         def mutate() -> dict[str, Any] | None:
-            owner = _text_box_owner(doc, frame_name)
             if owner is not None:
                 # SwFmDrawPage::remove (sw/source/core/unocore/unodraw.cxx) disposes the hidden
                 # TextFrame and then the shape; removing the frame alone leaves an empty shape behind.

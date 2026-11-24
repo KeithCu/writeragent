@@ -17,7 +17,7 @@ from plugin.writer.specialized.textframes import (
     FrameSetProperties,
 )
 from plugin.writer.structural import GetPageObjects
-from tests.writer.docx_objects_fixture import build_docx_objects_doc
+from tests.writer.docx_objects_fixture import build_docx_objects_doc, build_grouped_text_boxes
 
 
 @native_test
@@ -388,3 +388,78 @@ def test_docx_text_box_set_properties_refused_uno(ctx, doc):
             pass
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_grouped_text_boxes_list_info_refuse_uno(ctx, doc):
+    reloaded, docx_path = build_grouped_text_boxes(ctx, doc)
+    try:
+        tctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
+        listed = FrameList().execute(tctx)
+        assert listed["status"] == "ok", listed
+        by_idx = {f.get("shape_index"): f for f in listed["frames"]}
+        assert "0.0" in by_idx and "0.1" in by_idx, listed
+        assert "in box 0" in by_idx["0.0"]["content_preview"]
+        assert "in box 1" in by_idx["0.1"]["content_preview"]
+
+        page_objs = GetPageObjects().execute(tctx, page=0)
+        assert page_objs["status"] == "ok", page_objs
+        page_by_idx = {f.get("shape_index"): f for f in page_objs["frames"]}
+        assert "0.0" in page_by_idx and "0.1" in page_by_idx, page_objs
+
+        name0 = by_idx["0.0"]["name"]
+        name1 = by_idx["0.1"]["name"]
+        orig_w1 = reloaded.getTextFrames().getByName(name1).getPropertyValue("Size").Width
+
+        set_res = FrameSetProperties().execute(tctx, name=name0, width_mm=60.0)
+        assert set_res["status"] == "error", set_res
+        assert set_res["code"] == "TEXT_BOX_SHAPE"
+        assert set_res["details"]["shape_index"] == "0.0"
+
+        up_res = UpsertShape().execute(tctx, action="edit", index="0.0", width=5000)
+        assert up_res["status"] == "ok", up_res
+        new_w0 = reloaded.getTextFrames().getByName(name0).getPropertyValue("Size").Width
+        new_w1 = reloaded.getTextFrames().getByName(name1).getPropertyValue("Size").Width
+        assert abs(new_w0 - 5000) <= 50, new_w0
+        assert new_w1 == orig_w1
+
+        del_res = FrameDelete().execute(tctx, name=name1)
+        assert del_res["status"] == "error", del_res
+        assert del_res["code"] == "TEXT_BOX_IN_GROUP"
+        assert del_res["details"] == {"shape_index": "0.1", "group_index": 0}
+
+        group = reloaded.getDrawPage().getByIndex(0)
+        assert group.getByIndex(0).getPropertyValue("TextBox") is True
+        assert group.getByIndex(1).getPropertyValue("TextBox") is True
+        assert "in box 0" in group.getByIndex(0).getString()
+        assert "in box 1" in group.getByIndex(1).getString()
+    finally:
+        try:
+            reloaded.close(True)
+        except Exception:
+            pass
+        if os.path.exists(docx_path):
+            os.unlink(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_inline_text_box_frame_get_info_reports_shape_anchor_uno(ctx, doc):
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    shape = doc.createInstance("com.sun.star.drawing.CustomShape")
+    shape.setSize(Size(4000, 2000))
+    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    text.insertTextContent(cur, shape, False)
+    shape.setPropertyValue("TextBox", True)
+    shape.setString("inline box")
+
+    frame_name = shape.getPropertyValue("TextBoxContent").getName()
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    info = FrameGetInfo().execute(tctx, name=frame_name)
+    assert info["status"] == "ok", info
+    assert info["anchor_type"] == 1, info

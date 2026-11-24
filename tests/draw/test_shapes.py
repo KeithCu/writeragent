@@ -260,6 +260,7 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
     pages.getByIndex.return_value = page
 
     page.group.return_value.getPropertyValue.return_value = 0
+    page.group.return_value.getCount.return_value = 2
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
@@ -723,6 +724,9 @@ def test_shape_group_name_failure_adds_warning():
 
         def getPropertyValue(self, _name: str) -> int:
             return 0
+
+        def getCount(self) -> int:
+            return 2
 
     page.group.return_value = _ReadOnlyNameGroup()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
@@ -1197,6 +1201,7 @@ def test_shape_connect_group_align_distribute_by_name():
     conn_shape.Name = ""
     group_shape = MagicMock()
     group_shape.Name = ""
+    group_shape.getCount.return_value = 2
     page.group.return_value = group_shape
 
     def _safe_create(*_args, **_kwargs):
@@ -1524,3 +1529,83 @@ def test_apply_shape_properties_zero_black_and_empty_omitted():
     assert failed_empty == []
     shape.setPropertyValue.assert_not_called()
     mock_char.assert_not_called()
+
+
+def test_shape_group_rejects_frame_shape_member():
+    frame = MagicMock()
+    frame.getShapeType.return_value = "FrameShape"
+    rect = MagicMock()
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shapes = [frame, rect]
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: shapes[i]
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value = MagicMock()
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=[0, 1])
+
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    assert out["details"]["parameter"] == "indices"
+    page.group.assert_not_called()
+
+
+def test_shape_group_partial_count_adds_warning():
+    s0 = MagicMock()
+    s0.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    s1 = MagicMock()
+    s1.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shapes = [s0, s1]
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: shapes[i]
+    group = MagicMock()
+    group.Name = "Group1"
+    group.getPropertyValue.return_value = 0
+    group.getCount.return_value = 1
+    page.group.return_value = group
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value = MagicMock()
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=[0, 1])
+
+    assert out["status"] == "ok"
+    assert out["message"] == "Grouped 1 shapes."
+    assert any("Only 1 of 2 shapes were grouped" in w for w in out["warnings"])
+
+
+def test_shape_upsert_edit_refuses_x_on_as_character_page_shape():
+    from types import SimpleNamespace
+
+    shape = MagicMock()
+    shape.Name = "InlineBox"
+    shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+    shape.getPosition.return_value = SimpleNamespace(X=100, Y=200)
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = shape
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.draw.shapes.shape_is_as_character", return_value=True
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="edit", index=0, x=3000, text="nope")
+
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    assert out["details"]["parameter"] == "x"
+    shape.setPosition.assert_not_called()
+    shape.setString.assert_not_called()

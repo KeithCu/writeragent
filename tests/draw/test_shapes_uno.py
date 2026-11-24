@@ -1456,3 +1456,138 @@ def test_writer_group_of_text_frames_is_an_error(ctx, doc):
     assert result["status"] == "error", result
     assert [page.getByIndex(i).Name for i in range(page.getCount())] == before
 
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_delete_grouped_text_boxes_uno(ctx, doc):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.compound_undo import undo_titles
+    from tests.writer.docx_objects_fixture import build_grouped_text_boxes
+
+    for anchor in (AT_PARAGRAPH, AS_CHARACTER):
+        scratch = doc
+        if anchor == AS_CHARACTER:
+            desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            scratch = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+        reloaded, docx_path = build_grouped_text_boxes(ctx, scratch, anchor_type=anchor)
+        try:
+            tctx = ToolContext(doc=reloaded, ctx=ctx, doc_type="writer", services=None, caller="test")
+            page = reloaded.getDrawPage()
+            group = page.getByIndex(0)
+            frame0 = group.getByIndex(0).getPropertyValue("TextBoxContent").getName()
+            frame1 = group.getByIndex(1).getPropertyValue("TextBoxContent").getName()
+
+            child_del = DeleteShape().execute(tctx, index="0.0")
+            assert child_del["status"] == "error", child_del
+            assert child_del["code"] == "TEXT_BOX_IN_GROUP"
+            assert page.getCount() == 1
+            assert reloaded.getTextFrames().hasByName(frame0)
+
+            before_titles = undo_titles(reloaded)
+            assert before_titles is not None
+            grp_del = DeleteShape().execute(tctx, index=0)
+            assert grp_del["status"] == "ok", grp_del
+            assert page.getCount() == 0
+            assert not reloaded.getTextFrames().hasByName(frame0)
+            assert not reloaded.getTextFrames().hasByName(frame1)
+            after_titles = undo_titles(reloaded)
+            assert after_titles is not None and len(after_titles) == len(before_titles) + 1
+
+            reloaded.getUndoManager().undo()
+            assert page.getCount() == 1
+            restored = page.getByIndex(0)
+            assert "in box 0" in restored.getByIndex(0).getString()
+            assert "in box 1" in restored.getByIndex(1).getString()
+        finally:
+            try:
+                reloaded.close(True)
+            except Exception:
+                pass
+            if anchor == AS_CHARACTER:
+                try:
+                    scratch.close(True)
+                except Exception:
+                    pass
+            if os.path.exists(docx_path):
+                os.unlink(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_group_frame_rejected_and_hidden_shape_warning_uno(ctx, doc):
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 3000, 2000))
+    text.insertTextContent(text.getStart(), frame, False)
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    r1 = UpsertShape().execute(tctx, action="create", shape_type="rectangle", x=1000, y=1000, width=2000, height=1000)
+    r2 = UpsertShape().execute(tctx, action="create", shape_type="rectangle", x=4000, y=1000, width=2000, height=1000)
+    assert r1["status"] == "ok" and r2["status"] == "ok"
+
+    page = doc.getDrawPage()
+    before_count = page.getCount()
+    rejected = GroupShapes().execute(tctx, indices=[0, r1["index"]], page=0)
+    assert rejected["status"] == "error", rejected
+    assert rejected["code"] == "INVALID_PARAM"
+    assert page.getCount() == before_count
+
+    page.getByIndex(r2["index"]).setPropertyValue("Visible", False)
+    grouped = GroupShapes().execute(tctx, indices=[r1["index"], r2["index"]], page=0)
+    assert grouped["status"] == "ok", grouped
+    assert grouped["message"] == "Grouped 1 shapes."
+    assert any("Only 1 of 2 shapes were grouped" in w for w in grouped.get("warnings", []))
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
+    import os
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from tests.writer.docx_objects_fixture import build_grouped_text_boxes
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    shape = doc.createInstance("com.sun.star.drawing.CustomShape")
+    shape.setSize(Size(3000, 2000))
+    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    text.insertTextContent(cur, shape, False)
+    shape.setString("orig")
+    orig_pos = shape.getPosition()
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    err = UpsertShape().execute(tctx, action="edit", index=0, x=orig_pos.X + 3000, text="nope")
+    assert err["status"] == "error", err
+    assert err["code"] == "INVALID_PARAM"
+    assert err["details"]["parameter"] == "x"
+    assert shape.getPosition().X == orig_pos.X
+    assert shape.getString() == "orig"
+
+    ok_y = UpsertShape().execute(tctx, action="edit", index=0, y=-1000)
+    assert ok_y["status"] == "ok", ok_y
+    assert shape.getPosition().Y == -1000
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    scratch = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+    reloaded, docx_path = build_grouped_text_boxes(ctx, scratch, anchor_type=AS_CHARACTER)
+    try:
+        gtctx = ToolContext(doc=reloaded, ctx=ctx, doc_type="writer", services=None, caller="test")
+        child = reloaded.getDrawPage().getByIndex(0).getByIndex(1)
+        orig_x = child.getPosition().X
+        ok_child = UpsertShape().execute(gtctx, action="edit", index="0.1", x=orig_x + 2000)
+        assert ok_child["status"] == "ok", ok_child
+        assert child.getPosition().X != orig_x
+    finally:
+        try:
+            reloaded.close(True)
+        except Exception:
+            pass
+        try:
+            scratch.close(True)
+        except Exception:
+            pass
+        if os.path.exists(docx_path):
+            os.unlink(docx_path)
+
