@@ -590,3 +590,90 @@ def test_end_selection_cancel_kicks_queued_peer_turn(monkeypatch: pytest.MonkeyP
     assert host.flushed_restarts == 1
     assert len(host.started) == 1
     assert host.started[0] == ("peer query", False)
+
+
+@pytest.mark.parametrize("locked", [True, False], ids=["locked", "unlocked"])
+def test_selection_client_reads_key_on_request_worker(fake_keystore, locked: bool) -> None:
+    import threading
+    from plugin.chatbot.selection import create_validated_client
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.queue_executor import main
+
+    endpoint = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
+    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = locked
+
+    reads: list[bool] = []
+    fake_keystore.on_get = lambda _name: reads.append(main.is_current())
+
+    client = create_validated_client(MagicMock(), "Edit")
+    assert client is not None
+    assert reads == []
+
+    outcome: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            outcome["result"] = client.stream_completion("hi", "sys", 64, lambda *_a: None)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    with patch.object(LlmClient, "_run_streaming_loop", return_value="stop") as mock_loop:
+        t = threading.Thread(target=_run)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive()
+
+    assert reads == [False]
+    if locked:
+        err = outcome.get("error")
+        assert isinstance(err, AuthError)
+        assert err.code == "keyring_locked"
+        assert mock_loop.call_count == 0
+    else:
+        assert "error" not in outcome
+        assert mock_loop.call_count == 1
+        headers = mock_loop.call_args.args[3]
+        assert headers["Authorization"] == "Bearer sk-1"
+
+
+def test_stopped_selection_client_does_not_read_key(fake_keystore) -> None:
+    import threading
+    from plugin.chatbot.selection import create_validated_client
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.errors import WriterAgentException
+
+    endpoint = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
+    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    reads: list[str] = []
+    fake_keystore.on_get = lambda name: reads.append(name)
+
+    client = create_validated_client(MagicMock(), "Edit")
+    assert client is not None
+    client.stop()
+
+    outcome: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            client.stream_completion("hi", "sys", 64, lambda *_a: None)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=5)
+    assert not t.is_alive()
+
+    err = outcome.get("error")
+    assert isinstance(err, WriterAgentException)
+    assert err.code == "STOPPED"
+    assert reads == []
