@@ -304,6 +304,8 @@ def test_is_calc_error_helper():
     assert is_calc_error("#VALUE!") is True
     assert is_calc_error("#N/A") is True
     assert is_calc_error("#REF!") is True
+    assert is_calc_error("Err:502") is True
+    assert is_calc_error("#n/a") is False
     assert is_calc_error("#hashtag") is False
     assert is_calc_error("#1") is False
     assert is_calc_error("hello") is False
@@ -543,4 +545,29 @@ def test_as_nonzero_reads_calc_getbool(val, expected):
 def test_as_nonzero_other_text_raises(val):
     with pytest.raises(ValueError):
         as_nonzero(val)
+
+
+@pytest.mark.parametrize(
+    ("crit", "expected_count", "expected_sum"),
+    [
+        ("Err:502", 1, 1.0),
+        ("#DIV/0!", 1, 2.0),
+        ("=", 1, 4.0),
+        ("", 1, 4.0),
+        ("<>", 6, 123.0),
+        ("<>Err:502", 6, 126.0),
+        ("<>#DIV/0!", 6, 125.0),
+        ("Err*", 1, 1.0),
+        (">a", 1, 16.0),
+        ("<z", 1, 16.0),
+    ],
+)
+def test_criteria_compare_errors_as_text(crit: str, expected_count: int, expected_sum: float):
+    """Calc compares error cells by displayed text (ScQueryEvaluator::isQueryByValueForCell, getCellString in sc/source/core/data/queryevaluator.cxx)."""
+    from plugin.scripting.venv import calc_functions as calc
+
+    data = ["Err:502", "#DIV/0!", None, 3, "x", "#N/A", "#NUM!"]
+    weights = [1, 2, 4, 8, 16, 32, 64]
+    assert calc.countif(data, crit) == expected_count
+    assert calc.sumif(data, crit, weights) == expected_sum
 

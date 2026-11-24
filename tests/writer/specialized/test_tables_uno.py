@@ -847,3 +847,52 @@ def test_tall_cell_row_delete_untracked_and_middle_tracked_and_after_split_uno(c
     ok_after_split = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t2, index=0)
     assert ok_after_split["status"] == "ok"
     assert doc.getTextTables().getByName(t2).getRows().getCount() == 2
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.specialized.tables import _cell_has_visible_text
+    from plugin.writer.table_nesting import cell_plain_siblings
+
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.setName("T1")
+
+    cell_a1 = tbl.getCellByName("A1")
+    strike_across_paragraphs(doc, cell_a1)
+    assert "gone" not in cell_plain_siblings(cell_a1)
+    assert "Keep" in cell_plain_siblings(cell_a1)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    res = TableGetCells().execute(tctx, name="T1")
+    assert res["status"] == "ok", res
+    assert "gone" not in res["cells"]["A1"], res["cells"]
+    assert "Tail" in res["cells"]["A1"], res["cells"]
+
+    # _cell_has_visible_text is False for a cell whose three paragraphs are one Delete.
+    cell_b1 = tbl.getCellByName("B1")
+    b_cur = cell_b1.createTextCursor()
+    for idx, line in enumerate(["d1", "d2", "d3"]):
+        if idx > 0:
+            cell_b1.insertControlCharacter(b_cur, 0, False)
+        cell_b1.insertString(b_cur, line, False)
+    b_cur.gotoStart(False)
+    b_cur.gotoEnd(True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        b_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert doc.getRedlines().getCount() == 2  # 1 in A1 + 1 in B1
+    b_enum = cell_b1.createEnumeration()
+    b_paras = []
+    while b_enum.hasMoreElements():
+        b_paras.append(b_enum.nextElement())
+    mid_enum = b_paras[1].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
+    assert _cell_has_visible_text(cell_b1) is False

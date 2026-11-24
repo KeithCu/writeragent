@@ -23,6 +23,7 @@ import os
 import threading
 from typing import Any, Callable
 
+from plugin.framework import keystore
 from plugin.framework.config import get_config, get_secret_config, save
 from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
 from plugin.framework.module_base import ModuleBase
@@ -325,13 +326,18 @@ class McpModule(ModuleBase):
         tunnel.note_pending_start(start_token)
 
         def _start() -> None:
-            provider_token = get_secret_config("mcp.tunnel_provider_token")
+            token_key = "mcp.tunnel_provider_token"
+            configured = get_config(token_key)
+            provider_token: str | None = get_secret_config(token_key)
+            if not provider_token and keystore.is_ref(configured):
+                # Saved in the keystore but unreadable: locked, prompt cancelled, or the item is gone.
+                provider_token = None
             before = tunnel.last_error
             ok = tunnel.start(port_i, provider, provider_token=provider_token, start_token=start_token)
             # A superseded start (stop, or a newer arm) returns False without
-            # a new last_error. Only a probe/spawn failure is worth logging.
+            # a new last_error. Only a refused start or probe/spawn failure is worth logging.
             if not ok and tunnel.last_error and tunnel.last_error != before:
-                log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+                log.error("Failed to start MCP public tunnel via %s: %s", provider, tunnel.last_error)
 
         # config:changed runs this on the UI thread, and get_secret_config() /
         # start()'s binary_available() (subprocess, timeout 10s) can block on

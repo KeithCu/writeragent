@@ -38,7 +38,7 @@ from plugin.draw.tree import (
     short_shape_type,
 )
 from plugin.framework.errors import available_miss_details, make_tool_error
-from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.framework.tool_schema import coerce_call_args
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
@@ -192,11 +192,9 @@ def range_cell_count(rng: str) -> int:
 def normalize_apply_content(content: Any) -> str:
     """Mirror ApplyDocumentContent list/string normalization (apply_document_content.py)."""
     if isinstance(content, str):
-        stripped = content.strip()
-        if stripped.startswith("[") and "<" in stripped:
-            parsed = safe_json_loads(stripped)
-            if isinstance(parsed, list):
-                content = parsed
+        parsed = parse_html_fragment_list(content)
+        if parsed is not None:
+            content = parsed
     if isinstance(content, list):
         content = "\n".join(str(x) for x in content)
     if isinstance(content, str):

@@ -39,7 +39,7 @@ from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator, SortKey, parse_then_by
 from plugin.doc.compound_undo import UndoStepOrRollback
-from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 
 # Verbose per-cell dicts for a large range (A1:H500) exceed the chat context and the provider rejects the request (HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -91,7 +91,7 @@ def _parse_structure_start(
 def opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
     """Parse an optional color parameter from *kwargs* into a UNO RGB int or error message."""
     raw = kwargs.get(key)
-    if raw is None or raw.strip() == "":
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None, None
     parsed = parse_color_to_uno_int(raw)
     if parsed is None:
@@ -630,12 +630,12 @@ class SetCellStyle(ToolBase):
             "bold": {"type": "boolean", "description": "Bold font"},
             "italic": {"type": "boolean", "description": "Italic font"},
             "font_size": {"type": "number", "description": "Font size (points)"},
-            "bg_color": {"type": "string", "description": "Background color (hex: #FF0000 or name: yellow)"},
-            "font_color": {"type": "string", "description": "Font color (hex: #000000 or name: red)"},
+            "bg_color": color_param("Background color (hex: #FF0000 or name: yellow)"),
+            "font_color": color_param("Font color (hex: #000000 or name: red)"),
             "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {"type": "string", "description": "Border line color (hex or name)."},
+            "border_color": color_param("Border line color (hex or name)."),
             "border_mode": {
                 "type": "string",
                 "enum": ["all", "outline", "inner", "none"],

@@ -27,13 +27,14 @@ from plugin.doc.visual_helpers import (
     TRACKED_IMAGE_DELETE_MESSAGE,
     WRITER_GRAPHIC_SERVICE,
     apply_character_properties,
+    color_param,
     delete_graphic,
     parse_color_to_uno_int,
 )
 from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
-from plugin.writer.edit_review import flag_untracked
+from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
@@ -600,17 +601,16 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Background/Fill Color
     fill_color_set = False
-    if kwargs.get("fill_color"):
-        color_str = kwargs.get("fill_color")
-        color_str_l = (color_str or "").strip().lower()
-        if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
+    if kwargs.get("fill_color") not in (None, ""):
+        fill_color = kwargs["fill_color"]
+        if isinstance(fill_color, str) and fill_color.strip().lower() in ("none", "transparent") and hasattr(shape, "FillStyle"):
 
             def _clear_fill_color() -> None:
                 shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
 
             _try(failed_props, "fill_color", _clear_fill_color)
         else:
-            color = parse_color_to_uno_int(color_str)
+            color = parse_color_to_uno_int(fill_color)
             if color is None:
                 failed_props.append("fill_color")
             else:
@@ -639,7 +639,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "fill_style", _apply_fill_style)
 
     # Line Color
-    if kwargs.get("line_color"):
+    if kwargs.get("line_color") not in (None, ""):
         color = parse_color_to_uno_int(kwargs["line_color"])
         if color is None:
             failed_props.append("line_color")
@@ -651,7 +651,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "line_width", lambda: shape.setPropertyValue("LineWidth", int(kwargs["line_width"])))
 
     # Line Style (ensure border is visible when colored or sized)
-    if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
+    if (kwargs.get("line_color") not in (None, "") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
 
         def _apply_line_style() -> None:
             shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
@@ -669,7 +669,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Character properties (font, size, color, bold, italic)
     if (
-        kwargs.get("text_color")
+        kwargs.get("text_color") not in (None, "")
         or kwargs.get("font_size")
         or kwargs.get("font_name")
         or kwargs.get("bold") is not None
@@ -808,12 +808,12 @@ class UpsertShape(_AnyDocumentShapeTool):
             "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "text": {"type": "string", "description": "Text content"},
-            "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
+            "fill_color": color_param("Fill color. Hex (#FF0000) or name (red)"),
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
-            "line_color": {"type": "string", "description": "Line border color"},
+            "line_color": color_param("Line border color"),
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
             **_ARROWHEAD_PROPERTIES,
-            "text_color": {"type": "string", "description": "Text character color"},
+            "text_color": color_param("Text character color"),
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
             "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
@@ -839,12 +839,12 @@ class UpsertShape(_AnyDocumentShapeTool):
     }
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         # This override replaced ToolBase.validate, so shape_upsert had no
         # type or enum check. x="10" reached Point(), rotation_angle="5"
         # was string-repeated by `* 100`, and a fill_style outside the enum
         # was ignored with status ok.
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
 
@@ -1060,7 +1060,7 @@ class ConnectShapes(_AnyDocumentShapeTool):
             "start": {"type": ["integer", "string"], "description": "Index or Name of the starting shape."},
             "end": {"type": ["integer", "string"], "description": "Index or Name of the ending shape."},
             "page": DRAW_PAGE_PROPERTY,
-            "line_color": {"type": "string", "description": "Color of the connector line"},
+            "line_color": color_param("Color of the connector line"),
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
             **_ARROWHEAD_PROPERTIES,
         },
@@ -1334,7 +1334,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
                         "y": {"type": "integer"},
                         "width": {"type": "integer"},
                         "height": {"type": "integer"},
-                        "fill_color": {"type": "string"},
+                        "fill_color": color_param("Fill color. Hex (#FF0000) or name (red)"),
                     },
                     "required": ["id", "text"],
                 },
@@ -1346,7 +1346,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
                     "properties": {
                         "from": {"type": "string"},
                         "to": {"type": "string"},
-                        "line_color": {"type": "string"},
+                        "line_color": color_param("Color of the connector line"),
                         **_ARROWHEAD_PROPERTIES,
                     },
                     "required": ["from", "to"],
@@ -1421,7 +1421,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
         for node, box in zip(nodes, boxes):
             x, y, w, h = box
             create_kwargs = {"action": "create", "page": actual_idx, "shape_type": node.get("shape_type") or "rectangle", "x": x, "y": y, "width": w, "height": h, "text": node.get("text") or ""}
-            if node.get("fill_color"):
+            if node.get("fill_color") not in (None, ""):
                 create_kwargs["fill_color"] = node["fill_color"]
             result = _execute_upsert_shape(self, ctx, **create_kwargs)
             if isinstance(result, dict) and result.get("status") != "ok":
@@ -1480,8 +1480,8 @@ class DeleteShape(_AnyDocumentShapeTool):
     }
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
         if "index" not in kwargs and not str(kwargs.get("name") or "").strip():

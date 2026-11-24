@@ -277,3 +277,31 @@ def test_search_boolean_validates_params(mock_services, identity_stemmer):
         svc.search_boolean(doc, "apple", context_paragraphs=-1)
     res = svc.search_boolean(doc, "apple", max_results=1, context_paragraphs=0)
     assert res["total_found"] == 1
+
+
+def test_index_hides_multi_paragraph_tracked_deletions(mock_services, identity_stemmer):
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    loc = MagicMock()
+    loc.Language = "en"
+    paras = [
+        FakeUnoPara([
+            FakeUnoPortion("Text", "alpha "),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+            FakeUnoPortion("Text", "goneone"),
+        ], CharLocale=loc),
+        FakeUnoPara([FakeUnoPortion("Text", "gonetwo")], CharLocale=loc),
+        FakeUnoPara([
+            FakeUnoPortion("Text", "gonethree "),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+            FakeUnoPortion("Text", "omega"),
+        ], CharLocale=loc),
+    ]
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda _p: None
+    doc.getText.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum(paras)
+
+    svc = IndexService(mock_services)
+    assert svc.search_boolean(doc, "gonetwo")["total_found"] == 0
+    assert svc.search_boolean(doc, "omega")["total_found"] == 1

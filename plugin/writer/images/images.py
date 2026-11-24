@@ -1108,7 +1108,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                             list(image_mark.STYLES),
                             "highlight = translucent yellow over the text (default); box = red outline around it; underline = red line under it.",
                         ),
-                        "color": {"type": "string", "description": "Optional '#RRGGBB' or color name instead of the style's color."},
+                        "color": visual_helpers.color_param("Optional '#RRGGBB' or color name instead of the style's color."),
                     },
                     "required": ["box"],
                 },

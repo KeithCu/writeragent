@@ -505,11 +505,11 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
-    # int(float(+inf)) raises OverflowError. The old except missed it,
-    # so POISSON(+inf) crashed. Excel is #NUM!.
+    # int(float("inf")) raises OverflowError, which the worker shows as #NUM!.
     k = int(float(x))
     m = float(mean)
-    if k < 0 or m < 0:
+    # ScPoissonDist (interpr3.cxx) rejects mean <= 0 (tdf#105019).
+    if k < 0 or m <= 0:
         return float("nan")
     st = scipy_stats()
     if st is None:

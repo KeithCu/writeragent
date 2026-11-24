@@ -12,7 +12,12 @@ portions. Callers run on the UI thread: the read helper is @main_thread_only.
 """
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions, iter_elements
+from plugin.doc.text_helpers import (
+    FAILED,
+    DeletionState,
+    get_string_without_tracked_deletions,
+    iter_elements,
+)
 from plugin.framework.errors import ToolExecutionError, uno_read
 
 
@@ -130,7 +135,8 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
 
 def cell_plain_siblings(cell: Any) -> str:
     """Host-cell paragraph text; pending tracked deletions stay hidden."""
-    parts = [get_string_without_tracked_deletions(para) for para in _host_paragraphs(cell)]
+    state = DeletionState()
+    parts = [get_string_without_tracked_deletions(para, state) for para in _host_paragraphs(cell)]
     return "\n".join(part for part in parts if part)
 
 

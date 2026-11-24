@@ -421,8 +421,8 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 - Earlier document text may be a partial/truncated snapshot — call get_content before a targeted edit that needs the exact current text.
 - Successful apply_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
   Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
-- apply_style is not a tracked change.
-  If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
+- apply_style on paragraphs is a tracked change only when its result says tracked=true.
+  If style_unreviewed=true, briefly tell the user which style or page-layout change they cannot accept/reject like a text edit (the warning, if any, says which part).
 - Formatting specific text directly (font, size, bold, colour, alignment, spacing) without a named style: delegate domain='styles' (style_format_text).
 - search is inspection/navigation (return_offsets if needed); replacements use apply_content with old_content.
 - Comments: comment_add adds new comments and replies; for listing, editing, resolving, or deleting, delegate domain='comments'.

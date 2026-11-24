@@ -65,8 +65,11 @@ from plugin.scripting.editor_ipc import (
 from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 from plugin.scripting.document_scripts import (
     SCRIPT_PICKER_MESSAGE_TYPES,
+    build_xdl_script_picker_state,
     document_scripts_identity,
+    get_user_scripts,
     handle_editor_script_message,
+    resolve_run_script_selection,
 )
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
@@ -780,13 +783,48 @@ class PersistentEditor:
         # post, not execute: the modal box waits on the user, not a timeout.
         self.executor.post(_ask, bound_scope=None)
 
+    def _take_pending(
+        self, state: EditorSessionState
+    ) -> tuple[dict[str, Any], EditorSaveCallback, Callable[[], None]] | None:
+        """Claim the load queued by queue_save_then_load; a timed-out save clears it under the same lock."""
+        with self._save_lock:
+            if state.pending_load is None or state.pending_on_save is None:
+                return None
+            queued = (state.pending_load, state.pending_on_save, state.pending_on_closed or (lambda: None))
+            state._clear_pending()
+            return queued
+
+    def _load_after_save(
+        self,
+        state: EditorSessionState,
+        queued: tuple[dict[str, Any], EditorSaveCallback, Callable[[], None]],
+    ) -> None:
+        load, on_save, on_closed = queued
+        if load.get("mode") == "run_script":
+            # The queued code was read before the save; read the script again so an old copy
+            # does not replace the text just saved.
+            doc = load.get("run_script_doc")
+            name, code, _unused = resolve_run_script_selection(
+                doc, build_xdl_script_picker_state(doc, get_user_scripts())
+            )
+            load = {**load, "code": code, "selected_script_name": name, "script_name": name}
+        self.end_session(state.session_id, call_closed=True)
+        _activate_load(load, on_save, on_closed)
+
     def _on_picker(self, msg: dict[str, Any]) -> None:
         kind = message_type(msg)
         target_session = self.resolve_incoming(msg)
         if session_id_of(msg) and target_session is None:
             return
+        requested = kind == "save_script" and msg.get("requested") is True and target_session is not None
+        queued: tuple[dict[str, Any], EditorSaveCallback, Callable[[], None]] | None = None
 
         def _picker_send(reply: dict[str, Any]) -> None:
+            nonlocal queued
+            if requested and target_session is not None and reply.get("status_ok_text"):
+                queued = self._take_pending(target_session)
+                if queued is not None:
+                    reply = {**reply, "load_follows": True}
             self.send(reply, session=target_session)
 
         def _handle_picker() -> None:
@@ -799,15 +837,23 @@ class PersistentEditor:
                     session_doc_url=self.run_script_doc_url,
                     send=_picker_send,
                 )
+                if queued is not None and target_session is not None:
+                    self._load_after_save(target_session, queued)
             except Exception as e:
                 log.exception("Editor script picker failed")
                 try:
                     _picker_send(error_frame(str(e), e))
                 except Exception:
                     log.exception("Editor script picker could not send the error frame")
+            finally:
+                if requested and target_session is not None and queued is None:
+                    self._take_pending(target_session)
 
         exc = self._run_on_main(_handle_picker, "Editor script picker")
         if exc is not None:
+            if requested and target_session is not None:
+                with self._save_lock:
+                    target_session._clear_pending()
             self._report_marshal_failure(_picker_send, isinstance(exc, TimeoutError), (_("The script list update timed out."), _("The script list update failed.")), "script picker")
 
     def _on_dirty(self, msg: dict[str, Any]) -> None:
@@ -885,21 +931,16 @@ class PersistentEditor:
                     return
                 if not isinstance(result, dict):
                     result = {"type": "saved", "ok": True}
-                saved = result.get("type") == "saved" or result.get("ok")
+                saved = bool(result.get("type") == "saved" or result.get("ok"))
+                queued = self._take_pending(captured) if saved else None
                 if saved:
                     captured.dirty = False
-                    if captured.pending_load is not None:
+                    if queued is not None:
                         # Tell the child not to unlock on saved when load is about to replace the buffer.
                         result = {**result, "load_follows": True}
                 _send_save(result)
-                pending = captured.pending_load
-                if saved and pending is not None:
-                    next_on_save = captured.pending_on_save
-                    next_on_closed = captured.pending_on_closed
-                    captured._clear_pending()
-                    self.end_session(captured.session_id, call_closed=True)
-                    if next_on_save is not None:
-                        _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
+                if queued is not None:
+                    self._load_after_save(captured, queued)
             except Exception as e:
                 log.exception("Editor save handler failed")
                 try:
@@ -911,7 +952,7 @@ class PersistentEditor:
         if exc is not None:
             with self._save_lock:
                 self._save_token = None
-            captured._clear_pending()
+                captured._clear_pending()
             self._report_marshal_failure(lambda payload: self.send(payload, session=captured), isinstance(exc, TimeoutError), (_("Saving the script timed out."), _("Saving the script failed.")), "save handler")
 
     def _on_close(self, msg: dict[str, Any]) -> None:
