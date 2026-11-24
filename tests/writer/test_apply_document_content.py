@@ -1849,3 +1849,46 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
     assert mock_insert.call_count == 2
     assert mock_insert.call_args_list[0] == mock_insert.call_args_list[1]
     assert mock_insert.call_args_list[0].args[2] == "<h1>A</h1>\n<p>B</p>"
+
+
+def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() -> None:
+    from types import SimpleNamespace
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.search import MatchMode
+
+    ctx = _edit_ctx()
+    tables = MagicMock()
+    tables.getCount.return_value = 0
+    ctx.doc.getTextTables.return_value = tables
+
+    found = MagicMock()
+    found.getString.return_value = "HIT"
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()), \
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]), \
+         patch("plugin.writer.apply_document_content.commit_or_rollback") as mock_cor:
+        def run_mutate(_doc, _title, mutate, session=None):
+            try:
+                mutate()
+                return SimpleNamespace(
+                    mutate_error=None, rolled_back=False, nothing_landed=False, rollback_error=None
+                )
+            except Exception as exc:
+                return SimpleNamespace(
+                    mutate_error=exc, rolled_back=True, nothing_landed=True, rollback_error=None
+                )
+
+        mock_cor.side_effect = run_mutate
+        res = ApplyDocumentContent().execute(
+            ctx,
+            target="search",
+            old_content="HIT",
+            content="<table><tr><td>x</td></tr></table>",
+            all_matches=True,
+        )
+
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+    assert res["partial_failure"] is True

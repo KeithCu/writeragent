@@ -54,3 +54,37 @@ def test_page_style_clone_with_header_table_keeps_view_cursor_uno(ctx: Any, doc:
             has_table = True
             break
     assert has_table
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_flow_into_xtext_clones_para_table_para_structure_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.range_copy import copy_flow_into_xtext
+
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    standard = page_styles.getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    standard.setPropertyValue("FooterIsOn", True)
+    src = standard.getPropertyValue("HeaderText")
+    dest = standard.getPropertyValue("FooterText")
+
+    cur = src.createTextCursor()
+    src.insertString(cur, "one", False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    src.insertTextContent(src.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("cell")
+    cur.gotoEnd(False)
+    src.insertString(cur, "after", False)
+
+    copy_flow_into_xtext(doc, src, dest)
+
+    structure = []
+    enum = dest.createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"):
+            structure.append("TextTable")
+        else:
+            structure.append(f"Paragraph:{el.getString()}")
+    assert structure == ["Paragraph:one", "TextTable", "Paragraph:after"], structure

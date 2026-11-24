@@ -42,7 +42,7 @@ from plugin.writer.hyperlink_fixup import (
     plan_outline_updates,
     public_hyperlink_reports,
     read_link_look,
-    restore_outline_hyperlinks,
+    restore_links,
     write_link_look,
 )
 from plugin.writer.specialized_base import (
@@ -496,6 +496,8 @@ def _one_line(text: str, repl: str) -> str:
 def _copy_hyperlink_report(target: dict[str, Any], report: dict[str, Any]) -> None:
     for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated"):
         target[key] = report[key]
+    if "hyperlink_note" in report:
+        target["hyperlink_note"] = report["hyperlink_note"]
 
 
 # Generated TOC rows use paragraph styles "Contents 1" … "Contents 10"
@@ -915,7 +917,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             if lived:
                 preview["text_after"] = lived
             if snapshot.links or snapshot.preserve_url:
-                reports = restore_outline_hyperlinks(point, snapshot, content, override)
+                reports = restore_links(doc, point, snapshot, content, override)
                 if len(reports) == 1:
                     _copy_hyperlink_report(preview, reports[0])
             return None

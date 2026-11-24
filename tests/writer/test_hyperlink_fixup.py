@@ -163,15 +163,6 @@ class _Doc:
         return _Cursor(self, n, n)
 
 
-def _advance_units(text, start, units):
-    used = 0
-    idx = start
-    while idx < len(text) and used < units:
-        used += len(text[idx].encode("utf-16-le")) // 2
-        idx += 1
-    return idx, used >= units
-
-
 class _Cursor:
     def __init__(self, doc, start, end):
         self.doc = doc
@@ -217,8 +208,8 @@ class _Cursor:
             self.end = n
 
     def goRight(self, count, expand):
-        nxt, full = _advance_units(self.doc.text(), self.end, count)
-        if not full:
+        nxt = self.end + count
+        if nxt > len(self.doc.text()):
             self.end = len(self.doc.text())
             return False
         if expand:
@@ -337,10 +328,6 @@ class _Portion:
 
 
 def _match(doc, start, end):
-    text = doc.text()
-    if len(text.encode("utf-16-le")) // 2 != len(text):
-        start, _ = _advance_units(text, 0, start)
-        end, _ = _advance_units(text, 0, end)
     return _Cursor(doc, start, end)
 
 
@@ -542,13 +529,24 @@ def test_restore_selects_after_a_non_bmp_prefix():
     title = _Slice("Old title", _OUTLINE)
     suffix = _Slice(" tail", _OUTLINE)
     doc = _Doc([prefix, title, suffix])
-    snapshot = capture_outline_hyperlinks(_match(doc, 3, 12))
+    snapshot = capture_outline_hyperlinks(_match(doc, 2, 11))
     _replace_equal(title, "New title")
-    reports = restore_outline_hyperlinks(_match(doc, 3, 3), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(_match(doc, 2, 2), snapshot, "New title", None)
     assert title.url == "#1.New title|outline"
     assert suffix.url == "#1.New title|outline"
     assert reports[0]["hyperlink_updated"] is True
     assert reports[0]["hyperlink_url_after"] == "#1.New title|outline"
+
+
+def test_capture_sets_fully_linked_false_when_plain_text_in_match():
+    plain = _Slice("START ", "")
+    linked = _Slice("link text", "https://example.com/")
+    doc = _Doc([plain, linked])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, len("START link text")))
+    assert snapshot.fully_linked is False
+
+    linked_only = capture_outline_hyperlinks(_match(doc, len("START "), len("START link text")))
+    assert linked_only.fully_linked is True
 
 
 def test_paint_refuses_a_selection_that_does_not_match_the_replacement():

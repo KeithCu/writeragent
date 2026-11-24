@@ -1358,7 +1358,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
     cases: list[tuple[str, dict[str, Any], str, list[str]]] = [
         ("end+tbl", {"target": "end"}, tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "TextTable", "Paragraph:"]),
         ("end+lead", {"target": "end"}, lead_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "Paragraph:Lead", "TextTable", "Paragraph:"]),
-        ("end+trail", {"target": "end"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "TextTable", "Paragraph:Trail", "Paragraph:"]),
+        ("end+trail", {"target": "end"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "TextTable", "Paragraph:Trail"]),
         ("beginning+tbl", {"target": "beginning"}, tbl, ["TextTable", "Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"]),
         ("beginning+lead", {"target": "beginning"}, lead_tbl, ["Paragraph:Lead", "TextTable", "Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"]),
         ("full+tbl", {"target": "full_document"}, tbl, ["TextTable", "Paragraph:"]),
@@ -1450,7 +1450,7 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         _seed(["Intro", "Outro"])
         res = ApplyDocumentContent().execute(tctx, content=["<ul><li>i1</li><li>i2</li></ul>"], target="end")
         assert res.get("status") == "ok", res
-        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:Outro", "Paragraph:i1", "Paragraph:i2", "Paragraph:"], _body_structure_via_enum(text)
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:Outro", "Paragraph:i1", "Paragraph:i2"], _body_structure_via_enum(text)
 
         # Nested table and adjacent tables
         _seed(["Intro", "Outro"])
@@ -1476,7 +1476,7 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         _seed([""])
         res = ApplyDocumentContent().execute(tctx, content=[tbl], target="end")
         assert res.get("status") == "ok", res
-        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:"], _body_structure_via_enum(text)
+        assert _body_structure_via_enum(text) == ["TextTable", "Paragraph:"], _body_structure_via_enum(text)
 
         # Replacing with <p></p> keeps the emptied paragraph
         _seed(["Intro", "Body", "Outro"])
@@ -2035,3 +2035,66 @@ def test_paragraph_after_recorded_replace_stays_readable_uno(ctx: Any, doc: Any)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.record_changes import record_changes
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+
+    def _run_seed(tail_only: bool) -> None:
+        text.setString("")
+        cur = text.createTextCursor()
+        if tail_only:
+            text.insertString(cur, "Plain ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        cur.setPropertyValue("CharHeight", 20.0)
+        cur.setPropertyValue("CharColor", 0xFF0000)
+        text.insertString(cur, "Styled", False)
+
+        res = ApplyDocumentContent().execute(tctx, target="end", content="<p>Added</p>")
+        assert res.get("status") == "ok", res
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["Plain Styled" if tail_only else "Styled", "Added"]
+        p_cur = text.createTextCursorByRange(paras[-1].getStart())
+        p_cur.gotoEndOfParagraph(True)
+        assert p_cur.getPropertyValue("CharWeight") == 150.0
+        assert p_cur.getPropertyValue("CharHeight") == 20.0
+        assert int(p_cur.getPropertyValue("CharColor")) == 0xFF0000
+
+    _run_seed(False)
+    _run_seed(True)
+
+    # Three appends to a blank document give ['A', 'B', 'C'] with no trailing empty paragraph.
+    text.setString("")
+    for letter in ("A", "B", "C"):
+        res = ApplyDocumentContent().execute(tctx, target="end", content=f"<p>{letter}</p>")
+        assert res.get("status") == "ok", res
+    assert [p.getString() for p in _body_paragraphs(doc)] == ["A", "B", "C"]
+
+    # Spaces-only last paragraph keeps its own content.
+    text.setString("   ")
+    res = ApplyDocumentContent().execute(tctx, target="end", content="<p>AfterSpaces</p>")
+    assert res.get("status") == "ok", res
+    assert [p.getString() for p in _body_paragraphs(doc)] == ["   ", "AfterSpaces"]
+
+    # With recording: no trailing paragraph after Accept, and original text/style after Reject.
+    text.setString("Seed")
+    with record_changes(doc, True):
+        res = ApplyDocumentContent().execute(tctx, target="end", content='<p data-lo-style="Heading1">Recorded</p>')
+        assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    assert [p.getString() for p in _body_paragraphs(doc)] == ["Seed", "Recorded"]
+
+    text.setString("")
+    with record_changes(doc, True):
+        ApplyDocumentContent().execute(tctx, target="end", content='<p data-lo-style="Heading1">Rejected</p>')
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    paras_after_reject = _body_paragraphs(doc)
+    assert [p.getString() for p in paras_after_reject] == [""]
+    assert paras_after_reject[0].getPropertyValue("ParaStyleName") != "Heading 1"

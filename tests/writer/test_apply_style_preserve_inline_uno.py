@@ -404,3 +404,26 @@ def test_apply_style_full_document_keeps_cell_formatting_uno(ctx, doc):
             res_default,
         )
 
+
+@native_test
+@with_native_doc("writer")
+def test_apply_style_over_emphasis_char_style_no_capture_incomplete_uno(ctx, doc):
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Plain ", False)
+    cur.setPropertyValue("CharStyleName", "Emphasis")
+    text.insertString(cur, "emphasized", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyStyle().execute(
+        tool_ctx, style="Text body", family="ParagraphStyles", target="full_document",
+    )
+    assert res.get("status") == "ok", res
+    assert not res.get("capture_incomplete"), res
+    assert not res.get("warning"), res
+
+    chk = text.createTextCursor()
+    chk.gotoEnd(False)
+    chk.goLeft(len("emphasized"), True)
+    assert chk.getPropertyValue("CharStyleName") == "Emphasis"
+

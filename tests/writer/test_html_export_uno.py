@@ -861,5 +861,182 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
                 doc, ctx, scope="range", range_start=offset, range_end=offset + len(word)
             )
             plain = re.sub(r"<[^>]+>", "", html).strip()
-            assert plain == word, (layout, word, offset, html)
+            if layout == "leading" and offset == 0:
+                assert "".join(plain.split()) == "T1" + word, (layout, word, offset, html)
+            else:
+                assert plain == word, (layout, word, offset, html)
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_selection_reads_include_tables_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaLeftMargin", 1000)
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "Lead paragraph", False)
+
+    for tbl_name, cell_text, url in (("FirstTbl", "One", ""), ("SecondTbl", "Two", "")):
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.setName(tbl_name)
+        tbl.getCellByName("A1").setString(cell_text)
+
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.gotoEnd(False)
+
+    link_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    link_tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), link_tbl, False)
+    link_tbl.setName("LinkTbl")
+    c_cur = link_tbl.getCellByName("A1").createTextCursor()
+    link_tbl.getCellByName("A1").insertString(c_cur, "CellLink", False)
+    c_cur.goLeft(len("CellLink"), True)
+    c_cur.setPropertyValue("HyperLinkURL", "https://cell.example.com/")
+
+    cur.gotoEnd(False)
+    text.insertString(cur, "TailLink", False)
+    cur.goLeft(len("TailLink"), True)
+    cur.setPropertyValue("HyperLinkURL", "https://tail.example.com/")
+
+    full_html = document_to_content(doc, ctx, scope="full")
+    full_order = re.findall(r"<(?:p|table)\b", full_html)
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+    range_order = re.findall(r"<(?:p|table)\b", range_html)
+    assert range_order == full_order, (range_order, full_order)
+    for name in ("FirstTbl", "SecondTbl", "LinkTbl"):
+        assert name in range_html, (name, range_html)
+    assert 'href="https://cell.example.com/"' in range_html
+    assert 'href="https://tail.example.com/"' in range_html
+    assert ">CellLink<" in range_html
+    assert ">TailLink<" in range_html
+
+    # Selection spanning only the first two tables returns only tables.
+    sel_cur = text.createTextCursor()
+    sel_cur.gotoStart(False)
+    sel_cur.gotoEndOfParagraph(False)
+    sel_cur.gotoNextParagraph(True)
+    doc.getCurrentController().select(sel_cur)
+    sel_tables_html = document_to_content(doc, ctx, scope="selection")
+    assert "<table" in sel_tables_html
+    assert "Lead paragraph" not in sel_tables_html
+    assert "TailLink" not in sel_tables_html
+
+    # Selection of one paragraph has no table.
+    p_cur = text.createTextCursor()
+    p_cur.gotoStart(False)
+    p_cur.gotoEndOfParagraph(True)
+    doc.getCurrentController().select(p_cur)
+    sel_para_html = document_to_content(doc, ctx, scope="selection")
+    assert "<table" not in sel_para_html
+    assert "Lead paragraph" in sel_para_html
+
+    # Offset inside a table returns that table block.
+    raw = text.getString()
+    idx = raw.index("One")
+    tbl_slice = document_to_content(doc, ctx, scope="range", range_start=idx, range_end=idx + 1)
+    assert "FirstTbl" in tbl_slice
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_read_table_cells_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.record_changes import record_changes
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Before", False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+
+    # Cell A1: nested table followed by text.
+    a1 = tbl.getCellByName("A1")
+    a1_cur = a1.createTextCursor()
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    a1.insertTextContent(a1_cur, nested, False)
+    nested.getCellByName("A1").setString("Inner")
+    a1.insertString(a1_cur, "AfterNested", False)
+
+    # Cell B1: two paragraphs, red run, date field, tracked deletion.
+    b1 = tbl.getCellByName("B1")
+    b1_cur = b1.createTextCursor()
+    b1_cur.setPropertyValue("CharColor", 0xFF0000)
+    b1.insertString(b1_cur, "Red", False)
+    b1_cur.setPropertyValue("CharColor", -1)
+    date_field = doc.createInstance("com.sun.star.text.textfield.DateTime")
+    date_field.setPropertyValue("IsDate", True)
+    b1.insertTextContent(b1_cur, date_field, False)
+    b1.insertControlCharacter(b1_cur, 0, False)
+    b1.insertString(b1_cur, "Keep", False)
+    with record_changes(doc, True):
+        del_cur = b1.createTextCursor()
+        del_cur.gotoEnd(False)
+        b1.insertString(del_cur, "GONE", False)
+        del_cur.goLeft(4, True)
+        del_cur.setString("")
+
+    # Row 2: merged then split cell.
+    row_cur = tbl.createCursorByCellName("A2")
+    row_cur.gotoCellByName("B2", True)
+    row_cur.mergeRange()
+    tbl.getCellByName("A2").setString("MergedCell")
+
+    cur.gotoEnd(False)
+    text.insertString(cur, "After", False)
+
+    html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+    assert "Inner" in html
+    assert "AfterNested" in html
+    assert "Red" in html
+    assert 'title="date"' in html
+    assert "Keep" in html
+    assert "GONE" not in html
+    assert "MergedCell" in html
+
+
+@native_test
+@with_native_doc("writer")
+def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> None:
+    import pytest
+    import uno  # noqa: F401
+    from com.sun.star.text.WritingMode2 import LR_TB, RL_TB
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.html_import import replace_full_document
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    try:
+        cur.setPropertyValue("ParaAdjust", 5)
+    except Exception:
+        pytest.skip("ParagraphAdjust.START unavailable")
+    if int(cur.getPropertyValue("ParaAdjust")) != 5:
+        pytest.skip("ParagraphAdjust.START unavailable")
+    cur.setPropertyValue("WritingMode", LR_TB)
+    text.insertString(cur, "LTR start", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaAdjust", 5)
+    cur.setPropertyValue("WritingMode", RL_TB)
+    text.insertString(cur, "RTL start", False)
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "text-align:start" in html, html
+
+    replace_full_document(doc, ctx, html)
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = doc.getText().createEnumeration()
+    adjusts = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        adjusts.append(int(el.getPropertyValue("ParaAdjust")))
+    assert adjusts == [5, 5], adjusts
 

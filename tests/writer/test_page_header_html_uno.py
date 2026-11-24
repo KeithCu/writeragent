@@ -662,3 +662,126 @@ def test_header_read_does_not_repeat_run_formatting_uno(ctx, doc):
 
     p6 = lines[5]
     assert "<strong>" not in p6 and "<b>" not in p6 and "font-weight:bold" not in p6, p6
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_read_skips_tracked_deletions_uno(ctx, doc):
+    from plugin.writer.html_export import xtext_to_content
+    from plugin.writer.record_changes import record_changes
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "Keep ", False)
+    with record_changes(doc, True):
+        header.insertString(cur, "GONE ", False)
+        cur.goLeft(5, True)
+        cur.setString("")
+    cur.gotoEnd(False)
+    header.insertString(cur, "tail", False)
+    header.insertControlCharacter(cur, 0, False)
+    title_field = doc.createInstance("com.sun.star.text.textfield.docinfo.Title")
+    header.insertTextContent(cur, title_field, False)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    c_cur = cell.createTextCursor()
+    cell.insertString(c_cur, "CellKeep ", False)
+    with record_changes(doc, True):
+        cell.insertString(c_cur, "CELLGONE ", False)
+        c_cur.goLeft(9, True)
+        c_cur.setString("")
+    c_cur.gotoEnd(False)
+    cell.insertString(c_cur, "end", False)
+
+    html = xtext_to_content(header, doc, ctx)
+    assert "Keep tail" in html, html
+    assert "GONE" not in html, html
+    assert 'title="title"' in html, html
+    assert "CellKeep end" in html, html
+    assert "CELLGONE" not in html, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_read_graphic_position_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.writer.html_export import xtext_to_content
+    from plugin.writer.record_changes import record_changes
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    with record_changes(doc, True):
+        header.insertString(cur, "DEL ", False)
+        cur.goLeft(4, True)
+        cur.setString("")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("Cell")
+
+    cur.gotoEnd(False)
+    date_field = doc.createInstance("com.sun.star.text.textfield.DateTime")
+    date_field.setPropertyValue("IsDate", True)
+    header.insertTextContent(cur, date_field, False)
+    header.insertString(cur, " before ", False)
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(_PNG_BYTES)
+        img_path = f.name
+    try:
+        import uno
+
+        def _make_graphic(anchor_type, title):
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", anchor_type)
+            g.setPropertyValue("Width", 500)
+            g.setPropertyValue("Height", 500)
+            g.setPropertyValue("Title", title)
+            return g
+
+        header.insertTextContent(cur, _make_graphic(AS_CHARACTER, "inline_logo"), False)
+        header.insertString(cur, " after", False)
+        header.insertTextContent(cur, _make_graphic(AT_CHARACTER, "at_char_logo"), False)
+        header.insertTextContent(cur, _make_graphic(AT_PARAGRAPH, "at_para_logo"), False)
+    finally:
+        os.unlink(img_path)
+
+    html = xtext_to_content(header, doc, ctx)
+    assert "DEL" not in html
+    assert html.count("<img") == 3, html
+    before_idx = html.index("before")
+    after_idx = html.index("after")
+    img_idx = html.index("<img", before_idx)
+    assert before_idx < img_idx < after_idx, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_round_trip_adds_no_paragraph_uno(ctx, doc):
+    import re
+    from plugin.writer.html_export import xtext_to_content
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "before", False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("cell")
+    cur.gotoEnd(False)
+    header.insertString(cur, "after", False)
+
+    html = xtext_to_content(header, doc, ctx)
+    paras = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
+    texts = [re.sub(r"<[^>]+>", "", p).strip() for p in paras]
+    assert "" not in texts, (texts, html)

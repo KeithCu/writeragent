@@ -290,6 +290,19 @@ def _writable_char_names(portion: Any) -> list[str] | object:
     ]
 
 
+def _style_comparable_char_names(portion: Any, style: Any) -> list[str] | object:
+    """``_writable_char_names`` that paragraph *style* also has.
+
+    CharStyleName and the other run-only names have no style value to compare with, and a
+    paragraph style change leaves them alone.
+    """
+    names = _writable_char_names(portion)
+    if not isinstance(names, list):
+        return names
+    info = style.getPropertySetInfo()
+    return [name for name in names if info.hasPropertyByName(name)]
+
+
 def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str]) -> Iterator[Any]:
     """Yield the paragraphs of *para_enum*, descending into table cells (nested tables too)."""
     seen = 0
@@ -354,7 +367,7 @@ def _capture_direct_char_overrides(
                 continue
 
             if _CHAR_PROPS_KEY not in style_cache:
-                style_cache[_CHAR_PROPS_KEY] = uno_read(lambda: _writable_char_names(portion), _READ_FAILED)
+                style_cache[_CHAR_PROPS_KEY] = uno_read(lambda: _style_comparable_char_names(portion, old_style), _READ_FAILED)
 
             char_names = style_cache[_CHAR_PROPS_KEY]
             if char_names is _READ_FAILED:

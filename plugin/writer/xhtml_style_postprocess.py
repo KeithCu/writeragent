@@ -128,15 +128,18 @@ _FODT_OVERRIDE_ATTRS = (
     ("fo:color", "color"),
 )
 
-# ODF writes alignment relative to writing direction; the agent reads CSS.
-ODF_TEXT_ALIGN = {"start": "left", "end": "right"}
+# Since LibreOffice 26.2 fo:text-align "start" and "end" are the direction-relative START and
+# END. Earlier versions write LEFT and RIGHT that way (pXML_Para_Adjust_Enum in
+# xmloff/source/style/adjushdl.cxx), so there they mean left and right.
+_PRE_26_2_TEXT_ALIGN = {"start": "left", "end": "right"}
+_GENERATOR_VERSION_RE = re.compile(r"<meta:generator>[^<]*?/(\d+)\.(\d+)")
 
 _FODT_PARA_STYLE_RE = re.compile(
     r'<style:style\b([^>]*?)style:family="paragraph"([^>]*?)(?:/>|>(.*?)</style:style>)',
     re.IGNORECASE | re.DOTALL)
 
 
-def _fodt_override_css(style_block: str) -> str:
+def _fodt_override_css(style_block: str, text_align: dict[str, str]) -> str:
     """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
     # crosshair: off
     parts = []
@@ -151,7 +154,7 @@ def _fodt_override_css(style_block: str) -> str:
         if not value:
             continue
         if css_name == "text-align":
-            value = ODF_TEXT_ALIGN.get(value, value)
+            value = text_align.get(value, value)
         parts.append("%s:%s" % (css_name, value))
         seen.add(css_name)
     return "; ".join(parts)
@@ -163,6 +166,9 @@ def parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
     parents: dict[str, str] = {}
     overrides: dict[str, str] = {}
     text = fodt if type(fodt) is str else ""
+    gen = _GENERATOR_VERSION_RE.search(text)
+    is_26_2_plus = gen is not None and (int(gen.group(1)), int(gen.group(2))) >= (26, 2)
+    text_align = {} if is_26_2_plus else _PRE_26_2_TEXT_ALIGN
     for m in _FODT_PARA_STYLE_RE.finditer(text):
         head = (m.group(1) or "") + (m.group(2) or "")
         name = re.search(r'style:name="([^"]*)"', head)
@@ -172,7 +178,7 @@ def parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
         parent = re.search(r'style:parent-style-name="([^"]*)"', head)
         if parent:
             parents[style_name] = _html.unescape(parent.group(1))
-        css = _fodt_override_css(head + (m.group(3) or ""))
+        css = _fodt_override_css(head + (m.group(3) or ""), text_align)
         if css:
             overrides[style_name] = css
     return parents, overrides

@@ -68,7 +68,7 @@ from plugin.writer.hyperlink_fixup import (
     capture_outline_hyperlinks,
     plan_outline_updates,
     public_hyperlink_reports,
-    restore_outline_hyperlinks,
+    restore_links,
 )
 
 
@@ -819,7 +819,7 @@ class ApplyDocumentContent(ToolBase):
                     original_preview=original, proposed_preview=plain)
             if not needs_fix or snapshot is None:
                 return []
-            return restore_outline_hyperlinks(anchor, snapshot, plain, override)
+            return restore_links(doc, anchor, snapshot, plain, override)
 
         if batch:
             return run()
@@ -1488,6 +1488,7 @@ class ApplyDocumentContent(ToolBase):
         report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
+        tables_before = _doc_table_count(doc) if params.has_table else None
 
         def mutate() -> None:
             nonlocal count
@@ -1506,6 +1507,7 @@ class ApplyDocumentContent(ToolBase):
                     if reports:
                         link_reports.extend(reports)
                     count += 1
+                _verify_table_insert(doc, tables_before)
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
 
