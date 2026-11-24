@@ -988,3 +988,44 @@ def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
     assert len(cols) == 2
     assert cols[0]["right_margin_mm"] == 2.5
     assert cols[1]["left_margin_mm"] == 2.5
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_style_clone_copies_cell_and_nested_cell_logos_uno(ctx, doc):
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    header.insertTextContent(header.getStart(), outer, False)
+    outer_cell = outer.getCellByName("A1")
+    logo_url = _file_url_for_path(_header_logo_path())
+    g_outer = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g_outer.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    g_outer.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    g_outer.setPropertyValue("Width", 400)
+    g_outer.setPropertyValue("Height", 400)
+    outer_cell.insertTextContent(outer_cell.getStart(), g_outer, False)
+    g_outer.setName("OuterCellLogo")
+
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    outer_cell.insertTextContent(outer_cell.getStart(), inner, False)
+    inner_cell = inner.getCellByName("A1")
+    g_inner = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g_inner.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    g_inner.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    g_inner.setPropertyValue("Width", 400)
+    g_inner.setPropertyValue("Height", 400)
+    inner_cell.insertTextContent(inner_cell.getStart(), g_inner, False)
+    g_inner.setName("InnerCellLogo")
+
+    res = copy_page_style(doc, s_name, "ClonedWithCellLogos")
+    assert res["shapes_copied"] == 2, res
+    assert res["skipped_shapes"] == [], res
+
+    cloned_style = resolve_page_style(doc, "ClonedWithCellLogos")
+    scan = _scan_region_content(doc, cloned_style.getPropertyValue("HeaderText"))
+    assert len(scan["images"]) == 2, scan

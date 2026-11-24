@@ -421,6 +421,27 @@ def _strip_class_names(start_tag: str) -> str:
     return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
 
 
+_IMG_TITLE_TEXT_RE = re.compile(
+    r'(<img\b[^>]*\balt="([^"]*)"[^>]*>(?:</p>)?)([^<]+)(?=</(?:span|div)>)'
+)
+
+
+def _drop_image_title_text(body: str) -> str:
+    """Drop the duplicate title text LibreOffice's XHTML XSLT emits after <img>.
+
+    filter/source/xslt/odf2xhtml/export/xhtml/body.xsl has no template for
+    svg:title, so createDrawFrame2 prints the title as text after the image
+    (alt holds the escaped form, body text the unescaped form).
+    """
+    # crosshair: off
+    def _sub(match: re.Match[str]) -> str:
+        if _html.unescape(match.group(2)) == _html.unescape(match.group(3)):
+            return match.group(1)
+        return match.group(0)
+
+    return _IMG_TITLE_TEXT_RE.sub(_sub, body)
+
+
 def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> str:
     """Convert raw LO ``XHTML Writer File`` output to the agent-facing semantic HTML.
 
@@ -438,7 +459,7 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)
     m = _BODY_RE.search(full_xhtml or "")
-    body = m.group(1).strip() if m else (full_xhtml or "")
+    body = _drop_image_title_text(m.group(1).strip() if m else (full_xhtml or ""))
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)
     tr.feed(body)
     tr.close()

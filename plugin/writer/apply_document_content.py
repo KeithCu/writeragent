@@ -89,7 +89,6 @@ from plugin.writer.hyperlink_fixup import (
 log = logging.getLogger("writeragent.writer")
 
 
-_TABLE_INSERT_FAILED_MSG = "Table insert produced no table in document."
 _OVERRIDE_NEEDS_ONE_LINK = (
     "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline)."
 )
@@ -274,31 +273,6 @@ def _range_contains_table(text_range: Any) -> bool:
         if elem is not None and uno_read(lambda: elem.supportsService("com.sun.star.text.TextTable"), False):
             return True
     return False
-
-
-def _doc_table_count(doc: Any) -> int | None:
-    """Table count from doc.getTextTables(); None when unreadable (a mock). Disposal propagates."""
-    # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
-    tables = uno_read(lambda: doc.getTextTables(), None)
-    if tables is None:
-        return None
-    count = uno_read(lambda: tables.getCount(), None)
-    return count if isinstance(count, int) else None
-
-
-def _verify_table_insert(doc: Any, before: int | None) -> None:
-    """Raise TABLE_INSERT_FAILED when an import that carries a <table> produced none.
-
-    *before* is the table count captured before the import, 0 when the whole document
-    was cleared first; None means the content has no table, or the count was unreadable;
-    nothing is checked. Call it inside the edit's undo group: commit_or_rollback then
-    undoes the partial import and its review redlines before the error reaches the caller.
-    """
-    if before is None:
-        return
-    after = _doc_table_count(doc)
-    if after is not None and after <= before:
-        raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
 
 def build_search_replace_response(
@@ -828,12 +802,12 @@ class ApplyDocumentContent(ToolBase):
                        plain: str,
                        report: html_import_styles.WriteReport,
                        fix_outline: bool = True,
-                       tables_before: int | None = None) -> list[dict[str, Any]]:
+                       has_table: bool = False) -> list[dict[str, Any]]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
-        match opens one when a URL write is needed. *tables_before* makes a single HTML
-        replace verify its table inside the undo group. Returns the hyperlink reports;
+        match opens one when a URL write is needed. *has_table* verifies that a table
+        import added a table inside the undo group. Returns the hyperlink reports;
         failures raise ToolExecutionError with the code the caller publishes.
         """
         # Anchor spans skip this because their text never equals one link's title;
@@ -865,17 +839,22 @@ class ApplyDocumentContent(ToolBase):
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
-                    report.extend(html_import.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx))
+                    rep = html_import.replace_single_range_with_content(
+                        doc, f, content, ctx.ctx)
+                    if has_table:
+                        html_import.raise_if_no_table_added(rep.tables_added)
+                    report.extend(rep)
 
                 session.record_mutation(
                     replace_one,
                     original_preview=original, proposed_preview=plain)
             else:
                 def replace_single() -> None:
-                    report.extend(html_import.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx))
-                    _verify_table_insert(doc, tables_before)
+                    rep = html_import.replace_single_range_with_content(
+                        doc, found, content, ctx.ctx)
+                    if has_table:
+                        html_import.raise_if_no_table_added(rep.tables_added)
+                    report.extend(rep)
 
                 record_html_atomically(
                     session, doc,
@@ -1450,6 +1429,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
+        html_import.raise_if_hidden_start(ctx.doc)
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1466,7 +1446,8 @@ class ApplyDocumentContent(ToolBase):
                 rep = html_import.replace_full_document(
                     ctx.doc, ctx.ctx, content, kept_images=captured
                 )
-                _verify_table_insert(ctx.doc, 0 if has_table else None)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
                 return rep
 
             report = record_html_atomically(
@@ -1493,7 +1474,6 @@ class ApplyDocumentContent(ToolBase):
         plain = params.plain
         has_table = params.has_table
         target = params.target
-        tables_before = _doc_table_count(ctx.doc) if has_table else None
         # The insert can land at the end of a selection at the document edge; Writer
         # stretches the view selection over text inserted at its end, so put it back.
         with KeepViewSelection(uno_read(lambda: ctx.doc.getCurrentController(), None)), session:
@@ -1501,7 +1481,8 @@ class ApplyDocumentContent(ToolBase):
                 rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
                 )
-                _verify_table_insert(ctx.doc, tables_before)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
                 return rep
 
             report = record_html_atomically(
@@ -1526,14 +1507,14 @@ class ApplyDocumentContent(ToolBase):
         # collapsed position (not the selection range itself) survives the replace.
         rng = request_selection_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
-        tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, "selection", selection=rng
                 )
-                _verify_table_insert(ctx.doc, tables_before)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
                 return rep
 
             report = record_html_atomically(
@@ -1574,7 +1555,6 @@ class ApplyDocumentContent(ToolBase):
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
         headings = _headings_if_touched(doc, ranges)
-        tables_before = _doc_table_count(doc) if params.has_table else None
 
         def mutate() -> None:
             nonlocal count
@@ -1589,11 +1569,10 @@ class ApplyDocumentContent(ToolBase):
                         session, doc, found, use_preserve=params.use_preserve,
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
-                        plain=params.plain, report=report)
+                        plain=params.plain, report=report, has_table=params.has_table)
                     if reports:
                         link_reports.extend(reports)
                     count += 1
-                _verify_table_insert(doc, tables_before)
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
                 _retarget_renamed_links(session, doc, headings, report)
@@ -1802,7 +1781,6 @@ class ApplyDocumentContent(ToolBase):
             edge = found.getStart() if position == "before" else found.getEnd()
             insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
 
-        tables_before = _doc_table_count(doc) if has_table else None
         report = html_import_styles.WriteReport()
 
         def _insert_next_to_match() -> None:
@@ -1812,16 +1790,19 @@ class ApplyDocumentContent(ToolBase):
             elif position != "after":
                 # A block import at the start of the match's paragraph adds paragraphs before it
                 # without merging, the same as target='beginning'.
-                report.extend(html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content))
+                rep = html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
+                report.extend(rep)
             else:
                 # Importing at a paragraph end merges into it; insert_html_after_paragraph
                 # opens a fresh paragraph after it and cleans up the leftover break.
-                report.extend(
-                    html_import.insert_html_after_paragraph(
-                        doc, ctx.ctx, text_obj, insert_cursor, content, apply_styles=True
-                    )
+                rep = html_import.insert_html_after_paragraph(
+                    doc, ctx.ctx, text_obj, insert_cursor, content, apply_styles=True
                 )
-            _verify_table_insert(doc, tables_before)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
+                report.extend(rep)
 
         anchor = collapsed_anchor(found)
         # The insert lands at the end of a match the user often has selected; Writer
@@ -1865,7 +1846,6 @@ class ApplyDocumentContent(ToolBase):
         # is only part of its cell) falls through to the text replace
         # below. Same delete path as table_delete, inside this edit's
         # review session.
-        tables_before = _doc_table_count(doc) if params.has_table else None
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
             # Rollback must stay outside the session: undo cannot run while its undo context is open.
@@ -1879,7 +1859,7 @@ class ApplyDocumentContent(ToolBase):
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
             plain=params.plain, report=report,
             fix_outline=params.anchor is None,
-            tables_before=tables_before)
+            has_table=params.has_table)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,

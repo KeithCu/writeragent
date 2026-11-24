@@ -1080,7 +1080,8 @@ def test_page_break_empty_style_with_restart_does_not_resolve():
 
 def test_copy_region_graphics_skips_non_graphic():
     """AT_PARAGRAPH frames are not TextGraphicObject; they are reported, not copied."""
-    src = object()
+    src = MagicMock()
+    src.createEnumeration.return_value.hasMoreElements.return_value = False
     dest = MagicMock()
     graphic = MagicMock()
     graphic.supportsService.return_value = True

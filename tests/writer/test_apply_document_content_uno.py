@@ -646,3 +646,148 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
 
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from unittest.mock import patch
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer import html_import
+    from plugin.writer.html_export import document_to_content
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    # 1. Selection starting in a leading table and ending in body is refused (off & record).
+    for record in (False, True):
+        _clear_body(doc)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        tbl.getCellByName("A1").setString("old0")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        execute_dispatch(ctx, controller, ".uno:SelectAll")
+        doc.setPropertyValue("RecordChanges", record)
+        try:
+            res = ApplyDocumentContent().execute(tctx, target="selection", content="<p>NEW</p>")
+            assert res.get("status") == "error", res
+            assert res.get("code") == "SELECTION_SPANS_TABLE", res
+            assert tbl.getCellByName("A1").getString() == "old0"
+            assert "tail" in text.getString()
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    from plugin.writer.specialized.sections import SectionCreate, SectionSetVisibility
+
+    # 2. Hidden leading section is refused by full_document (plain and with table).
+    for with_table in (False, True):
+        _clear_body(doc)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "secret", False)
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        sc_res = SectionCreate().execute(tctx, name=f"HiddenTop_{with_table}", locator="paragraph:0")
+        assert sc_res["status"] == "ok", sc_res
+        if with_table:
+            sec = doc.getTextSections().getByName(f"HiddenTop_{with_table}")
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            tbl_cur = text.createTextCursorByRange(sec.getAnchor().getStart())
+            tbl_cur.goRight(1, False)
+            text.insertTextContent(tbl_cur, tbl, False)
+            tbl.getCellByName("A1").setString("secret_tbl")
+        sv_res = SectionSetVisibility().execute(tctx, name=f"HiddenTop_{with_table}", visible=False)
+        assert sv_res["status"] == "ok", sv_res
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+        assert res.get("status") == "error", (res, with_table)
+        assert res.get("code") == "HIDDEN_LEADING_SECTION", res
+        assert "tail" in text.getString()
+
+    # 3. full_document with a stubbed import that loses the table fails with a header table or struck table.
+    _clear_body(doc)
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    htbl = doc.createInstance("com.sun.star.text.TextTable")
+    htbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), htbl, False)
+    text.setString("body")
+    with patch.object(html_import, "insert_html_fragment_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            tctx, target="full_document", content="<table><tr><td>x</td></tr></table>"
+        )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "TABLE_INSERT_FAILED", res
+
+    style.setPropertyValue("HeaderIsOn", False)
+    _clear_body(doc)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        with patch.object(html_import, "insert_html_fragment_at_cursor"):
+            res = ApplyDocumentContent().execute(
+                tctx, target="full_document", content="<table><tr><td>x</td></tr></table>"
+            )
+        assert res.get("status") == "error", res
+        assert res.get("code") == "TABLE_INSERT_FAILED", res
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 4. Selection spanning a table replaced by a table succeeds.
+    _clear_body(doc)
+    text.setString("before")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "after", False)
+    sel_all = text.createTextCursor()
+    sel_all.gotoStart(False)
+    sel_all.gotoEnd(True)
+    controller.select(sel_all)
+    res_ok = ApplyDocumentContent().execute(
+        tctx, target="selection", content="<table><tr><td>replaced</td></tr></table>"
+    )
+    assert res_ok.get("status") == "ok", res_ok
+
+    # 5. Titled picture round-trips through full_document without duplicating title text.
+    _clear_body(doc)
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        text.setString("abc")
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AS_CHARACTER)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g, False)
+        g.setPropertyValue("Title", "ti")
+        html = document_to_content(doc, ctx, scope="full", include_images=False)
+        res_pic = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
+        assert res_pic.get("status") == "ok", res_pic
+        assert doc.getGraphicObjects().getCount() == 1
+        assert text.getString().strip() == "abc"
+    finally:
+        os.unlink(img_path)

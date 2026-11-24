@@ -255,7 +255,8 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(html_import, "insert_html_at_cursor"):
+         patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=0)), \
+         patch.object(html_import, "insert_html_after_paragraph", return_value=html_import_styles.WriteReport(tables_added=0)):
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=["<p>novo</p>"], target="search", old_content="fim.", position="after")
     assert res["status"] == "ok" and "snapped_to_paragraph" not in res
@@ -272,11 +273,11 @@ def test_position_after_table_preserves_table():
     cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
     ctx = _edit_ctx()
     # Mock table count to increase from 0 to 1 so honesty check passes.
-    ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
+    ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1]
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(html_import, "insert_html_at_cursor"):
+         patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=1)):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
             target="search", old_content="world", position="after")
@@ -300,7 +301,8 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(html_import, "insert_html_at_cursor"):
+         patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=0)), \
+         patch.object(html_import, "insert_html_after_paragraph", return_value=html_import_styles.WriteReport(tables_added=0)):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
             target="search", old_content="world", position=position)
@@ -1662,7 +1664,7 @@ def test_all_matches_disposed_undo_manager_reraises():
             "end",
             {},
             [
-                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
+                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport(tables_added=0)}),
                 ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
             ],
             id="end",
@@ -1672,7 +1674,7 @@ def test_all_matches_disposed_undo_manager_reraises():
             {},
             [
                 ("plugin.writer.apply_document_content.request_selection_range", {"return_value": None}),
-                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
+                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport(tables_added=0)}),
             ],
             id="selection",
         ),
@@ -1683,7 +1685,7 @@ def test_all_matches_disposed_undo_manager_reraises():
                 ("plugin.writer.search.find_literal_ranges", {"return_value": ([MagicMock()], MatchMode(True, False))}),
                 ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
                 ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
-                ("plugin.writer.html_import.replace_single_range_with_content", {"return_value": html_import_styles.WriteReport()}),
+                ("plugin.writer.html_import.replace_single_range_with_content", {"return_value": html_import_styles.WriteReport(tables_added=0)}),
             ],
             id="search",
         ),
@@ -1709,30 +1711,19 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
 
 
 def test_table_insert_failed_inside_outline_undo_keeps_code():
-    from plugin.framework.errors import ToolExecutionError
-
     ctx = _edit_ctx()
     with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
-         patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
-         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch("plugin.writer.apply_document_content._verify_table_insert",
-               side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")):
+         patch("plugin.writer.html_import.replace_single_range_with_content",
+               return_value=html_import_styles.WriteReport(tables_added=0)), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links:
         cap_links.return_value.links = [MagicMock()]
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
-
-
-def test_table_count_read_reraises_disposed():
-    ctx = _edit_ctx()
-    ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.html_import.insert_content_at_position"):
-        with pytest.raises(DocumentDisposedError):
-            ApplyDocumentContent().execute(ctx, content="<table><tr><td>X</td></tr></table>", target="end")
 
 
 @pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
@@ -1853,6 +1844,7 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
 
 def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() -> None:
     from types import SimpleNamespace
+    from plugin.framework.errors import ToolExecutionError
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.search import MatchMode
 
@@ -1867,7 +1859,11 @@ def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() 
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]), \
+         patch.object(
+             ApplyDocumentContent,
+             "_replace_found",
+             side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED"),
+         ), \
          patch("plugin.writer.apply_document_content.commit_or_rollback") as mock_cor:
         def run_mutate(_doc, _title, mutate, session=None):
             try:

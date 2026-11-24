@@ -1167,3 +1167,145 @@ def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any
     html_cell = document_to_content(doc, ctx, scope="selection")
     assert "T0" in html_cell and "tail" not in html_cell, html_cell
 
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import re
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+
+    def _add_pic(target_text: Any, anchor_type: Any, name: str, at_end: bool = True) -> None:
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", anchor_type)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        cur = target_text.createTextCursor()
+        if at_end:
+            cur.gotoEnd(False)
+        else:
+            cur.gotoStart(False)
+        target_text.insertTextContent(cur, g, False)
+        g.setName(name)
+
+    def _img_ids(html: str) -> list[str]:
+        return re.findall(r'<(?:div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b', html)
+
+    try:
+        text = doc.getText()
+        controller = doc.getCurrentController()
+
+        # 1. Earlier picture shifts automatic names; range & selection keep real names across 3 anchors.
+        for anchor_type in (AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH):
+            tag = anchor_type.value
+            text.setString("intro")
+            _add_pic(text, AT_PARAGRAPH, f"EarlierPic_{tag}")
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertControlCharacter(cur, 0, False)
+            cur.gotoEnd(False)
+            text.insertString(cur, "one ", False)
+            _add_pic(text, anchor_type, f"PicA_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " two ", False)
+            _add_pic(text, anchor_type, f"PicB_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " three", False)
+
+            full_html = document_to_content(doc, ctx, scope="full", include_images=False)
+            full_ids = _img_ids(full_html)
+            assert f"PicA_{tag}" in full_ids and f"PicB_{tag}" in full_ids, full_html
+
+            # Range read covering the second paragraph.
+            full_str = text.getString()
+            p2_start = full_str.index("one")
+            range_html = document_to_content(
+                doc, ctx, scope="range", range_start=p2_start, range_end=len(full_str), include_images=False
+            )
+            assert _img_ids(range_html) == [f"PicA_{tag}", f"PicB_{tag}"], range_html
+
+            # Selection read over the second paragraph.
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoEnd(False)
+            sel_cur.gotoStartOfParagraph(True)
+            controller.select(sel_cur)
+            sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+            assert _img_ids(sel_html) == [f"PicA_{tag}", f"PicB_{tag}"], sel_html
+
+        # 2. Selection write-back keeps both pictures, off and recorded + Accept.
+        text.setString("")
+        text.insertString(text.getStart(), "one ", False)
+        _add_pic(text, AS_CHARACTER, "SelA")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, " two ", False)
+        _add_pic(text, AS_CHARACTER, "SelB")
+        cur.gotoEnd(False)
+        text.insertString(cur, " three", False)
+
+        sel_cur = text.createTextCursor()
+        sel_cur.gotoStart(False)
+        sel_cur.gotoEnd(True)
+        controller.select(sel_cur)
+        sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+        tctx = native_writer_tool_context(doc, ctx)
+        res = ApplyDocumentContent().execute(
+            tctx, target="selection", content=sel_html.replace("three", "THREE")
+        )
+        assert res.get("status") == "ok", res
+        assert doc.getGraphicObjects().getCount() == 2
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoStart(False)
+            sel_cur.gotoEnd(True)
+            controller.select(sel_cur)
+            sel_html2 = document_to_content(doc, ctx, scope="selection", include_images=False)
+            res2 = ApplyDocumentContent().execute(
+                tctx, target="selection", content=sel_html2.replace("one", "ONE")
+            )
+            assert res2.get("status") == "ok", res2
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 2
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        # 3. Image-only first paragraph is included at range_start=0.
+        text.setString("")
+        _add_pic(text, AT_PARAGRAPH, "FirstParaPic", at_end=False)
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "after", False)
+        r0 = document_to_content(doc, ctx, scope="range", range_start=0, range_end=3, include_images=False)
+        assert "FirstParaPic" in _img_ids(r0), r0
+
+        # 4. Cell picture in range read.
+        text.setString("")
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        cell = tbl.getCellByName("A1")
+        cell.setString("cell")
+        _add_pic(cell, AT_PARAGRAPH, "CellPic")
+        r_cell = document_to_content(doc, ctx, scope="range", range_start=0, range_end=10, include_images=False)
+        assert "CellPic" in _img_ids(r_cell), r_cell
+    finally:
+        os.unlink(img_path)

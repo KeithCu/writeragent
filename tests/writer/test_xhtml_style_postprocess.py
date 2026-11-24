@@ -381,3 +381,28 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
     _p, ov_none = parse_fodt_autostyles(make_fodt(""))
     assert ov_none["P1"] == "text-align:left"
 
+
+
+def test_xhtml_to_semantic_html_drops_image_title_text():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    cases = [
+        '<p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</span>abc</p>',
+        '<div id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</div><p>abc</p>',
+        '<h1><span id="Image1"><p><img alt="ti" src="data:image/png;base64,AA=="/></p>ti</span>abc</h1>',
+        '<p><span id="Image1"><img alt="a &lt;b&gt; &amp; &quot;q&quot;" src="data:image/png;base64,AA=="/>a &lt;b&gt; &amp; "q"</span></p>',
+        '<p><span id="Image1"><img alt="two&#10;lines" src="data:image/png;base64,AA=="/>two\nlines</span></p>',
+    ]
+    for body in cases:
+        out = xhtml_to_semantic_html(f"<html><body>{body}</body></html>")
+        assert "<img" in out
+        assert "ti</span>abc" not in out
+        assert "ti</div>" not in out
+        assert 'alt="' in out
+        assert "two\nlines</span>" not in out
+        assert '"q"</span>' not in out
+
+    kept = xhtml_to_semantic_html(
+        '<html><body><p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>other</span></p></body></html>'
+    )
+    assert "other</span>" in kept
