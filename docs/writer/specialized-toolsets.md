@@ -493,8 +493,8 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   [`plugin/writer/range_copy.py`](../../plugin/writer/range_copy.py) recreates an
   in-cell table via `copy_table(..., dest_text=dest_cell, ...)` and recurses. Copy walks
   `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
-  helper stays in this shipped file, not `specialized.tables`). Images in
-  cells are still not copied there.
+  helper stays in this shipped file, not `specialized.tables`). Cell images are copied
+  for header/footer reads (`graphics=True`), not body range reads or page-style clones.
 - **`apply_content` refuses a host-cell wipe.** Search/replace and selection
   clear raise if the range lives in a cell that hosts a nested table. Use
   `table_set_cell` / `table_*`. `target='full_document'` is not policed (a full
@@ -518,7 +518,7 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   section (those are a different `XText`).
 - No surgical HTML rewrite of a host cell that keeps the inner table — the apply path
   refuses instead of trying to preserve through `setString("")`.
-- Cell images are still omitted from `_copy_cell_xtext`.
+- Cell images are omitted from body range reads and page-style clones (copied only for header/footer reads).
 
 ### 6.9 Feature: Structural Integrity & Object Preservation
 
@@ -701,7 +701,7 @@ For recent feature additions:
 - `[feature M many]` AutoText tools and richer multi-level TOC enhancement. (§ Domain, modules, and extended LO surface)
 - `[fidelity S few]` Text frame x/y positioning, image watermarks, and `embedded_edit` for the OLE domain. (§ Domain, modules, and extended LO surface)
 - `[fidelity S few]` Mail merge via email, labels and envelopes (only file and printer output exist). (§ Domain, modules, and extended LO surface)
-- `[fidelity M many]` Per-cell table formatting, surgical rewrite of a host cell that keeps its nested table, and copying cell images in HTML export. (§ Still open / out of scope)
+- `[fidelity M many]` Per-cell table formatting, surgical rewrite of a host cell that keeps its nested table, and copying cell images in body range reads / page-style clones. (§ Still open / out of scope)
 - `[fidelity S few]` Table-set-cell inside a frame or section within a host cell. (§ Still open / out of scope)
 - `[feature L many]` Tokenized placeholder protocol so whole-document rewrites keep images, shapes and OLE objects. (§ Strategy 1: Tokenized Placeholder Protocol (Recommended))
 - `[feature L many]` Batch Section Rewriting mode that applies one instruction per heading section with review or apply flow. (§ 8.1 Possible Feature: Batch Section Rewriting)

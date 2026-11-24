@@ -1605,11 +1605,16 @@ def test_tracked_row_delete_refuses_tall_cell_without_dispatch(tall_cell):
         name="T",
         row_spans={tall_cell: 2},
     )
+=======
+def test_tracked_row_delete_refuses_tall_edge_cell_without_dispatch():
+    table = _TrackingTable(3, 2, cells={"A1": "Tall", "B1": "Top"}, name="T", row_spans={"A1": 2})
+>>>>>>> origin/master
     doc = _TrackingDoc({"T": table})
     res = ManageTableStructure().execute_safe(
         SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
     )
     assert res["status"] == "error"
+<<<<<<< HEAD
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
     assert tall_cell in res["message"]
     assert doc.dispatched == []
@@ -1637,6 +1642,51 @@ def test_untracked_row_delete_covered_row_still_removes():
     res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=1)
     assert res["status"] == "ok"
     assert table._rows.removes == [(1, 1)]
+
+
+def test_pending_insertions_detects_inserted_table_spans():
+    from plugin.writer.specialized.tables import _pending_insertions
+
+    class _Node:
+        def __init__(self, name, is_table):
+            self._name = name
+            self._is_table = is_table
+
+        def supportsService(self, svc):
+            return self._is_table and svc == "com.sun.star.text.TextTable"
+
+        def getName(self):
+            return self._name
+
+    def _redline(rtype, start, end):
+        props = {"RedlineType": rtype, "RedlineStart": start, "RedlineEnd": end}
+        return SimpleNamespace(getPropertyValue=lambda k: props[k])
+
+    def _doc_with(redlines):
+        def _enum():
+            items = list(redlines)
+            return SimpleNamespace(
+                hasMoreElements=lambda: bool(items),
+                nextElement=lambda: items.pop(0),
+            )
+
+        return SimpleNamespace(
+            getRedlines=lambda: SimpleNamespace(
+                getCount=lambda: len(redlines),
+                createEnumeration=_enum,
+            )
+        )
+
+    names = ["T1", "T2", "T3"]
+    t2 = _Node("T2", True)
+    t3 = _Node("T3", True)
+    body = _Node("body", False)
+    cell = _Node("A1", False)
+
+    assert _pending_insertions(_doc_with([_redline("Insert", t2, body)]), names) == {"T2", "T3"}
+    assert _pending_insertions(_doc_with([_redline("Insert", t2, t3)]), names) == {"T2"}
+    assert _pending_insertions(_doc_with([_redline("Insert", cell, body)]), names) == set()
+    assert _pending_insertions(_doc_with([_redline("Delete", t2, body)]), names) == set()
 
 
 

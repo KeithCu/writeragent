@@ -642,3 +642,42 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert rc.source_style(model, "Nope", cache) is None
     assert rc.source_style(model, "", cache) is None
+
+
+def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import range_copy as rc
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    frame_portion = MagicMock()
+    frame_portion.getPropertyValue.side_effect = lambda k: "Frame" if k == "TextPortionType" else None
+
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([frame_portion])
+
+    src_cell = MagicMock()
+    src_cell.createEnumeration.side_effect = lambda: _Enum([para])
+    dest_cell = MagicMock()
+
+    with (
+        patch.object(rc, "visible_portions", return_value=[(frame_portion, "")]),
+        patch.object(rc, "_copy_math_or_text", return_value=""),
+        patch.object(rc, "_clone_graphics", return_value=1) as clone,
+    ):
+        rc._copy_cell_xtext(src_cell, MagicMock(), dest_cell)
+        assert clone.call_count == 0
+
+        rc._copy_cell_xtext(src_cell, MagicMock(), dest_cell, graphics=True)
+        assert clone.call_count == 2
+        assert clone.call_args_list[0].args[0] is frame_portion
+        assert clone.call_args_list[1].args[0] is para

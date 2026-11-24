@@ -34,7 +34,7 @@ from plugin.doc.visual_helpers import (
 from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
-from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
+from plugin.writer.edit_review import flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno

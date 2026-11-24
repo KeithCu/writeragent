@@ -47,7 +47,7 @@ from plugin.writer.target_resolver import request_selection_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
-from plugin.writer.specialized.tables import record_table_deletions
+from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
 from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
@@ -63,7 +63,13 @@ from plugin.framework.errors import (
 from plugin.doc.text_helpers import KeepViewSelection
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
-from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
+from plugin.writer import (
+    html_import,
+    html_import_styles,
+    image_placeholders,
+    record_changes,
+    search as search_mod,
+)
 from plugin.writer.heading_links import (
     document_headings,
     headings_if_touched,
@@ -1373,18 +1379,29 @@ class ApplyDocumentContent(ToolBase):
         content = params.content
         plain = params.plain
         has_table = params.has_table
+        # Capture data-less image placeholders BEFORE clear_first deletes leading
+        # tables: with review off (or own pending-insertion tables), deleting the
+        # table disposes its pictures so they can no longer be read.
+        captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
         headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
         with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
-                rep = html_import.replace_full_document(ctx.doc, ctx.ctx, content)
+                rep = html_import.replace_full_document(
+                    ctx.doc, ctx.ctx, content, kept_images=captured
+                )
                 _verify_table_insert(ctx.doc, 0 if has_table else None)
                 return rep
 
             report = record_html_atomically(
-                session, ctx.doc, mutate, proposed_preview=plain)
+                session,
+                ctx.doc,
+                mutate,
+                clear_first=lambda: delete_leading_tables(session, ctx.doc, ctx.ctx),
+                proposed_preview=plain,
+            )
             report.links_retargeted, report.stale_links = retarget_renamed_links(session, ctx.doc, headings)
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {

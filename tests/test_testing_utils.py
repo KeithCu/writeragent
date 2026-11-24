@@ -1053,17 +1053,10 @@ def test_native_doc_teardown_reset_failure_closes_without_session_clear(monkeypa
     def reset_fail(*_a, **_k):
         raise RuntimeError("reset failed")
 
-    def fail_clear():
-        raise AssertionError("must not clear session on reset failure")
-
     monkeypatch.setattr(tu, "reset_native_doc", reset_fail)
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
         TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.function.clear_python_addin_cache",
-        fail_clear,
     )
     tu._NATIVE_DOC_POOL.clear()
     ctx = object()

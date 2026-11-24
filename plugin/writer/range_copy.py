@@ -11,7 +11,14 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.doc.text_helpers import FAILED, DeletionState, TrackedDeletions, iter_elements, visible_portions
+from plugin.doc.text_helpers import (
+    FAILED,
+    DeletionState,
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    visible_portions,
+)
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -478,12 +485,13 @@ def _copy_visible_portions(
     *,
     in_cell: bool,
     state: DeletionState,
+    graphics: bool = False,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
 
     Tracked deletions are left out. Returns ``(portion, text)`` pairs where
     ``len(text)`` is the portion's cursor steps in the destination. Cells paint
-    each run as they go and skip graphics.
+    each run as they go; Frame graphics are cloned only when *graphics* is true.
     """
     copied: list[tuple[Any, str]] = []
     for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state):
@@ -503,7 +511,7 @@ def _copy_visible_portions(
             copied.append((portion, chunk))
         else:
             text = _copy_math_or_text(portion, para, dest_text, cursor, math_records)
-            if not text and kind == "Frame" and not in_cell:
+            if not text and kind == "Frame" and graphics:
                 text = OBJECT_REPLACEMENT * _clone_graphics(portion, dest_doc, dest_text, cursor)
             if text:
                 copied.append((portion, text))
@@ -515,8 +523,10 @@ def _copy_cell_xtext(
     dest_doc: Any,
     dest_cell: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
+    *,
+    graphics: bool = False,
 ) -> None:
-    """Copy one table cell: text + fields. Images in cells are not copied here."""
+    """Copy one table cell: text + fields, and graphics when *graphics* is true."""
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
     dest_cursor = dest_cell.createTextCursor()
@@ -537,9 +547,21 @@ def _copy_cell_xtext(
         fresh = supports_service(para, "com.sun.star.text.TextTable")
         if fresh:
             # Recreate the nested table inside dest_cell (same walk as body copy_table).
-            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
+            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records, graphics=graphics)
             continue
-        _copy_visible_portions(para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state)
+        _copy_visible_portions(
+            para,
+            dest_doc,
+            dest_cell,
+            dest_cursor,
+            math_records,
+            in_cell=True,
+            state=state,
+            graphics=graphics,
+        )
+        if graphics:
+            dest_cursor.gotoEnd(False)
+            _clone_graphics(para, dest_doc, dest_cell, dest_cursor)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -621,6 +643,8 @@ def copy_table(
     dest_text: Any,
     dest_cursor: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    *,
+    graphics: bool = False,
 ) -> None:
     """Recreate *src_table* before *dest_cursor* in *dest_text*.
 
@@ -652,7 +676,7 @@ def copy_table(
             except Exception as exc:
                 log.debug("copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
-            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records, graphics=graphics)
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -663,7 +687,7 @@ def copy_table(
                 except Exception as exc:
                     log.debug("copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
-                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records, graphics=graphics)
 
 
 def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
@@ -719,7 +743,7 @@ def _copy_xtext_by_portions(
             begin_next_paragraph(dest_text, dest_cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
-            copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
+            copy_table(el, dest_doc, dest_text, dest_cursor, math_records, graphics=True)
             continue
         style = None
         style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
@@ -729,7 +753,7 @@ def _copy_xtext_by_portions(
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
         copied = _copy_visible_portions(
-            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state
+            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state, graphics=True
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
@@ -773,6 +797,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
+            # graphics=False: page-style clone handles only graphics anchored in the
+            # region text (page._copy_region_graphics); cell images are an open limit.
             copy_table(el, doc, dest_text, cursor, None)
             continue
         for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
@@ -791,6 +817,26 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
         _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied
+
+
+def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
+    """True when *cells* have some raw text and no cell has visible text left."""
+    deletions = TrackedDeletions(doc)
+    has_raw = False
+    for cell in cells:
+        if uno_read(cell.getString, ""):
+            has_raw = True
+        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
+            return False
+    return has_raw
+
+
+def table_is_all_deleted(doc: Any, table: Any) -> bool:
+    """True when every cell of *table* has lost all visible text (with some raw text)."""
+    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
+    if not names:
+        return False
+    return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
 
 
 # TextGraphicObject property list (shared with page._copy_region_graphics).
