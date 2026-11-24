@@ -15,12 +15,13 @@ from typing import Any
 
 from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import (
-    DeletionState,
+    TrackedDeletions,
     build_heading_tree,
     get_string_without_tracked_deletions,
     iter_elements,
     iter_heading_nodes,
     selected_text_range,
+    visible_range_text,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
@@ -75,7 +76,7 @@ def _get_writer_selection_text(doc: Any) -> str:
         rng = selected_text_range(controller)
         if rng is None:
             return ""
-        return get_string_without_tracked_deletions(rng) or ""
+        return visible_range_text(doc, rng) or ""
     except Exception as exc:
         # Re-raise DocumentDisposedError so callers handle closed documents.
         reraise_if_disposed(exc)
@@ -89,7 +90,7 @@ def _get_writer_text(doc: Any) -> str:
         if not is_writer(doc):
             return ""
         text = doc.getText()
-        return get_string_without_tracked_deletions(text) or ""
+        return visible_range_text(doc, text) or ""
     except Exception as exc:
         # reraise_if_disposed stops on closed documents; getString() is omitted so tracked deletions do not leak into analysis text.
         reraise_if_disposed(exc)
@@ -132,7 +133,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
             elif current_title and current_title != "Introduction / preamble":
                 sections.append(current_title)
 
-        state = DeletionState()
+        state = TrackedDeletions(doc).state_at(text_obj)
         para_index = 0
         for el in iter_elements(enum):
             try:

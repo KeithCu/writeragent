@@ -10,7 +10,13 @@ import logging
 import re
 from typing import Any, Iterator, NamedTuple, Sequence
 
-from plugin.doc.text_helpers import FAILED, DeletionState, go_right
+from plugin.doc.text_helpers import (
+    FAILED,
+    DeletionState,
+    TrackedDeletions,
+    go_right,
+    iter_xtext_paragraphs,
+)
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 import plugin.writer.range_copy as range_copy
 
@@ -212,10 +218,10 @@ def inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None 
         return content
 
     def _collect() -> list[RubySpan]:
-        state = DeletionState()
+        body = model.getText()
         return [
             span
-            for para in range_copy.iter_xtext_paragraphs(model.getText())
+            for para, state in iter_xtext_paragraphs(body, TrackedDeletions(model).state_at(body))
             for span in _iter_ruby_spans_in_paragraph(para, state=state)
         ]
 

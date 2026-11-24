@@ -272,6 +272,11 @@ class ElementStub:
     def getText(self):
         return self
 
+    def createEnumeration(self):
+        from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
+        return FakeUnoEnum([FakeUnoPortion("Text", self.text)])
+
 class WriterDocStub:
     def __init__(self, elements=None, doc_type="writer", items=None):
         self.elements = elements or []

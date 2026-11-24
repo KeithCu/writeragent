@@ -333,3 +333,39 @@ def test_read_starmath_raises_on_disposed_embed() -> None:
 
     with pytest.raises(DocumentDisposedError):
         read_starmath(embed)
+
+
+def test_iter_writer_math_objects_skips_formula_between_delete_markers() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math.math_mml_convert import MATH_CLSID
+    from plugin.writer.math.math_mml_export import iter_writer_math_objects
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    struck_embed = MagicMock()
+    struck_embed.CLSID = MATH_CLSID
+    struck_embed.getEmbeddedObject.return_value.Formula = "a + b"
+    struck_embed.getName.return_value = "Obj1"
+    struck_frame = FakeUnoPortion("Frame")
+    struck_frame.createContentEnumeration = lambda _svc: FakeUnoEnum([struck_embed])
+
+    live_embed = MagicMock()
+    live_embed.CLSID = MATH_CLSID
+    live_embed.getEmbeddedObject.return_value.Formula = "x + 1"
+    live_embed.getName.return_value = "Obj2"
+    live_frame = FakeUnoPortion("Frame")
+    live_frame.createContentEnumeration = lambda _svc: FakeUnoEnum([live_embed])
+
+    para = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        struck_frame,
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        live_frame,
+    ])
+    body = MagicMock()
+    body.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
+    model = MagicMock()
+    model.getText.return_value = body
+    model.getRedlines.return_value.hasElements.return_value = False
+
+    hits = list(iter_writer_math_objects(model))
+    assert [h.starmath for h in hits] == ["x + 1"]

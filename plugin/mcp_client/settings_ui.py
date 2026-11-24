@@ -25,7 +25,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
 )
 from plugin.framework import config, keystore
-from plugin.framework.config import get_config, resolve_entry_secret
+from plugin.framework.config import entry_secret_field_text, get_config
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation
@@ -90,7 +90,6 @@ class McpServersEditor:
         self._controls: dict[str, Any] = controls
         self._servers: dict[str, Any] = copy.deepcopy(servers)
         self._current: str | None = next(iter(self._dict_names()), None)
-        self._unreadable: set[str] = set()
         self._snapshot: dict[str, tuple[str, str]] = {}
         self._status: dict[str, str] = {}
         self._inflight: dict[str, tuple[int, SendCancellation]] = {}
@@ -141,18 +140,14 @@ class McpServersEditor:
             self._current = name
             entry = self._servers[name]
             raw_token = entry.get("token")
-            token_text = resolve_entry_secret(SERVERS_KEY, name, "token", raw_token)
-            unreadable = keystore.is_ref(raw_token) and not token_text
-            if unreadable:
-                self._unreadable.add(name)
-            else:
-                self._unreadable.discard(name)
+            token_text = entry_secret_field_text(SERVERS_KEY, name, "token", raw_token)
+            unreadable = keystore.is_ref(token_text)
             url_text = str(entry.get("url") or "")
             enabled = server_enabled(entry)
             trusted = server_trusted(entry)
             status_text = self._status.get(name, "")
             if not status_text and unreadable:
-                status_text = _("The token is in the keyring but could not be read; unlock the keyring to see it.")
+                status_text = _("The token is in the keyring but could not be read. Unlock the keyring to see it, or clear the Token field to remove it.")
         else:
             self._current = None
             url_text = ""
@@ -210,10 +205,9 @@ class McpServersEditor:
         current_trusted = server_trusted(entry)
         if trusted != current_trusted:
             entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
-        # A keyring that opened locked leaves the token field blank; never wipe the stored ref on OK.
         if token:
             entry["token"] = token
-        elif old not in self._unreadable:
+        else:
             entry.pop("token", None)
 
         if raw_name and raw_name != old:
@@ -223,9 +217,9 @@ class McpServersEditor:
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return
-            if old in self._unreadable:
+            if keystore.is_ref(entry.get("token")):
                 self._servers[old] = entry
-                msg = _("Unlock the keyring before renaming this server.")
+                msg = _("Unlock the keyring or clear the Token field before renaming this server.")
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return
@@ -264,7 +258,6 @@ class McpServersEditor:
         self._probed.pop(old, None)
         self._status.pop(old, None)
         self._snapshot.pop(old, None)
-        self._unreadable.discard(old)
         self._load(next(iter(self._dict_names()), None))
 
     def probe_if_changed(self) -> None:

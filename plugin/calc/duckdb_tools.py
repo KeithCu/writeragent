@@ -420,9 +420,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, ent
     """On a conversion miss, Save As the imported XLSX/XLS into the folder cache.
 
     ``opened_flag`` is the live-workbook guard: False means we reused a
-    desktop document, so we must not ``storeToURL`` it. Do not call
-    ``_source_is_open_workbook`` here — after a hidden open the source
-    *is* loaded, which would skip every miss write.
+    desktop document, so we must not ``storeToURL`` it.
     """
     if not opened_flag or entry is None:
         return

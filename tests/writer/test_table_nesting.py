@@ -115,15 +115,19 @@ def test_host_read_hides_pending_tracked_deletion() -> None:
             _Portion(TextPortionType="Redline", RedlineType="Delete", IsStart=False),
         ],
     )
+    from plugin.doc.text_helpers import DeletionState
+
     cell = _Cell([para])
     assert para.getString() == "novavelha"
-    assert cell_plain_siblings(cell) == "nova"
-    assert cell_plain_siblings(cell) != "novavelha"
+    assert cell_plain_siblings(cell, DeletionState()) == "nova"
+    assert cell_plain_siblings(cell, DeletionState()) != "novavelha"
 
 
 def test_host_read_skips_frame_text() -> None:
+    from plugin.doc.text_helpers import DeletionState
+
     cell = _Cell([_Paragraph("CAPTION"), _Table("Child"), _Frame([_Paragraph("FRAME")])])
-    res = cell_plain_siblings(cell)
+    res = cell_plain_siblings(cell, DeletionState())
     assert res == "CAPTION"
     assert "FRAME" not in res
 
@@ -145,20 +149,24 @@ def test_set_host_paragraphs_writes_only_direct_paragraphs() -> None:
 
 
 def test_host_set_then_get_round_trip_ignores_frame_text() -> None:
+    from plugin.doc.text_helpers import DeletionState
+
     frame_p = _Paragraph("frame text")
     frame = _Frame([frame_p])
     table = _Table("Nested")
     cell = _Cell([frame, table])
 
-    assert cell_plain_siblings(cell) == ""
+    assert cell_plain_siblings(cell, DeletionState()) == ""
     set_host_paragraphs(cell, "cap")
-    assert cell_plain_siblings(cell) == "cap"
+    assert cell_plain_siblings(cell, DeletionState()) == "cap"
     assert frame_p.getString() == "frame text"
 
 
 def test_host_read_drops_blank_paragraphs() -> None:
+    from plugin.doc.text_helpers import DeletionState
+
     cell = _Cell([_Paragraph(""), _Paragraph("A"), _Paragraph("")])
-    assert cell_plain_siblings(cell) == "A"
+    assert cell_plain_siblings(cell, DeletionState()) == "A"
 
 
 def test_nested_table_discovery_follows_frame_portions() -> None:

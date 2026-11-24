@@ -31,7 +31,7 @@ import plugin.mcp_server.mcp_session as mcp_session
 from plugin.mcp_server.cors import reload_cors_policy_from_config
 from plugin.mcp_server.routes import json_route
 from plugin.mcp_server.server import mcp_endpoint_url
-from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
+from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, provider_uses_token, tunnel_status_line
 from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger("writeragent.http")
@@ -326,12 +326,14 @@ class McpModule(ModuleBase):
         tunnel.note_pending_start(start_token)
 
         def _start() -> None:
-            token_key = "mcp.tunnel_provider_token"
-            configured = get_config(token_key)
-            provider_token: str | None = get_secret_config(token_key)
-            if not provider_token and keystore.is_ref(configured):
-                # Saved in the keystore but unreadable: locked, prompt cancelled, or the item is gone.
-                provider_token = None
+            provider_token: str | None = ""
+            if provider_uses_token(provider):
+                token_key = "mcp.tunnel_provider_token"
+                configured = get_config(token_key)
+                provider_token = get_secret_config(token_key)
+                if not provider_token and keystore.is_ref(configured):
+                    # Saved in the keystore but unreadable: locked, prompt cancelled, or the item is gone.
+                    provider_token = None
             before = tunnel.last_error
             ok = tunnel.start(port_i, provider, provider_token=provider_token, start_token=start_token)
             # A superseded start (stop, or a newer arm) returns False without

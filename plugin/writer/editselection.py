@@ -40,7 +40,7 @@ from plugin.chatbot.selection import (
     stream_completion,
 )
 from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, selected_text_range
+from plugin.doc.text_helpers import normalize_linebreaks, selected_text_range, visible_range_text
 from plugin.writer.edit_review import (
     TRACKED_SELECTION_MESSAGE,
     TrackedChangesInSelection,
@@ -73,12 +73,12 @@ def _selection_target(
     # deletion-only ranges that read as empty still block Extend/Edit with the
     # tracked-changes message instead of reaching setString silently.
     try:
-        refuse_tracked_insert_or_delete(text_range)
+        refuse_tracked_insert_or_delete(model, text_range)
     except TrackedChangesInSelection:
         msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
         return None
     # Read visible text without tracked deletions so deleted text is not sent in the prompt.
-    original_text = get_string_without_tracked_deletions(text_range)
+    original_text = visible_range_text(model, text_range)
     if not original_text:
         if not silent_empty:
             msgbox(ctx, title, _("Select text first"))
@@ -204,12 +204,12 @@ def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | No
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
     try:
-        refuse_tracked_insert_or_delete(cursor)
+        refuse_tracked_insert_or_delete(model, cursor)
     except TrackedChangesInSelection:
         msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
         return None
     # Read visible text without tracked deletions so deleted text is not sent in the prompt.
-    original_text = normalize_linebreaks(get_string_without_tracked_deletions(cursor))
+    original_text = normalize_linebreaks(visible_range_text(model, cursor))
     if not original_text.strip():
         msgbox(ctx, title, _("The document is empty."))
         return None
