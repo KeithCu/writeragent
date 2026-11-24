@@ -42,8 +42,9 @@ MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 
 # Slot 0 starts this far (1/100 mm) inside the cell's far edge. Calc anchors a moved shape to
 # the cell under its top-left corner (ScDrawView adjustAnchoredPosition, drawvie3.cxx); exactly
-# on the edge that is the next column. Anchored there, the plot would not follow a cut and
-# pasted formula, and would lose its owner in XLSX, which drops the wa-plot tag.
+# on the edge that is the next column, and smaller insets round onto the next column for some
+# widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none). Anchored there, the plot would not
+# follow a cut and pasted formula, and would lose its owner in XLSX, which drops the wa-plot tag.
 _PLOT_EDGE_INSET = 10
 
 # Only shapes we created for a plot are replaced on the next insert. A user
@@ -304,10 +305,11 @@ def _slot_cursor(
     """Calculate the cursor (x, y) for placing a non-fill shape at image_index.
 
     Starts just inside the cell's or merged range's far edge (right in LTR, left in RTL;
-    matching ``ScViewFunc::InsertPythonPlotPictures`` in ``viewfun7.cxx`` for direction) so the
-    plot does not cover the cell. For each slot index < image_index, if the slot shape is
-    resolved, advances the cursor to that shape's live outer edge and aligns to its top Y. If
-    any intermediate slot is missing, stops advancing and places at the last known edge.
+    matching Collabora Online's ``ScViewFunc::InsertPythonPlotPictures`` in ``viewfun7.cxx``
+    for direction) so the plot does not cover the cell. For each slot index < image_index, if
+    the slot shape is resolved, advances the cursor to that shape's live outer edge and aligns
+    to its top Y. If any intermediate slot is missing, stops advancing and places at the last
+    known edge.
 
     In RTL sheets (TableLayout == 1), Calc core mirrors visual cell bounds
     (sc/source/core/data/documen3.cxx:2092 ScDocument::GetMMRect via MirrorRectRTL when
@@ -315,6 +317,7 @@ def _slot_cursor(
     edge and Position.X + Width is the right visual edge, so slots chain leftwards from the
     left edge.
     """
+    # A hidden column has zero width, so clamp the inset so the start stays inside the cell.
     inset = min(_PLOT_EDGE_INSET, int(cell_size.Width))
     edge = _slot_edge(cell_pos, cell_size, rtl)
     cursor_x = edge + inset if rtl else edge - inset

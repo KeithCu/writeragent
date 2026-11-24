@@ -665,6 +665,39 @@ def test_mixed_image_result_spills_value(monkeypatch: pytest.MonkeyPatch) -> Non
     assert inserted == [0]
 
 
+def test_mixed_dataframe_with_image_column_spills_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A top-level DataFrame envelope with a figure column normalizes via result_to_calc_grid and spills."""
+    _function.clear_python_addin_cache()
+    reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///df_mixed.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PYTHON("df_mixed")')
+    ctx = _ctx_with_doc(doc)
+
+    _patch_immediate_debounce(monkeypatch)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", lambda *_a, **_k: None)
+
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "ok",
+            "result": {"__wa_payload__": "dataframe", "columns": ["fig", "val"], "data": [[dict(image), 42]]},
+        },
+    )
+
+    out = _function.execute_python_addin(ctx, "df_mixed", doc=doc)
+    assert out == "fig"
+    assert sheet.getCellByPosition(2, 1).getString() == "val"
+    assert sheet.getCellByPosition(1, 2).getString() == ""
+    assert sheet.getCellByPosition(2, 2).getValue() == 42
+
+
 @pytest.mark.parametrize(
     ("result_factory", "expected_text"),
     [
@@ -677,6 +710,7 @@ def test_mixed_image_result_spills_value(monkeypatch: pytest.MonkeyPatch) -> Non
             "Image inserted",
         ),
         (lambda img: [dict(img), {"a": 1}], "Image inserted"),
+        (lambda img: [[dict(img), [1, 2]]], "Image inserted"),
         (
             lambda img: [dict(img), {"__wa_payload__": "dataframe", "columns": ["x"], "data": [[1]]}],
             "Image inserted",

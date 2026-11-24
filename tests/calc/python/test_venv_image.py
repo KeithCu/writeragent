@@ -1245,6 +1245,32 @@ def test_mixed_aspect_slots_chain_edges():
     assert slot1.getPosition() == Point(13990, 2000)
 
 
+def test_zero_width_cell_keeps_slot0_at_cell_origin():
+    """A zero-width (hidden) column clamps the inset so slot 0 starts at cell_pos.X."""
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    cell_pos = Point(1000, 2000)
+    cell_size = Size(0, 1000)
+    with _sheet_insert_ctx(sheet, cell, temp_path="/tmp/zw.png", geometry=(cell_pos, cell_size)):
+        insert_image_result_on_sheet(_make_png_payload(100, 50), code="plt.show()", doc=doc, image_index=0)
+
+    assert len(created_shapes) == 1
+    assert created_shapes[0].getPosition() == Point(1000, 2000)
+
+
 def test_large_merge_slot0_fills_and_slot1_chains_at_aspect():
     """Slot 0 fills large merge; slot 1 preserves aspect size and starts at merged block's edge."""
     cell = CalcCellStub(col=1, row=2)
@@ -1311,7 +1337,7 @@ def test_rtl_sheet_slots_layout_right_to_left():
 
     assert len(created_shapes) == 2
     slot0, slot1 = created_shapes
-    # Revert target: RTL place-x calculation (cursor_x - target_width)
+    # Revert target: RTL place-x calculation (cursor_x - aspect_size.Width)
     assert slot0.getPosition() == Point(-12990, 100)
     assert slot1.getPosition() == Point(-17990, 100)
 
