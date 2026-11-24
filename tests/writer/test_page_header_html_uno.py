@@ -1375,3 +1375,11 @@ def test_header_cell_fields_listed_uno(ctx, doc):
     got = _get(doc, ctx, "header")
     assert got["status"] == "ok"
     assert len(got.get("fields", [])) == 1, got
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_html_decodes_html5_entities_uno(ctx, doc):
+    res = _set(doc, ctx, "header", "<p>&check; &lt;b&gt;</p>")
+    assert res.get("status") == "ok", res
+    assert _region_text(doc, "header").getString() == "✓ <b>"

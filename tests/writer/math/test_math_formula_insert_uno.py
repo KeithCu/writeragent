@@ -283,3 +283,20 @@ def test_apply_content_inline_math_keeps_space_after_formula_uno(ctx: Any, doc: 
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_mathml_without_default_xmlns_converts_uno(ctx: Any, doc: Any) -> None:
+    for mml in (
+        "<math><mi>x</mi><mo>+</mo><mi>y</mi></math>",
+        "<math xmlns=''><mi>x</mi><mo>+</mo><mi>y</mi></math>",
+    ):
+        res = convert_mathml_to_starmath(ctx, mml)
+        assert res.ok, res.error_message
+        assert res.starmath.strip() == "x + y", res.starmath
+
+    html_import.replace_full_document(doc, ctx, "<p>a <math><mi>x</mi><mo>+</mo><mi>y</mi></math> b</p>")
+    assert _embed_count(doc) == 1
+    assert _first_math_formula(doc).strip() == "x + y"
+    assert "[Math import failed]" not in doc.getText().getString()
+

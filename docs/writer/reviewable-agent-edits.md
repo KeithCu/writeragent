@@ -161,7 +161,8 @@ made in `record_preserve_replace` in
   leading section (`HIDDEN_LEADING_SECTION`) or a protected non-index leading section
   (`PROTECTED_LEADING_SECTION`), places new content outside a visible leading section or TOC,
   and `selection` refuses a range starting in a table and ending outside it
-  (`SELECTION_SPANS_TABLE`) or a non-text selection (`SELECTION_NOT_TEXT`).
+  (`SELECTION_SPANS_TABLE`), a non-text selection, or a view with no caret such as Print Preview
+  (`SELECTION_NOT_TEXT`).
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

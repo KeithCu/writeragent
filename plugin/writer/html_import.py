@@ -35,7 +35,6 @@ from plugin.doc.text_helpers import (
     reset_direct_char_formatting,
     reset_properties_to_default,
 )
-from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
@@ -650,28 +649,6 @@ def _uno_service_true(obj: Any, service: str) -> bool:
     return val is True or (type(val) is int and val == 1)
 
 
-def _selection_is_draw_shape(obj: Any) -> bool:
-    """True when the controller selection is a Draw/Writer shape, not a text range.
-
-    After ``create_shape`` / ``shape.upsert``, Writer selects the new shape so the
-    user can see handles. That selection is not an ``XTextCursor`` host:
-    ``insertDocumentFromURL`` then raises ``AttributeError: insertDocumentFromURL``
-    (opaque dialog: Failed to insert result: insertDocumentFromURL).
-    """
-    if obj is None:
-        return False
-    try:
-        if is_graphic_object(obj):
-            return True
-    except Exception:
-        log.debug("_selection_is_draw_shape: graphic probe failed", exc_info=True)
-    return any(
-        _uno_service_true(obj, s)
-        for s in ("com.sun.star.drawing.Shape", "com.sun.star.drawing.CustomShape")
-    )
-
-
-
 def paragraph_has_non_text_portion(
     para: Any,
     *,
@@ -1051,101 +1028,63 @@ def insert_content_at_position(
         elif position == "end":
             cursor.gotoEnd(False)
         elif position == "selection":
-            # Prefer a real text selection (table/frame-aware). Draw shape selections (post
-            # shape.upsert) and empty selections fall back to the view text cursor, then
-            # document end — RPS Universal Sample must not require the user to select text.
-            def _doc_end_cursor() -> Any:
-                c = text.createTextCursor()
-                c.gotoEnd(False)
-                return c
-
             # Explicit selection (such as a pinned Send-time cursor) skips the live view read.
+            rng: Any
             if selection is not None:
                 rng = selection
             else:
                 controller = uno_read(lambda: model.getCurrentController(), None)
                 rng = live_selection_range(controller)
-            if rng is not None and _selection_is_draw_shape(rng):
-                log.debug(
-                    "insert_content_at_position: selection is Draw/Writer shape; "
-                    "falling back to document end"
+            # None: the view has no caret (Print Preview). SwXTextViewCursor::getText
+            # (sw/source/uibase/uno/unotxvw.cxx) raises when an object is selected.
+            rng_text = uno_read(lambda: rng.getText(), None) if rng is not None else None
+            if rng is None or rng_text is None:
+                raise ToolExecutionError(
+                    "The selection is not text: an image, shape, frame, object or block of cells is "
+                    "selected, or the view has no caret (Print Preview). Nothing was changed. Put the "
+                    "caret in the text (set_selection), or use target='search' with old_content.",
+                    code="SELECTION_NOT_TEXT",
                 )
-                rng = None
-
-            if rng is None:
-                cursor = _doc_end_cursor()
+            cursor = rng_text.createTextCursorByRange(rng.getStart())
+            # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
+            # returns null when an endpoint sits outside the cell's text; a null cursor
+            # cannot be inserted at.
+            if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
+                raise ToolExecutionError(
+                    "The selection starts in a table and ends outside it; nothing was "
+                    "changed. Use target='full_document' if the whole document is "
+                    "selected, otherwise target='search' with old_content.",
+                    code="SELECTION_SPANS_TABLE",
+                )
+            # A collapsed range is the user's caret.
+            caret = rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
+            raise_if_range_hosts_nested_table(rng)
+            # Inline content (plain text or inline tags, no newline, no math)
+            # replaces the selection in place, like typing over it. Otherwise
+            # ensure_html_linebreaks wraps it in <p>, which splits the host
+            # paragraph on import (SwHTMLParser::CallParser in
+            # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
+            # selections go through _replace_whole_paragraphs.
+            inline = (
+                not caret
+                and not content_is_block(content)
+                and not html_fragment_contains_mixed_math(content)
+            )
+            # Trim a lone trailing break; otherwise a recorded Shift+Down selection
+            # deletes the paragraph break and Accept joins the next paragraph.
+            if not caret:
+                rng = _without_trailing_break(rng)
+            styled, note = _lo_style_for_replaced_range(content, rng)
+            if not caret and not inline and _range_covers_whole_paragraphs(rng):
+                whole_paragraphs = rng
             else:
-                try:
-                    try:
-                        rng_text = rng.getText()
-                    except AttributeError:
-                        raise
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        raise ToolExecutionError(
-                            "An image, shape, frame, object or block of cells is selected, not text; "
-                            "nothing was changed. Put the caret in the text (set_selection), "
-                            "or use target='search' with old_content.",
-                            code="SELECTION_NOT_TEXT",
-                        ) from None
-                    cursor = rng_text.createTextCursorByRange(rng.getStart())
-                    # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
-                    # returns null when an endpoint sits outside the cell's text; without this
-                    # check the document-end fallback below would append at the end of the doc.
-                    if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
-                        raise ToolExecutionError(
-                            "The selection starts in a table and ends outside it; nothing was "
-                            "changed. Use target='full_document' if the whole document is "
-                            "selected, otherwise target='search' with old_content.",
-                            code="SELECTION_SPANS_TABLE",
-                        )
-                    if not hasattr(cursor, "insertDocumentFromURL"):
-                        raise AttributeError("insertDocumentFromURL")
-                    # A collapsed range is the user's caret.
-                    caret = rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
-                    # Clear only real text selections (never shapes).
-                    if hasattr(rng, "setString"):
-                        raise_if_range_hosts_nested_table(rng)
-                        # Inline content (plain text or inline tags, no newline, no math)
-                        # replaces the selection in place, like typing over it. Otherwise
-                        # ensure_html_linebreaks wraps it in <p>, which splits the host
-                        # paragraph on import (SwHTMLParser::CallParser in
-                        # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
-                        # selections go through _replace_whole_paragraphs.
-                        inline = (
-                            not caret
-                            and not content_is_block(content)
-                            and not html_fragment_contains_mixed_math(content)
-                        )
-                        # Trim a lone trailing break; otherwise a recorded Shift+Down selection
-                        # deletes the paragraph break and Accept joins the next paragraph.
-                        if not caret:
-                            rng = _without_trailing_break(rng)
-                        styled, note = _lo_style_for_replaced_range(content, rng)
-                        if not caret and not inline and _range_covers_whole_paragraphs(rng):
-                            whole_paragraphs = rng
-                        else:
-                            if inline and recording and _within_one_paragraph(rng):
-                                # Insert after the struck text so plain text inherits its character
-                                # formatting. Multi-paragraph ranges keep inserting at the start so
-                                # Accept keeps the first paragraph's style rather than the last's
-                                # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
-                                cursor = rng.getText().createTextCursorByRange(rng.getEnd())
-                            rng.setString("")
-                except AttributeError as e:
-                    # No text cursor (a shape that was not classified earlier).
-                    # ToolExecutionError (nested table) and a closed document must
-                    # not become an insert at the document end.
-                    log.debug(
-                        "insert_content_at_position: text selection unusable (%s); using document end",
-                        e,
-                    )
-                    styled = False
-                    note = None
-                    caret = False
-                    inline = False
-                    whole_paragraphs = None
-                    cursor = _doc_end_cursor()
+                if inline and recording and _within_one_paragraph(rng):
+                    # Insert after the struck text so plain text inherits its character
+                    # formatting. Multi-paragraph ranges keep inserting at the start so
+                    # Accept keeps the first paragraph's style rather than the last's
+                    # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
+                    cursor = rng.getText().createTextCursorByRange(rng.getEnd())
+                rng.setString("")
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
 
@@ -1433,6 +1372,7 @@ def replace_xtext_with_html(
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
+    expanded = html_import_styles.normalize_character_references(expanded)
     expanded = html_import_styles.expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)

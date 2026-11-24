@@ -5,8 +5,11 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.writer.math.math_mml_convert import (
     MathConversionResult,
+    _with_mathml_namespace,
     collapse_starmath_newline_tokens_for_writer_embed,
     convert_latex_to_starmath,
     insert_writer_math_formula,
@@ -41,6 +44,28 @@ def test_math_root_extraction() -> None:
     assert math_root('prefix <math display="block"><mi>y</mi></math> suffix') == '<math display="block"><mi>y</mi></math>'
     assert math_root('not a math root') is None
     assert math_root('') is None
+
+
+@pytest.mark.parametrize("raw", [
+    "<math><mi>x</mi></math>",
+    "<math xmlns=''><mi>x</mi></math>",
+    '<math xmlns="https://www.w3.org/1998/Math/MathML"><mi>x</mi></math>',
+    '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>',
+    '<math xmlns:xlink="http://www.w3.org/1999/xlink"><mi>x</mi></math>',
+    '<math alttext="a>b"><mi>x</mi></math>',
+    '<math\n display="block"><mi>x</mi></math>',
+])
+def test_with_mathml_namespace(raw: str) -> None:
+    out = _with_mathml_namespace(raw)
+    assert out.count('xmlns="http://www.w3.org/1998/Math/MathML"') == 1
+    assert "https://" not in out
+    assert "xmlns=''" not in out
+    if "xmlns:xlink" in raw:
+        assert 'xmlns:xlink="http://www.w3.org/1999/xlink"' in out
+    if 'alttext="a>b"' in raw:
+        assert 'alttext="a>b"' in out
+    if 'display="block"' in raw:
+        assert 'display="block"' in out
 
 
 def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:

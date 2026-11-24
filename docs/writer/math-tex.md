@@ -259,6 +259,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 ### Implementation notes (LibreOffice / Writer)
 
 - **StarMath `newline` (word)** — Not ASCII `\n`. LibreOffice MathML import builds a root layout that serializes with the `newline` **operator** (`starmath` `SmNodeToTextVisitor`, root table-of-lines from `mathmlimport.cxx`). Writer’s **embedded** formula paint often showed **`?`** per `newline`; we **collapse** those tokens for Writer embeds in `math_mml_convert.py` (comment points at LO sources). **Tradeoff:** true multi-line / `mtable` via `newline` is not preserved until we add a policy (see **Current status**).
+- **Root `xmlns`** — `convert_mathml_to_starmath` (`math_mml_convert.py`) sets `xmlns="http://www.w3.org/1998/Math/MathML"` on the `<math>` root before loading into LibreOffice Math so un-namespaced or HTML-namespaced `<math>` fragments convert.
 - **List `content` arrays** — `"\n".join` still used in `apply_content`; newlines stay **between** HTML fragments only; optional change to `"".join` is backlog, not done.
 - **Cursor** — After each `insertDocumentFromURL`, cursor must move to document end or later segments overwrite earlier HTML.
 - **DEBUG logging** — Optional verbose logs in `apply_document_content.py` / `html_import.py` / `math_mml_convert.py`; trim or gate when stable.
