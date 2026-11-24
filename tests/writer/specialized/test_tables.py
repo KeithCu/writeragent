@@ -1605,16 +1605,11 @@ def test_tracked_row_delete_refuses_tall_cell_without_dispatch(tall_cell):
         name="T",
         row_spans={tall_cell: 2},
     )
-=======
-def test_tracked_row_delete_refuses_tall_edge_cell_without_dispatch():
-    table = _TrackingTable(3, 2, cells={"A1": "Tall", "B1": "Top"}, name="T", row_spans={"A1": 2})
->>>>>>> origin/master
     doc = _TrackingDoc({"T": table})
     res = ManageTableStructure().execute_safe(
         SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
     )
     assert res["status"] == "error"
-<<<<<<< HEAD
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
     assert tall_cell in res["message"]
     assert doc.dispatched == []
