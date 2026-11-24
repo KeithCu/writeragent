@@ -815,14 +815,12 @@ def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
     assert any("corner_radius" in str(w) for w in warnings), res
 
 
-@native_test
-@with_native_doc("writer", reuse=False)
-def test_writer_shape_upsert_wrap_text(ctx, doc):
-    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+def _check_custom_shape_text_defaults(ctx, doc, doc_type: str) -> None:
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=None, caller="test")
     page = DrawBridge(doc).get_pages().getByIndex(0)
     upsert = UpsertShape()
-    long_text = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
 
+    # 1. Short label: centred horizontally and vertically with no warnings.
     res1 = upsert.execute(
         tctx,
         action="create",
@@ -832,14 +830,19 @@ def test_writer_shape_upsert_wrap_text(ctx, doc):
         y=1000,
         width=8000,
         height=4000,
-        text=long_text,
+        text="Hi",
         font_size=18,
     )
     assert res1.get("status") == "ok", res1
+    assert not res1.get("warnings"), res1
     shape1 = page.getByIndex(res1["index"])
     pos1 = _svg_text_positions(ctx, shape1)
-    assert len({y for _x, y in pos1}) == 1, pos1
+    assert len(pos1) == 1, pos1
+    assert 3000 < pos1[0][0] < 4500, pos1
+    assert 1500 < pos1[0][1] < 3000, pos1
 
+    # 2. Long label with defaults: wraps across multiple lines.
+    long_text = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
     res2 = upsert.execute(
         tctx,
         action="create",
@@ -851,18 +854,88 @@ def test_writer_shape_upsert_wrap_text(ctx, doc):
         height=4000,
         text=long_text,
         font_size=18,
-        wrap_text=True,
-        h_align="center",
-        v_align="center",
     )
     assert res2.get("status") == "ok", res2
     shape2 = page.getByIndex(res2["index"])
-    assert shape2.getPropertyValue("TextWordWrap") is True
     pos2 = _svg_text_positions(ctx, shape2)
     assert len({y for _x, y in pos2}) >= 2, pos2
-    for para, _port in _iter_paragraphs_and_portions(shape2):
-        assert para.getPropertyValue("ParaAdjust") == 3
-    assert shape2.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "CENTER")
+
+    # 3. Explicit overrides: top-left and unwrapped.
+    res3 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=11000,
+        width=8000,
+        height=4000,
+        text=long_text,
+        font_size=18,
+        h_align="left",
+        v_align="top",
+        wrap_text=False,
+    )
+    assert res3.get("status") == "ok", res3
+    shape3 = page.getByIndex(res3["index"])
+    pos3 = _svg_text_positions(ctx, shape3)
+    assert len({y for _x, y in pos3}) == 1, pos3
+    assert pos3[0][0] < 1000, pos3
+    assert pos3[0][1] < 1500, pos3
+
+    # 4. Create empty (no text, no font_size), then edit text: keeps size and centring.
+    res4 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=16000,
+        width=8000,
+        height=4000,
+    )
+    assert res4.get("status") == "ok", res4
+    shape4 = page.getByIndex(res4["index"])
+    sz4 = shape4.getSize()
+    assert abs(sz4.Width - 8000) <= 2 and abs(sz4.Height - 4000) <= 2, (sz4.Width, sz4.Height)
+
+    res4_edit = upsert.execute(
+        tctx,
+        action="edit",
+        index=res4["index"],
+        page=0,
+        text="Hi",
+        font_size=18,
+    )
+    assert res4_edit.get("status") == "ok", res4_edit
+    pos4 = _svg_text_positions(ctx, shape4)
+    assert len(pos4) == 1, pos4
+    assert 3000 < pos4[0][0] < 4500, pos4
+    assert 1500 < pos4[0][1] < 3000, pos4
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_custom_shape_text_defaults(ctx, doc):
+    _check_custom_shape_text_defaults(ctx, doc, "writer")
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_calc_custom_shape_text_defaults(ctx, doc):
+    _check_custom_shape_text_defaults(ctx, doc, "calc")
+
+
+@native_test
+@with_native_doc("draw")
+def test_draw_custom_shape_text_defaults(ctx, doc):
+    _check_custom_shape_text_defaults(ctx, doc, "draw")
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_impress_custom_shape_text_defaults(ctx, doc):
+    _check_custom_shape_text_defaults(ctx, doc, "impress")
 
 
 @native_test

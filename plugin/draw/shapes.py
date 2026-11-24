@@ -633,7 +633,12 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             # CENTER, which centres the text block and ignores left/right
             # (svx/source/svdraw/svdotextdecomposition.cxx: SdrTextObj::impDecomposeBlockTextPrimitive).
             shape.setPropertyValue("TextHorizontalAdjust", _drawing_enum("TextHorizontalAdjust", "BLOCK"))
-            shape.setPropertyValue("ParaAdjust", para_adjust_to_uno(kwargs["h_align"]))
+            para_adjust = para_adjust_to_uno(kwargs["h_align"])
+            shape.setPropertyValue("ParaAdjust", para_adjust)
+            # On an empty shape the line above sets only the object, and text set later starts a
+            # fresh paragraph without it (svx/source/unodraw/unoshtxt.cxx:
+            # SvxTextEditSourceImpl::GetBackgroundTextForwarder). The cursor sets the paragraph itself.
+            shape.createTextCursor().setPropertyValue("ParaAdjust", para_adjust)
 
         _try(failed_props, "h_align", _apply_h_align)
 
@@ -670,6 +675,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 # flowchart-or, flowchart-predefined-process, flowchart-preparation, flowchart-process, flowchart-punched-tape,
 # flowchart-sequential-access, flowchart-sort, flowchart-stored-data, flowchart-summing-junction,
 # flowchart-terminator
+
+# A label is centred and wrapped unless the caller says otherwise. LibreOffice leaves a
+# CustomShape created through UNO top/start aligned, and unwrapped in Writer and Calc
+# (svx/source/svdraw/svdmodel.cxx:185).
+_CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
 
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
@@ -741,17 +751,21 @@ class UpsertShape(_AnyDocumentShapeTool):
             "font_name": {"type": "string", "description": "Font family name"},
             "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
             "italic": {"type": "boolean", "description": "Italic text (false removes italic)."},
-            "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal text alignment inside the shape."},
+            "h_align": {
+                "type": "string",
+                "enum": ["left", "center", "right", "justify"],
+                "description": "Horizontal text alignment inside the shape. Custom shapes, rectangle and ellipse default to center.",
+            },
             "v_align": {
                 "type": "string",
                 "enum": ["top", "center", "bottom"],
-                "description": "Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center.",
+                "description": "Vertical text alignment inside the shape. Custom shapes, rectangle and ellipse default to center.",
             },
             "wrap_text": {
                 "type": "boolean",
                 "description": (
                     "Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); "
-                    "on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. "
+                    "on by default. Text boxes (text) always wrap. "
                     "rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label."
                 ),
             },
@@ -852,7 +866,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
-            failed_props = _apply_shape_properties(shape, kwargs)
+            props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if is_custom_shape else kwargs
+            failed_props = _apply_shape_properties(shape, props)
             shape_name = _ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)

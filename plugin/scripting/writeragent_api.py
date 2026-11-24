@@ -2440,9 +2440,9 @@ class _ShapeProxy:
             font_name (optional): Font family name.
             bold (optional): Bold text (false removes bold).
             italic (optional): Italic text (false removes italic).
-            h_align (optional): Horizontal text alignment inside the shape. One of: left, center, right, justify.
-            v_align (optional): Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center. One of: top, center, bottom.
-            wrap_text (optional): Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label.
+            h_align (optional): Horizontal text alignment inside the shape. Custom shapes, rectangle and ellipse default to center. One of: left, center, right, justify.
+            v_align (optional): Vertical text alignment inside the shape. Custom shapes, rectangle and ellipse default to center. One of: top, center, bottom.
+            wrap_text (optional): Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); on by default. Text boxes (text) always wrap. rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label.
             corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
             rotation_angle (optional): Rotation angle in degrees.
         """

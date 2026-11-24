@@ -74,6 +74,9 @@ class _RecordingShape:
         info.getProperties.return_value = []
         return info
 
+    def createTextCursor(self):
+        return MagicMock()
+
 
 def _invoke_set_property(obj, method, args):
     """Stand-in for ``uno.invoke(shape, 'setPropertyValue', (name, value))``."""
