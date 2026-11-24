@@ -26,7 +26,12 @@ _VENV_KEY = "scripting.python_venv_path"
 
 
 def profile_config_path() -> Path:
-    """This run's writeragent.json. Raises instead of touching a real profile."""
+    """This run's writeragent.json. Raises instead of touching a real profile.
+
+    A real profile holds API keys, and ``_leftover_shared_diag`` prints the
+    file body on failure. Do not fall back to ``get_config_file_path()``: it
+    keeps the first profile's path after an office recycle.
+    """
     path = throwaway_writeragent_json()
     if path is None:
         raise AssertionError("no throwaway test profile; refusing to edit a real writeragent.json")
@@ -52,7 +57,10 @@ def patch_profile_config(mutate: Callable[[dict[str, Any]], None]) -> None:
 
 
 def settle_soffice_config() -> None:
-    """Wait out the 2 s get_config cache in soffice (plugin/framework/config.py:_load)."""
+    """Wait out the 2 s get_config cache in soffice (plugin/framework/config.py:_load).
+
+    ``patch_profile_config`` drops only this process's cache.
+    """
     time.sleep(2.1)
 
 
@@ -83,7 +91,11 @@ def project_venv() -> str:
 
 @contextlib.contextmanager
 def repo_venv_in_profile() -> Iterator[None]:
-    """Run soffice's =PY() in the repo venv; the previous setting is restored on exit."""
+    """Run soffice's =PY() in the repo venv; the previous setting is restored on exit.
+
+    Only this key is undone, so other saves made inside the block survive.
+    No wait on exit: soffice may keep the repo venv for up to 2 s.
+    """
     venv = project_venv()
     previous: dict[str, Any] = {}
 
