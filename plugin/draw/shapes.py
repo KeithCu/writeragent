@@ -35,7 +35,6 @@ from plugin.framework.errors import ToolExecutionError, WriterAgentException, is
 from plugin.framework.i18n import N_, _
 from plugin.writer.edit_review import flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
-from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -1503,15 +1502,11 @@ class DeleteShape(_AnyDocumentShapeTool):
         picture = is_writer(ctx.doc) and uno_read(lambda: shape.supportsService(WRITER_GRAPHIC_SERVICE), False)
         try:
             if picture:
-                def remove() -> bool:
-                    if is_recording_changes(ctx.doc):
-                        delete_graphic(ctx.ctx, ctx.doc, shape)
-                        return True
-                    # delete_graphic's untracked arm needs an anchor, and an AT_PAGE picture has none.
-                    parent.remove(shape)
-                    return False
-
-                tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, ctx.ctx, remove))
+                tracked = bool(
+                    run_writer_mutation_with_optional_review(
+                        ctx.doc, ctx.ctx, lambda: delete_graphic(ctx.ctx, ctx.doc, shape)
+                    )
+                )
             else:
                 parent.remove(shape)
                 tracked = False

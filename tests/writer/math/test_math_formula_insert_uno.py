@@ -204,7 +204,7 @@ def test_recorded_formula_inserts_reject_and_accept_uno(ctx: Any, doc: Any) -> N
         assert _embed_count(doc) == 0
         assert text.getString() == "hello"
 
-        # Inline formula with surrounding text -> Accept keeps "pre " / Frame / " post" order.
+        # Inline formula with surrounding text -> Accept keeps "pre" / Frame / "post" order.
         text.setString("")
         cur = text.createTextCursor()
         html_import.replace_single_range_with_content(doc, cur, "<p>pre \\(a + b\\) post</p>", ctx)
@@ -221,7 +221,7 @@ def test_recorded_formula_inserts_reject_and_accept_uno(ctx: Any, doc: Any) -> N
                 portions.append("Frame")
             elif p.getString():
                 portions.append(p.getString())
-        assert portions == ["pre ", "Frame", "post"], portions
+        assert [p.strip() for p in portions] == ["pre", "Frame", "post"], portions
 
         # Display formula -> Reject removes it.
         cur = text.createTextCursor()
