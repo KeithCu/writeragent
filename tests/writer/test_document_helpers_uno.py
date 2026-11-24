@@ -222,3 +222,77 @@ def test_proximity_service(ctx, doc):
 
     res = services.writer_proximity.get_surroundings(doc, "paragraph:0", radius=0)
     assert res is not None and res.get("center_para_index") == 0, f"ProximityService get_surroundings failed: {res}"
+
+
+def _build_table_doc(doc, n_paras, *, fill_cells=True):
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for i in range(n_paras):
+        text.insertString(cur, f"Paragraph {i:03d} some filler words that make it long enough to matter.", False)
+        text.insertControlCharacter(cur, 0, False)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(3, 3)
+    text.insertTextContent(text.getEnd(), table, False)
+    if fill_cells:
+        for name in table.getCellNames():
+            table.getCellByName(name).setString("cell " + name)
+    cur.gotoEnd(False)
+    text.insertString(cur, "Final paragraph after the table.", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_keeps_text_after_table_uno(ctx, doc):
+    _build_table_doc(doc, 1)
+    ctx_clean = get_document_context_for_chat(doc, include_selection=False, ctx=ctx)
+    assert "Final paragraph after the table." in ctx_clean
+
+    doc.setPropertyValue("RecordChanges", True)
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Paragraph 000 "), False)
+    cur.goRight(len("some filler"), True)
+    cur.setString("")
+
+    ctx_redline = get_document_context_for_chat(doc, include_selection=False, ctx=ctx)
+    assert "Final paragraph after the table." in ctx_redline
+    assert "some filler" not in ctx_redline
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_long_document_keeps_tail_after_table_uno(ctx, doc):
+    _build_table_doc(doc, 150)
+    ctx_str = get_document_context_for_chat(doc, include_selection=False, ctx=ctx)
+    assert "[... middle of document omitted ...]" in ctx_str
+    assert ctx_str.endswith("Final paragraph after the table.")
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_marks_paragraph_after_table_uno(ctx, doc):
+    for fill_cells in (True, False):
+        doc.getText().setString("")
+        _build_table_doc(doc, 1, fill_cells=fill_cells)
+        text = doc.getText()
+        sel = text.createTextCursor()
+        sel.gotoEnd(False)
+        sel.gotoStartOfParagraph(True)
+        ctx_str = get_document_context_for_chat(doc, include_selection=True, selection=sel, ctx=ctx)
+        assert "\n[SELECTION_START]Final paragraph after the table.[SELECTION_END]" in ctx_str
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_marks_selection_in_long_document_uno(ctx, doc):
+    text = doc.getText()
+    cur = text.createTextCursor()
+    chunk = "0123456789" * 100
+    for _idx in range(72):
+        text.insertString(cur, chunk, False)
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.goRight(5, False)
+    sel.goRight(5, True)
+    ctx_str = get_document_context_for_chat(doc, include_selection=True, selection=sel, ctx=ctx)
+    assert "[SELECTION_START]56789[SELECTION_END]" in ctx_str
