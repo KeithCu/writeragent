@@ -499,10 +499,12 @@ def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
 
     Body ``gotoStart`` (``sw/source/core/unocore/unoobj.cxx:SwXTextCursor::gotoStart``)
     steps past leading tables, so ``replace_full_document`` would leave them behind.
+    A table inside a section stops the walk, because ``replace_full_document``
+    deletes that section whole.
     """
     tables = list(
         itertools.takewhile(
-            lambda el: supports_service(el, "com.sun.star.text.TextTable"),
+            lambda el: supports_service(el, "com.sun.star.text.TextTable") and el.getPropertyValue("TextSection") is None,
             iter_elements(doc.getText().createEnumeration()),
         )
     )

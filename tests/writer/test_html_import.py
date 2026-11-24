@@ -2443,3 +2443,38 @@ def test_insert_content_at_position_non_text_selection_raises_coded_error():
             html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
     assert exc_info.value.code == "SELECTION_NOT_TEXT"
     ins.assert_not_called()
+
+
+def test_raise_if_protected_sections_lists_names():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    def _make_section(*, protected: bool, doc_index: Any = None, impl_name: str = "SwXBodyText"):
+        sec = MagicMock()
+        sec.getPropertyValue.side_effect = lambda prop: {
+            "IsProtected": protected,
+            "DocumentIndex": doc_index,
+        }[prop]
+        sec.getAnchor.return_value.getText.return_value.getImplementationName.return_value = impl_name
+        return sec
+
+    sections = {
+        "IndexSec": _make_section(protected=True, doc_index=MagicMock()),
+        "HeaderSec": _make_section(protected=True, impl_name="SwXHeadFootText"),
+        "UnprotSec": _make_section(protected=False),
+        "BodyProtA": _make_section(protected=True),
+        "BodyProtB": _make_section(protected=True),
+    }
+    model = MagicMock()
+    model.getTextSections.return_value.getElementNames.return_value = list(sections.keys())
+    model.getTextSections.return_value.getByName.side_effect = sections.__getitem__
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        html_import.raise_if_protected_sections(model)
+    assert exc_info.value.code == "PROTECTED_SECTION"
+    msg = str(exc_info.value)
+    assert "'BodyProtA'" in msg
+    assert "'BodyProtB'" in msg
+    assert "IndexSec" not in msg
+    assert "HeaderSec" not in msg
+    assert "UnprotSec" not in msg
