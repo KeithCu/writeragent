@@ -156,10 +156,9 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             current_model = get_text_model()
             # Fill from LRU plus provider defaults. A catalog HTTP on this
             # thread blocks LibreOffice for the full timeout on a slow or
-            # dead endpoint, and a failure is not memoized.
+            # dead endpoint.
             populate_combobox_with_lru(
                 model_selector, current_model, "model_lru", current_endpoint,
-                skip_remote_fetch=True,
             )
 
         token_controls = (
@@ -360,12 +359,12 @@ class SettingsDialog:
                 # _schedule_initial_models_fetch loads it on the debounced worker.
                 populate_combobox_with_lru(
                     ctrl, val, _MODEL_LRU_KEYS[name], current_endpoint,
-                    api_key_override=api_key_val, skip_remote_fetch=True,
+                    api_key_override=api_key_val,
                 )
             elif name == "image_model":
                 populate_image_model_selector(
                     ctrl, override_endpoint=current_endpoint,
-                    api_key_override=api_key_val, skip_remote_fetch=True,
+                    api_key_override=api_key_val,
                 )
             elif name == "additional_instructions":
                 populate_combobox_with_lru(ctrl, val, "prompt_lru", "")
@@ -1009,6 +1008,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _synced_endpoint: str | None
     _applied_catalog: tuple[str, str] | None
     _painted_provider: str | None
+    _painted_models: dict[str, str]
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         self._dlg = dialog
@@ -1023,6 +1023,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Provider the model combos were last filled for. Initialized to the
         # saved endpoint's provider so the first fill compares against it.
         self._painted_provider = get_provider_from_endpoint(get_current_endpoint())
+        # lru_key to the model id last painted for _painted_provider; box text that differs is the user's edit.
+        self._painted_models = {}
 
         # URL whose saved key the field was last aligned to. Set from the
         # combo at attach time so the first keystroke is a change, not a baseline.
@@ -1081,19 +1083,18 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         override = self._api_key_override()
         return (resolved, "" if override is None else override)
 
-    def _apply_catalog(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
+    def _apply_catalog(self, resolved: str, models: Any = None) -> None:
         self._applied_catalog = self._catalog_identity(resolved)
-        self._apply_dropdowns(resolved, models=models, skip_fetch=skip_fetch)
+        self._apply_dropdowns(resolved, models=models)
 
     def _apply_warm_catalog(self, resolved: str, key: str | None) -> None:
         self._applied_catalog = (resolved, "" if key is None else key)
         self._apply_dropdowns(
             resolved,
             models=cached_text_models(resolved, api_key_override=key),
-            skip_fetch=True,
         )
 
-    def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
+    def _apply_dropdowns(self, resolved: str, models: Any = None) -> None:
         ak_ctrl = get_optional(self._dlg, "api_key")
         api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
         resolved_provider = _provider_for_catalog(resolved)
@@ -1119,25 +1120,23 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
         for ctrl, fallback, lru_key, remote in rows:
             if ctrl:
-                # Return combobox current only when the saved provider still matches.
-                # After a provider switch the field still holds the previous provider's
-                # model id (e.g. OpenRouter ``inception/mercury-2.5`` on Together). That
-                # slug is often missing from ``DEFAULT_MODELS``, so
-                # ``_is_incompatible_model_for_provider`` will not drop it — discard
-                # leftover text and let populate use this provider's LRU/defaults.
-                if not same_provider:
-                    current = ""
-                else:
-                    current = sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
-                populate_combobox_with_lru(
+                # Use the last painted model on the same provider so user edits in
+                # the box are preserved without being inserted into the dropdown.
+                # After a provider switch, discard leftover box text (e.g. OpenRouter
+                # ``inception/mercury-2.5`` on Together) and refill from LRU/defaults.
+                current = self._painted_models.get(lru_key, fallback) if same_provider else ""
+                typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
+                shown = populate_combobox_with_lru(
                     ctrl,
                     current,
                     lru_key,
                     resolved,
                     remote_models=remote,
                     api_key_override=api_key_ov,
-                    skip_remote_fetch=skip_fetch,
+                    keep_text=same_provider and typed not in ("", current),
                 )
+                # A placeholder is not a model: keep what it replaced so re-entering the key restores it.
+                self._painted_models[lru_key] = sanitize_model_combobox_value(shown) or current
                 if lru_key == _MODEL_LRU_KEYS["audio__tts_model"]:
                     sync_tts_ui(self._dlg)
 
@@ -1263,7 +1262,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         def apply_ui() -> None:
             if self._closed or gen != self._debounce_gen: return
             if endpoint_from_selector_text(self._ctrl.getText()) != resolved: return
-            self._apply_catalog(resolved, models=models, skip_fetch=(models is None))
+            self._apply_catalog(resolved, models=models)
 
         main.post(apply_ui)
 
@@ -1331,8 +1330,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 self._apply_warm_catalog(resolved, key)
                 return
             # LRU plus defaults now. The catalog GET is the worker below.
-            # skip_fetch on select; network catalog work stays on the background worker.
-            self._apply_dropdowns(resolved, models=None, skip_fetch=True)
+            self._apply_dropdowns(resolved, models=None)
             self._start_bg_fetch(gen, resolved, "settings-select")
 
 

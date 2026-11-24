@@ -1657,7 +1657,7 @@ def test_panel_model_combo_does_not_read_locked_keystore(fake_keystore):
     fake_keystore.locked = True
     ctrl = MagicMock()
     ctrl.getItemCount.return_value = 0
-    populate_combobox_with_lru(ctrl, "", "model_lru", url, skip_remote_fetch=True)
+    populate_combobox_with_lru(ctrl, "", "model_lru", url)
     assert fake_keystore.get_calls == 0
 
 

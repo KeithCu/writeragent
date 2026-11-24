@@ -28,7 +28,7 @@ from plugin.framework.default_models import (
     merge_provider_default_models,
     together_speech_ids,
 )
-from plugin.framework.client.model_fetcher import fetch_available_models, filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
+from plugin.framework.client.model_fetcher import filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
     drop_typed_partials,
@@ -159,20 +159,20 @@ def populate_combobox_with_lru(
     endpoint: str,
     *,
     remote_models: list[str] | None = None,
-    skip_remote_fetch: bool = False,
     api_key_override: str | None = None,
     keep_text: bool = False,
 ) -> str:
-    """Helper to populate a combobox with values from an LRU list in config.
-    LRU is scoped to the provided endpoint.
-    Merges relevant default models based on the capability inferred from lru_key.
-    Returns the value set.
+    """Populate a combobox with values from an endpoint-scoped LRU list.
 
-    remote_models: when set, use as /v1/models IDs (skip internal fetch).
-    skip_remote_fetch: when True, never call fetch_available_models (LRU + provider defaults).
+    Merges relevant default models based on the capability inferred from lru_key.
+    Never fetches a catalog. Returns the value set.
+
+    remote_models: catalog ids the caller already holds; None fills from LRU plus
+        provider defaults.
     api_key_override: live Settings field value; wins over saved config for auth gating.
-    keep_text: when True, replace only the list items and leave the box text and caret alone
-        (an empty list still clears the box; the list is never empty here when *endpoint* is set).
+    keep_text: when True and not auth_blocked, replace only the list items and leave
+        the box text and caret alone (an empty list still clears the box; the list is
+        never empty here when *endpoint* is set).
     """
     scoped_key = lru_config_key(lru_key, endpoint)
     lru = get_config(scoped_key)
@@ -206,7 +206,6 @@ def populate_combobox_with_lru(
     has_key = bool(str(api_key_override).strip()) if api_key_override is not None else has_api_key_for_endpoint(endpoint)
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not has_key and remote_models is None)
 
-    fetch_succeeded = False
     to_show: list[str] = []
     # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
     lru_clean = drop_typed_partials([str(m) for m in lru if not _is_model_combobox_placeholder(str(m))])
@@ -215,23 +214,17 @@ def populate_combobox_with_lru(
         to_show = _filter_models_for_provider(lru_clean, provider)
         lru_head = to_show[0] if to_show else ""
 
-        # We do NOT inline-fetch for known massive providers (openrouter, together).
-        massive_providers = {"openrouter", "together"}
         fetched_models: list[str] | None = None
         if remote_models is not None:
             # Together GET /v1/models has no speech type. Keep catalog TTS/STT
             # ids and any remote id in those families; drop the chat catalog.
             # OpenRouter callers pass modality-filtered ids (output_modalities=
             # speech or transcription). output_modalities=audio is not TTS.
-            fetch_succeeded = True
             if provider == "together" and req_cap in ("audio", "tts"):
                 kind = "tts" if req_cap == "tts" else "stt"
                 fetched_models = together_speech_ids(kind, remote_models)
             else:
                 fetched_models = remote_models
-        elif endpoint and not skip_remote_fetch and (not provider or provider not in massive_providers):
-            fetched_models = fetch_available_models(endpoint, api_key_override=api_key_override)
-            fetch_succeeded = fetched_models is not None
 
         if fetched_models is not None:
             # Image remote_models from fetch_available_image_models are already metadata-curated
@@ -242,7 +235,7 @@ def populate_combobox_with_lru(
             modality_list = provider == "openrouter" and req_cap in ("tts", "audio")
             # Together speech ids are already the serverless catalog (+ prefixes).
             together_audio = provider == "together" and req_cap in ("tts", "audio")
-            if remote_models is not None and (req_cap == "image" or modality_list or together_audio):
+            if req_cap == "image" or modality_list or together_audio:
                 filtered = list(fetched_models)
             else:
                 filtered = filter_fetched_models(fetched_models, req_cap)
@@ -292,16 +285,16 @@ def populate_combobox_with_lru(
 
     to_show = [m for m in _filter_models_for_provider(to_show, provider) if not _is_model_combobox_placeholder(m)]
 
-    # If the list is empty (fetch failed and no defaults), add a helpful placeholder
+    # If the list is empty (no catalog and no defaults), add a helpful placeholder
     if not to_show:
         from plugin.framework.i18n import _
         # prompt_lru / image_base_size_lru use endpoint="" — no /v1/models fetch attempted.
         if endpoint:
-            # Key presence (not fetch_succeeded) gates the API-key placeholder because
+            # Key presence (not remote_models) gates the API-key placeholder because
             # the sidebar populates before its off-thread catalog fetch finishes.
             if provider and provider_requires_api_key(provider) and not has_key:
                 to_show.append(_("(Enter API Key to load models)"))
-            elif req_cap == "image" and fetch_succeeded:
+            elif req_cap == "image" and remote_models is not None:
                 to_show.append(_("(No image models on this endpoint)"))
             else:
                 to_show.append(_("(Connection failed)"))
@@ -309,7 +302,7 @@ def populate_combobox_with_lru(
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
     # Passing no selected text leaves the box alone; setting text, even back to
     # the typed value, moves the caret to 0 (vcl Edit::SetText).
-    set_combo_items(ctrl, to_show, "" if keep_text else display_val)
+    set_combo_items(ctrl, to_show, "" if keep_text and not auth_blocked else display_val)
     return display_val
 
 
@@ -394,7 +387,6 @@ def populate_image_model_selector(
     override_endpoint: str | None = None,
     *,
     remote_models: list[str] | None = None,
-    skip_remote_fetch: bool = False,
     api_key_override: str | None = None,
     keep_text: bool = False,
 ) -> str:
@@ -409,7 +401,6 @@ def populate_image_model_selector(
         "image_model_lru",
         endpoint,
         remote_models=remote_models,
-        skip_remote_fetch=skip_remote_fetch,
         api_key_override=api_key_override,
         keep_text=keep_text,
     )

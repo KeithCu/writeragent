@@ -75,14 +75,14 @@ def test_text_model_edit_survives_catalog_repaint_after_provider_switch():
         ctrls["endpoint"].setText(TG)
         ctrls["api_key"].setText("dummy-not-a-key")
         # First fill after the switch drops the OpenRouter ids (unchanged behavior).
-        listener._apply_dropdowns(TG, models=None, skip_fetch=True)
+        listener._apply_dropdowns(TG, models=None)
         assert ctrls["text_model"].text == "MiniMaxAI/MiniMax-M3"
         shown_image = ctrls["image_model"].text
         assert shown_image == "black-forest-labs/FLUX.2-dev"
 
         ctrls["text_model"].setText("Qwen/Qwen3-235B-A22B-Instruct-2507-tput")
         # Catalog lands / key debounce / Test Connection: same provider as last fill.
-        listener._apply_dropdowns(TG, models=list(TG_TEXT), skip_fetch=False)
+        listener._apply_dropdowns(TG, models=list(TG_TEXT))
 
     assert ctrls["text_model"].text == "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
     assert ctrls["image_model"].text == shown_image
@@ -95,11 +95,11 @@ def test_switching_back_to_saved_provider_drops_ids_from_the_one_just_left():
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
         ctrls["endpoint"].setText(TG)
         ctrls["api_key"].setText("dummy-not-a-key")
-        listener._apply_dropdowns(TG, models=list(TG_TEXT), skip_fetch=False)
+        listener._apply_dropdowns(TG, models=list(TG_TEXT))
         ctrls["text_model"].setText("Qwen/Qwen3-235B-A22B-Instruct-2507-tput")
         # Back to OpenRouter: the Together slug must not be carried over.
         ctrls["endpoint"].setText(OR)
-        listener._apply_dropdowns(OR, models=None, skip_fetch=True)
+        listener._apply_dropdowns(OR, models=None)
 
     assert ctrls["text_model"].text != "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
     assert ctrls["image_model"].text not in TG_IMAGES
@@ -139,7 +139,7 @@ def test_together_text_combo_lists_only_text_models():
             with patch("plugin.framework.client.requests.sync_request", return_value=TOGETHER_MODELS_BODY):
                 ids = fetch_available_models(TG, api_key_override=key)
             assert ids is not None
-            listener._apply_dropdowns(TG, models=ids, skip_fetch=False)
+            listener._apply_dropdowns(TG, models=ids)
 
         non_text_ids = {
             row["id"] for row in TOGETHER_MODELS_BODY
@@ -151,3 +151,118 @@ def test_together_text_combo_lists_only_text_models():
         assert "openai/whisper-large-v3" in ctrls["audio__stt_model"].items
     finally:
         clear_settings_catalog_cache(TG, api_key_override=key)
+
+
+def test_half_typed_model_stays_in_box_and_out_of_list():
+    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    save({
+        "endpoint": OR,
+        "text_model": "openrouter/free",
+        "image_model": "google/gemini-3.1-flash-lite-image",
+    })
+    set_api_key_for_endpoint(OR, "sk-or-test")
+    ctrls = {
+        "endpoint": FakeCombo(OR),
+        "api_key": FakeCombo("sk-or-test"),
+        "text_model": FakeCombo("vendor/half-ty"),
+        "image_model": FakeCombo("img/half-ty"),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+    patch("plugin.chatbot.dialog_views.cached_image_models", return_value=["img/a"]).start()
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
+        listener._apply_dropdowns(OR, models=["vendor/a"])
+        assert ctrls["text_model"].text == "vendor/half-ty"
+        assert ctrls["image_model"].text == "img/half-ty"
+        assert "vendor/half-ty" not in ctrls["text_model"].items
+        assert "img/half-ty" not in ctrls["image_model"].items
+        assert "vendor/a" in ctrls["text_model"].items
+
+        listener._apply_dropdowns(OR, models=["vendor/a"])
+        assert ctrls["text_model"].text == "vendor/half-ty"
+        assert ctrls["image_model"].text == "img/half-ty"
+        assert "vendor/half-ty" not in ctrls["text_model"].items
+        assert "img/half-ty" not in ctrls["image_model"].items
+
+
+def test_placeholder_after_switch_does_not_bring_back_saved_provider_model():
+    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    save({
+        "endpoint": OR,
+        "text_model": "inception/mercury-2.5",
+        "image_model": "google/gemini-3.1-flash-lite-image",
+    })
+    set_api_key_for_endpoint(TG, "")
+    ctrls = {
+        "endpoint": FakeCombo(OR),
+        "api_key": FakeCombo(""),
+        "text_model": FakeCombo("inception/mercury-2.5"),
+        "image_model": FakeCombo("google/gemini-3.1-flash-lite-image"),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+    patch("plugin.chatbot.dialog_views.cached_image_models", return_value=list(TG_IMAGES)).start()
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
+        ctrls["endpoint"].setText(TG)
+        listener._apply_dropdowns(TG, models=None)
+        assert "Enter API Key" in ctrls["text_model"].text
+
+        ctrls["api_key"].setText("sk-tg-test")
+        listener._apply_dropdowns(TG, models=list(TG_TEXT))
+        assert ctrls["text_model"].text == "MiniMaxAI/MiniMax-M3"
+        assert "inception/mercury-2.5" not in ctrls["text_model"].items
+
+
+def test_reentering_key_restores_saved_model():
+    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    save({
+        "endpoint": OR,
+        "text_model": "openai/gpt-oss-120b:nitro",
+        "image_model": "google/gemini-3.1-flash-lite-image",
+    })
+    set_api_key_for_endpoint(OR, "sk-or-test")
+    ctrls = {
+        "endpoint": FakeCombo(OR),
+        "api_key": FakeCombo("sk-or-test"),
+        "text_model": FakeCombo("openai/gpt-oss-120b:nitro"),
+        "image_model": FakeCombo("google/gemini-3.1-flash-lite-image"),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
+        listener._apply_dropdowns(OR, models=["openai/gpt-oss-120b"])
+        assert ctrls["text_model"].text == "openai/gpt-oss-120b:nitro"
+
+        ctrls["api_key"].setText("")
+        listener._apply_dropdowns(OR, models=None)
+        assert "Enter API Key" in ctrls["text_model"].text
+
+        ctrls["api_key"].setText("sk-or-test")
+        listener._apply_dropdowns(OR, models=["openai/gpt-oss-120b"])
+        assert ctrls["text_model"].text == "openai/gpt-oss-120b:nitro"
+
+
+def test_untyped_tts_id_takes_catalog_casing():
+    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    save({
+        "endpoint": OR,
+        "audio.tts_model": "hexgrad/Kokoro-82M",
+    })
+    set_api_key_for_endpoint(OR, "sk-or-test")
+    ctrls = {
+        "endpoint": FakeCombo(OR),
+        "api_key": FakeCombo("sk-or-test"),
+        "text_model": FakeCombo("openrouter/free"),
+        "audio__tts_model": FakeCombo("hexgrad/Kokoro-82M"),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)), \
+         patch("plugin.chatbot.dialog_views.cached_tts_models", return_value=["hexgrad/kokoro-82m"]), \
+         patch("plugin.chatbot.dialog_views.cached_image_models", return_value=[]):
+        listener._apply_dropdowns(OR, models=["openrouter/free"])
+    assert ctrls["audio__tts_model"].text == "hexgrad/kokoro-82m"

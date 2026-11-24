@@ -762,8 +762,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if model_selector:
             # Warm memo now; cold memo via background worker (never HTTP on UI thread).
-            # An unreachable endpoint would block the UI thread for the 10 s fetch timeout
-            # on every config:changed, and failures are not memoized, so skip_remote_fetch stays set.
             def _on_fetched(ids: list[str]) -> None:
                 self._paint_fetched_text_models(current_endpoint, ids)
 
@@ -778,7 +776,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 "model_lru",
                 current_endpoint,
                 remote_models=catalog,
-                skip_remote_fetch=True,
             )
             if set_val != current_model:
                 set_text_model(set_val, update_lru=False)
@@ -799,7 +796,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 image_model_selector,
                 current_endpoint,
                 remote_models=image_catalog,
-                skip_remote_fetch=True,
             )
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
@@ -832,7 +828,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     "model_lru",
                     endpoint,
                     remote_models=ids,
-                    skip_remote_fetch=True,
                     keep_text=bool(typed),
                 )
         finally:
@@ -863,7 +858,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     sel,
                     endpoint,
                     remote_models=ids,
-                    skip_remote_fetch=True,
                     keep_text=bool(typed),
                 )
         finally:

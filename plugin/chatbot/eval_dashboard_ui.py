@@ -61,7 +61,6 @@ class EvalDashboard:
         # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
         populate_combobox_with_lru(
             model_ctrl, current_model, "model_lru", current_endpoint,
-            skip_remote_fetch=True,
         )
         self._schedule_models_fetch(current_endpoint, current_model)
 
@@ -79,7 +78,6 @@ class EvalDashboard:
         populate_combobox_with_lru(
             ctrl, current_model, "model_lru", endpoint,
             remote_models=remote,
-            skip_remote_fetch=remote is None,
         )
 
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:

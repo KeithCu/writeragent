@@ -528,17 +528,16 @@ def test_sidebar_text_combo_lists_warm_catalog_after_lru():
          patch("plugin.chatbot.panel_factory.get_image_model", return_value="img"), \
          patch("plugin.chatbot.panel_factory.get_config", return_value=""), \
          patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint), \
-         patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=get_optional):
+         patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=get_optional), \
+         patch("plugin.framework.client.requests.sync_request") as mock_sync:
         el._wire_model_selectors({"model_selector": model_selector, "image_model_selector": image_selector})
         el._refresh_controls_from_config()
 
+    mock_sync.assert_not_called()
     pop.assert_called()
     image_pop.assert_called()
     for call in pop.call_args_list:
-        assert call.kwargs.get("skip_remote_fetch") is True
         assert "model_lru" in call.args
-    for call in image_pop.call_args_list:
-        assert call.kwargs.get("skip_remote_fetch") is True
 
     items = list(model_selector.addItems.call_args.args[0])
     assert items.index("x/lru") < items.index("vendor/a")
