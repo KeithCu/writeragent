@@ -46,7 +46,7 @@ _OCR_ENGINE_ENTRIES = {ocr_module_package(e): e for row in OCR_BACKENDS.values()
 _OCR_ENGINE_KEYS = (*_OCR_ENGINE_ENTRIES, "tesseract")
 _NEMOTRON_RUNTIME_ERROR_KEY = "nemotron_ocr_runtime_error"  # probe key: Docling's reason when nemotron_ocr is present but cannot run
 _VISION_PACKAGE_KEYS = ("docling", *_OCR_ENGINE_KEYS, "css_inline", "paddleocr", "ultralytics", "skimage")
-# Always optional in Test output (never required Missing once OCR readiness is decided).
+# Always optional in Test output unless the configured engine needs it.
 _VISION_OPTIONAL_KEYS = ("paddleocr", "paddle", "ultralytics", "skimage")
 _AUDIO_PACKAGE_KEYS = (
     "sounddevice",
@@ -578,9 +578,9 @@ def _format_vision_group_lines(
     title: str,
     keys: tuple[str, ...] | list[str],
     packages: dict[str, Any],
-    backend: str = DEFAULT_OCR_BACKEND,
+    backend: str,
 ) -> list[str]:
-    """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing."""
+    """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing unless the configured engine needs it."""
     present = [key for key in keys if packages.get(key) == "present"]
     lines: list[str] = [f"\n{title}: {', '.join(present)}" if present else f"\n{title}:"]
     primary_keys = _vision_primary_keys(backend)

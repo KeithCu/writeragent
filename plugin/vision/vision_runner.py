@@ -331,6 +331,20 @@ def run_and_insert_vision_for_selection(
             except SendCancelled:
                 raise
             except ToolExecutionError as exc:
+                if "worker" in exc.details:
+                    if is_cancelled(cancel):
+                        if batch.results:
+                            batch.stopped_early = True
+                            break
+                        batch.cancelled = True
+                        return batch.payload()
+                    if not batch.results:
+                        raise
+                    log.exception("Vision OCR worker failed for image %r", image_name)
+                    # A worker-level failure (timeout, IPC/spawn error) stops the run because the
+                    # next image would likely hit it too, while finished images are still reported.
+                    batch.failures.append((image_name, error_result(exc.code, str(exc), helper=name, details=exc.details)))
+                    break
                 batch.failures.append((image_name, error_result(exc.code, str(exc), helper=name, details=exc.details)))
                 continue
             except Exception as exc:

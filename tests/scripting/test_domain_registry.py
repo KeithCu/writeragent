@@ -179,7 +179,7 @@ def test_rps_spec_insert_forwards_return_value():
 
 
 @pytest.mark.parametrize("helper", ["extract_text", "extract_structure"])
-def test_try_rps_post_venv_vision_empty_reports_not_inserted(helper):
+def test_try_rps_post_venv_vision_empty_reports_no_text(helper):
     from plugin.scripting.python_runner import try_rps_post_venv
 
     wiring = get_domain_wiring("vision")

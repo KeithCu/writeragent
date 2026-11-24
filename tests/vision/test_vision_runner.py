@@ -859,3 +859,88 @@ def test_run_and_insert_cancelled_after_failure_lists_completed_image_names():
     assert result["code"] == "USER_STOPPED"
     assert result["image_names"] == ["Img2"]
 
+
+def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2", "Img3"]
+    attempts: list[str] = []
+
+    def fake_venv_timeout(*, data, **_kwargs):
+        attempts.append(data["context"]["image_name"])
+        return {"status": "error", "code": "VENV_TIMEOUT", "message": "Timed out"}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_timeout),
+    ):
+        with pytest.raises(ToolExecutionError, match="Timed out"):
+            run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False)
+
+    assert attempts == ["Img1"]
+
+    attempts.clear()
+
+    def fake_venv_second_timeout(*, data, **_kwargs):
+        img = data["context"]["image_name"]
+        attempts.append(img)
+        if img == "Img2":
+            return {"status": "error", "code": "VENV_TIMEOUT", "message": "Timed out"}
+        return {"status": "ok", "result": {"status": "ok", "helper": "extract_structure", "html": "<p>ok</p>", "full_text": "ok"}}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_second_timeout),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False)
+
+    assert attempts == ["Img1", "Img2"]
+    assert result["status"] == "error"
+    assert result["partial"] is True
+    assert result["images_processed"] == 1
+    assert result["image_names"] == ["Img1"]
+    assert result["failed_image"] == "Img2"
+
+
+def test_run_and_insert_worker_cancelled_returns_stopped_without_failed_image():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2", "Img3"]
+    scope = SendCancellation()
+
+    def fake_venv_cancel_second(*, data, **_kwargs):
+        img = data["context"]["image_name"]
+        if img == "Img2":
+            scope.cancel()
+            return {"status": "error", "code": "CANCELLED", "message": "Python worker stopped by user."}
+        return {"status": "ok", "result": {"status": "ok", "helper": "extract_structure", "html": "<p>ok</p>", "full_text": "ok"}}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_cancel_second),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False, cancel=scope)
+
+    assert result["status"] == "ok"
+    assert result["stopped"] is True
+    assert result["partial"] is True
+    assert result["images_processed"] == 1
+    assert "failed_image" not in result
+    assert "failed_images" not in result
+

@@ -291,6 +291,7 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
     ),
     "ocrmac": OcrBackend(
         "OcrMacOptions",
+        # ocrmac/__init__.py imports nothing, so importing ocrmac alone misses broken pyobjc.
         ("ocrmac.ocrmac",),
         sys_platform="darwin",
         install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
