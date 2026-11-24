@@ -27,6 +27,7 @@ from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 from plugin.contrib.smolagents.monitoring import Timing
 from plugin.contrib.smolagents.tools import Tool
 from plugin.framework.tool import ToolBase
+from tests.harness.smol_messages import flatten_messages
 
 
 # =============================================================================
@@ -1593,17 +1594,6 @@ def _fail_edit_doc_on_call(fail_on: int):
     return _call
 
 
-def _flatten_messages(messages) -> str:
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.content
-        if isinstance(content, list):
-            parts.extend(str(item.get("text", item)) if isinstance(item, dict) else str(item) for item in content)
-        elif content is not None:
-            parts.append(str(content))
-    return "\n".join(parts)
-
-
 def test_partial_turn_skipped_other_tool_grades_error_with_edits():
     from plugin.doc.specialized_catalog import normalize_inner_result
 
@@ -1663,7 +1653,7 @@ def test_partial_turn_unknown_tool_preserves_earlier_and_grades_skipped():
 
     def _generate(messages, **kwargs):
         del kwargs
-        seen_messages.append(_flatten_messages(messages))
+        seen_messages.append(flatten_messages(messages))
         if len(seen_messages) == 1:
             return _assistant_tool_calls_msg(
                 ("edit_doc", {}, "c1"),
@@ -1718,7 +1708,7 @@ def test_partial_turn_double_finish_preserves_earlier_and_grades_skipped():
 
     def _generate(messages, **kwargs):
         del kwargs
-        seen_messages.append(_flatten_messages(messages))
+        seen_messages.append(flatten_messages(messages))
         if len(seen_messages) == 1:
             return _assistant_tool_calls_msg(
                 ("edit_doc", {}, "c1"),
@@ -1739,4 +1729,42 @@ def test_partial_turn_double_finish_preserves_earlier_and_grades_skipped():
     assert out["status"] == "error"
     assert out["edits"] == {"edit_doc": 1}
     assert [e["tool"] for e in out["tool_errors"]] == ["other_tool"]
+
+
+@pytest.mark.parametrize(
+    "turn_calls",
+    [
+        [
+            ("edit_doc", {}, "c1"),
+            ("workflow_finished", {"answer": "done"}, "c2"),
+            ("workflow_finished", {"answer": "done2"}, "c3"),
+        ],
+        [
+            ("edit_doc", {}, "c1"),
+            ("workflow_finished", {"answer": "done"}, "c2"),
+            ("no_such_tool", {}, "c3"),
+        ],
+    ],
+)
+def test_partial_turn_rejected_finish_then_max_steps_is_incomplete(turn_calls):
+    from plugin.contrib.smolagents.models import ChatMessage, MessageRole
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        _assistant_tool_calls_msg(*turn_calls),
+        ChatMessage(role=MessageRole.ASSISTANT, content="ran out of steps"),
+    ]
+    agent, calls = _make_partial_turn_agent(mock_model)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        ans = agent.run("t", max_steps=1)
+
+    assert "workflow_finished" in [c.name for c in calls]
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "incomplete"
+    assert out["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert out["message"] == "ran out of steps"
+    assert out["edits"] == {"edit_doc": 1}
+    assert "result" not in out
 

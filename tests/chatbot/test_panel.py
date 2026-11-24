@@ -92,6 +92,17 @@ def _make_send_listener() -> SendButtonListener:
     return listener
 
 
+class _FakeStatusControl:
+    def __init__(self, text: str = "") -> None:
+        self._text = text
+
+    def getText(self) -> str:
+        return self._text
+
+    def setText(self, text: str) -> None:
+        self._text = text
+
+
 class TestGrammarStatusDocType:
     def test_non_writer_sidebar_ignores_grammar_bus(self) -> None:
         listener = _make_send_listener()
@@ -102,8 +113,61 @@ class TestGrammarStatusDocType:
     def test_writer_sidebar_shows_grammar_status(self) -> None:
         listener = _make_send_listener()
         listener.cached_doc_type = "writer"
-        listener._on_grammar_status(phase="failed", preview="sample", length=6, result="API error")
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True):
+            listener._on_grammar_status(phase="failed", preview="sample", length=6, result="API error")
         listener.status_control.setText.assert_called_once_with("Grammar: failed 'sample' len 6: API error")
+
+    def test_cleared_phase_empties_grammar_status(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.status_control = _FakeStatusControl("Grammar: failed 'sample' len 6: API error")
+        listener._on_grammar_status(phase="cleared", preview="", length=0, result="")
+        assert listener.status_control.getText() == ""
+
+    def test_cleared_phase_preserves_non_grammar_status(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.status_control = _FakeStatusControl("Ready")
+        listener._on_grammar_status(phase="cleared", preview="", length=0, result="")
+        assert listener.status_control.getText() == "Ready"
+
+    def test_failed_with_grammar_off_not_shown_and_clears_leftover(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.status_control = _FakeStatusControl("Grammar: checking…")
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
+            listener._on_grammar_status(phase="failed", preview="sample", length=6, result="API error")
+        assert listener.status_control.getText() == ""
+
+    def test_done_with_grammar_off_not_shown_and_clears_leftover(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.status_control = _FakeStatusControl("Grammar: checking…")
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
+            listener._on_grammar_status(phase="done", preview="sample", length=6, result="0 issues")
+        assert listener.status_control.getText() == ""
+
+    def test_calc_sidebar_ignores_cleared_phase(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "calc"
+        listener.status_control = _FakeStatusControl("Grammar: stale")
+        listener._on_grammar_status(phase="cleared", preview="", length=0, result="")
+        assert listener.status_control.getText() == "Grammar: stale"
+
+    def test_cleared_phase_while_busy(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.sidebar_state = dataclasses.replace(
+            listener.sidebar_state,
+            send=dataclasses.replace(listener.sidebar_state.send, mode=SendMode.BUSY),
+        )
+        listener.status_control = _FakeStatusControl("Grammar: stale")
+        listener._on_grammar_status(phase="cleared", preview="", length=0, result="")
+        assert listener.status_control.getText() == ""
+
+        listener.status_control = _FakeStatusControl("Connecting to AI (tools=True)...")
+        listener._on_grammar_status(phase="cleared", preview="", length=0, result="")
+        assert listener.status_control.getText() == "Connecting to AI (tools=True)..."
 
 
 @pytest.fixture(autouse=False)

@@ -996,3 +996,25 @@ def test_get_grammar_status_creates_one_sink_for_concurrent_callers() -> None:
         go.set_grammar_status(None)
 
 
+def test_writer_agent_grammar_status_config_change_emits_cleared() -> None:
+    from plugin.framework.event_bus import get_event_bus
+
+    bus = get_event_bus()
+    events: list[dict[str, Any]] = []
+
+    def _on_status(**data: Any) -> None:
+        events.append(data)
+
+    bus.subscribe("grammar:status", _on_status)
+    try:
+        sink = go.WriterAgentGrammarStatus()
+        bus.emit("config:changed", keys=["unrelated_key"])
+        assert events == []
+        bus.emit("config:changed", keys=["doc.grammar_proofreader_enabled"])
+        assert events
+        assert all(e.get("phase") == "cleared" for e in events)
+        del sink
+    finally:
+        bus.unsubscribe("grammar:status", _on_status)
+
+

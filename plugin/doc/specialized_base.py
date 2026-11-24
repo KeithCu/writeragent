@@ -565,11 +565,7 @@ class DelegateToSubagent(ToolBase):
         finally:
             ctx.active_domain = prev_active_domain
 
-        payload = start_inner_payload(
-            final_ans,
-            [domain],
-            text_message=_("Specialized task ({domain}) completed.").format(domain=domain),
-        )
+        payload = start_inner_payload(final_ans, [domain])
         # A user-stop or crash dict keeps its status, code and message; only what already landed is added.
         if payload.get("status") != "error":
             payload = self._annotate_payload(payload, ctx, domain, cap)
