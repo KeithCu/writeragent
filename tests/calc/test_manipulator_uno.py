@@ -550,3 +550,38 @@ def test_sort_range_bad_key_refused_before_any_sort(ctx, doc):
     assert [sheet.getCellByPosition(0, r).getString() for r in range(3)] == ["Name", "Z", "A"]
     assert undo_mgr.getAllUndoActionTitles() == undo_titles_before
     assert undo_mgr.getAllRedoActionTitles() == redo_titles_before
+
+
+@native_test
+@with_native_doc("calc")
+def test_sort_range_coerces_nested_then_by_strings_uno(ctx, doc):
+    from plugin.calc.cells import SortRange
+    from plugin.framework.tool import ToolContext, prepare_tool_call
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    res_w = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1:B4"], "values": [["Name", "Group"], ["A", 1], ["C", 1], ["B", 1]]},
+    )
+    assert res_w.get("status") == "ok", res_w
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="calc", services=None, caller="test")
+    tool = SortRange()
+    prep = prepare_tool_call(
+        tool,
+        tctx,
+        "sort_range",
+        {
+            "range": ["A1:B4"],
+            "sort_column": 1,
+            "ascending": True,
+            "then_by": [{"column": "0", "ascending": "false"}],
+            "has_header": True,
+        },
+    )
+    assert prep.error is None, prep.error
+    res = tool.execute(tctx, **prep.kwargs)
+    assert res.get("status") == "ok", res
+    assert [sheet.getCellByPosition(0, r).getString() for r in range(4)] == ["Name", "C", "B", "A"]

@@ -53,6 +53,7 @@ from plugin.framework.client.http_security import (
     redact_secrets,
     secrets_from_headers,
     secrets_from_target,
+    secrets_from_url_path,
 )
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.config import get_config, resolve_entry_secret
@@ -295,7 +296,7 @@ class McpServerConnection:
             headers["MCP-Protocol-Version"] = self._protocol_version
         self._secrets = [
             form
-            for s in secrets_from_headers(headers) + secrets_from_target(self.url)
+            for s in secrets_from_headers(headers) + secrets_from_target(self.url) + secrets_from_url_path(self.url)
             for form in secret_spellings(s)
         ]
         return headers
@@ -469,7 +470,7 @@ class McpServerConnection:
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.getheader("Location") or ""
                         try:
-                            target = public_target(location) if location else "(missing Location)"
+                            target = self._scrub(public_target(location)) if location else "(missing Location)"
                             redirect = apply_redirect("POST", body, current_headers, current_url, resp.status, location)
                         except NetworkError as e:
                             raise McpClientError(

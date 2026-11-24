@@ -813,7 +813,7 @@ class _CalcProxy:
         """
         return _result(call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets))
 
-    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
+    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | int | None = None, font_color: str | int | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | int | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
         """Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html.
 
         Args:
@@ -835,7 +835,7 @@ class _CalcProxy:
         """
         return _result(call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit))
 
-    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int = 0, ascending: bool = True, then_by: list[Any] | None = None) -> _Item:
+    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int = 0, ascending: bool = True, then_by: list[dict[str, Any]] | None = None) -> _Item:
         """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
@@ -847,7 +847,7 @@ class _CalcProxy:
         """
         return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, then_by=then_by, has_header=has_header))
 
-    def write_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> _Item:
+    def write_range(self, range_name: list[str], *, values: str | list[list[str | float | bool | None] | str | float | bool | None] | None = None, array: bool | None = None, source: str | None = None) -> _Item:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
@@ -926,7 +926,7 @@ class _ChartProxy:
         """
         return _result(call_host_tool("chart_list", sheet=sheet, page=page))
 
-    def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str] | None = None, rows: builtins.list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: builtins.list[str] | None = None) -> _Item:
+    def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str | float] | None = None, rows: builtins.list[builtins.list[Any]] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | int | None = None, colors: builtins.list[str | int] | None = None) -> _Item:
         """Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: data_range on Calc, or headers and rows on Writer/Draw/Impress). When name is set, update that chart if it exists. When it does not exist, create a chart with that name if chart_type and a valid data source are provided; otherwise the chart is not found. If the name is wrong but create fields are present, a new chart is created under that name rather than updating an existing chart — verify the name when editing.
 
         Args:
@@ -1047,7 +1047,7 @@ comment = _CommentProxy()
 class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
-    def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | None = None, font_color: str | None = None, bold: bool | None = None) -> _Item:
+    def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | int | None = None, font_color: str | int | None = None, bold: bool | None = None) -> _Item:
         """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
@@ -1183,7 +1183,7 @@ draw = _DrawProxy()
 class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
-    def insert(self, object_type: str, *, data: list[Any] = [], name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert(self, object_type: str, *, data: list[list[str | float | None]] = [], name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
         """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
@@ -1204,7 +1204,7 @@ embedded = _EmbeddedProxy()
 class _FieldProxy:
     """Proxy for field tools."""
 
-    def delete(self, ids: builtins.list[Any], *, snapshot: str | None = None) -> _Item:
+    def delete(self, ids: builtins.list[int], *, snapshot: str | None = None) -> _Item:
         """Deletes one or more text fields from the document by their 1-based ID in the field_list snapshot. Pass the snapshot string from field_list to ensure IDs have not shifted.
 
         Args:
@@ -1303,7 +1303,7 @@ footnote = _FootnoteProxy()
 class _FormProxy:
     """Proxy for form tools."""
 
-    def create(self, fields: list[Any]) -> _Item:
+    def create(self, fields: list[dict[str, Any]]) -> _Item:
         """Create several live form widgets in one call (Writer/Calc/Draw/Impress). Use this for interactive ControlShapes, not to fill empty paper-form text boxes.
 
         Args:
@@ -1324,7 +1324,7 @@ class _FormProxy:
             default_value (optional): Initial value for text or date fields.
             width (optional): Width, 1/100 mm (default varies by type).
             height (optional): Height, 1/100 mm (default varies by type).
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_create_control", control=control, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height, page=page))
 
@@ -1334,7 +1334,7 @@ class _FormProxy:
         Args:
             index (optional): Draw-page shape index (optional if name is set).
             name (optional): Control Name from form_list_controls.
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_delete_control", index=index, name=name, page=page))
 
@@ -1354,7 +1354,7 @@ class _FormProxy:
             y (optional):
             width (optional):
             height (optional):
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_edit_control", index=index, name=name, new_name=new_name, group_name=group_name, label=label, text=text, state=state, items=items, x=x, y=y, width=width, height=height, page=page))
 
@@ -1370,7 +1370,7 @@ class _FormProxy:
         """List live form widgets (ControlShapes) with name, type, current text/State, and draw-page index so you can edit or delete by name. Writer: document draw page. Calc: active sheet only. Draw/Impress: active page, or page= for a specific slide. Index is the draw-page shape index — it shifts when non-controls sit between widgets; prefer name.
 
         Args:
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_list_controls", page=page))
 
@@ -1451,7 +1451,7 @@ frame = _FrameProxy()
 class _ImageProxy:
     """Proxy for image tools."""
 
-    def crop_and_highlight(self, name: str, *, crop_box: builtins.list[Any] | None = None, highlights: builtins.list[Any] | None = None, units: str = 'px', width_mm: float | None = None, sheet_index: int | None = None) -> _Item:
+    def crop_and_highlight(self, name: str, *, crop_box: builtins.list[float] | None = None, highlights: builtins.list[dict[str, Any]] | None = None, units: str = 'px', width_mm: float | None = None, sheet_index: int | None = None) -> _Item:
         """Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, inside width_px x height_px from image_get_info. If you only see a scaled copy, pass units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use the same frame: the picture as it is now. The result is baked into the picture: the cut-away part is removed from the file and marks cannot drift. Afterwards the picture IS the region (new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the new shape. Check the result with image_get.
 
         Args:
@@ -1545,7 +1545,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_insert", path=path, locator=locator, paragraph=paragraph, page=page, x_mm=x_mm, y_mm=y_mm, width_mm=width_mm, height_mm=height_mm, target=target, style=style, auto_height=auto_height))
 
     def list(self) -> _Item:
-        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
+        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based: the user's page 2 is page=1) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
         return _result(call_host_tool("image_list"))
 
     def list_nearby_files(self, *, filter: str | None = None) -> _Item:
@@ -2048,8 +2048,8 @@ class _PageProxy:
         """
         return _result(call_host_tool("page_set_style_properties", style=style, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, first_is_shared=first_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout))
 
-    def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | None = None) -> _Item:
-        """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: LibreOffice turns on the header of every page style and clears the undo history.
+    def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | int | None = None) -> _Item:
+        """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: setting a watermark turns on the header of every page style. Setting or removing one clears the undo history.
 
         Args:
             text (required): Watermark text. Pass an empty string '' to remove the watermark.
@@ -2329,7 +2329,7 @@ section = _SectionProxy()
 class _ShapeProxy:
     """Proxy for shape tools."""
 
-    def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> _Item:
+    def align(self, indices: list[int | str], alignment: str, *, page: int | None = None) -> _Item:
         """Align multiple shapes on a page to a shared edge or center axis. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
@@ -2339,7 +2339,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_align", page=page, indices=indices, alignment=alignment))
 
-    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None) -> _Item:
+    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | int | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None) -> _Item:
         """Connect two shapes on the same page with a connector. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
@@ -2353,7 +2353,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width, line_start=line_start, line_end=line_end))
 
-    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str = 'horizontal_flow', connections: list[Any] | None = None) -> _Item:
+    def create_diagram(self, nodes: list[dict[str, Any]], *, page: int | None = None, layout: str = 'horizontal_flow', connections: list[dict[str, Any]] | None = None) -> _Item:
         """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
 
         Args:
@@ -2374,7 +2374,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_delete", index=index, name=name, page=page))
 
-    def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> _Item:
+    def distribute(self, indices: list[int | str], axis: str, *, page: int | None = None) -> _Item:
         """Evenly distribute three or more shapes between the first and last along an axis. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
@@ -2384,7 +2384,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_distribute", page=page, indices=indices, axis=axis))
 
-    def fill_fields(self, fields: list[Any], *, page: int | None = None) -> _Item:
+    def fill_fields(self, fields: list[dict[str, Any]], *, page: int | None = None) -> _Item:
         """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from shape_get_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
 
         Args:
@@ -2409,7 +2409,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_get_tree", page=page))
 
-    def group(self, indices: list[Any], *, page: int | None = None) -> _Item:
+    def group(self, indices: list[int | str], *, page: int | None = None) -> _Item:
         """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit). All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
@@ -2418,7 +2418,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | int | None = None, fill_style: str | None = None, line_color: str | int | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | int | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
@@ -2457,7 +2457,7 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
-    def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool = True) -> _Item:
+    def apply_filter(self, range_name: list[str], criteria: list[dict[str, Any]], *, has_header: bool = True) -> _Item:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
@@ -2803,7 +2803,7 @@ class _StyleProxy:
         """
         return _result(call_host_tool("style_clone", style=style, new_style=new_style, family=family))
 
-    def create(self, style: str, *, family: str = 'ParagraphStyles', parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: builtins.list[Any] | None = None) -> _Item:
+    def create(self, style: str, *, family: str = 'ParagraphStyles', parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: builtins.list[dict[str, Any]] | None = None) -> _Item:
         """Create a new paragraph or character style with optional inheritance and property settings. For paragraph styles, you can also define conditional rules mapping contexts (like Table or Header) to other styles.
 
         Args:
@@ -2881,7 +2881,7 @@ class _TableProxy:
 
         Args:
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
@@ -2892,12 +2892,12 @@ class _TableProxy:
         Args:
             name (optional): Table name from table_list.
             cell (optional): Optional. One A1-style address; return that cell only.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
 
-    def insert(self, rows: int, columns: int, *, data: builtins.list[Any] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> _Item:
+    def insert(self, rows: int, columns: int, *, data: builtins.list[builtins.list[str]] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> _Item:
         """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
 
         Args:
@@ -2906,7 +2906,7 @@ class _TableProxy:
             data (optional): 2D cell strings.
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
-            page (optional): Draw/Impress: 0-based page index (active if omitted).
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted).
             x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
             y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
             width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
@@ -2926,7 +2926,7 @@ class _TableProxy:
             axis (required): Whether to edit rows or columns. One of: row, column.
             index (required): 0-based row or column index (insert at count = append).
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
         return _result(call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index))
@@ -2947,7 +2947,7 @@ class _TableProxy:
             cell (required): A1-style cell address, e.g. 'B2'.
             text (required): New plain text for the cell.
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))

@@ -572,3 +572,9 @@ def test_write_range_refuses_delimited_text() -> None:
     res = calc.write_range(range=["A2"], values="x,1\ny,2")
     assert res["status"] == "error"
     assert calc._grid == before
+
+
+def test_normalize_apply_content_keeps_bracketed_prose() -> None:
+    from eval_worlds import normalize_apply_content
+
+    assert normalize_apply_content("[see <b>x</b>]") == "[see <b>x</b>]"

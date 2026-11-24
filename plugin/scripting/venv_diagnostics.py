@@ -202,11 +202,14 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
 # docling then docling-slim matches _check_docling_version; Tesseract reads version from stdout then stderr
 # and languages after the first header line, matching Docling's tesseract_ocr_cli_model.py.
 # A present nemotron_ocr runs Docling's NemotronOcrModel.validate_runtime (platform, Python, CUDA)
-# and its real imports (docling/models/stages/ocr/nemotron_ocr_model.py:NemotronOcrModel.__init__).
+# with the configured vision.device passed as sys.argv[1] (or Docling's default when omitted,
+# matching vision_docling._apply_pipeline_params) and its real imports
+# (docling/models/stages/ocr/nemotron_ocr_model.py:NemotronOcrModel.__init__).
 _OCR_ENGINE_PROBE_BODY = f"""\
 import importlib.metadata
 import shutil
 import subprocess
+import sys
 for dist in ("docling", "docling-slim"):
     try:
         out["docling_version"] = importlib.metadata.version(dist)
@@ -227,7 +230,8 @@ if out.get("nemotron_ocr") == "present":
     try:
         from docling.datamodel.accelerator_options import AcceleratorOptions
         from docling.models.stages.ocr.nemotron_ocr_model import NemotronOcrModel
-        NemotronOcrModel.validate_runtime(AcceleratorOptions())
+        device = {{"device": sys.argv[1]}} if sys.argv[1:] else {{}}
+        NemotronOcrModel.validate_runtime(AcceleratorOptions(**device))
         from nemotron_ocr.inference.pipeline import CHECKPOINT_FILES
         from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
     except BaseException as exc:
@@ -312,6 +316,7 @@ def _run_json_probe(
     timeout_hint: str,
     fail_hint: str,
     log_label: str,
+    args: tuple[str, ...] = (),
 ) -> tuple[dict[str, Any], str | None]:
     """Run a one-shot ``python -c`` JSON probe outside the warm worker."""
     # subprocess.run rejects timeout <= 0. Callers pass the probe timeout constants.
@@ -329,7 +334,7 @@ def _run_json_probe(
     try:
         # One-shot probe: kill the host child on timeout, unlike the warm venv worker.
         proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", script], env=scrubbed_env, watch_bus=True),
+            wrap_command_for_sandbox([python_exe, "-c", script, *args], env=scrubbed_env, watch_bus=True),
             capture_output=True,
             encoding="utf-8",
             errors="replace",
@@ -440,6 +445,8 @@ def _run_named_json_probe(
     name: str,
 ) -> tuple[dict[str, Any], str | None]:
     spec = _JSON_PROBE_SPECS[name]
+    # The device OCR would use, so the Nemotron check matches a real run (vision_docling.DoclingPipelineParams.from_params).
+    device = str(merge_vision_params().get("device") or "").strip() if name == "vision" else ""
     return _run_json_probe(
         python_exe,
         spec.script,
@@ -447,6 +454,7 @@ def _run_named_json_probe(
         timeout_hint=_(spec.timeout_msgid),
         fail_hint=_(spec.fail_msgid),
         log_label=spec.log_label,
+        args=(device,) if device else (),
     )
 
 

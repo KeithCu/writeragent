@@ -53,7 +53,7 @@ from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, in_sync_host_dispatch, sync_host_dispatch
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads
+from plugin.scripting.payload_codec import find_image_payloads, is_dataframe_payload, strip_image_payloads
 from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -169,6 +169,16 @@ def _record_py_diagnostic(
     )
 
 
+def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
+    """The grid *result* spills into, or None when the formula returns one value."""
+    if not isinstance(result, (list, tuple)) or not result:
+        return None
+    if cell.is_matrix or not get_config("scripting.python_auto_spill"):
+        return None
+    grid = result_as_spill_grid(result)
+    return grid if grid[0] else None
+
+
 def finalize_python_return(
     cell: CellContext,
     result: Any,
@@ -176,25 +186,23 @@ def finalize_python_return(
     """Map worker result to a scalar or native matrix Calc's add-in bridge accepts."""
     result = result_to_calc_grid(result)
 
-    if isinstance(result, (list, tuple)) and len(result) > 0:
-        if get_config("scripting.python_auto_spill") and not cell.is_matrix:
-            grid_to_spill = result_as_spill_grid(result)
-            if grid_to_spill and grid_to_spill[0]:
-                try:
-                    if not cell.on_main:
-                        if cell.doc is not None:
-                            queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
-                        return matrix_result(result)
+    grid_to_spill = _auto_spill_grid(cell, result)
+    if grid_to_spill is not None:
+        try:
+            if not cell.on_main:
+                if cell.doc is not None:
+                    queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
+                return matrix_result(result)
 
-                    if cell.origin is not None and cell.state is not None:
-                        prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
-                        if prepared == "#SPILL!":
-                            return "#SPILL!"
-                        if isinstance(prepared, PreparedSpill):
-                            queue_deferred_spill_write(cell.state, cell.doc, prepared, grid_to_spill)
-                            return py_addin_cell_value(grid_to_spill[0][0])
-                except Exception:
-                    log.exception("Error checking spill collision")
+            if cell.origin is not None and cell.state is not None:
+                prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
+                if prepared == "#SPILL!":
+                    return "#SPILL!"
+                if isinstance(prepared, PreparedSpill):
+                    queue_deferred_spill_write(cell.state, cell.doc, prepared, grid_to_spill)
+                    return py_addin_cell_value(grid_to_spill[0][0])
+        except Exception:
+            log.exception("Error checking spill collision")
 
     if isinstance(result, (list, tuple)):
         return matrix_result(result)
@@ -213,14 +221,16 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
 def _cells_beside_images(result: Any) -> list[Any] | None:
     """The result with its images blanked, or None when there is nothing for cells to show.
 
-    A dict (a viz helper's report, a dict of figures, a nested DataFrame envelope) or a list
-    inside one cell has no cell form, so such a result shows the inserted text instead.
+    A dict (a viz helper's report, a dict of figures, a nested DataFrame envelope), a list
+    inside one cell, or a DataFrame/Series whose body holds only figures has no cell form,
+    so such a result shows the inserted text instead.
     """
     grid = strip_image_payloads(result_to_calc_grid(result), placeholder=None)
     if not isinstance(grid, list):
         return None
+    body = grid[1:] if is_dataframe_payload(result) else grid
     cells = flatten_result_values(grid)
-    if any(isinstance(c, (dict, list, tuple)) for c in cells) or all(c is None for c in cells):
+    if any(isinstance(c, (dict, list, tuple)) for c in cells) or all(c is None for c in flatten_result_values(body)):
         return None
     return grid
 
@@ -276,18 +286,28 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             _record_py_diagnostic(code, res, status="ok", workbook_key=cell_ctx.diag_workbook_key)
             images = find_image_payloads(result)
             if images:
+                cells = _cells_beside_images(result)
+                spill = _auto_spill_grid(cell_ctx, cells, index_arg)
+                spill_cols = max(len(row) for row in spill) if spill else 1
                 # Every slot is processed even when one fails, so later plots still refresh
                 # instead of keeping the previous run's pictures. The first failure is then
                 # raised and becomes the cell's error text.
                 first_error: ImageEgressError | None = None
                 for i, img in enumerate(images):
                     try:
-                        insert_image_result_on_sheet(img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+                        insert_image_result_on_sheet(
+                            img,
+                            code=code,
+                            doc=target_doc,
+                            image_index=i,
+                            image_count=len(images),
+                            notify_cell=True,
+                            spill_cols=spill_cols,
+                        )
                     except ImageEgressError as err:
                         first_error = first_error or err
                 if first_error is not None:
                     raise first_error
-                cells = _cells_beside_images(result)
                 if cells is None:
                     return _("Image inserted") if len(images) == 1 else _("Images inserted")
                 return finalize_python_return(cell_ctx, cells)

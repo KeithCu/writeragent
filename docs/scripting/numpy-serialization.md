@@ -284,7 +284,7 @@ Image and dataframe envelopes are built by `pack_image_envelope` / `pack_datafra
 | Child `result` | Host / UI after unpack |
 |----------------|------------------------|
 | `np.ndarray` with `np.nan` | `float('nan')` preserved (Calc error on `=PY()` egress) |
-| `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
+| `np.inf` / `-np.inf` | Still **inf** (not treated as missing; `=PY()` cells and spill neighbours show `#NUM!`) |
 | Large numeric array (≥ 100 cells, rank 1 or 2) | `split_grid` on wire; host unpack → nested lists (NaN preserved). Rank 3+ is a list of planes, not one envelope. Complex is not cast to float64 (imaginary part would be dropped); it takes the strings map |
 | Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
 

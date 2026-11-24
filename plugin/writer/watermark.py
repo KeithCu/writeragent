@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from com.sun.star.frame import XStatusListener
 
-from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.uno_context import create_property_value, execute_dispatch, resolve_uno_context
 from .edit_review import flag_style_unreviewed
@@ -264,7 +264,7 @@ class PageSetWatermark(ToolWriterPageBase):
         "Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); "
         "Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove "
         "the watermark. Setting or removing also deletes any Word picture watermark. "
-        "Note: LibreOffice turns on the header of every page style and clears the undo history."
+        "Note: setting a watermark turns on the header of every page style. Setting or removing one clears the undo history."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -289,10 +289,9 @@ class PageSetWatermark(ToolWriterPageBase):
                 "maximum": 100,
                 "description": "Transparency percentage (0-100). Omit to keep current (default 50).",
             },
-            "color": {
-                "type": "string",
-                "description": "Color as '#rrggbb', 'rgb(...)', or a color name. Omit to keep current (default '#c0c0c0').",
-            },
+            "color": color_param(
+                "Color as '#rrggbb', 'rgb(...)', or a color name. Omit to keep current (default '#c0c0c0')."
+            ),
         },
         "required": ["text"],
     }

@@ -356,7 +356,6 @@ class PythonWorkerManager:
             argv=[self.exe, _HARNESS_PATH],
             env=dict(self.env),
             command_wrapper=wrap_worker_command,
-            ready_timeout_sec=float(WARM_WORKER_TIMEOUT_SEC),
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             # log_start_failure=False: a missing interpreter must stay OSError (systemd retry depends on it).
             log_start_failure=False,

@@ -1657,3 +1657,30 @@ def test_invalid_header_name_is_a_config_error_without_the_name(fake, header_nam
     for part in secret_parts:
         assert part not in msg
     assert fake.requests == []
+
+
+def test_url_path_and_signed_query_secrets_are_redacted(fake):
+    uuid_seg = "8d2f6f3e-1a2b-4c5d-8e9f-0a1b2c3d4e5f"
+    base = fake.url.rsplit("/", 1)[0]
+    fake.error_body = (404, f"Cannot POST /s/{uuid_seg}/mcp?code=Fn12345678&sig=SigVal9999")
+    conn = McpServerConnection({"name": "claw", "url": f"{base}/s/{uuid_seg}/mcp?code=Fn12345678&sig=SigVal9999", "token": TOKEN})
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    msg = str(exc_info.value)
+    assert "<redacted>" in msg
+    assert uuid_seg not in msg
+    assert "Fn12345678" not in msg
+    assert "SigVal9999" not in msg
+
+
+def test_redirect_error_redacts_the_path_secret(fake):
+    uuid_seg = "8d2f6f3e-1a2b-4c5d-8e9f-0a1b2c3d4e5f"
+    base = fake.url.rsplit("/", 1)[0]
+    fake.redirect_cross_origin_target = f"https://other.example/s/{uuid_seg}/mcp"
+    conn = McpServerConnection({"name": "claw", "url": f"{base}/s/{uuid_seg}/mcp", "token": TOKEN})
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    msg = str(exc_info.value)
+    assert "other.example" in msg
+    assert "<redacted>" in msg
+    assert uuid_seg not in msg
