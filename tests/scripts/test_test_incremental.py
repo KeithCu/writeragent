@@ -109,6 +109,47 @@ def test_select_pytest_files_maps_modules_and_excludes_uno(tmp_path: Path) -> No
     ]
 
 
+def _write(root: Path, rel: str, text: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_select_pytest_files_adds_tests_that_name_the_module(tmp_path: Path) -> None:
+    _touch(tmp_path, "plugin/a/b/foo.py")
+    _touch(tmp_path, "plugin/pkg/__init__.py")
+    _write(tmp_path, "tests/x/test_import.py", "import plugin.a.b.foo\n")
+    _write(tmp_path, "tests/x/test_from_module.py", "from plugin.a.b.foo import thing\n")
+    _write(tmp_path, "tests/x/test_from_package.py", "from plugin.a.b import (\n    bar,\n    foo,\n)\n")
+    _write(tmp_path, "tests/x/test_patch.py", 'PATCH = "plugin.a.b.foo.helper"\n')
+    _write(tmp_path, "tests/x/test_pkg_users.py", "from plugin.pkg import name\n")
+    _write(tmp_path, "tests/x/test_prefix_only.py", "import plugin.a.b.foobar\nfrom plugin.a.b import foobar\n")
+    _write(tmp_path, "tests/x/test_other_module.py", "from plugin.a.b import bar\n# foo\n")
+    _write(tmp_path, "tests/x/test_import_uno.py", "import plugin.a.b.foo\n")
+
+    selected = tst.select_pytest_files(["plugin/a/b/foo.py", "plugin/pkg/__init__.py"], repo_root=tmp_path)
+    assert selected == [
+        "tests/x/test_from_module.py",
+        "tests/x/test_from_package.py",
+        "tests/x/test_import.py",
+        "tests/x/test_patch.py",
+        "tests/x/test_pkg_users.py",
+    ]
+
+
+def test_select_pytest_files_maps_data_files_by_name(tmp_path: Path) -> None:
+    _write(tmp_path, "plugin/writer/prompts/summary_prompt.md", "prompt\n")
+    _write(tmp_path, "plugin/writer/module.yaml", "x: 1\n")
+    _write(tmp_path, "tests/w/test_reads_prompt.py", 'NAME = "summary_prompt.md"\n')
+    _write(tmp_path, "tests/w/test_reads_yaml.py", 'NAME = "module.yaml"\n')
+    _write(tmp_path, "tests/w/test_unrelated.py", "x = 1\n")
+
+    selected = tst.select_pytest_files(
+        ["plugin/writer/prompts/summary_prompt.md", "plugin/writer/module.yaml"], repo_root=tmp_path
+    )
+    assert selected == ["tests/w/test_reads_prompt.py"]
+
+
 def test_main_exits_zero_when_no_changed_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
