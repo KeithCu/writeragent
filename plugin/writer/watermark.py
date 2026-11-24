@@ -44,6 +44,16 @@ log = logging.getLogger("writeragent.writer")
 WATERMARK_COMMAND = ".uno:Watermark"
 PICTURE_WATERMARK_PREFIX = "WordPictureWatermark"  # oox/source/export/vmlexport.cxx IsWaterMarkShape
 TEXT_WATERMARK_PREFIX = "PowerPlusWaterMarkObject"  # sw/source/core/edit/edfcol.cxx WATERMARK_NAME
+# What lcl_placeWatermarkInHeader (sw/source/core/edit/edfcol.cxx) derives from the watermark's
+# font, color, transparency and angle. Transformation also carries the size fitted to the text.
+_WATERMARK_LOOK_PROPS = (
+    "CharFontName",
+    "CharFontNameAsian",
+    "CharFontNameComplex",
+    "FillColor",
+    "FillTransparence",
+    "Transformation",
+)
 
 
 class _WatermarkStateListener(unohelper.Base, XStatusListener):  # type: ignore[misc]
@@ -148,6 +158,44 @@ def _dispose_shapes(shapes: list[Any]) -> int:
                 raise
             log.exception("Failed to dispose watermark shape")
     return removed
+
+
+def _update_inactive_watermarks(doc: Any, text: str) -> None:
+    """Copy the active watermark's text and look into watermark shapes in inactive headers.
+
+    An inactive header's text belongs to no page descriptor format, so ``getAnchor().getText()``
+    is ``None`` (``sw/source/core/unocore/unoobj2.cxx`` ``sw::CreateParentXText``). A
+    page-anchored shape has no anchor at all (``getAnchor() is None``) and is left alone.
+    The caller has verified through ``SwEditShell::GetWatermark`` that an active header holds
+    this text, so a model exists whenever there are inactive copies.
+    """
+    inactive: list[Any] = []
+    model: Any = None
+    for shape in _watermark_shapes(doc, TEXT_WATERMARK_PREFIX):
+        anchor = shape.getAnchor()
+        if anchor is None:
+            continue
+        anchor_text = anchor.getText()
+        if anchor_text is None:
+            inactive.append(shape)
+        elif (
+            model is None
+            and anchor_text.getImplementationName() == "SwXHeadFootText"
+            and shape.getString() == text
+        ):
+            model = shape
+    if not inactive:
+        return
+    active_model = cast("Any", model)
+    undo_mgr = doc.getUndoManager()
+    undo_mgr.lock()
+    try:
+        for shape in inactive:
+            shape.setString(text)
+            for name in _WATERMARK_LOOK_PROPS:
+                shape.setPropertyValue(name, active_model.getPropertyValue(name))
+    finally:
+        undo_mgr.unlock()
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -315,17 +363,20 @@ class PageSetWatermark(ToolWriterPageBase):
         elif after != expected:
             return self._tool_error("LibreOffice did not apply the watermark.")
 
+        # Word files can carry first-page and even-page headers that are switched off.
+        # LibreOffice keeps them as stashed formats that HeaderTextFirst and HeaderTextLeft
+        # do not return while shared (sw/source/core/unocore/unostyle.cxx
+        # SwXPageStyle::GetPropertyValues_Impl), so SwEditShell::SetWatermark cannot reach them.
+        # Without this step their watermark shapes stay stale: DOCX export writes them
+        # (sw/source/filter/ww8/wrtw8sty.cxx MSWordExportBase::SectionProperties), and they come
+        # back when the user turns on a different first or even page
+        # (sw/source/core/doc/docdesc.cxx SwDoc::ChgPageDesc). On a verified removal any remaining
+        # shape with this prefix is one of those copies; on a verified set, update inactive copies
+        # in place with the active watermark's text and look.
         if text == "":
-            # Word files can carry first-page and even-page headers that are switched off.
-            # LibreOffice keeps them as stashed formats that HeaderTextFirst and HeaderTextLeft
-            # do not return while shared (sw/source/core/unocore/unostyle.cxx
-            # SwXPageStyle::GetPropertyValues_Impl), so SwEditShell::SetWatermark cannot reach them.
-            # Without this step their watermark shapes stay on the draw page: DOCX export writes
-            # them (sw/source/filter/ww8/wrtw8sty.cxx MSWordExportBase::SectionProperties), and
-            # they come back when the user turns on a different first or even page
-            # (sw/source/core/doc/docdesc.cxx SwDoc::ChgPageDesc). After a verified removal, any
-            # shape with this prefix that is still present is one of those copies.
             _dispose_shapes(_watermark_shapes(ctx.doc, TEXT_WATERMARK_PREFIX))
+        else:
+            _update_inactive_watermarks(ctx.doc, text)
 
         # Word has one watermark per document, and DOCX export would write the picture next to
         # the new text, so Word would show both. Dispose any WordPictureWatermark* shapes.
