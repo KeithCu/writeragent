@@ -24,6 +24,8 @@ import logging
 import threading
 from typing import Any, Generator
 
+from plugin.framework.i18n import get_lo_locale
+
 log = logging.getLogger(__name__)
 
 # Distinct authors -> distinct by-author colors. Both read as the agent in the Manage dialog.
@@ -66,6 +68,24 @@ def set_office_author(ctx: Any, given: str) -> bool:
     except Exception:
         log.debug("review_authors: could not set office author", exc_info=True)
         return False
+
+
+def office_author(ctx: Any) -> str:
+    """The name LibreOffice stamps on a redline the user records now.
+
+    Matches ``SvtUserOptions::Impl::GetFullName`` (``unotools/source/config/useroptions.cxx``)
+    and ``SwModule::GetRedlineAuthor`` (``sw/source/uibase/app/swmodul1.cxx``).
+    """
+    access = _author_access(ctx)
+    lang = get_lo_locale(ctx)[:2]
+    if lang in ("ja", "ko", "zh", "hu"):  # MsLangId::isFamilyNameFirst
+        names: tuple[str, ...] = ("sn", "givenname")
+    elif lang == "ru":
+        names = ("givenname", "fathersname", "sn")
+    else:
+        names = ("givenname", "sn")
+    parts = [str(access.getPropertyValue(n) or "").strip() for n in names]
+    return " ".join(p for p in parts if p) or str(access.getPropertyValue("initials") or "").strip() or "Unknown Author"
 
 
 def begin(ctx: Any) -> tuple[str, str] | None:
