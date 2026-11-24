@@ -36,6 +36,7 @@ from plugin.calc.python.geometric_recalc import (
     save_geometric_registry_for_doc,
 )
 from plugin.calc.python.geometric_recalc_core import (
+    arg_overlaps_box,
     formula_data_args,
     rebuild_formula_with_data_args,
     same_cell_ref,
@@ -1839,4 +1840,18 @@ def test_open_column_data_arg_prevents_cycle_attach():
     )
     assert patches == ()
     assert records == {}
+
+
+def test_arg_overlaps_box():
+    # Box F1:G2 -> (5, 0, 6, 1)
+    box = (5, 0, 6, 1)
+    assert arg_overlaps_box("G2:G9", box, sheet_name="Sheet1") is True  # touching corner
+    assert arg_overlaps_box("H1:H9", box, sheet_name="Sheet1") is False  # disjoint
+    assert arg_overlaps_box("3:1", box, sheet_name="Sheet1") is True  # reversed axis range
+    assert arg_overlaps_box("G:F", box, sheet_name="Sheet1") is True  # reversed col range
+    assert arg_overlaps_box("F:F", box, sheet_name="Sheet1") is True
+    assert arg_overlaps_box("2:3", box, sheet_name="Sheet1") is True
+    assert arg_overlaps_box("Other.G2:G9", box, sheet_name="Sheet1") is False
+    assert arg_overlaps_box("'My Sheet'.G2:G9", box, sheet_name="My Sheet") is True
+    assert arg_overlaps_box("'Other Sheet'.G2:G9", box, sheet_name="My Sheet") is False
 

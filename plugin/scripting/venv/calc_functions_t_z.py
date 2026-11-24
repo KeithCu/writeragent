@@ -33,6 +33,7 @@ from .calc_functions_util import (
     is_calc_error,
     number_text,
     parse_weekend,
+    propagate_errors,
     round_half_up,
     scipy_stats,
     serial_to_date,
@@ -339,6 +340,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         return float("nan")
 
 
+@propagate_errors
 def time(hour: Any, minute: Any, second: Any) -> float:
     # ScInterpreter::ScGetTime (sc/source/core/tool/interpr2.cxx) does
     # fmod(hour*3600 + minute*60 + second, 86400) / 86400. Truncating each
@@ -357,6 +359,7 @@ def time(hour: Any, minute: Any, second: Any) -> float:
     return wrapped / 86400.0
 
 
+@propagate_errors
 def timevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     # ``fmt`` is the TEXT alias. A loop variable with that name would hide it.
@@ -407,8 +410,9 @@ def trend(*args: Any) -> Any:
         return "#VALUE!"
 
 
+@propagate_errors
 def trimmean(r: Any, percent: Any) -> float:
-    # Skip blanks, text, and bools. A formula error (NaN) still propagates.
+    # Skip blanks, text, and bools. Coded errors and tokens propagate via @propagate_errors; a plain NaN propagates via propagate_nan=True.
     arr = extract_numeric_array(r, propagate_nan=True)
     if len(arr) == 0 or np.any(np.isnan(arr)):
         return float("nan")
@@ -427,6 +431,7 @@ def trimmean(r: Any, percent: Any) -> float:
     return float(np.mean(arr[k:-k]))
 
 
+@propagate_errors
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     # ``t`` is the public T() function. A local with that name would hide it.
     tail_count = int(float(tails))
@@ -561,12 +566,14 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
     return [list(row) for row in zip(*kept)]
 
 
+@propagate_errors
 def vara(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=1))
 
 
+@propagate_errors
 def varpa(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
@@ -583,6 +590,7 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 }
 
 
+@propagate_errors
 def weekday(serial: Any, return_type: int | float = 1) -> float:
     # serial_to_date returns None for a bad serial. A non-numeric return_type
     # raises ValueError, which the worker returns as #VALUE!.
@@ -630,6 +638,7 @@ def _system1_week_number(day: dt.date, week_start: int) -> int:
     return week
 
 
+@propagate_errors
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
@@ -750,11 +759,13 @@ def _workday_serial(
     return date_to_serial(end)
 
 
+@propagate_errors
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
     # Excel WORKDAY weekend is Saturday and Sunday (weekday() 5 and 6).
     return _workday_serial(start_date, days, {5, 6}, holidays)
 
 
+@propagate_errors
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     wk_days = parse_weekend(weekend)
     if not isinstance(wk_days, set):
@@ -1005,6 +1016,7 @@ def xor(*args: Any) -> bool | float | str:
     return trues % 2 == 1
 
 
+@propagate_errors
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     """Annual yield of a discounted security (e.g. Treasury bill)."""
     p = float(pr)
@@ -1021,6 +1033,7 @@ def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: A
     return float(((red - p) / p) / yf)
 
 
+@propagate_errors
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
     """Annual yield of a security that pays interest at maturity."""
     r = float(rate)
@@ -1044,11 +1057,11 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
     return float(num / dsm_b)
 
 
+@propagate_errors
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
-    # ScZTest counts numeric cells, including TRUE as 1, and skips text
-    # and blanks. dtype=float raised on None, so one blank made the call
-    # NaN. isfinite then dropped error cells instead of propagating them.
-    # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
+    # ScZTest counts numeric cells, including TRUE as 1, and skips text and blanks.
+    # A plain NaN propagates via propagate_nan=True; coded errors and tokens propagate
+    # via @propagate_errors. Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
     d = extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
     if len(d) < 2 or np.any(np.isnan(d)):
         return float("nan")

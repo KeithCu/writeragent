@@ -63,11 +63,11 @@ from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, r
 from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
-from plugin.calc.python.addin_values import accepts_returned_any
+from plugin.calc.python.addin_values import accepts_returned_any, is_failed_run_text
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_edit import repair_py_code_newlines
-from plugin.calc.python.geometric_recalc_core import arg_covers_cell
+from plugin.calc.python.geometric_recalc_core import arg_overlaps_box
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
@@ -714,8 +714,44 @@ def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: i
         )
 
 
-def _free_cell_right_of(sheet: Any, sheet_name: str, arg: str, args: list[str]) -> str | None:
-    """Find the first free column right of *arg* on its top row, or None."""
+# 525 is #NAME? (unknown function); 533 is FormulaError::NestedArray, which an empty FILTER
+# pushes (sc/source/core/tool/interpr1.cxx, lines 8342 and 8395). Other codes get no hint
+# because they are the formula's own errors.
+_ARRAY_ERROR_HINTS: dict[int, str] = {
+    525: " — unknown function name (this LibreOffice may lack TAKE/VSTACK etc.)",
+    533: " — e.g. FILTER with no matching row gives #CALC!",
+}
+
+
+def _squeeze_clip(text: str, limit: int = 400) -> str:
+    """Collapse whitespace and clip *text* for tool messages."""
+    return " ".join(text.split())[:limit]
+
+
+def _raise_if_array_failed(cell: Any, formula: str) -> None:
+    """Raise CalcError when an array cell shows a Calc error or =PY failure text."""
+    err = int(cell.Error)
+    if err:
+        shown = cell.getString()
+        hint = _ARRAY_ERROR_HINTS.get(err, "")
+        raise CalcError("The formula returns an error (%s, code %d)%s." % (shown or "error", err, hint))
+    if py_formula_or_none(formula) is not None:
+        shown = cell.getString()
+        if is_failed_run_text(shown):
+            raise CalcError(f"=PY returned an error message instead of a result: {_squeeze_clip(shown)}")
+
+
+def _free_block_right_of(
+    sheet: Any,
+    sheet_name: str,
+    arg: str,
+    args: list[str],
+    rows: int = 1,
+    cols: int = 1,
+) -> str | None:
+    """Find the first free (rows x cols) block right of *arg* on its top row, or None."""
+    if rows * cols > MAX_ARRAY_CELLS:
+        return None
     local = local_a1(arg)
     if not local:
         return None
@@ -725,15 +761,64 @@ def _free_cell_right_of(sheet: Any, sheet_name: str, arg: str, args: list[str]) 
         return None
     top = min(r0, r1)
     bottom = max(r0, r1)
+    if top + rows - 1 > MAX_ROW:
+        return None
     right = max(c0, c1)
-    scan_end = min(MAX_COL, right + _PY_PLACEMENT_SCAN_COLS)
+    scan_end = min(MAX_COL - cols + 1, right + _PY_PLACEMENT_SCAN_COLS)
+    # Check occupancy over the data's full height too because the result usually matches it, leaving room for a spill.
+    check_bottom = max(bottom, top + rows - 1)
     for col in range(right + 1, scan_end + 1):
-        candidate = format_address(col, top)
-        if any(arg_covers_cell(other, candidate, sheet_name=sheet_name) for other in args):
+        box = (col, top, col + cols - 1, top + rows - 1)
+        if any(arg_overlaps_box(other, box, sheet_name=sheet_name) for other in args):
             continue
-        if not _occupied_cells(sheet, col, top, col, bottom):
-            return qualify_a1(sheet_name, candidate)
+        if not _occupied_cells(sheet, col, top, col + cols - 1, check_bottom):
+            return qualify_a1(sheet_name, format_range(*box, collapse_single=True))
     return None
+
+
+def _refuse_circular_py(
+    sheet: Any,
+    sheet_name: str,
+    formula: Any,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    suggest: bool,
+    array: bool = False,
+) -> None:
+    """Refuse writing a =PY formula onto cells covered by its own data argument."""
+    # Plain text is never a formula; skip before py_formula_or_none so
+    # long string writes cannot hit PyFormula.parse's 8192-char @deal contract.
+    if not isinstance(formula, str) or not formula.startswith("="):
+        return
+    parts = py_formula_or_none(formula)
+    if parts is None:
+        return
+    args = parts.data_args()
+    box = (start[0], start[1], end[0], end[1])
+    target = format_range(*box, collapse_single=True)
+    rows = end[1] - start[1] + 1
+    cols = end[0] - start[0] + 1
+    for arg in args:
+        if arg_overlaps_box(arg, box, sheet_name=sheet_name):
+            dest = _free_block_right_of(sheet, sheet_name, arg, args, rows, cols) if suggest else None
+            details: dict[str, Any] = {"data_range": arg}
+            if dest:
+                details["suggested_call"] = suggest_call(
+                    "write_range",
+                    range=[dest],
+                    values=formula,
+                    **({"array": True} if array else {}),
+                )
+            relation = f"includes {target} itself" if start == end else f"overlaps {target}"
+            raise CalcError(
+                f"=PY in {target} reads {arg}, which {relation}, "
+                "so Calc would show an error and the value there would be lost. "
+                f"Nothing was written; put the formula in an empty cell outside the data"
+                f"{', e.g. ' + dest if dest else ''}.",
+                code="PY_CIRCULAR",
+                details=details,
+            )
 
 
 def _latest_py_diagnostic(doc: Any, parts: PyFormula | None) -> DiagnosticEntry | None:
@@ -754,7 +839,7 @@ def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) ->
     latest = _latest_py_diagnostic(doc, parts)
     if latest is None or latest is prior or not latest.is_error:
         return ""
-    return f" ({' '.join(latest.message.split())[:400]})"
+    return f" ({_squeeze_clip(latest.message)})"
 
 
 def _parse_json_array_string(s: str) -> list[Any] | None:
@@ -1474,9 +1559,13 @@ class CellManipulator:
                 if err != 0:
                     detail = _py_run_detail(self.bridge.doc, parts, prior)
                     py_warning = f"; warning: formula gives Err:{err}{detail}"
-                elif cell.getString() == "#SPILL!":
-                    detail = _py_run_detail(self.bridge.doc, parts, prior)
-                    py_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
+                else:
+                    shown = cell.getString()
+                    if shown == "#SPILL!":
+                        detail = _py_run_detail(self.bridge.doc, parts, prior)
+                        py_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
+                    elif is_failed_run_text(shown):
+                        py_warning = f"; warning: {format_address(col, row)} shows an error message instead of a result: {_squeeze_clip(shown)}"
 
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
@@ -1574,36 +1663,20 @@ class CellManipulator:
         """Refuse writing a =PY formula onto a cell covered by its own data argument."""
         sheet_name = sheet.getName()
         width = end[0] - start[0] + 1
+        suggest = len(values) == 1
         for idx, value in enumerate(values):
-            # Plain text is never a formula; skip before py_formula_or_none so
-            # long string writes cannot hit PyFormula.parse's 8192-char @deal contract.
-            if not isinstance(value, str) or not value.startswith("="):
-                continue
-            parts = py_formula_or_none(value)
-            if parts is None:
-                continue
-            args = parts.data_args()
             col = start[0] + (idx % width)
             row = start[1] + (idx // width)
-            target = format_address(col, row)
-            for arg in args:
-                if arg_covers_cell(arg, target, sheet_name=sheet_name):
-                    dest = _free_cell_right_of(sheet, sheet_name, arg, args) if len(values) == 1 else None
-                    details: dict[str, Any] = {"data_range": arg}
-                    if dest:
-                        details["suggested_call"] = suggest_call("write_range", range=[dest], values=value)
-                    raise CalcError(
-                        f"=PY in {target} reads {arg}, which includes {target} itself, "
-                        "so Calc would show an error and the value there would be lost. "
-                        f"Nothing was written; put the formula in an empty cell outside the data"
-                        f"{', e.g. ' + dest if dest else ''}.",
-                        code="PY_CIRCULAR",
-                        details=details,
-                    )
+            _refuse_circular_py(sheet, sheet_name, value, (col, row), (col, row), suggest=suggest)
 
-    def _refuse_py_array_block(self, sheet: Any, formula: str, start: tuple[int, int]) -> None:
-        """Refuse a =PY array formula where =PY returns only its top-left value (before LibreOffice 26.8)."""
-        if py_formula_or_none(formula) is None or accepts_returned_any(unwrap_uno(get_ctx())):
+    def _refuse_py_array_write(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> None:
+        """Refuse a =PY array write overlapping its data, or on pre-26.8 LibreOffice where =PY returns only its top-left value."""
+        if py_formula_or_none(formula) is None:
+            return
+        keeps_block = accepts_returned_any(unwrap_uno(get_ctx()))
+        # Before 26.8 the answer below suggests the origin cell alone, so only that cell must be outside the data.
+        _refuse_circular_py(sheet, sheet.getName(), formula, start, end if keeps_block else start, suggest=True, array=keeps_block)
+        if keeps_block:
             return
         raise CalcError(
             "This LibreOffice (before 26.8) shows only the first value of a =PY result in every cell of an array formula. "
@@ -1654,7 +1727,19 @@ class CellManipulator:
             if formulas_on and _requests_array_formula(values, array):
                 # Repair literal \n in model-written =PY() code before probing or planning.
                 values = repair_py_code_newlines(values)
-                self._refuse_py_array_block(sheet, values, start)
+                self._refuse_py_array_write(sheet, values, start, end)
+                array_size = self._probe_array_formula(sheet, values, start, end, premeasured_array_size)
+                if start == end:
+                    rows, cols = array_size
+                    _refuse_circular_py(
+                        sheet,
+                        sheet.getName(),
+                        values,
+                        start,
+                        (start[0] + cols - 1, start[1] + rows - 1),
+                        suggest=True,
+                        array=True,
+                    )
                 return WritePlan(
                     "array",
                     range_str,
@@ -1662,7 +1747,7 @@ class CellManipulator:
                     start,
                     end,
                     values,
-                    array_size=self._probe_array_formula(sheet, values, start, end, premeasured_array_size),
+                    array_size=array_size,
                     notes=tuple(notes),
                 )
 
@@ -1929,7 +2014,7 @@ class CellManipulator:
         in two scratch cells to the right of the used area (and the target),
         read, then cleared. When that column would fall inside the used
         area (sheet already at XFD), the scratch cells move below it.
-        A single value measures 1 x 1; raises ``CalcError`` when the formula itself fails.
+        A single value measures 1 x 1; raises ``CalcError`` when the formula itself fails or ``=PY`` returns failure text.
         """
         cursor = sheet.createCursor()
         cursor.gotoEndOfUsedArea(False)
@@ -1948,16 +2033,8 @@ class CellManipulator:
                     # error it returned one value. The parentheses keep a =PY here from being
                     # located as a formula cell that spills beside the scratch cell.
                     probe.setArrayFormula("=(%s)" % expr)
-                    err = int(cell.Error)
-                    if not err:
-                        return 1, 1
-                    shown = cell.getString()
-                    # #NAME? (525) means an unknown function, not an empty FILTER.
-                    if err == 525:
-                        hint = " — unknown function name (this LibreOffice may lack TAKE/VSTACK etc.)"
-                    else:
-                        hint = " — e.g. FILTER with no matching row gives #CALC!"
-                    raise CalcError("The formula returns an error (%s, code %d)%s." % (shown or "error", err, hint))
+                    _raise_if_array_failed(cell, formula)
+                    return 1, 1
                 sizes.append(int(round(cell.getValue())))
         finally:
             for row in (row0, row0 + 1):
@@ -2031,9 +2108,12 @@ class CellManipulator:
         rng = sheet.getCellRangeByPosition(*target)
         rng.setArrayFormula(formula)
         anchor = sheet.getCellByPosition(target.left, target.top)
-        if int(anchor.Error):
+        # Read anchor error/text before clearing the block, because clearing resets them to 0 / "".
+        try:
+            _raise_if_array_failed(anchor, formula)
+        except CalcError:
             best_effort(lambda: _clear_array_range(rng), "clear rejected array formula")
-            raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
+            raise
         preview_max_c = min(target.right, target.left + _ARRAY_PREVIEW_COLS - 1)
         preview_max_r = min(target.bottom, target.top + _ARRAY_PREVIEW_ROWS - 1)
         preview_rng = sheet.getCellRangeByPosition(target.left, target.top, preview_max_c, preview_max_r)

@@ -90,19 +90,18 @@ def project_venv() -> str:
 
 
 @contextlib.contextmanager
-def repo_venv_in_profile() -> Iterator[None]:
-    """Run soffice's =PY() in the repo venv; the previous setting is restored on exit.
+def venv_in_profile(path: str) -> Iterator[None]:
+    """Run soffice's =PY() with *path* as the configured venv; the previous setting is restored on exit.
 
     Only this key is undone, so other saves made inside the block survive.
-    No wait on exit: soffice may keep the repo venv for up to 2 s.
+    No wait on exit: soffice may keep the venv for up to 2 s.
     """
-    venv = project_venv()
     previous: dict[str, Any] = {}
 
     def _set(data: dict[str, Any]) -> None:
         if _VENV_KEY in data:
             previous[_VENV_KEY] = data[_VENV_KEY]
-        data[_VENV_KEY] = venv
+        data[_VENV_KEY] = path
 
     def _restore(data: dict[str, Any]) -> None:
         data.pop(_VENV_KEY, None)
@@ -116,3 +115,10 @@ def repo_venv_in_profile() -> Iterator[None]:
     finally:
         patch_profile_config(_restore)
         shutdown_venv_workers_for_tests()
+
+
+@contextlib.contextmanager
+def repo_venv_in_profile() -> Iterator[None]:
+    """Run soffice's =PY() in the repo venv; the previous setting is restored on exit."""
+    with venv_in_profile(project_venv()):
+        yield
