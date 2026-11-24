@@ -573,3 +573,24 @@ def test_style_format_text_bad_value_leaves_document_unchanged_uno(ctx, doc):
     assert len(undo_mgr.getAllUndoActionTitles()) == undo_before
 
 
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_reset_para_adjust_uno(ctx, doc):
+    """Resetting ParaAdjust reports the resolved paragraph alignment ('left' or 'start')."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Centered text", False)
+    para_cur = text.createTextCursor()
+    para_cur.gotoStart(False)
+    para_cur.gotoEndOfParagraph(True)
+    para_cur.setPropertyValue("ParaAdjust", 3)
+
+    res = StyleFormatText().execute(tool_ctx, reset=["ParaAdjust"], target="full_document")
+    assert res["status"] == "ok", res
+    para = text.createEnumeration().nextElement()
+    raw = int(para.getPropertyValue("ParaAdjust"))
+    assert res["after"]["ParaAdjust"] == {0: "left", 5: "start"}[raw]
+
+

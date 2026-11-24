@@ -674,8 +674,6 @@ These came out of the November 2026 follow-up triage (`217-followups-triage.md`)
 
 - **Chat answers that never edit the document (item 139).** Sometimes the model answers a Writer request with JSON or HTML in the chat and leaves the document unchanged. Options: a prompt-only fix checked with `make eval-ab`, or parsing fenced tool JSON in `llm_client`. An automatic follow-up round shipped in #3551 and was removed, because its edit-intent detection was English-only and it pushed read-only requests (such as quoting the selection back) into edits. The prompt fix with an eval comes first.
 
-- **Right-to-left paragraph alignment (item 165).** `plugin/writer/styles.py` reads `ParaAdjust` values 5 and 6 (`START`/`END`) back as `left`/`right`, which is wrong for right-to-left text. The idea is to add `start` and `end` to the alignment enum and the read and write maps.
-
 - **`get_image` when vision support is unknown (item 252).** When `has_native_vision` settles to unknown for a custom host, `get_image` stays visible. The open question is whether to hide it in that case or keep it, since many unknown hosts do support vision.
 
 - **Image orientation values (item 344).** In `plugin/writer/images/images.py`, the `hori_orient`/`vert_orient` description mentions raw UNO integers but the schema only allows strings. Either widen the schema to strings and integers, or drop the integer path and its description text. String values such as `left`, `center` and `right` are easier for models.
