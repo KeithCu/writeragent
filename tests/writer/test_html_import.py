@@ -2357,6 +2357,32 @@ def test_insert_content_at_position_selection_none_end_refuses():
     ins.assert_not_called()
 
 
+@pytest.mark.parametrize("recording", [False, True])
+def test_replace_whole_paragraphs_works_without_styles_module(recording):
+    import sys
+    from plugin.writer import html_import, record_changes
+
+    model = MagicMock()
+    rng = MagicMock()
+    text_obj = rng.getText.return_value
+    cursor = MagicMock()
+    second = MagicMock()
+    second.goRight.return_value = False
+    text_obj.createTextCursorByRange.side_effect = [cursor, second]
+    cursor.getPropertySetInfo.return_value = None
+    second.getPropertySetInfo.return_value = None
+
+    with (
+        patch.dict(sys.modules, {"plugin.writer.styles": None}),
+        patch.object(record_changes, "is_recording_changes", return_value=recording),
+        patch.object(record_changes, "record_changes", return_value=MagicMock()),
+        patch.object(html_import, "_import_and_drop_leftover", return_value=MagicMock()) as imp,
+    ):
+        html_import._replace_whole_paragraphs(model, MagicMock(), rng, "<p>new</p>", apply_styles=True)
+
+    imp.assert_called_once()
+
+
 def test_insert_inline_at_cursor_plain_decodes_complete_entities():
     from plugin.writer import html_import
 
