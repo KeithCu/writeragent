@@ -745,7 +745,7 @@ def _edge_inline_ws(run: str) -> str:
     return "" if ("\n" in run or "\r" in run) else run
 
 
-def _insert_raw_inline_html(text: Any, cursor: Any, inline_html: str) -> None:
+def _insert_raw_inline_html(model: Any, text: Any, cursor: Any, inline_html: str) -> None:
     """Import *inline_html* raw at *cursor*, keeping horizontal edge whitespace and leaving *cursor* at the end."""
     core = inline_html.strip()
     if not core:
@@ -762,10 +762,23 @@ def _insert_raw_inline_html(text: Any, cursor: Any, inline_html: str) -> None:
         text.insertString(cursor, lead, False)
     insert_html_fragment_at_cursor(cursor, core, wrap=False, advance=True)
     if trail:
-        # Clear any direct char formatting left at the end of *core* (e.g. "<b>bold</b> ")
-        # so trailing whitespace does not fuse into the styled portion.
-        reset_direct_char_formatting(cursor)
+        anchor = _insert_start_anchor(text, cursor)
         text.insertString(cursor, trail, False)
+        trail_cur = (
+            text.createTextCursor()
+            if anchor is None
+            else text.createTextCursorByRange(anchor.getStart())
+        )
+        if anchor is None:
+            trail_cur.gotoStart(False)
+        else:
+            trail_cur.goRight(1, False)
+        if trail_cur.goRight(len(trail), True) and trail_cur.getString() == trail:
+            # Clear direct char formatting inherited from the end of *core* (e.g. "<b>bold</b> ")
+            # without creating a Format redline when RecordChanges is on.
+            with record_changes.record_changes(model, False):
+                reset_direct_char_formatting(trail_cur)
+            cursor.gotoRange(trail_cur.getEnd(), False)
 
 
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> list[dict[str, Any]]:
@@ -787,7 +800,7 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         inline_html, ruby_spans, formulas, nonce = _prep_inline_html(swapped)
         text = cursor.getText()
         ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
-        _insert_raw_inline_html(text, cursor, inline_html)
+        _insert_raw_inline_html(model, text, cursor, inline_html)
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
         return _place_formulas(model, ctx, text, formulas, nonce)
 
@@ -1343,7 +1356,7 @@ def replace_single_range_with_content(
             # to whole paragraphs.
             inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
             ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
-            _insert_raw_inline_html(text_obj, cursor, inline_html)
+            _insert_raw_inline_html(model, text_obj, cursor, inline_html)
             _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
