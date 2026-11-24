@@ -61,7 +61,7 @@ from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, in_sync_host_dispatch, sync_host_dispatch
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.scripting.payload_codec import find_image_payloads
+from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads
 from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -350,6 +350,21 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
                 return _execute_python_addin_impl(ctx, code, data, doc=doc)
 
 
+def _cells_beside_images(result: Any) -> list[Any] | None:
+    """The result with its images blanked, or None when there is nothing for cells to show.
+
+    A dict (a viz helper's report, a dict of figures, a nested DataFrame envelope) or a list
+    inside one cell has no cell form, so such a result shows the inserted text instead.
+    """
+    grid = strip_image_payloads(result_to_calc_grid(result), placeholder=None)
+    if not isinstance(grid, list):
+        return None
+    cells = flatten_result_values(grid)
+    if any(isinstance(c, (dict, list, tuple)) for c in cells) or all(c is None for c in cells):
+        return None
+    return grid
+
+
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     target_doc: Any = doc
     on_main = main.is_current()
@@ -429,7 +444,10 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                         first_error = first_error or err
                 if first_error is not None:
                     raise first_error
-                return _("Image inserted") if len(images) == 1 else _("Images inserted")
+                cells = _cells_beside_images(result)
+                if cells is None:
+                    return _("Image inserted") if len(images) == 1 else _("Images inserted")
+                return finalize_python_return(cell_ctx, cells, index_arg=index_arg, data_token=data_token)
             return finalize_python_return(cell_ctx, result, index_arg=index_arg, data_token=data_token)
 
         raw_message = str(res.get("message") or res.get("error") or "")

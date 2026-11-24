@@ -127,7 +127,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
-    shape.setPosition.assert_called_once_with(pos)
+    shape.setPosition.assert_called_once_with(SimpleNamespace(X=19990, Y=0))
     shape.setSize.assert_any_call(SimpleNamespace(Width=10000, Height=6000))
     shape.setPropertyValue.assert_any_call("Anchor", cell)
     shape.setPropertyValue.assert_any_call("ResizeWithCell", False)
@@ -186,7 +186,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
-    shape.setPosition.assert_called_once_with(pos)
+    shape.setPosition.assert_called_once_with(SimpleNamespace(X=434, Y=222))
     # For single unmerged cells, default size (10000, 6000) should be applied and not overwritten by cell size
     shape.setSize.assert_any_call(SimpleNamespace(Width=10000, Height=6000))
     shape.setPropertyValue.assert_any_call("Anchor", cell)
@@ -628,6 +628,133 @@ def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypa
     # Revert target: the try/except around each insert in the =PY() image loop
     assert seen == [0, 1, 2]
     assert "could not anchor plot" in out
+
+
+def test_mixed_image_result_spills_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mixed list of an image and a scalar inserts the image, returns '', and spills the scalar."""
+    _function.clear_python_addin_cache()
+    reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///mixed.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PYTHON("mixed_code")')
+    ctx = _ctx_with_doc(doc)
+
+    _patch_immediate_debounce(monkeypatch)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": [dict(image), 42]},
+    )
+
+    inserted: list[int] = []
+    monkeypatch.setattr(
+        _function,
+        "insert_image_result_on_sheet",
+        lambda _img, *, image_index, **_k: inserted.append(image_index),
+    )
+
+    out = _function.execute_python_addin(ctx, "mixed_code", doc=doc)
+    assert out == ""
+    assert sheet.getCellByPosition(1, 2).getValue() == 42
+    assert inserted == [0]
+
+
+def test_mixed_dataframe_with_image_column_spills_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A top-level DataFrame envelope with a figure column normalizes via result_to_calc_grid and spills."""
+    _function.clear_python_addin_cache()
+    reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///df_mixed.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PYTHON("df_mixed")')
+    ctx = _ctx_with_doc(doc)
+
+    _patch_immediate_debounce(monkeypatch)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", lambda *_a, **_k: None)
+
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "ok",
+            "result": {"__wa_payload__": "dataframe", "columns": ["fig", "val"], "data": [[dict(image), 42]]},
+        },
+    )
+
+    out = _function.execute_python_addin(ctx, "df_mixed", doc=doc)
+    assert out == "fig"
+    assert sheet.getCellByPosition(2, 1).getString() == "val"
+    assert sheet.getCellByPosition(1, 2).getString() == ""
+    assert sheet.getCellByPosition(2, 2).getValue() == 42
+
+
+@pytest.mark.parametrize(
+    ("result_factory", "expected_text"),
+    [
+        (lambda img: dict(img), "Image inserted"),
+        (lambda img: [dict(img), None], "Image inserted"),
+        (lambda img: [dict(img), dict(img)], "Images inserted"),
+        (lambda img: {"a": dict(img), "b": dict(img)}, "Images inserted"),
+        (
+            lambda img: {"status": "ok", "helper": "quick_plot", "image": dict(img), "title": "t"},
+            "Image inserted",
+        ),
+        (lambda img: [dict(img), {"a": 1}], "Image inserted"),
+        (lambda img: [[dict(img), [1, 2]]], "Image inserted"),
+        (
+            lambda img: [dict(img), {"__wa_payload__": "dataframe", "columns": ["x"], "data": [[1]]}],
+            "Image inserted",
+        ),
+    ],
+)
+def test_image_result_without_cell_values_keeps_text(
+    monkeypatch: pytest.MonkeyPatch,
+    result_factory: Any,
+    expected_text: str,
+) -> None:
+    """Image-only results, dicts, and lists holding non-scalars keep the inserted text."""
+    _function.clear_python_addin_cache()
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": result_factory(image)},
+    )
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", lambda *_a, **_k: None)
+
+    out = _function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()")
+    assert out == expected_text
+
+
+def test_mixed_image_result_index_arg(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A numeric index argument picks the indexed element from a mixed image result."""
+    _function.clear_python_addin_cache()
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": [dict(image), 42]},
+    )
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", lambda *_a, **_k: None)
+
+    out = _function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()", data=1)
+    assert out == 42
 
 
 def test_scalar_for_list_result_no_share_without_unique_origin() -> None:

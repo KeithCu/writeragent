@@ -40,6 +40,13 @@ DEFAULT_CHART_SIZE_HEIGHT = 6000
 MIN_CHART_PLACEHOLDER_WIDTH = 4000
 MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 
+# Slot 0 starts this far (1/100 mm) inside the cell's far edge. Calc anchors a moved shape to
+# the cell under its top-left corner (ScDrawView adjustAnchoredPosition, drawvie3.cxx); exactly
+# on the edge that is the next column, and smaller insets round onto the next column for some
+# widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none). Anchored there, the plot would not
+# follow a cut and pasted formula, and would lose its owner in XLSX, which drops the wa-plot tag.
+_PLOT_EDGE_INSET = 10
+
 # Only shapes we created for a plot are replaced on the next insert. A user
 # image is also a GraphicObjectShape, so matching on the anchor alone would
 # overwrite it; the ``WriterAgentPlot`` name prefix is checked too.
@@ -295,21 +302,25 @@ def _slot_cursor(
     slots: list[tuple[Any, int]],
     rtl: bool,
 ) -> tuple[int, int]:
-    """Calculate the cursor (x, y) for placing the shape at image_index.
+    """Calculate the cursor (x, y) for placing a non-fill shape at image_index.
 
-    Starts at the merged visual edge (Position.X in LTR, Position.X + Width in RTL).
-    For each slot index < image_index, if the slot shape is resolved, advances the
-    cursor to that shape's live outer edge and aligns to its top Y. If any intermediate
-    slot is missing, stops advancing and places at the last known edge.
+    Starts just inside the cell's or merged range's far edge (right in LTR, left in RTL;
+    matching Collabora Online's ``ScViewFunc::InsertPythonPlotPictures`` in ``viewfun7.cxx``
+    for direction) so the plot does not cover the cell. For each slot index < image_index, if
+    the slot shape is resolved, advances the cursor to that shape's live outer edge and aligns
+    to its top Y. If any intermediate slot is missing, stops advancing and places at the last
+    known edge.
 
-    Sign convention matches the slot loop in Collabora's ScDocument::ProcessPendingPythonPlots
-    (pythonplots.cxx:547-548, 583, 596). In RTL sheets (TableLayout == 1), Calc core mirrors
-    visual cell bounds (sc/source/core/data/documen3.cxx:2092 ScDocument::GetMMRect via
-    MirrorRectRTL when IsNegativePage). UNO X values are then negative (mirrored): Position.X
-    is the left visual edge and Position.X + Width is the right visual edge. Placement starts
-    at the right visual edge and chains leftwards.
+    In RTL sheets (TableLayout == 1), Calc core mirrors visual cell bounds
+    (sc/source/core/data/documen3.cxx:2092 ScDocument::GetMMRect via MirrorRectRTL when
+    IsNegativePage). UNO X values are then negative (mirrored): Position.X is the left visual
+    edge and Position.X + Width is the right visual edge, so slots chain leftwards from the
+    left edge.
     """
-    cursor_x = int(cell_pos.X) + int(cell_size.Width) if rtl else int(cell_pos.X)
+    # A hidden column has zero width, so clamp the inset so the start stays inside the cell.
+    inset = min(_PLOT_EDGE_INSET, int(cell_size.Width))
+    edge = _slot_edge(cell_pos, cell_size, rtl)
+    cursor_x = edge + inset if rtl else edge - inset
     cursor_y = int(cell_pos.Y)
 
     for idx in range(image_index):
@@ -410,8 +421,7 @@ def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_c
     A second shape for a slot that is already taken (for example a plot pasted from another
     workbook whose name did not collide under ``SdrObject::MakeNameUnique``) is never refreshed,
     because ``_resolve_slot`` uses the first one, so it is removed too. An in-document paste is
-    renamed (e.g. ``WriterAgentPlot 1``) and is never a slot. This matches
-    ``removePlotSlotsFrom`` and ``PlotSlots::maExtra`` in Collabora's ``pythonplots.cxx:137-169``.
+    renamed (e.g. ``WriterAgentPlot 1``) and is never a slot.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
@@ -666,32 +676,28 @@ def _position_new_plot(
         and height >= MIN_CHART_PLACEHOLDER_HEIGHT
     )
 
-    cursor_x, cursor_y = _slot_cursor(
-        cell_pos, cell_size, image_index, slots, rtl
-    )
-
     shape.setPropertyValue("Anchor", target_cell)
 
-    # Only slot 0 can fill a merged placeholder block. Later slots are placed
-    # beside the merged block at their intrinsic aspect ratio so they do not stack
-    # on top of each other or stretch to the same placeholder.
+    # Slot 0 stands beside the cell unless it fills a merged placeholder block. Later slots
+    # stand beside the merged block at their intrinsic aspect ratio so they do not stack on
+    # top of each other or stretch to the same placeholder.
     if image_index == 0 and is_large_placeholder:
         shape.setPropertyValue("ResizeWithCell", True)
         shape.setSize(cell_size)
-        target_width = width
+        shape.setPosition(Point(int(cell_pos.X), int(cell_pos.Y)))
     else:
+        cursor_x, cursor_y = _slot_cursor(
+            cell_pos, cell_size, image_index, slots, rtl
+        )
         shape.setPropertyValue("ResizeWithCell", False)
         shape.setSize(aspect_size)
-        target_width = int(aspect_size.Width)
+        # Each successive plot slot chains horizontally from the outer edge of the
+        # preceding slot. Reading the live rectangle of each resolved slot ensures
+        # slots fit flush against each other without gaps or overlaps.
+        place_x = cursor_x - int(aspect_size.Width) if rtl else cursor_x
+        shape.setPosition(Point(place_x, cursor_y))
 
-    # Each successive plot slot chains horizontally from the outer edge of the
-    # preceding slot. Reading the live rectangle of each resolved slot ensures
-    # slots fit flush against each other without gaps or overlaps.
-    place_x = cursor_x - target_width if rtl else cursor_x
-    shape.setPosition(Point(place_x, cursor_y))
-
-    # Same rule as Collabora's setPlotSlotCellAnchor (pythonplots.cxx:228-234): a new
-    # plot is hidden when the formula cell's row or column is hidden.
+    # A new plot is hidden when the formula cell's row or column is hidden.
     shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
 
 
@@ -711,11 +717,8 @@ def _place_new_plot(
 
     When the image cannot be loaded, the slot stays on the sheet as an empty-graphic
     placeholder of the default 10 cm x 6 cm size, the failure is logged, and nothing is
-    raised, so the remaining slots and the cell value are unaffected. This is the rule in
-    the slot loop of Collabora's ScDocument::ProcessPendingPythonPlots
-    (pythonplots.cxx:563-571, 579-592; logicSizeFromGraphic gives 10000 x 6000 for an
-    empty Graphic). Without a formula cell there is no slot to keep, so the shape is
-    removed and ImageEgressError is raised.
+    raised, so the remaining slots and the cell value are unaffected. Without a formula
+    cell there is no slot to keep, so the shape is removed and ImageEgressError is raised.
     """
     shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
     shape.setSize(aspect_size)
@@ -811,14 +814,12 @@ def _refresh_existing_plot(
     except Exception as exc:
         # The UNO Graphic setter ignores an empty graphic, so a failed load keeps the
         # previous picture and its old digest; the next recalc tries the load again. The
-        # failure is only logged so the remaining slots still update. Collabora's slot
-        # loop (pythonplots.cxx:563-577) instead shows the empty-graphic placeholder.
+        # failure is only logged so the remaining slots still update.
         log.warning("insert_image_result_on_sheet: could not update plot graphic: %s", exc)
         return
 
-    # Collabora never resizes an existing slot (pythonplots.cxx:573-577). Here the box
-    # changes only when the new graphic's aspect differs from the old graphic's, so a box
-    # the user stretched keeps its shape while the plot's proportions stay the same.
+    # The box changes only when the new graphic's aspect differs from the old graphic's, so
+    # a box the user stretched keeps its shape while the plot's proportions stay the same.
     if aspect is not None and old_aspect is not None and _aspect_ratio_changed(*old_aspect, *aspect):
         _refit_to_aspect(shape, aspect, rtl)
     # Record the tag after the RTL refit, because setPosition on RTL can move the anchor.
