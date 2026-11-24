@@ -20,6 +20,7 @@ import numpy as np
 from .calc_functions_util import (
     DIV0_NAN,
     NESTED_ARRAY_NAN,
+    approx_floor,
     as_nonzero,
     coupon_schedule,
     date_to_serial,
@@ -723,8 +724,9 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     x_val = float(x)
-    df1 = float(r1)
-    df2 = float(r2)
+    # ScFDist (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
+    df1 = float(approx_floor(float(r1)))
+    df2 = float(approx_floor(float(r2)))
     # st.f.sf of a negative x is 1, and df below 1 is finite. Excel is #NUM!.
     if x_val < 0 or df1 < 1 or df2 < 1:
         return float("nan")
@@ -779,8 +781,9 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     prob = float(p)
-    df1 = float(r1)
-    df2 = float(r2)
+    # ScFInv (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
+    df1 = float(approx_floor(float(r1)))
+    df2 = float(approx_floor(float(r2)))
     # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
     # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
     if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
@@ -967,10 +970,10 @@ def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
     if st is None:
         return float("nan")
 
-    k = int(float(x))
-    n = int(float(n_sample))
-    K = int(float(successes))
-    N = int(float(n_pop))
+    k = approx_floor(float(x))
+    n = approx_floor(float(n_sample))
+    K = approx_floor(float(successes))
+    N = approx_floor(float(n_pop))
     # scipy returns 0 for an impossible draw. Excel is #NUM!.
     if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
         return float("nan")

@@ -104,13 +104,14 @@ def _lookup_ref(
     return addr, shape, parent, None
 
 
-def _reject_duplicate_shapes(tool: ToolBase, shapes: list[Any]) -> dict[str, Any] | None:
-    seen: set[int] = set()
-    for shape in shapes:
-        token = id(shape)
-        if token in seen:
-            return tool._tool_error("Duplicate shape in indices; pass each shape once.")
-        seen.add(token)
+def _reject_duplicate_shapes(tool: ToolBase, addresses: list[int | str]) -> dict[str, Any] | None:
+    """Reject duplicate shape references using canonical addresses from ``_lookup_ref``.
+
+    An integer index, a digit string, and a shape Name resolve to the same canonical
+    address, whereas PyUNO hands out a new proxy object on each lookup.
+    """
+    if len(set(addresses)) < len(addresses):
+        return tool._tool_error("Duplicate shape in indices; pass each shape once.")
     return None
 
 
@@ -1137,23 +1138,29 @@ class GroupShapes(_AnyDocumentShapeTool):
 
         shape_collection = _create_shape_collection(ctx.ctx)
         resolved_shapes: list[Any] = []
+        addresses: list[int | str] = []
         for ref in indices:
             addr, shape, parent, err_res = _lookup_ref(self, page, ref)
             if err_res is not None:
                 return err_res
-            assert shape is not None and parent is not None
+            assert shape is not None and parent is not None and addr is not None
             if not uno_same(parent, page):
                 return self._tool_error(
                     "Cannot group shape %s: it is not a top-level shape on the page." % addr,
                 )
             resolved_shapes.append(shape)
-        dup_err = _reject_duplicate_shapes(self, resolved_shapes)
+            addresses.append(addr)
+        dup_err = _reject_duplicate_shapes(self, addresses)
         if dup_err is not None:
             return dup_err
         for shape in resolved_shapes:
             shape_collection.add(shape)
         # page.group is the first page mutation; failure propagates to execute_safe.
         group = page.group(shape_collection)
+        # SwFmDrawPage::group (sw/source/core/unocore/unodraw.cxx) returns null when none of the
+        # shapes can be marked, for example when all of them are text frames.
+        if group is None:
+            return self._tool_error("None of these shapes can be grouped (Writer text frames cannot).")
         group_name = ""
         warnings: list[str] = []
         try:
@@ -1167,7 +1174,10 @@ class GroupShapes(_AnyDocumentShapeTool):
         res: dict[str, Any] = {
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
-            "index": page.getCount() - 1,  # Grouping replaces the individuals with this group shape
+            # The group sits in its topmost member's slot, not last (SdrEditView::GroupMarked,
+            # svx/source/svdraw/svdedtv2.cxx). ZOrder is that page index; in Writer both skip
+            # shape text boxes (SwTextBoxHelper::getOrdNum and getByIndex).
+            "index": group.getPropertyValue("ZOrder"),
             "name": group_name,
             "page": actual_idx,
         }
@@ -1207,7 +1217,7 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
         assert shape is not None and addr is not None
         shapes.append(shape)
         resolved_indices.append(addr)
-    dup_err = _reject_duplicate_shapes(tool, shapes)
+    dup_err = _reject_duplicate_shapes(tool, resolved_indices)
     if dup_err is not None:
         return dup_err
     new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)

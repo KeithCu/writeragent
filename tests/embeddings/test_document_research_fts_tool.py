@@ -222,7 +222,7 @@ def test_search_nearby_files_two_subset_urls_merge_by_score():
     url_a = "file:///tmp/folder/a.odt"
     url_b = "file:///tmp/folder/b.odt"
     grep_return = (
-        [{"url": url_a, "path": "/tmp/a.odt"}, {"url": url_b, "path": "/tmp/b.odt"}],
+        [{"url": url_a, "path": "/tmp/folder/a.odt"}, {"url": url_b, "path": "/tmp/folder/b.odt"}],
         False,
         None,
     )
@@ -255,7 +255,7 @@ def test_search_nearby_files_cancels_before_second_subset_url():
     url_a = "file:///tmp/folder/a.odt"
     url_b = "file:///tmp/folder/b.odt"
     grep_return = (
-        [{"url": url_a, "path": "/tmp/a.odt"}, {"url": url_b, "path": "/tmp/b.odt"}],
+        [{"url": url_a, "path": "/tmp/folder/a.odt"}, {"url": url_b, "path": "/tmp/folder/b.odt"}],
         False,
         None,
     )
@@ -303,3 +303,14 @@ def test_search_nearby_files_skips_unsupported_candidates():
     assert result["hits"] == [hit]
     rpc_mock.assert_called_once()
     assert rpc_mock.call_args.kwargs["doc_url_filter"] == odt_url
+
+
+def test_search_nearby_files_outside_folder_is_an_error():
+    grep_return = ([{"url": "file:///tmp/other/notes.odt", "path": "/tmp/other/notes.odt"}], False, None)
+    result, rpc_mock, _scope = _run_search_with_subset(
+        grep_return=grep_return,
+        file_subset="/tmp/other/notes.odt",
+    )
+    assert result["status"] == "error"
+    assert "/tmp/folder" in result["message"]
+    rpc_mock.assert_not_called()

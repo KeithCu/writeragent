@@ -23,6 +23,7 @@ from typing import Any
 
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
+from plugin.framework.client.http_security import log_target
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
@@ -155,7 +156,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
         # Keys are stored under the endpoint normalized without the Open WebUI rule.
         if api_key_locked_for_endpoint(endpoint_raw):
             raise AuthError("The system keyring is locked. Unlock it to use the saved API key.", provider=provider_id, code="keyring_locked")
-        raise AuthError(f"No API key configured for endpoint '{endpoint}'.", provider=provider_id, code="missing_api_key")
+        raise AuthError(f"No API key configured for endpoint '{log_target(endpoint)}'.", provider=provider_id, code="missing_api_key")
 
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
 

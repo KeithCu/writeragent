@@ -701,7 +701,8 @@ def _ensure_empty_absorb_for_styled_insert(
       continues it. While recording a break is always opened, because absorbing an empty last
       paragraph would leave it in the import's style after Reject.
     - **Empty absorb paragraph** (blank doc / already-empty trailing, when not recording): merge
-      is harmless — no prep.
+      is harmless — no prep. An empty paragraph while recording is handled by the caller for
+      ``caret`` and ``beginning``.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
     selections go through ``_replace_whole_paragraphs``, other non-collapsed
@@ -814,6 +815,7 @@ def _import_and_drop_leftover(
     content: str,
     *,
     apply_styles: bool = True,
+    merge_forward_after_table: bool = True,
 ) -> html_import_styles.WriteReport:
     """Import *content* into an emptied range and drop the leftover empty paragraph.
 
@@ -826,11 +828,14 @@ def _import_and_drop_leftover(
     # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
     if report.added_content:
         # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
-        # delete of it joins paragraphs on Accept. After a trailing table the helper merges
-        # the leftover forward into the first deleted paragraph, which Accept then empties:
-        # the same end state as without recording.
+        # delete of it joins paragraphs on Accept. When merge_forward_after_table is True and
+        # content has a table, the helper merges the leftover forward into the first deleted
+        # paragraph, which Accept then empties: the same end state as without recording.
         with record_changes.record_changes(model, False):
-            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
+            _drop_leftover_paragraph(
+                leftover,
+                merge_forward_after_table=merge_forward_after_table and "<table" in content.lower(),
+            )
     return report
 
 
@@ -920,9 +925,10 @@ def _insert_at_caret(
 ) -> html_import_styles.WriteReport:
     """Insert *content* at a collapsed *cursor* without splitting its paragraph.
 
-    - Empty paragraph: importing at the start of an empty paragraph neither merges nor
-      splits, and it is the only caret case where ``_lo_style_for_replaced_range``
-      allows ``data-lo-style``, so ``apply_styles`` matters only there.
+    - Empty paragraph (when not recording): importing at the start of an empty paragraph
+      neither merges nor splits, and it is the only caret case where
+      ``_lo_style_for_replaced_range`` allows ``data-lo-style``, so ``apply_styles``
+      matters only there.
     - Mixed math: the math path inserts segment by segment and still splits
       mid-paragraph, so it delegates to ``_insert_mixed_or_plain_html``.
     - Inline content (no block markup and no real newline): insert inline via
@@ -965,11 +971,13 @@ def insert_content_at_position(
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
-    caret was mid-paragraph. When the selection is non-collapsed and *content* is
-    inline (no block markup, no real newline, no math), it replaces the selection in
-    place, keeping the host paragraph and its style with Track Changes on or off. Pass
-    *selection* to act on an explicit text range (such as a pinned Send-time selection)
-    instead of reading the live view.
+    caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
+    or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
+    the empty one so Reject restores its style and direct formatting. When the selection
+    is non-collapsed and *content* is inline (no block markup, no real newline, no math),
+    it replaces the selection in place, keeping the host paragraph and its style with Track
+    Changes on or off. Pass *selection* to act on an explicit text range (such as a pinned
+    Send-time selection) instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
@@ -982,6 +990,7 @@ def insert_content_at_position(
         cursor = text.createTextCursor()
         styled = position in ("beginning", "end")
         note = None
+        recording = record_changes.is_recording_changes(model)
         caret = False
         inline = False
         whole_paragraphs: Any | None = None
@@ -1035,7 +1044,6 @@ def insert_content_at_position(
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
                         raise_if_range_hosts_nested_table(rng)
-                        recording = record_changes.is_recording_changes(model)
                         # Inline content (plain text or inline tags, no newline, no math)
                         # replaces the selection in place, like typing over it. Otherwise
                         # ensure_html_linebreaks wraps it in <p>, which splits the host
@@ -1086,10 +1094,25 @@ def insert_content_at_position(
         # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(
-                text, cursor, position, recording=record_changes.is_recording_changes(model),
+                text, cursor, position, recording=recording,
             )
         if position == "end":
             report = _import_and_drop_leftover(model, ctx, cursor, content)
+        elif (
+            (caret or position == "beginning")
+            and recording
+            and cursor.isStartOfParagraph()
+            and cursor.isEndOfParagraph()
+        ):
+            # The import would reuse the empty paragraph's node, and Reject's join keeps that
+            # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
+            # into a fresh paragraph after it. After a trailing table the leftover stays: merged
+            # into a non-empty follower, Reject would join the empty paragraph into that follower
+            # and lose it.
+            cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            report = _import_and_drop_leftover(
+                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=False
+            )
         elif caret:
             report = _insert_at_caret(model, ctx, cursor, content, styled)
         elif inline:

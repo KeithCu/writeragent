@@ -219,3 +219,12 @@ def test_resolve_provider_id_deal_contract_endpoints():
     assert (get_provider_from_endpoint("http://[::1]:11434") or "custom") == "ollama"
     assert (get_provider_from_endpoint("https://example.com/v1?x=1") or "custom") == "custom"
 
+
+def test_missing_key_error_hides_endpoint_secrets():
+    with pytest.raises(AuthError) as exc_info:
+        resolve_auth_for_config({"endpoint": "https://u:Hunter2pw@api.openai.com/v1", "api_key": ""})
+
+    msg = str(exc_info.value)
+    assert "Hunter2pw" not in msg
+    assert "api.openai.com" in msg
+
