@@ -6,7 +6,8 @@
 """Hidden scratch documents, with their creation, registry and cleanup.
 
 Split out from ``uno_context`` to separate scratch document lifecycle
-from core context and desktop lookup.
+from core context and desktop lookup. The registry also covers user
+files opened hidden and read-only for document research.
 """
 
 from __future__ import annotations
@@ -25,10 +26,12 @@ from plugin.framework.uno_context import create_property_value, get_desktop, get
 log = logging.getLogger("writeragent.scratch_writer")
 
 # _scratch_lock guards the three names below it.
-# Scratch documents are excluded from DocumentService.open_documents: counting one broadens
-# tools/list, fires a false tools/list_changed, and breaks single-open-document fallback
-# (NO_ACTIVE_DOCUMENT). Keyed by RuntimeUID rather than Hidden because user-hidden documents
-# must still count, and LibreOffice never reuses a uid in a process so stale entries are safe.
+# Scratch documents (including user files opened hidden and read-only for research)
+# are excluded from DocumentService.open_documents and get_open_documents: counting one
+# broadens tools/list, fires a false tools/list_changed, and breaks single-open-document
+# fallback (NO_ACTIVE_DOCUMENT). Keyed by RuntimeUID rather than Hidden because user-hidden
+# documents must still count, and LibreOffice never reuses a uid in a process so stale
+# entries are safe.
 _scratch_lock = threading.Lock()
 _scratch_uids: set[str] = set()
 _scratch_loads = 0
@@ -44,7 +47,9 @@ def load_scratch_document(
 ) -> Any:
     """Load *url* hidden as a WriterAgent scratch document and register its RuntimeUID.
 
-    Returns what ``loadComponentFromURL`` returned (``None`` included).
+    Used for both blank scratch Writers and user files opened hidden and
+    read-only for document research. Returns what ``loadComponentFromURL``
+    returned (``None`` included).
     """
     global _scratch_loads, _after_loads
     with _scratch_lock:
@@ -112,7 +117,7 @@ def _close_scratch_doc(doc: Any) -> None:
 
 
 @main_thread_only
-def clear_writer_body(doc: Any) -> bool:
+def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
     """Empty *doc* of everything a template can put in it. True when the doc is clean afterwards.
 
     Not just the body text: a letterhead template is often an empty table or a logo
@@ -120,8 +125,9 @@ def clear_writer_body(doc: Any) -> bool:
     table in the scratch doc, and it came back in range reads. So tables, text frames
     and drawing shapes are disposed explicitly, then the text is cleared.
 
-    Split out so callers that open (or reuse) a scratch Writer their own way can
-    still drop a default template's content.
+    When *keep_chars* > 0, that many leading characters stay in place so a reused
+    Writer keeps its first paragraph and deleted content cannot leave formatting
+    behind on the empty paragraph.
     """
     if doc is None:
         return False
@@ -160,9 +166,17 @@ def clear_writer_body(doc: Any) -> bool:
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
     try:
         text = doc.getText()
-        if (text.getString() or "").strip():
+        if (text.getString() or "")[keep_chars:].strip():
             removed = True
-        text.setString("")
+        if keep_chars:
+            rest = text.createTextCursor()
+            rest.gotoStart(False)
+            rest.goRight(keep_chars, False)
+            rest.gotoEnd(True)
+            rest.setString("")
+        else:
+            # SwXText::setString adds nodes so a leading table or section can be deleted.
+            text.setString("")
     except Exception as e:
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
         log.debug("clear_writer_body failed", exc_info=True)
@@ -174,7 +188,7 @@ def clear_writer_body(doc: Any) -> bool:
             doc.getTextTables().getCount() == 0
             and doc.getTextFrames().getCount() == 0
             and doc.getDrawPage().getCount() == 0
-            and not (doc.getText().getString() or "").strip()
+            and not (doc.getText().getString() or "")[keep_chars:].strip()
         )
     except Exception as e:
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")

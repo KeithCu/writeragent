@@ -208,3 +208,103 @@ def test_open_document_for_read_html_and_already_open_web_uno(ctx, doc):
             except Exception:
                 pass
         _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("calc")
+def test_research_read_stays_out_of_catalog_uno(ctx, doc):
+    import unohelper
+    from com.sun.star.document import XDocumentEventListener
+
+    from plugin.doc.document_research import close_document_research_document, get_open_documents
+    from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
+    from plugin.framework.uno_context import get_runtime_uid
+
+    skip_windows_hidden_open_after_bitmap("document_research Hidden Draw")
+    temp_dir = tempfile.mkdtemp(prefix="wa_draw_read_")
+    draw_path = os.path.join(temp_dir, "deck.fodg")
+    with open(draw_path, "w", encoding="utf-8") as f:
+        f.write(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"\n'
+            '  xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"\n'
+            '  office:version="1.2"\n'
+            '  office:mimetype="application/vnd.oasis.opendocument.graphics">\n'
+            '  <office:body><office:drawing><draw:page draw:name="p1"/></office:drawing></office:body>\n'
+            '</office:document>\n'
+        )
+
+    seen_types: list[frozenset[str]] = []
+    doc_service = get_services().document
+
+    class _Listener(unohelper.Base, XDocumentEventListener):
+        def documentEventOccured(self, _event):
+            run_after_scratch_loads(lambda: seen_types.append(doc_service.open_doc_types()))
+
+        def disposing(self, _event):
+            pass
+
+    broadcaster = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.GlobalEventBroadcaster", ctx
+    )
+    listener = _Listener()
+    broadcaster.addDocumentEventListener(listener)
+    model = None
+    opened = False
+    try:
+        model, doc_type, err, opened = open_document_for_read(ctx, draw_path)
+        note_windows_hidden_open_bitmap(err)
+        skip_windows_hidden_open_after_bitmap("document_research Hidden Draw")
+        assert err is None
+        assert doc_type == "draw"
+        assert opened is True
+        uid = get_runtime_uid(model)
+        assert uid
+        assert all("draw" not in types for types in seen_types)
+        assert all(entry["uid"] != uid for entry in get_open_documents(ctx, doc))
+    finally:
+        broadcaster.removeDocumentEventListener(listener)
+        if model is not None:
+            close_document_research_document(model, opened_for_document_research=opened)
+            assert is_scratch_document(model) is False
+        _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("calc")
+def test_research_read_never_adopts_an_open_document_uno(ctx, doc):
+    from unittest.mock import patch
+
+    from plugin.doc.document_research import close_document_research_document
+    from plugin.framework.uno_context import get_runtime_uid
+
+    skip_windows_hidden_open_after_bitmap("document_research Hidden open calc")
+    temp_dir = tempfile.mkdtemp(prefix="wa_open_calc_")
+    calc_path = os.path.join(temp_dir, "saved.ods")
+    model = None
+    opened = False
+    try:
+        sheet = doc.Sheets.getByIndex(0)
+        sheet.getCellByPosition(0, 0).setString("saved")
+        doc.storeAsURL(uno.systemPathToFileUrl(calc_path), ())
+        sheet.getCellByPosition(0, 0).setString("unsaved edit")
+        user_uid = get_runtime_uid(doc)
+
+        with patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None)):
+            model, doc_type, err, opened = open_document_for_read(ctx, calc_path)
+        note_windows_hidden_open_bitmap(err)
+        skip_windows_hidden_open_after_bitmap("document_research Hidden open calc")
+        assert err is None
+        assert doc_type == "calc"
+        assert opened is True
+        assert get_runtime_uid(model) != user_uid
+        assert model.Sheets.getByIndex(0).getCellByPosition(0, 0).getString() == "saved"
+
+        close_document_research_document(model, opened_for_document_research=opened)
+        model = None
+        assert get_runtime_uid(doc) == user_uid
+        assert doc.Sheets.getByIndex(0).getCellByPosition(0, 0).getString() == "unsaved edit"
+    finally:
+        if model is not None:
+            close_document_research_document(model, opened_for_document_research=opened)
+        _cleanup_nearby_test_env(temp_dir)

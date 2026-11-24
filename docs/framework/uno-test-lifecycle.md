@@ -224,8 +224,10 @@ printed leftovers + keeper reactivate, created uid=34, `close_doc` OK.
 The *next* swriter (`…_multi_para_joins_with_newline`) hung 30s in
 `create_native_doc` after the same leftover log + keeper reactivate.
 `setActiveFrame` is not enough for a second consecutive Hidden `_blank`
-while leftover `_wa_calc_html` frames remain (same Windows frame-manager
-collision `rich_html.py` already avoids).
+while leftover `_wa_calc_html` frames remain (note: `LoadEnv::impl_loadContent`
+in `framework/source/loadenv/loadenv.cxx` creates an unnamed frame for a named
+target miss, so `rich_html.py` now reuses its kept Writer via `_idle_writers`
+instead of a named frame).
 
 GHA 34599838644 (`afae5938`, swriter-only named target): Linux PR CI
 34599725706 green. Windows `workflow_dispatch` never reached
