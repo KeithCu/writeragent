@@ -241,6 +241,11 @@ def _lock_refusal(path: str) -> _FilterError | None:
 
     LibreOffice names the lock file after the file a symlink points to
     (LockFileCommon::ResolveLinks in svl/source/misc/lockfilecommon.cxx).
+    Any lock file refuses, even one left by a crash of this session, which
+    LibreOffice would take over: telling them apart needs LibreOffice's own
+    host name and escaping, and a wrong match overwrites a file open
+    elsewhere. LibreOffice also refuses when only the lock file exists, so
+    the target is not checked.
     """
     folder, name = os.path.split(os.path.realpath(path))
     if not os.path.isfile(os.path.join(folder, f".~lock.{name}#")):
