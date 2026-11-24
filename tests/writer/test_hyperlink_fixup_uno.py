@@ -1237,3 +1237,14 @@ def test_multiparagraph_html_replace_keeps_unmeasured_links_in_report_uno(ctx, d
         ("#1.Alpha|outline", False),
         ("#2.Beta|outline", False),
     ], links2
+
+
+@native_test
+@with_native_doc("writer")
+def test_dry_run_stringified_list_outline_preview_uno(ctx, doc):
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+
+    res = _apply(doc, ctx, old_content="Old title", content='["<p>New title</p>"]', dry_run=True)
+    assert res.get("status") == "ok", res
+    assert res["replaceable"][0]["hyperlink_url_after"] == _OUTLINE_NEW

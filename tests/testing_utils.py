@@ -290,7 +290,7 @@ _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
 
 
 def note_windows_html_paste_leftover() -> None:
-    """Mark leftover_open after ``insert_cell_html_rich`` skips close on Windows."""
+    """Mark leftover_open after ``insert_cell_html_rich`` keeps its reused Writer open on Windows."""
     if sys.platform != "win32":
         return
     if _windows_leftover_open() <= 0:

@@ -74,6 +74,8 @@ COMPLETION TOOLS:
 class BrainstormResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
     """Web research for brainstorming (public topics); returns plain text for the sub-agent to format as HTML."""
 
+    # Needed here because ToolWriterSpecialBase (tier "specialized") comes first in the MRO.
+    tier: str = "unlisted"
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "brainstorming_search_web"
