@@ -60,9 +60,9 @@ change back.
 While track changes is recording, matched-link outline URLs are not renamed (a
 tracked HyperLinkURL write on existing text becomes a Format redline, and rejecting
 it drops the link). Instead, ``restore_links`` writes the link's own URL onto
-only the inserted runs, untracked, and adds ``hyperlink_note`` to the report.
-Recorded plain replaces carry their own link when the whole match shares one URL,
-and partly linked matches are not painted.
+only the inserted runs, untracked, and adds ``hyperlink_note`` to the report when
+a live run still carries the link. Recorded plain replaces carry their own link
+when the whole match shares one URL, and partly linked matches are not painted.
 
 When an edit renames a heading (``heading_renames``), ``retarget_outline_links``
 finds every ``#old|outline`` portion in the document (including numbered and
@@ -234,16 +234,28 @@ def public_hyperlink_reports(plans: list[dict[str, Any]]) -> list[dict[str, Any]
     ]
 
 
+def hyperlink_fields(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return ``{"hyperlinks": reports}`` when non-empty, else ``{}``."""
+    return {"hyperlinks": reports} if reports else {}
+
+
 def _final_reports(text: Any, anchor: Any, plans: list[dict[str, Any]],
                    written: set[str], measured: bool) -> list[dict[str, Any]]:
     """Reports for what the document holds after the edit.
 
-    *written* has the old URLs of the links that got their new URL. A link that no run
-    of the paragraph carries any more is reported with "" as its URL. *measured* is False
-    when the replacement broke the paragraph, so the rest of the link may be in a later
-    one and the old URL is reported.
+    *written* has the old URLs of the links that got their new URL. A link that no live
+    run of the paragraph carries any more is reported with "" as its URL (runs inside
+    a tracked deletion are ignored). *measured* is False when the replacement broke the
+    paragraph, so the rest of the link may be in a later one and the old URL is reported.
     """
-    left = {_prop(p, _URL) for p in _iter_portions(text, anchor.getStart()) if p.getString()}
+    left: set[str] = set()
+    state = DeletionState()
+    for p in _iter_portions(text, anchor.getStart(), include_redlines=True):
+        if _prop(p, "TextPortionType") == "Redline":
+            state.apply_marker(p)
+            continue
+        if not state.in_delete and p.getString():
+            left.add(_prop(p, _URL))
     reports = []
     for plan in plans:
         url = plan["url"]
@@ -726,9 +738,9 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
                 cursor.gotoRange(end, True)
                 write_link(cursor, url, snapshot.props)
     plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
-    reports = public_hyperlink_reports([{**plan, "new_url": None} for plan in plans])
+    reports = _final_reports(anchor.getText(), anchor, plans, set(), raw is not None)
     for plan, report in zip(plans, reports):
-        if plan["new_url"] is not None:
+        if plan["new_url"] is not None and report["hyperlink_url_after"]:
             report["hyperlink_note"] = _RECORDING_NOTE
     return reports
 

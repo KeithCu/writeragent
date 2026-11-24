@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from plugin.framework.errors import make_tool_error
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolContext, prepare_tool_call
 
@@ -22,6 +23,17 @@ from eval_worlds import CalcWorld, DrawWorld, WriterWorld, unsupported_in_eval
 
 World = WriterWorld | DrawWorld | CalcWorld
 
+
+def _finish(_state: World, *, answer: Any) -> dict[str, Any]:
+    """Validate/normalize workflow_finished via the real tool instead of copying it.
+
+    The tool ignores ctx.doc_type and only formats answer, so one writer context works
+    for all three worlds.
+    """
+    ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services=None, caller="chat")
+    return headless_registry().get("workflow_finished").execute(ctx, answer=answer)
+
+
 # Per world type: document kind, then production tool name -> world method. A method gets the
 # arguments prepare_tool_call accepted, so it does not repeat that function's checks.
 _IMPL: dict[type, tuple[str, dict[str, Callable[..., dict[str, Any]]]]] = {
@@ -33,6 +45,7 @@ _IMPL: dict[type, tuple[str, dict[str, Callable[..., dict[str, Any]]]]] = {
             "search": WriterWorld.search,
             "comment_add": WriterWorld.comment_add,
             "apply_style": WriterWorld.apply_style,
+            "workflow_finished": _finish,
         },
     ),
     DrawWorld: (
@@ -43,6 +56,7 @@ _IMPL: dict[type, tuple[str, dict[str, Callable[..., dict[str, Any]]]]] = {
             "shape_group": DrawWorld.shape_group,
             "shape_get_tree": DrawWorld.get_tree,
             "shape_get_summary": DrawWorld.get_draw_summary,
+            "workflow_finished": _finish,
         },
     ),
     CalcWorld: (
@@ -52,6 +66,7 @@ _IMPL: dict[type, tuple[str, dict[str, Callable[..., dict[str, Any]]]]] = {
             "write_range": CalcWorld.write_range,
             "get_sheet_summary": CalcWorld.get_sheet_summary,
             "read_range": CalcWorld.read_range,
+            "workflow_finished": _finish,
         },
     ),
 }
@@ -82,5 +97,5 @@ def dispatch_string_tool(state: World, name: str, arguments_json: str) -> str:
     try:
         res = _run(state, name, args)
     except Exception as exc:
-        res = {"status": "error", "message": str(exc)}
+        res = make_tool_error(str(exc))
     return json.dumps(res, ensure_ascii=False)

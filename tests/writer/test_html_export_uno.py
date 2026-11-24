@@ -782,9 +782,9 @@ def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx:
 @native_test
 @with_native_doc("writer")
 def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
-    """_offset_window stays aligned with get_string_without_tracked_deletions across tables."""
+    """_offset_window stays aligned with read_visible_body across tables."""
     import re
-    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.doc.text_helpers import read_visible_body
     from plugin.writer.html_export import document_to_content
 
     def _body_structure() -> list[str]:
@@ -824,11 +824,11 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
             _fill_trailing_para("Beta")
-            return ["Alpha", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
+            return ["Alpha", "T1", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
         if layout == "leading":
             _add_table("T1")
             _fill_trailing_para("Beta")
-            return ["Beta"], ["TextTable", "Paragraph:Beta"]
+            return ["T1", "Beta"], ["TextTable", "Paragraph:Beta"]
         if layout == "adjacent_and_later":
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
@@ -837,7 +837,7 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
             _add_table("T3")
             _fill_trailing_para("Gamma")
             return (
-                ["Alpha", "Beta", "Gamma"],
+                ["Alpha", "T1", "T2", "Beta", "T3", "Gamma"],
                 ["Paragraph:Alpha", "TextTable", "TextTable", "Paragraph:Beta", "TextTable", "Paragraph:Gamma"],
             )
         # empty paragraph after table
@@ -846,25 +846,19 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
         cur.gotoEnd(False)
         text.insertControlCharacter(cur, 0, False)
         _fill_trailing_para("Gamma")
-        return ["Alpha", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
+        return ["Alpha", "T1", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
 
     for layout in ("middle", "leading", "adjacent_and_later", "empty_after"):
         words, expected_structure = _reset_and_build(layout)
         assert _body_structure() == expected_structure, (layout, _body_structure())
-        whole = doc.getText().createTextCursor()
-        whole.gotoStart(False)
-        whole.gotoEnd(True)
-        full_str = get_string_without_tracked_deletions(whole)
+        full_str, _, _ = read_visible_body(doc)
         for word in words:
             offset = full_str.index(word)
             html = document_to_content(
                 doc, ctx, scope="range", range_start=offset, range_end=offset + len(word)
             )
             plain = re.sub(r"<[^>]+>", "", html).strip()
-            if layout == "leading" and offset == 0:
-                assert "".join(plain.split()) == "T1" + word, (layout, word, offset, html)
-            else:
-                assert plain == word, (layout, word, offset, html)
+            assert plain == word, (layout, word, offset, html)
 
 
 @native_test
@@ -1577,3 +1571,231 @@ def test_titled_frame_omits_title_from_content_uno(ctx, doc):
     html = document_to_content(doc, ctx, scope="full")
     assert "FrameBody" in html
     assert "SecretFrameTitle" not in html
+
+
+def _setup_struck_doc(doc: Any, paragraphs: list[str], del_start: tuple[int, int], del_end: tuple[int, int]) -> None:
+    """Populate *doc* with *paragraphs* and record a deletion from (p, off) to (p, off)."""
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for idx, p in enumerate(paragraphs):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        if p:
+            text.insertString(cur, p, False)
+
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    sel = text.createTextCursorByRange(paras[del_start[0]].getStart())
+    if del_start[1]:
+        sel.goRight(del_start[1], False)
+    end_cur = text.createTextCursorByRange(paras[del_end[0]].getStart())
+    if del_end[1]:
+        end_cur.goRight(del_end[1], False)
+    sel.gotoRange(end_cur, True)
+    doc.setPropertyValue("RecordChanges", True)
+    sel.setString("")
+
+
+def _deleted_flags_from_html(html: str) -> list[bool]:
+    import re
+
+    return ['data-lo-deleted="true"' in tag for tag in re.findall(r"<(?:p|h[1-6]|li)\b[^>]*>", html)]
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_paragraph_flags_full_and_range_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.writer.html_export import document_to_content
+
+    cases = [
+        (["AA", "BB", "", "CC"], (1, 0), (1, 2), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (1, 0), (2, 0), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (0, 2), (1, 2), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (1, 2), (2, 0), [False, False, True, False]),
+        (["AA", "BB", "", "CC"], (2, 0), (3, 0), [False, False, True, False]),
+        (["AA", "BB", "", "CC"], (0, 0), (3, 0), [True, True, True, False]),
+        (["AA", "BB", "", "CC"], (0, 2), (2, 0), [False, True, True, False]),
+        (["AA", "CC"], (0, 2), (1, 2), [False, True]),
+        (["AA", "CC"], (0, 0), (1, 2), [True, True]),
+    ]
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    for paragraphs, d_start, d_end, expected in cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+        redlines_before = doc.getRedlines().getCount()
+        frames_before = desktop.getFrames().getCount()
+        full_html = document_to_content(doc, ctx, scope="full")
+        assert _deleted_flags_from_html(full_html) == expected, (paragraphs, d_start, d_end, full_html)
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        assert _deleted_flags_from_html(range_html) == expected, (paragraphs, d_start, d_end, range_html)
+        assert doc.getRedlines().getCount() == redlines_before
+        assert desktop.getFrames().getCount() == frames_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import tempfile
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png)
+        img_path = f.name
+
+    try:
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "AA", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "BB", False)
+        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        graphic.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        graphic.setPropertyValue(
+            "AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH")
+        )
+        cur.gotoStartOfParagraph(False)
+        text.insertTextContent(cur, graphic, False)
+
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        sel = text.createTextCursorByRange(paras[1].getStart())
+        sel.gotoEndOfParagraph(True)
+        doc.setPropertyValue("RecordChanges", True)
+        sel.setString("")
+
+        full_html = document_to_content(doc, ctx, scope="full")
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        assert 'data-lo-deleted="true"' not in full_html
+        assert 'data-lo-deleted="true"' not in range_html
+        assert "<img" in range_html
+        assert read_visible_body(doc)[2] == []
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_unmarked_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    cases = [
+        (["AA", "BB", "", "CC"], (1, 0), (2, 0)),
+        (["AA", "BB", "", "CC"], (1, 2), (2, 0)),
+        (["AA", "BB", "", "CC"], (2, 0), (3, 0)),
+        (["AA", "BB", "", "CC"], (0, 2), (2, 0)),
+        (["AA", "BB", "", "CC"], (0, 0), (3, 0)),
+        (["AA", "CC"], (0, 2), (1, 2)),
+    ]
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    for paragraphs, d_start, d_end in cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+        flags = _deleted_flags_from_html(document_to_content(doc, ctx, scope="full"))
+        unmarked = sum(1 for f in flags if not f)
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        enum = doc.getText().createEnumeration()
+        accepted_count = 0
+        while enum_has_more(enum):
+            enum.nextElement()
+            accepted_count += 1
+        assert unmarked == accepted_count, (paragraphs, d_start, d_end, flags, accepted_count)
+
+
+@native_test
+@with_native_doc("writer")
+def test_whole_doc_strike_list_and_heading_marked_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+
+    # Whole-document strike of two paragraphs must not leak struck text via StarWriter fallback.
+    _setup_struck_doc(doc, ["FirstGone", "SecondGone"], (0, 0), (1, 10))
+    whole_html = document_to_content(doc, ctx, scope="full")
+    assert "FirstGone" not in whole_html
+    assert "SecondGone" not in whole_html
+    assert _deleted_flags_from_html(whole_html) == [True, True]
+
+    # Struck numbered list item and struck Heading 1 are marked.
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cur, "StruckH1", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+    text.insertString(cur, "StruckItem", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("NumberingStyleName", "")
+    text.insertString(cur, "LiveTail", False)
+
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    doc.setPropertyValue("RecordChanges", True)
+    for idx in (0, 1):
+        c = text.createTextCursorByRange(paras[idx].getStart())
+        c.gotoEndOfParagraph(True)
+        c.setString("")
+    html = document_to_content(doc, ctx, scope="full")
+    assert "StruckH1" not in html
+    assert "StruckItem" not in html
+    assert "LiveTail" in html
+    assert html.count('data-lo-deleted="true"') == 2
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
+    import re
+
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "BoldPara", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Keep StruckRun", False)
+
+    bold_cur = text.createTextCursorByRange(text.getStart())
+    bold_cur.gotoEndOfParagraph(True)
+    bold_cur.setPropertyValue("CharWeight", 150.0)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoEnd(False)
+        del_cur.goLeft(len("StruckRun"), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "StruckRun" not in html
+    blocks = re.findall(r"<p\b.*?</p>", re.sub(r"\s+", " ", html))
+    bold_block = next(b for b in blocks if "BoldPara" in b)
+    keep_block = next(b for b in blocks if "Keep" in b)
+    bold_open = bold_block.split(">", 1)[0]
+    keep_open = keep_block.split(">", 1)[0]
+    assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
+    assert "data-lo-para=" not in keep_open, keep_block

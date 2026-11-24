@@ -2825,3 +2825,81 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """full_document keeps the first old character's language in every mode, even over a leading section."""
+    from com.sun.star.lang import Locale
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _locale(lang: str) -> Any:
+        loc = Locale()
+        loc.Language = lang
+        return loc
+
+    def _seed(*, leading_section: bool, first_chars_it: bool) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        if leading_section:
+            sec = doc.createInstance("com.sun.star.text.TextSection")
+            sec.setName("LangLead")
+            text.insertTextContent(text.getStart(), sec, False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        for idx, (word, lang) in enumerate([("First", "pt"), ("Second", "de"), ("Third", "fr")]):
+            if idx:
+                text.insertControlCharacter(cur, 0, False)
+            start = cur.getEnd()
+            text.insertString(cur, word, False)
+            span = text.createTextCursorByRange(start)
+            span.gotoRange(cur.getEnd(), True)
+            span.setPropertyValue("CharLocale", _locale(lang))
+        if first_chars_it:
+            c = text.createTextCursor()
+            c.gotoStart(False)
+            c.goRight(2, True)
+            c.setPropertyValue("CharLocale", _locale("it"))
+
+    def _assert_all_text_portions_lang(expected: str) -> None:
+        paras = _body_paragraphs(doc)
+        assert len(paras) >= 2
+        langs = [
+            portion.getPropertyValue("CharLocale").Language
+            for p in paras
+            if p.getString()
+            for portion in iter_elements(p.createEnumeration())
+            if portion.getPropertyValue("TextPortionType") == "Text"
+        ]
+        assert langs and all(lang == expected for lang in langs), langs
+
+    try:
+        save({flag: "off"})
+        for leading_section, first_chars_it, expected in [
+            (False, False, "pt"),
+            (True, False, "pt"),
+            (False, True, "it"),
+        ]:
+            for record in (False, True):
+                _seed(leading_section=leading_section, first_chars_it=first_chars_it)
+                doc.setPropertyValue("RecordChanges", record)
+                res = ApplyDocumentContent().execute(
+                    tctx, target="full_document", content="<p>One</p><p>Two</p>"
+                )
+                assert res.get("status") == "ok", res
+                if record:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+                _assert_all_text_portions_lang(expected)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

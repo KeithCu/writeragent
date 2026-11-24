@@ -30,8 +30,10 @@ from .calc_functions_util import (
     is_calc_error,
     is_number,
     match_criteria,
+    nan_error_code,
     npf_result,
     orient_columns,
+    propagate_errors,
     require_samples,
     serial_to_date,
     yearfrac,
@@ -110,21 +112,28 @@ __all__ = [
 ]
 
 
-def _if_caught(f: Callable[[], Any], alt: Any, pred: Callable[[Any], bool]) -> Any:
+def _if_caught(
+    f: Callable[[], Any],
+    alt: Any,
+    pred: Callable[[Any], bool],
+    caught: tuple[type[Exception], ...],
+) -> Any:
     try:
         val = f()
         return alt if pred(val) else val
-    except Exception:
+    except caught:
         return alt
 
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
-    return _if_caught(f, alt, is_calc_error)
+    return _if_caught(f, alt, is_calc_error, (Exception,))
 
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
-    return _if_caught(f, alt, isna)
+    # These are what an #N/A operand raises in translated code (np.int64 of NaN or of the token,
+    # text + number, an INT_MIN index on x86 or date); other exceptions are other errors and propagate.
+    return _if_caught(f, alt, isna, (ValueError, TypeError, IndexError, OverflowError))
 
 
 def _parse_complex(val: Any) -> tuple[complex, str]:
@@ -288,6 +297,7 @@ imtan = _im_unary(cmath.tan)
 imtanh = _im_unary(cmath.tanh)
 
 
+@propagate_errors
 def intercept(data_y: Any, data_x: Any) -> float:
     # slope drops text pairs. Re-parsing the original arrays with
     # dtype=float raised ValueError once slope had already accepted the
@@ -301,6 +311,7 @@ def intercept(data_y: Any, data_x: Any) -> float:
     return float(np.mean(y) - s * np.mean(x))
 
 
+@propagate_errors
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
     s = float(settlement)
     m = float(maturity)
@@ -319,6 +330,7 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     return finite_or_nan(res)
 
 
+@propagate_errors
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     r = float(rate)
     # Excel/Calc truncate the period. A fractional per is a different
@@ -342,6 +354,7 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
     return npf_result("ipmt", r, p, n, pv_f, fv_f, t)
 
 
+@propagate_errors
 def irr(values: Any, guess: Any = 0.1) -> float:
     # numpy-financial 1.1 irr ignores guess and returns one polynomial root
     # (smallest magnitude). Excel IRR(values, guess) is Newton's method from
@@ -392,12 +405,12 @@ def isblank(val: Any) -> bool:
 
 
 def iserr(val: Any) -> bool:
-    # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
+    # Real Calc error tokens and NaN, excluding #N/A. '#hashtag' is text.
     return is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
-    # Real Calc error tokens and NaN (NA()). '#hashtag' is text.
+    # Real Calc error tokens and any NaN. '#hashtag' is text.
     return is_calc_error(val)
 
 
@@ -424,8 +437,10 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    """True for float or numpy NaN, or a stripped #N/A token."""
-    return (isinstance(val, (float, np.floating)) and math.isnan(val)) or (isinstance(val, str) and val.strip().upper() == "#N/A")
+    """True for the two tokens egress shows as #N/A or a NaN carrying #N/A."""
+    if isinstance(val, str):
+        return val.strip() in ("#N/A", "#N/A N/A")
+    return is_calc_error(val) and nan_error_code(float(val)) == 0x7FFF
 
 
 def isnontext(val: Any) -> bool:
@@ -444,6 +459,7 @@ def isodd(val: Any) -> bool:
     return number is not None and number % 2 != 0
 
 
+@propagate_errors
 def isoweeknum(serial: Any) -> float:
     # Same ordinal as every other serial helper. The inline fromordinal
     # retyped 693594 and used except Exception.
@@ -453,6 +469,7 @@ def isoweeknum(serial: Any) -> float:
     return float(d.isocalendar()[1])
 
 
+@propagate_errors
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     r = float(rate)
     p = float(per)
@@ -496,6 +513,7 @@ def jis(text: Any) -> str:
     )
 
 
+@propagate_errors
 def kurt(*args: Any) -> float:
     # ScKurt (interpr3.cxx). Fewer than 4 numbers, or a zero sample stdev,
     # is #DIV/0!. This is the unbiased excess kurtosis, the same expression as
@@ -518,8 +536,9 @@ def kurt(*args: Any) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def large(r: Any, k: Any) -> float:
-    # Numbers only. Text such as '5', bools, and NaN are ignored, not sorted in.
+    # Numbers only. Text such as '5', bools, and a plain NaN are ignored, not sorted in.
     arr = extract_numeric_array(r, propagate_nan=False)
     # non-numeric k is left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
     ki = int(float(k))
@@ -716,6 +735,7 @@ def _a_extreme(args: tuple[Any, ...], reduce: Callable[[np.ndarray], Any]) -> fl
     return float(reduce(vals))
 
 
+@propagate_errors
 def maxa(*args: Any) -> float:
     return _a_extreme(args, np.max)
 
@@ -739,6 +759,7 @@ def mdeterm(matrix: Any) -> float:
     return float(np.linalg.det(_as_matrix(np.asarray(matrix, dtype=float))))
 
 
+@propagate_errors
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     macd = duration(settlement, maturity, coupon, yld, frequency, basis)
     if math.isnan(macd):
@@ -746,6 +767,7 @@ def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: 
     return macd / (1 + float(yld) / float(frequency))
 
 
+@propagate_errors
 def mina(*args: Any) -> float:
     return _a_extreme(args, np.min)
 
@@ -779,6 +801,7 @@ def mmult(array1: Any, array2: Any) -> Any:
         return "#VALUE!"
 
 
+@propagate_errors
 def mode(*args: Any) -> Any:
     # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
     # numbers only, so mode(1, 2, 2) works and text is not a candidate.
@@ -797,6 +820,7 @@ def mode(*args: Any) -> Any:
     return float(min(value for value, count in counts.items() if count == best))
 
 
+@propagate_errors
 def mround(number: Any, multiple: Any) -> float:
     n = float(number)
     m = float(multiple)

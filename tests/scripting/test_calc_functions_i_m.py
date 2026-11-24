@@ -378,6 +378,34 @@ def test_iferror_ifna_bad_inputs() -> None:
     assert calc.ifna(_raise, "#VALUE!") == "#VALUE!"
 
 
+def test_ifna_only_na() -> None:
+    with np.errstate(invalid="ignore"):
+        sqrt_nan = calc.ifna(lambda: np.sqrt(-1.0), 0)
+    assert isinstance(sqrt_nan, (float, np.floating)) and math.isnan(sqrt_nan)
+    assert calc.ifna(lambda: np.float64(calc.na()), "alt") == "alt"
+    assert calc.ifna(lambda: -calc.na(), "alt") == "alt"
+    assert calc.ifna(lambda: calc.textafter("abc", "z"), "alt") == "alt"
+    assert calc.ifna(lambda: calc.textbefore("abc", "z"), "alt") == "alt"
+    assert calc.ifna(lambda: calc.textafter("a-b", "-", 0), "alt") == "alt"
+    assert calc.ifna(lambda: calc.textafter("a-b", ""), "alt") == "alt"
+    assert calc.ifna(lambda: calc.prob([1, 2], [0.5], 1), "alt") == "alt"
+    assert calc.ifna(lambda: calc.textjoin(",", 1, calc.na()), "alt") == "alt"
+    assert calc.ifna(lambda: calc.rank(calc.na(), [1]), "alt") == "alt"
+    # Exceptions stay trapped because np.int64(NA_NAN) raises ValueError in translated INDEX/MATCH.
+    assert calc.ifna(lambda: np.asarray([1, 2])[np.int64(calc.xmatch(99, [1, 2], 0)) - 1], "alt") == "alt"
+    assert calc.ifna(lambda: [1][5], "alt") == "alt"
+    assert calc.ifna(lambda: int(float("inf")), "alt") == "alt"
+    assert calc.ifna(lambda: int(None), "alt") == "alt"  # type: ignore[arg-type]
+    with pytest.raises(ZeroDivisionError):
+        calc.ifna(lambda: 1 / 0, "alt")
+
+    def _raise_name() -> None:
+        raise NameError("x")
+
+    with pytest.raises(NameError):
+        calc.ifna(_raise_name, "alt")
+
+
 def test_error_predicates_i_m():
     # Bug Z7: iserror, iserr, istext, isnumber, iferror
     assert calc.iserror(float("nan")) is True
@@ -387,8 +415,9 @@ def test_error_predicates_i_m():
     assert calc.iserror("#hashtag") is False
     assert calc.iserror("normal") is False
 
-    # iserr excludes #N/A (and NaN which represents NA())
-    assert calc.iserr(float("nan")) is False
+    # iserr excludes #N/A (calc.na() and "#N/A"); a plain NaN is an error.
+    assert calc.iserr(float("nan")) is True
+    assert calc.iserr(calc.na()) is False
     assert calc.iserr("#VALUE!") is True
     assert calc.iserr("#N/A") is False
     assert calc.iserr("#hashtag") is False

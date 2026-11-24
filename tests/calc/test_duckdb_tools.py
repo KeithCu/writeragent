@@ -228,6 +228,23 @@ def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, m
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_null_files_value_is_skipped(mock_resolve, mock_run, mock_exec, _mock_isfile):
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok", "helper": "query_folder_sql", "total_rows": 1}
+    mock_exec.side_effect = lambda fn: fn()
+
+    ctx = _mk_ctx()
+    res = _run(ctx, sql="SELECT 1", files={"a": None, "b": "b.csv"})
+
+    assert res["status"] == "ok"
+    mock_run.assert_called_once()
+    assert list(mock_run.call_args.kwargs["flat_files"].keys()) == ["b"]
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")

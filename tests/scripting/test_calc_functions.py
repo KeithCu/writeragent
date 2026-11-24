@@ -45,20 +45,19 @@ def test_conditional_aggregates():
     assert abs(calc.averageif([5.0, 12.0, 3.0, 15.0, 8.0], ">5", [1.0, 2.0, 3.0, 4.0, 5.0]) - 11.0 / 3.0) < 1e-9
 
     assert abs(calc.averageifs([1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0], ">5") - 11.0 / 3.0) < 1e-9
-    # Text and bools in the value range are ignored, not coerced.
+    # Text in the value range is ignored; booleans count as 1 or 0.
     assert calc.averageif([1.0, 2.0], ">0", ["5", 4.0]) == 4.0
-    assert calc.averageif([1.0, 2.0], ">0", [True, 4.0]) == 4.0
+    assert calc.averageif([1.0, 2.0], ">0", [True, 4.0]) == 2.5
     assert calc.sumif([1.0, 2.0], ">0", ["5", 4.0]) == 4.0
-    assert calc.sumif([1.0, 2.0], ">0", [True, 4.0]) == 4.0
+    assert calc.sumif([1.0, 2.0], ">0", [True, 4.0]) == 5.0
     assert calc.averageifs(["5", 4.0], [1.0, 2.0], ">0") == 4.0
-    assert calc.averageifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
+    assert calc.averageifs([True, 4.0], [1.0, 2.0], ">0") == 2.5
     assert calc.sumifs(["5", 4.0], [1.0, 2.0], ">0") == 4.0
-    assert calc.sumifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
-    # Omitted average range falls back to the criteria range. Text and bools
-    # are not numbers there: True matches "<>0", and coercing it would make
-    # the mean 2.5.
-    assert calc.averageif([1.0, "x", True, 4.0], ">0") == 2.5
-    assert calc.averageif([True, 4.0], "<>0") == 4.0
+    assert calc.sumifs([True, 4.0], [1.0, 2.0], ">0") == 5.0
+    # Omitted average range falls back to the criteria range. Text is ignored;
+    # booleans count as 1 or 0 (True matches "<>0" and averages with 4.0 to 2.5).
+    assert calc.averageif([1.0, "x", True, 4.0], ">0") == 2.0
+    assert calc.averageif([True, 4.0], "<>0") == 2.5
 
 
 def test_lookup_text_date():
@@ -530,8 +529,10 @@ def test_isblank_isna_ifna_are_not_the_same_check():
     assert calc.isblank("#N/A") is False
     assert calc.isblank(float("nan")) is False
     assert calc.isna("#N/A") is True
-    assert calc.isna("#n/a") is True
-    assert calc.isna(float("nan")) is True
+    assert calc.isna("#N/A N/A") is True
+    assert calc.isna("#n/a") is False
+    assert calc.isna(float("nan")) is False
+    assert calc.isna(calc.na()) is True
     assert calc.isna("") is False
     assert calc.isna(None) is False
     assert calc.isna("#VALUE!") is False
@@ -539,7 +540,9 @@ def test_isblank_isna_ifna_are_not_the_same_check():
     assert calc.ifna(lambda: "", "alt") == ""
     assert calc.ifna(lambda: None, "alt") is None
     assert calc.ifna(lambda: "#N/A", "alt") == "alt"
-    assert calc.ifna(lambda: float("nan"), "alt") == "alt"
+    nan_res = calc.ifna(lambda: float("nan"), "alt")
+    assert isinstance(nan_res, float) and math.isnan(nan_res)
+    assert calc.ifna(lambda: calc.na(), "alt") == "alt"
 
 
 def test_yearfrac_basis_matches_days360_and_swaps_dates():
@@ -662,10 +665,11 @@ def test_aggregate_error_options_and_text():
     assert calc.aggregate(9, 4, [1.0, "x", "", 3.0]) == 4.0
     assert calc.aggregate(3, 4, [1.0, "x", "", 3.0]) == 3.0
     assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
-    # Option 4 does not ignore errors; COUNTA must not treat NaN as a countable cell under option 4.
-    assert math.isnan(calc.aggregate(3, 4, [1.0, "x", float("nan")]))
+    # Option 4 does not ignore errors; COUNTA still counts errors as non-blank cells.
+    assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
     erred = [1.0, float("nan"), 3.0]
-    for fn in (2, 4, 5):
+    assert calc.aggregate(2, 4, erred) == 2.0
+    for fn in (4, 5):
         assert math.isnan(calc.aggregate(fn, 4, erred))
     assert calc.aggregate(4, 6, erred) == 3.0
     assert calc.aggregate(2, 6, erred) == 2.0
@@ -876,9 +880,9 @@ def test_logest_nonpositive_y_is_value_error():
     assert math.isclose(coeffs[1], 0.5)
 
 
-def test_mode_na_without_duplicates_and_lowest_tie():
+def test_mode_error_without_duplicates_and_lowest_tie():
     assert math.isnan(calc.mode([1, 2, 3]))
-    assert calc.isna(calc.mode([1, 2, 3])) is True
+    assert calc.isna(calc.mode([1, 2, 3])) is False
     assert calc.mode([2, 2, 1, 1]) == 1
     assert calc.mode([1, 1, 2]) == 1
 
@@ -953,7 +957,7 @@ def test_time_wraps_modulo_one_day_and_rejects_negative_remainder():
 def test_trimmean_skips_blanks_and_text():
     # Excel/Calc TRIMMEAN skips blanks, text, and booleans in ranges; propagates errors and checks percent.
     assert calc.trimmean(["a", 1.0, 2.0], 0.2) == 1.5
-    assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
+    assert calc.trimmean([1.0, "#VALUE!", 3.0], 0.2) == "#VALUE!"
     with pytest.raises(ValueError):
         calc.trimmean([1.0, 2.0, 3.0], "bad")
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
@@ -1059,9 +1063,9 @@ def test_xnpv_rate_at_or_below_minus_one_is_nan():
     assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
 
 
-def test_trend_empty_known_y_is_value_error():
-    assert calc.trend([]) == "#VALUE!"
-    assert calc.trend([[]]) == "#VALUE!"
+def test_trend_empty_known_y_is_illegal_parameter():
+    assert calc.trend([]) == "Err:504"
+    assert calc.trend([[]]) == "Err:504"
     fitted = calc.trend([1.0, 2.0, 3.0])
     assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
 
@@ -1568,5 +1572,37 @@ def test_devsq_geomean_harmean():
     assert math.isnan(calc.harmean([2.0, 0.0, 8.0]))
     assert math.isnan(calc.harmean([2.0, -4.0, 8.0]))
     assert math.isnan(calc.harmean([]))
+
+
+@pytest.mark.parametrize("err_kind", ["nan", "token"])
+def test_input_error_code_is_kept(err_kind: str):
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
+
+    err: float | str = DIV0_NAN if err_kind == "nan" else "#DIV/0!"
+
+    def _check(res: object) -> None:
+        if err_kind == "nan":
+            assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+        else:
+            assert res == "#DIV/0!"
+
+    _check(calc.edate(err, 1))
+    _check(calc.days(err, 1))
+    _check(calc.networkdays(1, 5, [err]))
+    _check(calc.pmt(err, 12, 1000))
+    _check(calc.db(err, 100, 5, 1))
+    _check(calc.mround(err, 5))
+    _check(calc.even(err))
+    _check(calc.fixed(err, 2))
+    _check(calc.yearfrac(err, 45000))
+    _check(calc.averagea([1.0, err]))
+    _check(calc.maxa([1.0, err]))
+    _check(calc.stdeva([1.0, err]))
+    _check(calc.large([1.0, err, 3.0], 1))
+    _check(calc.kurt([1.0, err, 3.0, 4.0]))
+    _check(calc.rank(1.0, [1.0, err, 3.0]))
+    _check(calc.pearson([1.0, err], [1.0, 2.0]))
+    _check(calc.trimmean([1.0, err, 3.0], 0.2))
+    assert calc.large([1, float("nan"), 3], 1) == 3.0
 
 

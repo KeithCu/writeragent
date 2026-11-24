@@ -35,7 +35,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Callable, Generator, Sequence
 
 from plugin.framework import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
@@ -229,7 +229,7 @@ def get_document_context_for_chat(
                     sel_positions = _text_helpers.get_writer_selection_positions(model, selection=selection)
                     if sel_positions is not None:
                         positions = sel_positions[1:]
-                text, offsets = _text_helpers.read_visible_body(model, positions)
+                text, offsets, struck = _text_helpers.read_visible_body(model, positions)
             except UnoObjectError:
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
                 sel_text = _text_helpers.get_selection_text(model)
@@ -252,9 +252,15 @@ def get_document_context_for_chat(
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
                 tail_start = total - end_chars
-                start_excerpt = _inject_selection_markers(text[:start_chars], 0, sel_start, sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
+                # A selection across the omitted middle opens in the head and closes in the tail.
+                spans_gap = sel_start < start_chars and sel_end > tail_start
+                start_excerpt = _inject_markers(
+                    text[:start_chars], 0, sel_start, None if spans_gap else sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]", struck
+                )
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-                end_excerpt = _inject_selection_markers(text[tail_start:], tail_start, sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "")
+                end_excerpt = _inject_markers(
+                    text[tail_start:], tail_start, None if spans_gap else sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "", struck
+                )
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _writer_snapshot(
                     model,
@@ -263,7 +269,7 @@ def get_document_context_for_chat(
 
             note = "\n\n[... document truncated ...]" if total > max_context else ""
             # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-            excerpt = _inject_selection_markers(text[:max_context], 0, sel_start, sel_end, "[DOCUMENT START]\n", note)
+            excerpt = _inject_markers(text[:max_context], 0, sel_start, sel_end, "[DOCUMENT START]\n", note, struck)
             return _writer_snapshot(
                 model,
                 "Document length: %d characters.\n\n%s" % (total, excerpt),
@@ -283,29 +289,49 @@ def get_document_context_for_chat(
         return "[Document content unavailable]"
 
 
-def _inject_selection_markers(
+def _inject_markers(
     excerpt_text: str,
     excerpt_start: int,
-    sel_start: int,
-    sel_end: int,
+    sel_start: int | None,
+    sel_end: int | None,
     prefix: str,
     suffix: str,
+    struck: Sequence[int] = (),
 ) -> str:
-    """Insert selection markers at visible offsets in *excerpt_text*."""
+    """Insert selection and tracked-deletion markers at visible offsets in *excerpt_text*.
+
+    None means that selection end is marked in another window.
+    """
     visible_len = len(excerpt_text)
-    s = max(0, min(sel_start - excerpt_start, visible_len))
-    e = max(0, min(sel_end - excerpt_start, visible_len))
-    if s >= visible_len or e <= 0:
+    markers: list[tuple[int, str]] = []
+    s = 0 if sel_start is None else max(0, min(sel_start - excerpt_start, visible_len))
+    e = visible_len if sel_end is None else max(0, min(sel_end - excerpt_start, visible_len))
+    if not (s >= visible_len or e <= 0):
+        if sel_start is not None:
+            markers.append((s, "[SELECTION_START]"))
+        if sel_end is not None:
+            markers.append((e, "[SELECTION_END]"))
+
+    in_window = [p - excerpt_start for p in struck if excerpt_start <= p <= excerpt_start + visible_len]
+    if in_window:
+        # Collapse consecutive struck slots so a long struck passage does not flood the context.
+        runs: list[list[int]] = []
+        for p in in_window:
+            if runs and p == runs[-1][0] + runs[-1][1]:
+                runs[-1][1] += 1
+            else:
+                runs.append([p, 1])
+        for run_start, run_len in runs:
+            label = "[tracked deletion]" if run_len == 1 else "[tracked deletion, %d paragraphs]" % run_len
+            markers.append((run_start, label))
+
+    if not markers:
         return prefix + excerpt_text + suffix
-    return (
-        prefix
-        + excerpt_text[:s]
-        + "[SELECTION_START]"
-        + excerpt_text[s:e]
-        + "[SELECTION_END]"
-        + excerpt_text[e:]
-        + suffix
-    )
+    markers.sort(key=lambda item: item[0])
+    out = excerpt_text
+    for pos, marker in reversed(markers):
+        out = out[:pos] + marker + out[pos:]
+    return prefix + out + suffix
 
 
 # Resolver-only TreeService used when WriterAgent has not registered writer_tree
@@ -319,7 +345,7 @@ def _unresolved_locator(locator: str) -> ToolExecutionError:
     return ToolExecutionError(
         "Cannot resolve locator '%s'. Use type:value such as paragraph:N, "
         "heading:1.2, chapter_number:3.1, bookmark:NAME, heading_text:Title, "
-        "section:NAME, or page:N (0-based page)." % locator
+        "section:NAME, or page:N (0-based: the user's page 2 is page:1)." % locator
     )
 
 

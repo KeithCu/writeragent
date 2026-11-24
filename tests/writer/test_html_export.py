@@ -327,36 +327,6 @@ def test_range_export_raises_when_scratch_missing():
         _range_to_content_via_temp_doc(MagicMock(), MagicMock(), 0, 5, None)
 
 
-def test_range_offset_failure_is_not_a_successful_slice():
-    """A failed gap used to leave running short and return the wrong slice as ok."""
-    from plugin.framework.errors import ToolExecutionError
-
-    class _GapCursor:
-        def gotoRange(self, *_args: object, **_kwargs: object) -> None:
-            raise RuntimeError("offset")
-
-    text = MagicMock()
-    para = _para("Standard")
-    text.createEnumeration.return_value = _Enum([para])
-    text.createTextCursor.return_value = MagicMock()
-    text.createTextCursorByRange.return_value = _GapCursor()
-    model = MagicMock()
-    model.getText.return_value = text
-    temp = MagicMock()
-    temp.getText.return_value = MagicMock()
-
-    def _portions(element, truncated_out=None, state=None):
-        yield (_Portion(), "Hello")
-
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        pytest.raises(ToolExecutionError, match="offset"),
-    ):
-        _range_to_content_via_temp_doc(model, MagicMock(), 0, 5, None)
-    temp.close.assert_called_once_with(True)
-
-
 class _DisposedException(Exception):
     pass
 
@@ -401,75 +371,71 @@ def test_range_xhtml_disposal_does_not_fall_back():
     temp_doc.storeToURL.assert_not_called()
 
 
+def test_range_starwriter_fallback_strips_deleted_mark():
+    from plugin.writer import html_export, xhtml_style_postprocess as xhtml_post
+
+    with patch.object(
+        html_export, "_export_starwriter_html", return_value=f"<p>{xhtml_post.DELETED_MARK}</p>"
+    ):
+        out = _run_range_export(
+            [_para("Standard")],
+            export_side_effect=RuntimeError("xhtml failed"),
+            passthrough_semantic=False,
+        )
+    assert xhtml_post.DELETED_MARK not in out
+
+
 def test_offset_window_slices_by_running_offset():
     from plugin.writer.html_export import _offset_window
 
-    side_effects = ["", "Hello\n", "World\n"]
-    text = MagicMock()
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=side_effects):
-        past_end, window = _offset_window(text, 2, 8)
-        e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
-        assert window(e1, "Hello", [], False) == ([], (2, 5))
-        assert window(e2, "World", [], False) == ([], (0, 2))
-        assert window(e3, "Next", [], False) == ([], None)
-        assert past_end(e1) is False
+    past_end, window = _offset_window(2, 8)
+    e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
+    assert window(e1, "Hello", [], False) == ([], (2, 5))
+    assert window(e2, "World", [], False) == ([], (0, 2))
+    assert window(e3, "Next", [], False) == ([], None)
+    assert past_end(e1) is False
 
 
-def test_offset_window_adds_one_after_table_unless_collapsed():
+def test_offset_window_leading_and_adjacent_tables():
     from plugin.writer.html_export import _offset_window
 
-    text = MagicMock()
-    gap = MagicMock()
-    text.createTextCursorByRange.return_value = gap
-    table = MagicMock()
+    t1, t2 = MagicMock(), MagicMock()
+    texts = {id(t1): "T1", id(t2): "T23"}
+    with patch("plugin.writer.html_export.table_visible_text", side_effect=lambda t, _opened: texts[id(t)]):
+        # Leading t1 (0..2), t2 (3..6), para "Beta" (7..11)
+        _past_end, window = _offset_window(0, 2)
+        assert window(MagicMock(), "Beta", [t1, t2], False) == ([t1], None)
 
-    # After a non-collapsed gap (table in the middle), running advances by len(gap) + 1.
-    gap.isCollapsed.return_value = False
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="AlphaT"):
-        _past_end, window = _offset_window(text, 7, 11)
-        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
+        _past_end, window = _offset_window(3, 6)
+        assert window(MagicMock(), "Beta", [t1, t2], False) == ([t2], None)
 
-    # When the table opens the document, the gap is collapsed and nothing is added.
-    gap.isCollapsed.return_value = True
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
-        _past_end, window = _offset_window(text, 1, 5)
-        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
+        _past_end, window = _offset_window(7, 11)
+        assert window(MagicMock(), "Beta", [t1, t2], False) == ([], (0, 4))
 
 
-def test_offset_window_table_inclusion_boundaries():
+def test_offset_window_keeps_empty_paragraph_at_start():
     from plugin.writer.html_export import _offset_window
 
-    text = MagicMock()
-    gap = MagicMock()
-    text.createTextCursorByRange.return_value = gap
-    table = MagicMock()
+    _past_end, window = _offset_window(6, 8)
+    assert window(MagicMock(), "Alpha", [], False) == ([], None)
+    assert window(MagicMock(), "", [], False) == ([], (0, 0))
+    assert window(MagicMock(), "Beta", [], False) == ([], (0, 1))
 
-    # Middle table: para0="Alpha" (0..5), table block at 6..6, para1="Beta" (7..11).
-    gap.isCollapsed.return_value = False
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
-        _past_end, window = _offset_window(text, 5, 8)
-        assert window(MagicMock(), "Alpha", [], False) == ([], None)
-        assert window(MagicMock(), "Beta", [table], False) == ([table], (0, 1))
 
-    # Range that is exactly the paragraph before or after excludes the table.
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
-        _past_end, window = _offset_window(text, 0, 5)
-        assert window(MagicMock(), "Alpha", [], False) == ([], (0, 5))
-        assert window(MagicMock(), "Beta", [table], False) == ([], None)
+def test_offset_window_empty_and_struck_tables():
+    from plugin.writer.html_export import _offset_window
 
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
-        _past_end, window = _offset_window(text, 7, 11)
-        assert window(MagicMock(), "Alpha", [], False) == ([], None)
-        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
+    empty_t, struck_t = MagicMock(), MagicMock()
+    with patch("plugin.writer.html_export.table_visible_text", side_effect=lambda _t, opened: "" if opened else "Cell"):
+        # Para "A" (0..1), empty_t (2..6), para "B" (7..8)
+        _past_end, window = _offset_window(2, 6)
+        assert window(MagicMock(), "A", [], False) == ([], None)
+        assert window(MagicMock(), "B", [empty_t], False) == ([empty_t], None)
 
-    # Leading table is included only with start 0.
-    gap.isCollapsed.return_value = True
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
-        _past_end, window = _offset_window(text, 0, 5)
-        assert window(MagicMock(), "Beta", [table], False) == ([table], (0, 4))
-    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
-        _past_end, window = _offset_window(text, 1, 5)
-        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
+        # Para "A" (0..1), struck_t (2..2, one break), para "B" (3..4)
+        _past_end, window = _offset_window(3, 4)
+        assert window(MagicMock(), "A", [], False) == ([], None)
+        assert window(MagicMock(), "B", [struck_t], True) == ([], (0, 1))
 
 
 @pytest.mark.parametrize(
@@ -786,7 +752,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         autostyle_return=({"P1": "Standard"}, {"P1": "color:red"}, False),
         passthrough_semantic=False,
     )
-    autostyle_mock2.assert_called_once_with(temp_doc2)
+    autostyle_mock2.assert_called_once_with(temp_doc2, None)
     assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 
 
@@ -939,4 +905,79 @@ def test_put_outline_urls_skips_empty_split_anchors():
     content = '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#a_Live">Live</a></p>'
     out = _put_outline_urls(content, ["#Heading|outline"])
     assert out == '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#Heading|outline">Live</a></p>'
+
+
+def test_full_export_reads_flat_odf_once_when_no_break_is_split():
+    from plugin.writer import html_export as hx
+
+    fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:margin-left="1in"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    xhtml = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
+    flat_reads = 0
+
+    def fake_read(_doc, filter_name, **_kwargs):
+        nonlocal flat_reads
+        if filter_name == hx.FLAT_ODF_FILTER:
+            flat_reads += 1
+            return fodt
+        return xhtml
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.xhtml_style_postprocess.expand_tracked_deletions", return_value=None), \
+         patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
+        html, _has_ruby = hx._export_full(MagicMock(), MagicMock())
+
+    assert flat_reads == 1
+    assert 'data-lo-para="margin-left:1in"' in html
+
+
+def test_full_export_of_split_copy_reads_its_own_flat_odf():
+    from plugin.writer import html_export as hx
+
+    source_fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:color="#111111"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    copy_fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:font-weight="bold"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    source_doc = MagicMock()
+    copy_doc = MagicMock()
+    xhtml = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
+
+    def fake_read(doc, filter_name, **_kwargs):
+        if filter_name == hx.FLAT_ODF_FILTER:
+            return source_fodt if doc is source_doc else copy_fodt
+        return xhtml
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.xhtml_style_postprocess.expand_tracked_deletions", return_value="<split/>"), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
+        html, _has_ruby = hx._export_full(source_doc, MagicMock())
+
+    assert 'data-lo-para="font-weight:bold"' in html
+    assert "#111111" not in html
 

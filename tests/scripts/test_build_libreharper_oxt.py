@@ -288,3 +288,23 @@ def test_zip_fails_when_description_xml_missing(tmp_path: Path) -> None:
 
     # Sentinel output zip must be unchanged
     assert out_zip.read_bytes() == b"sentinel-zip-data"
+
+
+def test_libreharper_bundle_covers_resolve_proofread_writer_model_imports() -> None:
+    import ast
+
+    src_path = PROJECT_ROOT / "plugin" / "writer" / "locale" / "ai_grammar_proofreader.py"
+    tree = ast.parse(src_path.read_text(encoding="utf-8"), filename=str(src_path))
+    fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_resolve_proofread_writer_model"
+    )
+    imported_paths = {
+        node.module.replace(".", "/") + ".py"
+        for node in ast.walk(fn)
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("plugin.")
+    }
+    bundled = set(collect_libreharper_plugin_paths(str(PROJECT_ROOT)))
+    missing = sorted(imported_paths - bundled)
+    assert missing == []

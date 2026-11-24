@@ -57,7 +57,7 @@ RESEARCH_COMPLETION_INSTRUCTION_WRITER = _RESEARCH_REPORT_PREFIX + (
     "If the user asked a standalone conversational question without requesting document edits, answer directly in the chat."
 )
 RESEARCH_COMPLETION_INSTRUCTION_CALC = _RESEARCH_REPORT_PREFIX + (
-    "If the user requested writing data or tables into the spreadsheet, call write_cell_range to insert the values. "
+    "If the user requested writing data or tables into the spreadsheet, call write_range to insert the values. "
     "If the user asked a standalone conversational question without requesting sheet edits, answer directly in the chat."
 )
 RESEARCH_COMPLETION_INSTRUCTION_DRAW = _RESEARCH_REPORT_PREFIX + (
@@ -405,7 +405,8 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
 - apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
 - In record and wait, NEVER accept or reject changes yourself, including through the tracking sub-agent — resolving redlines is the user's decision.
-- get_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
+- get_content lists pending changes under tracked_changes — they are pending review, not errors to fix.
+- data-lo-deleted="true" on a get_content block, and [tracked deletion] in the document text, mark a paragraph a pending deletion already covers. It is not an empty paragraph: do not tidy, fill or delete it, and leave it out of content you write. The marker text is not in the document."""
 
 
 # apply_content rules its parameter schema cannot carry: quote/dash folding (the one home for every
@@ -466,7 +467,7 @@ WRITER_IMAGES_RULES = f"""IMAGES:
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To paste an excerpt of a picture and mark a passage on it (yellow highlight, red box, underline), use image_crop_and_highlight with boxes in the picture's own pixels (or units='percent'), then check it with image_get. Do not cut it with crop_*_mm or draw loose shapes over it: those are placed in page millimetres and drift.
-- To actually SEE an image (vision-capable models), call image_get — by graphic name, selection=true, or page=N (0-based) to render that whole page.
+- To actually SEE an image (vision-capable models), call image_get — by graphic name, selection=true, or page=N (0-based: the user's page 2 is page=1) to render that whole page.
   For a bulk read with pictures embedded, pass include_images=true to get_content."""
 
 

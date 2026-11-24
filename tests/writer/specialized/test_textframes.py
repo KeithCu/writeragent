@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized import textframes
 from plugin.writer.specialized.textframes import FrameGetInfo, FrameSetProperties
@@ -164,16 +166,16 @@ def test_frame_text_uses_visible_text(monkeypatch):
     seen = []
     monkeypatch.setattr(
         textframes,
-        "visible_range_text",
-        lambda _doc, text: seen.append(text) or "visible",
+        "get_string_without_tracked_deletions",
+        lambda text, _state: seen.append(text) or "visible",
     )
     frame = MagicMock()
-    assert textframes._frame_text(MagicMock(), frame) == "visible"
+    assert textframes._frame_text(frame, MagicMock()) == "visible"
     assert seen == [frame.getText()]
 
 
 def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame: "x" * 5000)
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions: "x" * 5000)
     frame = MagicMock()
     size = MagicMock()
     size.Width = 1000
@@ -212,7 +214,7 @@ def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
 
 
 def test_frame_get_info_body_anchor(monkeypatch):
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame: "visible")
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions: "visible")
     frame = MagicMock()
     size = MagicMock()
     size.Width = 1000
@@ -306,6 +308,68 @@ def test_frame_insert_default_size_and_undo_path():
     host_text.insertTextContent.assert_called_once()
     frame.setName.assert_called_once_with("MyFrame")
     frame_text.insertString.assert_called_once_with(frame_cursor, "hello", False)
+
+
+@pytest.mark.parametrize(
+    ("target", "collapsed", "expect_pending"),
+    [
+        ("search", False, True),
+        ("search", True, False),
+        ("selection", False, False),
+    ],
+)
+def test_frame_insert_pending_review_on_recorded_search_delete(target, collapsed, expect_pending):
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.specialized.textframes import FrameInsert
+
+    doc = MagicMock()
+    _undo = MagicMock()
+    _undo.isLocked.return_value = False
+    doc.getUndoManager.return_value = _undo
+    doc.getPropertyValue.side_effect = lambda n: True if n == "RecordChanges" else None
+    frames_coll = MagicMock()
+    frames_coll.hasByName.return_value = False
+    doc.getTextFrames.return_value = frames_coll
+    frame = MagicMock()
+    frame.getPropertyValue.return_value = SimpleNamespace(value="AT_PARAGRAPH")
+    frame_text = MagicMock()
+    frame_text.createTextCursor.return_value = MagicMock()
+    frame.getText.return_value = frame_text
+    doc.createInstance.return_value = frame
+    cursor = MagicMock()
+    cursor.isCollapsed.return_value = collapsed
+    cursor.getText.return_value = MagicMock()
+    ctx = MagicMock(doc=doc)
+
+    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
+        mutate()
+        return None
+
+    raw_args: dict[str, Any] = {"target": target, "anchor_type": 0, "name": "MyFrame"}
+    if target == "search":
+        raw_args["old_content"] = "PARA"
+
+    prep = prepare_tool_call(
+        FrameInsert(),
+        SimpleNamespace(doc_type="writer", caller="test"),
+        "frame_insert",
+        raw_args,
+    )
+    assert prep.error is None
+
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+        patch("plugin.writer.specialized.textframes.mm_to_unit", side_effect=lambda mm: int(mm * 100)),
+    ):
+        res = FrameInsert().execute(ctx, **prep.kwargs)
+
+    assert res["status"] == "ok"
+    assert res["tracked"] is False
+    assert ("pending_review" in res) is expect_pending
+    if expect_pending:
+        assert res["pending_review"] is True
 
 
 def test_frame_tools_wrong_types_stop_at_validator():
@@ -424,7 +488,7 @@ def _make_text_box_doc():
 def test_frame_list_includes_word_text_boxes(monkeypatch):
     from plugin.writer.specialized.textframes import FrameList
 
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame, limit=None: "text")
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions, limit=None: "text")
     doc, _plain, _box, _box_shape, _dp = _make_text_box_doc()
     ctx = MagicMock(doc=doc)
 

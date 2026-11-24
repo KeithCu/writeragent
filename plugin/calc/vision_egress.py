@@ -14,7 +14,7 @@ from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
 from plugin.calc.tabular_egress import append_blank, append_table_rows, append_truncation_note, pad_grid
 from plugin.doc.compound_undo import UndoStepOrRollback
-from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
+from plugin.doc.visual_helpers import find_image
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 
@@ -102,22 +102,10 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
     return rows, merges
 
 
-def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[str, int, int]:
+def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None, graphic: Any | None = None) -> tuple[str, int, int]:
     """Return (sheet_name, start_col, start_row) one row below the graphic's anchor cell, on the graphic's sheet."""
-    # Calc must resolve image_name to the named graphic's cell anchor; otherwise the insert follows the active selection.
-    name = str(image_name or "").strip()
-    if name:
-        obj = get_graphic_object_by_name(doc, name)
-        if obj is None:
-            raise ToolExecutionError(
-                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
-                code="IMAGE_NOT_FOUND",
-                details={"image_name": name},
-            )
-    else:
-        obj = selected_graphic_object(doc)
-        if obj is None:
-            raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
+    # A kept shape or name resolves to that image's own cell anchor; only an empty name with no shape uses the selection.
+    obj = find_image(doc, str(image_name or "").strip(), graphic, no_selection=_("Select an embedded image, then Run again."))
 
     try:
         anchor = obj.getPropertyValue("Anchor")
@@ -132,9 +120,9 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
     return sheet_name, col, row + 1
 
 
-def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_name: str | None = None) -> None:
+def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_name: str | None = None, graphic: Any | None = None) -> None:
     """Paste vision HTML into the cell below the graphic anchor."""
-    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
+    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name, graphic=graphic)
     # The graphic's sheet becomes active because paste targets the active sheet selection.
     bridge = CalcBridge(doc)
     sheet = bridge.get_sheet(sheet_name)
@@ -144,9 +132,9 @@ def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_nam
     insert_cell_html_rich(doc, uno_ctx, cell_address, html)
 
 
-def insert_vision_structure_into_calc(doc: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
+def insert_vision_structure_into_calc(doc: Any, result: dict[str, Any], *, image_name: str | None = None, graphic: Any | None = None) -> int:
     """Write extract_structure blocks/tables as native Calc cells below the graphic anchor."""
-    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
+    sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name=image_name, graphic=graphic)
     grid, merges = _vision_structure_calc_layout(result)
     if len(grid) <= 1:
         raise ToolExecutionError(_("No structured tables or text blocks to insert."), code="VISION_ERROR", details={"vision_result": result})

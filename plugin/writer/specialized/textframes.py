@@ -26,7 +26,7 @@ from typing import Any
 from com.sun.star.awt import Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_FRAME, AT_PAGE, AT_PARAGRAPH
 
-from plugin.doc.text_helpers import visible_range_text
+from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.i18n import _
@@ -49,8 +49,9 @@ def _frame_size_fields(size: Any) -> dict[str, Any]:
     }
 
 
-def _frame_text(doc: Any, frame: Any, limit: int | None = None) -> str:
-    full_text = visible_range_text(doc, frame.getText())
+def _frame_text(frame: Any, deletions: TrackedDeletions, limit: int | None = None) -> str:
+    text = frame.getText()
+    full_text = get_string_without_tracked_deletions(text, deletions.state_at(text))
     if limit is not None and len(full_text) > limit:
         return full_text[:limit] + "..."
     return full_text
@@ -120,9 +121,11 @@ class FrameList(ToolWriterTextFramesBase):
         if isinstance(text_frames, dict):
             return text_frames
 
+        deletions = TrackedDeletions(doc)
+
         def entry(name: str, frame: Any) -> dict[str, Any]:
             size = frame.getPropertyValue("Size")
-            content_preview = _frame_text(doc, frame, limit=200)
+            content_preview = _frame_text(frame, deletions, limit=200)
             return {"name": name, **_frame_size_fields(size), "content_preview": content_preview}
 
         frames = [entry(name, text_frames.getByName(name)) for name in text_frames.getElementNames()]
@@ -156,7 +159,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
         hori_orient = int(frame.getPropertyValue("HoriOrient"))
         vert_orient = int(frame.getPropertyValue("VertOrient"))
-        full_content = _frame_text(ctx.doc, frame)
+        full_content = _frame_text(frame, TrackedDeletions(ctx.doc))
         content_length = len(full_content)
         truncated = content_length > _FRAME_INFO_MAX_CHARS
 
@@ -355,9 +358,13 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
         recorded = False
+        replaced_pending = False
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
-            nonlocal recorded
+            nonlocal recorded, replaced_pending
+            # insert_at_target has already deleted a search match. A recorded deletion only strikes
+            # the match, so the cursor still spans it.
+            replaced_pending = kwargs.get("target") == "search" and not cursor.isCollapsed()
             recorded = anchor_type == 1 and is_recording_changes(doc)
             host = cursor.getText()
             if anchor_type == 1:
@@ -389,7 +396,6 @@ class FrameInsert(ToolWriterTextFramesBase):
             what="the text frame",
             undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
-            review=True,
         )
         if err is not None:
             return err
@@ -401,6 +407,17 @@ class FrameInsert(ToolWriterTextFramesBase):
         if recorded:
             result["tracked"] = True
             result["pending_review"] = True
+        elif replaced_pending:
+            result["pending_review"] = True
+            flag_untracked(
+                result,
+                doc,
+                _(
+                    "This text frame was inserted directly and is not tracked, but the text it replaced is "
+                    "a tracked deletion pending the user's review, so that text is still in the document "
+                    "(Ctrl+Z undoes both). Do not accept or reject it yourself. Tell the user."
+                ),
+            )
         else:
             flag_untracked(
                 result,

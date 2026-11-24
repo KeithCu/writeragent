@@ -136,8 +136,8 @@ def test_duration_huge_yield_is_nan():
 
 
 def test_growth_rejects_non_positive_known_y():
-    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
-    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
+    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "Err:502"
+    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "Err:502"
     assert calc.growth([1.0, 2.0, float("inf")], [1.0, 2.0, 3.0], 4) == "#NUM!"
     fitted = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4)
     assert math.isclose(fitted[0], 8.0, rel_tol=1e-9)
@@ -155,12 +155,12 @@ def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "") == through_origin
     # Text "abc" fails GetDouble and returns #VALUE!
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "abc") == "#VALUE!"
-    assert calc.growth([]) == "#VALUE!"
-    assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
-    assert calc.growth(5, 3) == "#VALUE!"
-    assert calc.growth(5) == "#VALUE!"
-    assert calc.growth([1, 2, 4], 5, None, False) == "#VALUE!"
-    assert calc.growth([1, 2, 4], 5, [6, 7], False) == "#VALUE!"
+    assert calc.growth([]) == "Err:504"
+    assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "Err:502"
+    assert calc.growth(5, 3) == "Err:504"
+    assert calc.growth(5) == "Err:504"
+    assert calc.growth([1, 2, 4], 5, None, False) == "Err:502"
+    assert calc.growth([1, 2, 4], 5, [6, 7], False) == "Err:502"
     assert len(calc.growth([[1, 2], [4, 8]], [[1, 2], [3, 4]])) == 4
     assert math.isclose(calc.growth(5, 3, 4, False)[0], math.exp(math.log(5.0) * 4.0 / 3.0), rel_tol=1e-9)
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
@@ -186,7 +186,8 @@ def test_growth_multivariate_and_edge_cases():
     )
     assert calc.growth([1, 2, 4], [7, 7, 7]) == "#VALUE!"
     assert calc.growth([1, 2, 4], [0, 0, 0], None, False) == "#VALUE!"
-    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "#VALUE!"
+    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "Err:502"
+    assert calc.growth([1, 2, 4], [[1, 1], [2, 4], [3, 9]], [6]) == "Err:502"
 
 
 def test_days360_us_february_month_end():
@@ -585,20 +586,25 @@ def test_frequency_bincount():
     assert calc.frequency(["a"], []) == [0]
 
 
-def test_frequency_conversion_error_is_value():
+def test_frequency_conversion_error_raises():
     class BadArray:
         def __array__(self, *args: Any, **kwargs: Any) -> Any:
             raise ValueError("conversion failed")
 
-    assert calc.frequency(BadArray(), [1, 2]) == "#VALUE!"
+    with pytest.raises(ValueError, match="conversion failed"):
+        calc.frequency(BadArray(), [1, 2])
 
 
 def test_filter_criteria_truthiness():
     import struct
     import numpy as np
     from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import NA_NAN
+    from plugin.scripting.venv.calc_functions_util import NA_NAN, formula_error_nan
 
+    assert calc.filter([1, 2], ["#DIV/0!", 1]) == "#DIV/0!"
+    assert calc.filter([1, 2], [" Err:502 ", 1]) == "Err:502"
+    assert calc.filter([1, 2], ["#N/A", 1]) == "#N/A"
+    assert calc.filter([1, 2], ["x", formula_error_nan(532)]) == "#VALUE!"
     assert calc.filter([1, 2], ["0", 1]) == "#VALUE!"
     assert calc.filter([1, 2], ["1", 1]) == "#VALUE!"
     assert calc.filter([1, 2], ["text", 1]) == "#VALUE!"
@@ -676,5 +682,28 @@ def test_d_h_approx_floor_counts_and_df():
     assert calc.fdist(1, 0.29 * 100, 5) == calc.fdist(1, 29, 5)
     assert math.isclose(calc.fdist(1, 1e20, 5), calc.fdist(1, 1e10, 5), rel_tol=1e-6)
     assert calc.finv(0.5, 2.5, 5) == calc.finv(0.5, 2, 5)
+
+
+def test_d_number_criterion_matches_text():
+    db = [["K", "V"], ["1", 1], [1, 10], [True, 100], ["TRUE", 1000], [2, 10000], ["1.0", 100000]]
+    assert calc.dsum(db, "V", [["K"], [1]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], ["1"]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], [True]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], ["TRUE"]]) == 1110.0
+    assert calc.dsum(db, "V", [["K"], [False]]) == 0.0
+
+
+def test_d_matched_error_is_result():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
+
+    db = [["K", "V"], ["a", 1], ["a", "#DIV/0!"], ["b", "#N/A"]]
+    assert calc.dsum(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dcount(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dcounta(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dsum(db, "V", [["K"], ["c"]]) == 0.0
+    db_nan = [["K", "V"], ["a", 1], ["a", DIV0_NAN], ["b", float("nan")]]
+    res = calc.dsum(db_nan, "V", [["K"], ["a"]])
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+    assert calc.dsum(db_nan, "V", [["K"], ["b"]]) == 0.0
 
 

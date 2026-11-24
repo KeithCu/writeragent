@@ -28,26 +28,10 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple, TypedDict, cast
 
-if TYPE_CHECKING:
-    import uno
-    from com.sun.star.beans import PropertyValue
-    from plugin.framework.tool import ToolContext
-else:
-    try:
-        import uno
-        from com.sun.star.beans import PropertyValue
-    except ImportError:
-        # Mocks for testing outside LO
-        class _UnoMock:
-            @staticmethod
-            def systemPathToFileUrl(path: str) -> str:
-                return path
-        uno = _UnoMock()
+import uno
 
-        class PropertyValue:
-            def __init__(self, Name: Any = None, Value: Any = None, **kwargs: Any) -> None:
-                self.Name = Name
-                self.Value = Value
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import (
@@ -173,8 +157,6 @@ def set_cursor_properties(cursor: Any, updates: dict[str, Any]) -> None:
     use_invoke = any(typed is not raw for typed, raw in zip(typed_values, raw_values))
     try:
         if use_invoke:
-            import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
             cast("Any", uno).invoke(cursor, "setPropertyValues", (names, typed_values))
         else:
             cursor.setPropertyValues(names, raw_values)
@@ -499,7 +481,6 @@ def _paragraph_property_names(para: Any) -> tuple[str, ...]:
 
 def _revert_value(name: str, value: Any) -> Any:
     if name in _MARGIN_UNIT_PROPERTIES:
-        import uno  # local: tests swap sys.modules["uno"]
         # SvxTextLeftMarginItem::PutValue (frmitems.cxx) accepts only the exact Pair type.
         return cast("Any", uno).Any("com.sun.star.beans.Pair<double,short>", value)
     return _typed_property_value(name, value)
@@ -562,9 +543,6 @@ def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tu
     An existing ``ParagraphFormat`` redline is kept as the only one because it holds the state
     before both changes, and Reject All would end on the later redline's state.
     """
-    import uno  # local: tests swap sys.modules["uno"]
-
-    uno_any = getattr(uno, "Any")
     recorded = 0
     failed = 0
     unrestorable: set[str] = set()
@@ -584,7 +562,7 @@ def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tu
                     create_property_value(
                         "RedlineRevertProperties",
                         # Inner sequence must be typed as []PropertyValue.
-                        uno_any("[]com.sun.star.beans.PropertyValue", state.properties),
+                        cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", state.properties),
                     ),
                 ),
             )
@@ -810,10 +788,11 @@ _STRUCT_SCHEMA = {
 _UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_PROPERTIES, **_STRUCT_SCHEMA}
 
 
-# ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center). Schema
-# is the words; these maps are the UNO integers (ParagraphAdjust). START/END exist
-# since LO 26.2, and older SvxAdjustItem::PutValue ignores 5/6, so the tool schema
-# does not offer them.
+# ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center), so the
+# schema uses the words and these maps hold the UNO integers (ParagraphAdjust).
+# START and END exist since LO 26.2; older SvxAdjustItem::PutValue
+# (editeng/source/items/paraitem.cxx) silently ignores 5 and 6, so the schema
+# does not offer them and para_adjust_to_uno falls back to left/right there.
 _PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3, "start": 5, "end": 6}
 _PARA_ADJUST_FROM_INT = {
     0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify", 5: "start", 6: "end",
@@ -891,11 +870,32 @@ def _missing_style_error(
     )
 
 
+def _has_paragraph_adjust(name: str) -> bool:
+    """Whether this LibreOffice's ParagraphAdjust enum has *name* (START and END exist since 26.2).
+
+    Asks the type system rather than the version number because Collabora Office
+    numbers its releases differently. An unknown member makes pyuno's checkEnum
+    (pyuno/source/module/pyuno_module.cxx) raise RuntimeException.
+    """
+    # local: see _coerce_uno_field (tests swap sys.modules["uno"])
+    import uno
+    from com.sun.star.uno import RuntimeException
+
+    try:
+        uno.Enum("com.sun.star.style.ParagraphAdjust", name)
+    except RuntimeException:
+        return False
+    return True
+
+
 def para_adjust_to_uno(value: Any) -> int:
     """Schema word → UNO integer. Integers are refused: UNO's order (1 right, 2 justify, 3 center) is easy to get wrong."""
     if isinstance(value, str):
         key = value.strip().lower()
         if key in _PARA_ADJUST_TO_UNO:
+            if key in ("start", "end") and not _has_paragraph_adjust(key.upper()):
+                # Matches pre-26.2 ODF import (xmloff adjushdl.cxx); RTL paragraphs still get left, as old LO did.
+                return _PARA_ADJUST_TO_UNO["left" if key == "start" else "right"]
             return _PARA_ADJUST_TO_UNO[key]
     raise ValueError(
         "ParaAdjust must be one of left, center, right, justify "
@@ -1048,19 +1048,14 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
-    # Function-local import with getattr guards: tests swap sys.modules["uno"] (often for a
-    # mock without Enum/Char), so the module-level binding can be stale or lack these types.
-    import uno
-
     current: Any = getattr(struct, field, None)
-    enum_cls = getattr(uno, "Enum", None)
-    char_cls = getattr(uno, "Char", None)
     try:
-        if isinstance(enum_cls, type) and isinstance(current, enum_cls):
-            return enum_cls(cast("Any", current).typeName, value.strip().upper())
-        if isinstance(char_cls, type) and isinstance(current, char_cls):
-            return char_cls(value[:1] or " ")
+        if isinstance(current, uno.Enum):
+            return uno.Enum(cast("Any", current).typeName, value.strip().upper())
+        if isinstance(current, uno.Char):
+            return uno.Char(value[:1] or " ")
     except Exception:
+        # uno.Enum rejects an unknown member; the caller's setattr then reports the field and value.
         return value
     return value
 
@@ -1091,8 +1086,6 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
             "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
             % (prop_name, value)
         )
-    import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
     try:
         struct = cast("Any", uno.createUnoStruct(struct_name))
     except Exception as e:
@@ -1169,9 +1162,7 @@ def _convert_value(prop_name: str, value: Any) -> Any:
 def _typed_property_value(prop_name: str, value: Any) -> Any:
     """Wrap sequence-of-struct values in uno.Any so PyUNO passes a typed sequence."""
     if prop_name == "ParaTabStops" and isinstance(value, tuple):
-        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
-        # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
+        # cast: the type stubs do not declare uno.Any or uno.invoke as callable this way (same for the other casts of uno here).
         return cast("Any", uno).Any("[]com.sun.star.style.TabStop", value)
     return value
 
@@ -1186,8 +1177,6 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """
     typed = _typed_property_value(prop_name, value)
     if typed is not value:
-        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
         cast("Any", uno).invoke(style, "setPropertyValue", (prop_name, typed))
         return
     style.setPropertyValue(prop_name, value)
@@ -1732,7 +1721,7 @@ def apply_to_cursors(
                     "Applied %s to %d match(es), but the undo step could not be closed (%s). "
                     "The changes are in the document and the undo context is still open."
                     % (label, len(reports), err.get("message")),
-                    code="TOOL_EXECUTION_ERROR",
+                    code="UNDO_CONTEXT_LEAK",
                 )
             if err.get("code") == "ROLLBACK_FAILED":
                 return [], tool._tool_error(
@@ -2570,11 +2559,11 @@ class StyleImport(ToolWriterStyleBase):
         url = uno.systemPathToFileUrl(file_path)
 
         opts = (
-            PropertyValue(Name="OverwriteStyles", Value=overwrite),
-            PropertyValue(Name="LoadTextStyles", Value=load_text),
-            PropertyValue(Name="LoadPageStyles", Value=load_page),
-            PropertyValue(Name="LoadFrameStyles", Value=load_frame),
-            PropertyValue(Name="LoadNumberingStyles", Value=load_num),
+            create_property_value("OverwriteStyles", overwrite),
+            create_property_value("LoadTextStyles", load_text),
+            create_property_value("LoadPageStyles", load_page),
+            create_property_value("LoadFrameStyles", load_frame),
+            create_property_value("LoadNumberingStyles", load_num),
         )
 
         # The document object implements XStyleLoader

@@ -95,7 +95,16 @@ def test_get_document_content_surfaces_tracked_changes():
     assert res["tracked_changes_total"] == 2
     assert "tracked_changes_note" in res
     assert res["tracked_changes_note"]
+    assert "data-lo-deleted" not in res["tracked_changes_note"]
     assert "could not list" not in res.get("warning", "")
+
+    doc2, _redlines2, _enum2, _items2 = _make_redlines_doc(["Delete"])
+    doc2.getPropertyValue.return_value = True
+    ctx.doc = doc2
+    with patch("plugin.writer.tracking.redline_text", side_effect=["velho"]), \
+         patch("plugin.writer.html_export.document_to_content", return_value='<p data-lo-deleted="true">\xa0</p>'):
+        res_del = GetDocumentContent().execute(ctx)
+    assert "data-lo-deleted" in res_del["tracked_changes_note"]
 
 
 def test_get_document_content_warns_when_redlines_are_not_listed():

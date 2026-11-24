@@ -27,7 +27,7 @@ from .calc_functions_util import (
     calc_function,
     clean_paired_arrays,
     collect_a_values,
-    criteria_numbers,
+    criteria_reduce,
     extract_numeric_array,
     finite_or_nan,
     first_error,
@@ -35,6 +35,7 @@ from .calc_functions_util import (
     is_number,
     npf_result,
     parse_weekend,
+    propagate_errors,
     scipy_stats,
     serial_to_date,
     yearfrac,
@@ -122,10 +123,12 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     return float(st.nbinom.pmf(k, r_val, prob))
 
 
+@propagate_errors
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
     return networkdays_intl(start_date, end_date, weekend=1, holidays=holidays)
 
 
+@propagate_errors
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     sd = serial_to_date(start_date)
     ed = serial_to_date(end_date)
@@ -161,6 +164,7 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     return float(sign * max(0, days))
 
 
+@propagate_errors
 def nominal(effect_rate: Any, npery: Any) -> float:
     er = float(effect_rate)
     # int(float(+inf)) and float() of an oversized period count raise
@@ -224,6 +228,7 @@ def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float
     return npf_result(kind, a_f, b_f, c_f, d_f, t)
 
 
+@propagate_errors
 def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     # numpy-financial returns ±inf when the payment does not amortize
     # (pmt == 0, or the log argument is non-positive). log(1+rate) at
@@ -296,6 +301,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     return finite_or_nan(value)
 
 
+@propagate_errors
 def odd(n: Any) -> float:
     # ScOdd (interpr2.cxx) ceils away from zero, then steps off an even
     # integer. int(trunc(1.5)) is already odd, so odd(1.5) must not return 1.
@@ -338,6 +344,7 @@ def _parse_odd_args(
     return s, m, f, b, extra
 
 
+@propagate_errors
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Regular-period approximation. GetOddfprice (analysishelper.cxx) throws
     # unconditionally after AnalysisAddIn::getOddfprice checks its arguments.
@@ -376,6 +383,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     return finite_or_nan(float(price))
 
 
+@propagate_errors
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Y = (C + (F-P)/n) / ((F+P)/2). GetOddfyield throws unconditionally.
     # A legal frequency does not enter this approximation.
@@ -401,6 +409,7 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     return (c + (red - price) / years) / ((red + price) / 2)
 
 
+@propagate_errors
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # isFreqInvalid (analysisdefs.hxx): frequency must be 1, 2, or 4; basis in 0..4.
     parsed = _parse_odd_args(
@@ -433,6 +442,7 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     return finite_or_nan(float(price))
 
 
+@propagate_errors
 def pearson(data1: Any, data2: Any) -> float:
     # inputs are pre-cleaned finite floats; corrcoef does not raise.
     cleaned = clean_paired_arrays(data1, data2)
@@ -446,6 +456,7 @@ def pearson(data1: Any, data2: Any) -> float:
     return finite_or_nan(corr)
 
 
+@propagate_errors
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
     # Truncate at 10^sig (Excel/Calc), and sig must be 1..15. round() is not truncate.
     try:
@@ -495,6 +506,7 @@ def permut(n: Any, k: Any) -> float:
     return float(math.perm(n_val, k_val))
 
 
+@propagate_errors
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     # nper == 0 must not raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
@@ -519,12 +531,14 @@ def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
     return float(st.poisson.pmf(k, m))
 
 
+@propagate_errors
 @calc_function
 def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
     d = np.asarray(data, dtype=float).ravel()
     p = np.asarray(probs, dtype=float).ravel()
     if len(d) != len(p) or len(d) == 0:
-        return float("nan")
+        # ScProbability (interpr3.cxx) returns #N/A on empty or mismatched ranges.
+        return NA_NAN
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)
@@ -533,10 +547,12 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
     return float(np.sum(p[mask]))
 
 
+@propagate_errors
 def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     return _npf_call("pv", rate, nper, pmt_val, fv_val, type_val)
 
 
+@propagate_errors
 def quartile(r: Any, q: Any) -> float | str:
     # A non-numeric quart is NaN, not a ValueError from float(). A quart outside
     # 0..4 is NaN too; qi * 25 would put np.percentile outside 0..100.
@@ -557,17 +573,13 @@ def quartile(r: Any, q: Any) -> float | str:
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
 
 
+@propagate_errors
 def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
-    # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
+    # Numbers only. Text, bools, and a plain NaN are ignored; one text cell must not abort the call.
     # Narrow try on purpose: a blanket error decorator would also turn late errors from the
     # array/compare work below into NaN instead of letting them surface.
     try:
         target = float(val)
-        # Keep this. Not-found below is "#N/A", and list.index(nan) raises
-        # ValueError, so a NaN lookup would become #N/A. A NaN lookup is
-        # #NUM! (plain NaN is IllegalFPOperation).
-        if math.isnan(target):
-            return float("nan")
         descending = int(float(order)) == 0
     except OverflowError:
         return float("nan")
@@ -663,6 +675,7 @@ def rept(text: Any, n: Any) -> str | float:
     return body * count
 
 
+@propagate_errors
 def rsq(data_y: Any, data_x: Any) -> float:
     # Pearson's r, squared. Same pairs and short-sample NaN as pearson.
     return pearson(data_y, data_x) ** 2
@@ -704,6 +717,7 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
         return float("nan")
 
 
+@propagate_errors
 def skew(*args: Any) -> float:
     # ScSkew (interpr3.cxx CalculateSkewOrSkewp, bSkewp false):
     # n * sum(((x - mean) / s)^3) / ((n - 1) * (n - 2)), s = sample stdev.
@@ -722,6 +736,7 @@ def skew(*args: Any) -> float:
     return finite_or_nan(float(res))
 
 
+@propagate_errors
 def slope(data_y: Any, data_x: Any) -> float:
     cleaned = clean_paired_arrays(data_y, data_x)
     if cleaned is None:
@@ -735,8 +750,9 @@ def slope(data_y: Any, data_x: Any) -> float:
     return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
 
 
+@propagate_errors
 def small(r: Any, k: Any) -> float:
-    # Numbers only. Text, bools, and NaN are not part of the ranking.
+    # Numbers only. Text, bools, and a plain NaN are not part of the ranking.
     ki = int(float(k))
     arr = extract_numeric_array(r, propagate_nan=False)
     if ki <= 0 or ki > len(arr):
@@ -903,18 +919,21 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
     return float((val - m) / s)
 
 
+@propagate_errors
 def stdeva(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=1))
 
 
+@propagate_errors
 def stdevpa(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=0))
 
 
+@propagate_errors
 def steyx(data_y: Any, data_x: Any) -> float:
     # ScSTEYX is CalculatePearsonCovar. sqrt((Syy - Sxy^2/Sxx) / (n-2))
     # is that residual. The old path imported intercept, which imports slope
@@ -1017,14 +1036,12 @@ def subtotal(fn_num: Any, r: Any) -> float | str:
     return float("nan")
 
 
-def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    vals = criteria_numbers(r if sr is None else sr, [(r, crit)])
-    if vals is None:
-        return float("nan")
-    return float(sum(vals))
+def sumif(r: Any, crit: Any, sr: Any | None = None) -> float | str:
+    res = criteria_reduce(r if sr is None else sr, [(r, crit)], sum)
+    return float("nan") if res is None else res
 
 
-def sumifs(sr: Any, *args: Any) -> float:
+def sumifs(sr: Any, *args: Any) -> float | str:
     # Criteria ranges must match the sum range in shape. A shorter range, or a
     # 2x3 next to a 3x2, must not truncate or line up after ravel; that is NaN
     # here, same as an odd argument count. No pairs still sums nothing.
@@ -1035,10 +1052,8 @@ def sumifs(sr: Any, *args: Any) -> float:
     if isinstance(sr, str):
         return 0.0
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    vals = criteria_numbers(sr, pairs)
-    if vals is None:
-        return float("nan")
-    return float(sum(vals))
+    res = criteria_reduce(sr, pairs, sum)
+    return float("nan") if res is None else res
 
 
 @calc_function

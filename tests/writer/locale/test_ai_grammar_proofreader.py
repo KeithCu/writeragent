@@ -832,6 +832,81 @@ def test_ensure_persistence_bound_does_not_guess_or_bind_without_unique_writer(w
         gp.grammar_registry.clear_all()
 
 
+def test_ensure_persistence_bound_ignores_scratch_writers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Registered scratch Writers are excluded from both UID matching and the single-Writer fallback."""
+    from plugin.framework import scratch_writer
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    scratch_model = _writer_model()
+    scratch_model.getRuntimeUID.return_value = "7"
+    user_model = _writer_model()
+    user_model.getRuntimeUID.return_value = "8"
+    calc = MagicMock()
+    calc.supportsService.return_value = False
+
+    def make_desktop() -> MagicMock:
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, False]
+        enum.nextElement.side_effect = [scratch_model, user_model]
+        comps = MagicMock()
+        comps.createEnumeration.return_value = enum
+        desktop = MagicMock()
+        desktop.getCurrentComponent.return_value = calc
+        desktop.getComponents.return_value = comps
+        return desktop
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"7"})
+    gp.grammar_registry.clear_all()
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", side_effect=[make_desktop(), make_desktop()]),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "99")
+            bound = gp.get_persistence("99")
+            assert bound is not None
+            assert bound.model is user_model
+
+            gp.grammar_registry.clear_all()
+            proofreader._ensure_persistence_bound(ctx, "7")
+            bound_collision = gp.get_persistence("7")
+            assert bound_collision is not None
+            assert bound_collision.model is user_model
+    finally:
+        gp.grammar_registry.clear_all()
+
+
+def test_ensure_persistence_bound_does_not_bind_a_lone_scratch_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When only a scratch Writer is open and no component is current, nothing is bound."""
+    from plugin.framework import scratch_writer
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    scratch_model = _writer_model()
+    scratch_model.getRuntimeUID.return_value = "7"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [scratch_model]
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"7"})
+    gp.grammar_registry.clear_all()
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2")
+        assert gp.get_document_model_for_id("2") is None
+        assert "2" not in gp.grammar_registry.doc_persistence_instances
+    finally:
+        gp.grammar_registry.clear_all()
+
+
 def test_proofreader_broadcast_proofread_again_notifies_listeners(
     mock_config_fixture, mock_locale_fixture
 ) -> None:

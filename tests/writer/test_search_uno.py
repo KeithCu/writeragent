@@ -349,6 +349,64 @@ def test_search_skips_tracked_deleted_text_and_table_cell_uno(ctx, doc):
     assert SearchInDocument().execute(tctx, pattern="Before")["count"] == 1
 
 
+@native_test
+@with_native_doc("writer")
+def test_apply_content_multi_paragraph_does_not_match_across_table_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha", False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("Cell1")
+    cur.gotoEnd(False)
+    text.insertString(cur, "Beta", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tctx, target="search", old_content="Alpha\nBeta", content="Alpha\nGamma"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert doc.getTextTables().getCount() == 1
+    assert tbl.getCellByName("A1").getString() == "Cell1"
+    from plugin.doc.text_helpers import iter_elements
+
+    paras = [
+        el.getString()
+        for el in iter_elements(text.createEnumeration())
+        if el.supportsService("com.sun.star.text.Paragraph")
+    ]
+    assert paras == ["Alpha", "Beta"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_content_multi_paragraph_inside_one_cell_matches_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    c_cur = cell.createTextCursor()
+    cell.insertString(c_cur, "One", False)
+    cell.insertControlCharacter(c_cur, 0, False)
+    cell.insertString(c_cur, "Two", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tctx, target="search", old_content="One\nTwo", content="One\nThree"
+    )
+    assert res["status"] == "ok", res
+    assert "Three" in cell.getString()
+
+
 def _build_chain_deletion_doc(doc, text) -> None:
     text.setString("")
     cur = text.createTextCursor()
@@ -462,3 +520,39 @@ def test_chain_range_in_table_cell_ignores_struck_text_uno(ctx, doc):
     assert rng is not None
     assert normalize_linebreaks(rng.getString()) == "Line 1\nLine OLD 2 match"
     assert visible_range_text(doc, rng) == needle
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_miss_haystack_hides_struck_body_and_frame_text_uno(ctx, doc):
+    from plugin.writer.search import get_search_miss_haystack
+
+    text = doc.getText()
+    text.setString("BodyLive StruckBody")
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("TestFrame")
+    frame.setPropertyValue("Width", 2000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.getText().setString("FrameLive StruckFrame")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        body_cur = text.createTextCursor()
+        body_cur.gotoEnd(False)
+        body_cur.goLeft(len("StruckBody"), True)
+        body_cur.setString("")
+
+        frame_cur = frame.getText().createTextCursor()
+        frame_cur.gotoEnd(False)
+        frame_cur.goLeft(len("StruckFrame"), True)
+        frame_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    hay = get_search_miss_haystack(doc)
+    assert "BodyLive" in hay
+    assert "FrameLive" in hay
+    assert "StruckBody" not in hay
+    assert "StruckFrame" not in hay

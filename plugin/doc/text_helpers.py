@@ -11,18 +11,18 @@ body reads need linebreak normalization, tracked-deletion reads, heading trees,
 file paths, and selection positions. Those must not load ``document_helpers``
 → chat context / ``DocumentService``.
 
-Offsets: visible-text offsets come from ``get_string_without_tracked_deletions``,
-``get_document_length``, and ``read_visible_body``. Cursor-step offsets are used
-only by ``get_text_cursor_at_range_reached``. They are not additive across tables
-(``SwUnoCursor::IsSelOvr``, ``sw/source/core/unocore/unocrsr.cxx``), so never
-convert one to the other by counting.
+Offsets: visible-text offsets have one unit, owned by ``_body_blocks`` (exposed via
+``read_visible_body``, ``get_document_length``, and ``visible_body_range``).
+``go_right`` counts cursor steps; callers stay inside one paragraph because a
+cursor move across a table lands after it.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
@@ -32,6 +32,7 @@ import uno
 from plugin.framework import doc_type as _doc_type
 from plugin.framework.errors import (
     DocumentDisposedError,
+    ToolExecutionError,
     UnoObjectError,
     best_effort,
     is_disposal,
@@ -52,7 +53,7 @@ _TEXT_TABLE_SERVICE = "com.sun.star.text.TextTable"
 FAILED: Any = object()
 
 
-def _is_text_table(obj: Any) -> bool:
+def is_text_table(obj: Any) -> bool:
     return uno_read(lambda: obj.supportsService(_TEXT_TABLE_SERVICE) is True, False, object_type="TextRange")
 
 
@@ -62,9 +63,26 @@ def redline_bounds(redline: Any) -> tuple[Any, Any, Any]:
     end = redline.getPropertyValue("RedlineEnd")
     # SwXRedline::getPropertyValue (sw/source/core/unocore/unoredline.cxx, SwNodeType::Table case)
     # returns SwXTextTable for RedlineStart when a deletion starts at a table, which has no getText().
-    if _is_text_table(start):
+    if is_text_table(start):
         start = start.getAnchor()
     return end.getText(), start, end
+
+
+def bounds_cover(bounds: tuple[Any, Any, Any], text_range: Any) -> bool:
+    """True when the tracked change spans all of *text_range*, edges included.
+
+    False when the two cannot be compared (another text object). Disposal raises
+    ``DocumentDisposedError``.
+    """
+    text, start, end = bounds
+    # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal
+    # (SwXText::ComparePositions, sw/source/core/unocore/unotext.cxx).
+    return uno_read(
+        lambda: text.compareRegionStarts(start, text_range) >= 0
+        and text.compareRegionEnds(text_range, end) >= 0,
+        False,
+        object_type="TextRange",
+    )
 
 
 def iter_elements(enum: Any) -> Generator[Any, None, None]:
@@ -142,7 +160,9 @@ def go_right(cursor: Any, n: int, expand: bool) -> bool:
     """Move (expand=False) or extend (expand=True) the cursor right by *n* chars, in chunks of
     _GO_RIGHT_CHUNK (UNO caps the count at a C++ short). Returns True only if the FULL *n* was
     consumed; False if goRight stopped early (end of text / an unexpected stop), so the caller can
-    refuse to edit at a wrong offset instead of silently landing short."""
+    refuse to edit at a wrong offset instead of silently landing short. Callers must stay inside
+    one paragraph, because a move or chunk that ends in a table lands after it
+    (``SwUnoCursor::IsSelOvr``, ``sw/source/core/unocore/unocrsr.cxx``)."""
     while n > 0:
         step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
         if not cursor.goRight(step, expand):
@@ -433,18 +453,24 @@ def writable_char_names(rng: Any) -> list[str] | None:
     ]
 
 
-def reset_direct_char_formatting(cursor: Any) -> None:
+def language_at_start(rng: Any) -> dict[str, Any]:
+    """Language properties at the start of *rng*; a mixed-language range reads as None."""
+    at_start = rng.getText().createTextCursorByRange(rng.getStart())
+    return {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+
+
+def reset_direct_char_formatting(cursor: Any, language: Mapping[str, Any] | None = None) -> None:
     """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
 
     Resetting any one Char* name on an empty paragraph drops its whole character
-    attribute set, language included, so the language is read first and put back.
-    The language is read at the range start because a mixed-language range reads as None.
+    attribute set, language included, so the language is read first and put back
+    (*language* is for callers that want another paragraph's language).
     """
     names = writable_char_names(cursor)
     if names is None:
         return
-    at_start = cursor.getText().createTextCursorByRange(cursor.getStart())
-    language = {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+    if language is None:
+        language = language_at_start(cursor)
     reset_properties_to_default(cursor, names)
     for name, value in language.items():
         if cursor.getPropertyValue(name) != value:
@@ -529,11 +555,16 @@ class DeletionState:
     instance across every paragraph of a text, in order, so paragraphs between the
     markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
     its cells carry no markers. ``saw_delete`` records that a Delete marker was read, for
-    callers that must tell struck text from text they cannot read.
+    callers that must tell struck text from text they cannot read. ``visible_portions``
+    resets ``para_live`` and ``para_opens`` for each paragraph, and ``lead_live`` says
+    whether the paragraph where the open deletion starts has visible content before it.
     """
 
     in_delete: bool = False
     saw_delete: bool = False
+    para_live: bool = False
+    para_opens: bool = False
+    lead_live: bool = False
 
     def apply_marker(self, portion: Any) -> None:
         """Update the state from one ``Redline`` portion."""
@@ -542,8 +573,39 @@ class DeletionState:
                 self.saw_delete = True
                 # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
                 self.in_delete = bool(portion.getPropertyValue("IsStart"))
+                if self.in_delete:
+                    self.para_opens = True
+                    self.lead_live = self.para_live
         except Exception as exc:
             log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
+
+    def strikes_text(self, para: Any, opened: bool) -> bool:
+        """``strikes_paragraph`` without its check for anchored frames and images."""
+        if self.para_live:
+            return False
+        return self.para_opens or (
+            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+        )
+
+    def strikes_paragraph(self, para: Any, opened: bool) -> bool:
+        """True when a pending deletion leaves nothing visible of *para*, the paragraph just walked.
+
+        *opened*: the paragraph started inside a deletion. A real empty paragraph right after a
+        struck one only holds the end marker and is not struck; one merged into live text is
+        (``lead_live``: Backspace on a blank line).
+        """
+        if not self.strikes_text(para, opened):
+            return False
+        if opened and self.in_delete:
+            # Middle of a multi-paragraph deletion: any anchored content is inside the deletion too.
+            return True
+        # AT_PARAGRAPH frames/images are not portions (SwXParagraph::createContentEnumeration,
+        # unoparagraph.cxx:1356), so a paragraph holding one is still live on the FODT side.
+        has_anchored = uno_read(
+            lambda: enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent")),
+            False,
+        )
+        return not has_anchored
 
 
 def visible_portions(
@@ -572,6 +634,7 @@ def visible_portions(
     """
     if state is None:
         state = DeletionState()
+    state.para_live = state.para_opens = False
     try:
         portion_enum = para.createEnumeration()
     except Exception:
@@ -615,6 +678,8 @@ def visible_portions(
         # A Frame has no text and a field can show none, but HTML export needs
         # both in place; they add zero to offsets.
         if chunk or portion_type in ("Frame", "TextField"):
+            if chunk.strip() or not chunk:
+                state.para_live = True
             yield portion, chunk
 
 
@@ -624,7 +689,13 @@ def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> st
 
 
 class TrackedDeletions:
-    """The pending Delete redlines of a Writer document, read once."""
+    """The pending Delete redlines of a Writer document, read once.
+
+    Share one instance across the reads of one request. Build a new one after the
+    document is edited, stored, or exported, because an export hides deletions while
+    it runs and collapses these ranges (``SwXMLExport::exportDoc`` in ``xmlexp.cxx``,
+    ``SwRangeRedline::MoveToSection`` in ``docredln.cxx``).
+    """
 
     def __init__(self, doc: Any) -> None:
         self._bounds: list[tuple[Any, Any, Any]] = []
@@ -646,7 +717,7 @@ class TrackedDeletions:
         """Return ``DeletionState`` at the start of *text_range* (XText, cursor, paragraph, or table)."""
         if not self._bounds:
             return DeletionState()
-        if _is_text_table(text_range):
+        if is_text_table(text_range):
             point = uno_read(lambda: text_range.getAnchor(), None, object_type="TextTable")
         else:
             point = None
@@ -654,7 +725,7 @@ class TrackedDeletions:
             enum = uno_read(lambda: text_range.createEnumeration(), None, object_type="TextRange")
             if enum is not None:
                 for first in iter_elements(enum):
-                    if _is_text_table(first):
+                    if is_text_table(first):
                         point = uno_read(lambda: first.getAnchor(), None, object_type="TextTable")
                     break
             if point is None:
@@ -675,22 +746,60 @@ class TrackedDeletions:
 
     def covers(self, text_range: Any) -> bool:
         """True when *text_range* lies wholly inside one pending Delete redline."""
+        return any(bounds_cover(b, text_range) for b in self._bounds)
+
+    def removes_anchored(self, shape: Any) -> bool:
+        """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
         if not self._bounds:
             return False
-        rng_start = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
-        rng_end = uno_read(lambda: text_range.getEnd(), None, object_type="TextRange")
-        if rng_start is None or rng_end is None:
+        anchor = shape.getAnchor()
+        if anchor is None:
             return False
-        for text, start, end in self._bounds:
-            covered = uno_read(
-                lambda: text.compareRegionStarts(start, rng_start) >= 0
-                and text.compareRegionEnds(rng_end, end) >= 0,
-                False,
-                object_type="TextRange",
-            )
-            if covered:
-                return True
+        kind = shape.getPropertyValue("AnchorType").value
+        return any(
+            uno_read(lambda: _deletion_removes_anchor(b, kind, anchor), False, object_type="TextRange")
+            for b in self._bounds
+        )
+
+
+def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: Any) -> bool:
+    """Match Writer's Accept-All frame deletion for ``AS_CHARACTER``, ``AT_CHARACTER``, and ``AT_PARAGRAPH``.
+
+    Follows ``IsDestroyFrameAnchoredAtChar``, ``IsSelectFrameAnchoredAtPara``, and
+    ``IsNotBackspaceHeuristic`` (``sw/source/core/undo/undobj.cxx``).
+    """
+    text, start, end = bounds
+    point = anchor.getStart()
+    after_start = text.compareRegionStarts(start, point)
+    before_end = text.compareRegionStarts(point, end)
+    if kind == "AS_CHARACTER":  # a character inside [start, end)
+        return after_start >= 0 and before_end == 1
+    if kind == "AT_CHARACTER" and after_start == 1 and before_end == 1:
+        return True
+    para = text.createTextCursorByRange(point)
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    if not bounds_cover(bounds, para):
         return False
+    # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
+    # as the whole text when the first enumerated element is not a table.
+    first = next(iter_elements(text.createEnumeration()), None)
+    if (
+        not uno_read(
+            lambda: first is not None and first.supportsService(_TEXT_TABLE_SERVICE) is True,
+            False,
+            object_type="TextRange",
+        )
+        and text.compareRegionStarts(start, text.getStart()) == 0
+        and text.compareRegionEnds(text.getEnd(), end) == 0
+    ):
+        return True
+    if text.compareRegionStarts(start, para) == 0 and text.compareRegionEnds(para, end) == 0:
+        # Deleting just this paragraph's text keeps the paragraph (whole-text case handled above).
+        return False
+    # Deleting only the break between two paragraphs keeps both anchors (IsNotBackspaceHeuristic).
+    step = text.createTextCursorByRange(start.getStart())
+    return not (step.goRight(1, False) and text.compareRegionStarts(step, end) == 0)
 
 
 def iter_table_paragraphs(table: Any) -> Iterator[tuple[Any, DeletionState]]:
@@ -731,15 +840,17 @@ def iter_xtext_paragraphs(text_obj: Any, state: DeletionState) -> Iterator[tuple
         log.debug("iter_xtext_paragraphs: createEnumeration failed: %s", exc)
         return
     for el in iter_elements(enum):
-        if _is_text_table(el):
+        if is_text_table(el):
             if not state.in_delete:
                 yield from iter_table_paragraphs(el)
             continue
         yield el, state
 
 
-def _table_visible_text(table: Any) -> str:
+def table_visible_text(table: Any, opened: bool) -> str:
     """Visible text of *table* cells in document order, cells joined like paragraphs."""
+    if opened:
+        return ""
     names: Any = uno_read(lambda: table.getCellNames() or (), (), object_type="TextTable")
     cells: list[str] = []
     for name in names:
@@ -749,8 +860,8 @@ def _table_visible_text(table: Any) -> str:
     return "\n".join(cells)
 
 
-def _visible_blocks(para_enum: Any, state: DeletionState) -> Iterator[tuple[Any, str, bool]]:
-    """Yield (paragraph, visible text, opened inside a deletion) per element of a text
+def _visible_blocks(para_enum: Any, state: DeletionState) -> Iterator[tuple[Any, str, bool, bool]]:
+    """Yield (paragraph, visible text, opened inside a deletion, struck) per element of a text
     enumeration; paragraph is None for a table. One shared ``DeletionState`` covers the walk
     because redline markers may be in an earlier paragraph. A mid-walk error ends the walk
     with what was read (never falling back to ``getString()``, which would return deleted
@@ -758,10 +869,11 @@ def _visible_blocks(para_enum: Any, state: DeletionState) -> Iterator[tuple[Any,
     try:
         for element in iter_elements(para_enum):
             opened = state.in_delete
-            if _is_text_table(element):
-                yield None, "" if opened else _table_visible_text(element), opened
+            if is_text_table(element):
+                yield None, table_visible_text(element, opened), opened, False
             else:
-                yield element, _paragraph_visible_text(element, state), opened
+                text = _paragraph_visible_text(element, state)
+                yield element, text, opened, state.strikes_paragraph(element, opened)
     except Exception as exc:
         reraise_if_disposed(exc, object_type="TextRange")
         log.debug("visible blocks: walk stopped early", exc_info=True)
@@ -775,8 +887,10 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
     (``com.sun.star.text.Paragraph``, or first child has ``TextPortionType``)
     concatenates visible portions without a mid-``\\n``. A document or
     multi-paragraph range still joins paragraphs with ``\\n`` (keeping
-    deleted paragraph breaks) and includes table-cell text, including nested
-    tables, unless the table falls inside an open tracked deletion.
+    deleted paragraph breaks, so a wholly struck paragraph keeps its slot as
+    an empty line and offsets count that slot) and includes table-cell text,
+    including nested tables, unless the table falls inside an open tracked
+    deletion.
     """
     try:
         # Draw-shape text is editeng, which never reports a Redline portion
@@ -799,7 +913,7 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
 
     if state is None:
         state = DeletionState()
-    return "\n".join(chunk for _para, chunk, _opened in _visible_blocks(para_enum, state))
+    return "\n".join(chunk for _para, chunk, _opened, _struck in _visible_blocks(para_enum, state))
 
 
 @main_thread_only
@@ -915,7 +1029,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                     stack.append(node)
                 else:
                     stack[-1]["body_paragraphs"] += 1
-            elif _is_text_table(element):
+            elif is_text_table(element):
                 stack[-1]["body_paragraphs"] += 1
         return root
     except UnoObjectError:
@@ -980,43 +1094,108 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
     return len(normalize_linebreaks(get_string_without_tracked_deletions(lead, DeletionState(opened))))
 
 
+class VisibleBlock(NamedTuple):
+    para: Any | None  # None for a table
+    text: str         # visible text, LF
+    opened: bool      # starts inside a tracked deletion
+    start: int        # visible offset
+    struck: bool      # wholly struck by a pending deletion
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.text)
+
+
+def _body_blocks(model: Any, body: Any) -> Iterator[VisibleBlock]:
+    """Each body element with its visible offset: the one place offsets are counted. Walks
+    body.createEnumeration(), not a cursor: gotoStart skips a leading table
+    (SwXTextCursor::gotoStart) and a cursor enumeration drops an empty last paragraph after a
+    table (SwXParagraphEnumerationImpl::IgnoreLastElement)."""
+    state = TrackedDeletions(model).state_at(body)
+    start = 0
+    for para, chunk, opened, struck in _visible_blocks(uno_call(body.createEnumeration, "Enumerate body"), state):
+        block = VisibleBlock(para, normalize_linebreaks(chunk), opened, start, struck)
+        yield block
+        start = block.end + 1
+
+
+class VisibleBodyRange(NamedTuple):
+    cursor: Any
+    start: int
+    text: str
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.text)
+
+
+def _block_point(block: VisibleBlock, offset: int, *, at_end: bool) -> tuple[Any, int]:
+    if block.para is None:
+        raise ToolExecutionError(
+            "Character offset %d is inside a table (offsets %d to %d). Use offsets in paragraphs, or search_text."
+            % (offset, block.start, block.end),
+            code="INVALID_PARAM",
+        )
+    point, rel = visible_point_in_paragraph(
+        block.para, offset - block.start, opened=block.opened, at_end=at_end
+    )
+    return point, block.start + rel
+
+
 @main_thread_only
-def read_visible_body(model: Any, positions: Sequence[Any] = ()) -> tuple[str, list[int | None]]:
-    """Visible body text (the get_content document_length space) and the visible offset of each
-    position in it; None for a position outside the body (table cell, frame, header, footnote)
-    or a position that cannot be measured. Walks the body rather than using ``CharacterCount``
-    (omits paragraph breaks) or cursor steps (fields and footnote anchors are one step but
-    several visible characters). Raises UnoObjectError / DocumentDisposedError."""
+def visible_body_range(model: Any, start: int, end: int) -> VisibleBodyRange | None:
+    """Cursor over visible offsets [start, end) (caller ensures 0 <= start < end); end is cut to the
+    text end; None when start is at or past it. Raises ToolExecutionError for an offset in a table."""
+    body = uno_call(model.getText, "Get document text")
+    parts: list[str] = []
+    cursor: Any = None
+    last_block: VisibleBlock | None = None
+    for block in _body_blocks(model, body):
+        last_block = block
+        parts.append(block.text)
+        if cursor is None and start <= block.end:
+            point, start = _block_point(block, start, at_end=False)
+            cursor = body.createTextCursorByRange(point)
+        if cursor is not None and end <= block.end:
+            point, end = _block_point(block, end, at_end=True)
+            cursor.gotoRange(point, True)
+            return VisibleBodyRange(cursor, start, "\n".join(parts)[start:end])
+    text = "\n".join(parts)
+    if cursor is None or start >= len(text):
+        return None
+    if last_block is None or last_block.para is None:
+        raise ToolExecutionError("Could not reach the end of the document.", code="TOOL_EXECUTION_ERROR")
+    cursor.gotoRange(last_block.para.getEnd(), True)
+    return VisibleBodyRange(cursor, start, text[start:])
+
+
+@main_thread_only
+def read_visible_body(model: Any, positions: Sequence[Any] = ()) -> tuple[str, list[int | None], list[int]]:
+    """Visible body text (the get_content document_length space), visible offsets of given
+    positions in document order (None outside the body or not reached), and visible offsets of
+    wholly struck body paragraphs. Walks the body rather than using ``CharacterCount`` (omits
+    paragraph breaks) or cursor steps (fields and footnote anchors are one step but several
+    visible characters). Raises UnoObjectError / DocumentDisposedError."""
     if model is None:
         raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     body = uno_call(model.getText, "Get document text")
-    whole = uno_call(body.createTextCursor, "Create text cursor")
-    uno_call(lambda: whole.gotoStart(False), "Cursor gotoStart")
-    uno_call(lambda: whole.gotoEnd(True), "Cursor gotoEnd")
-    pending = {i: p for i, p in enumerate(positions) if uno_read(lambda: uno_same(p.getText(), body), False)}
+    pending = deque(i for i, p in enumerate(positions) if uno_read(lambda: uno_same(p.getText(), body), False))
     offsets: list[int | None] = [None] * len(positions)
+    struck_offsets: list[int] = []
     parts: list[str] = []
-    start = 0
-    state = TrackedDeletions(model).state_at(whole)
-    for para, chunk, opened in _visible_blocks(uno_call(whole.createEnumeration, "Enumerate body"), state):
-        chunk = normalize_linebreaks(chunk)
-        if pending and para is not None:
-            para_end = uno_read(para.getEnd, None)
+    for block in _body_blocks(model, body):
+        parts.append(block.text)
+        if block.struck:
+            struck_offsets.append(block.start)
+        if pending and block.para is not None:
+            para_end = uno_read(block.para.getEnd, None)
             if para_end is not None:
-                for i in [i for i, p in pending.items() if starts_at_or_after(body, para_end, p)]:
-                    pos = pending.pop(i)
-                    lead = uno_read(lambda: _visible_lead(body, para, pos, opened), None)
+                while pending and starts_at_or_after(body, para_end, positions[pending[0]]):
+                    i = pending.popleft()
+                    lead = uno_read(lambda: _visible_lead(body, block.para, positions[i], block.opened), None)
                     if lead is not None:
-                        offsets[i] = start + lead
-        parts.append(chunk)
-        start += len(chunk) + 1
-    text = "\n".join(parts)
-    for i in pending:
-        # An empty last paragraph after a table is not enumerated
-        # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx);
-        # a walk that stopped early or a failed compareRegionStarts also lands here.
-        offsets[i] = len(text)
-    return text, offsets
+                        offsets[i] = block.start + lead
+    return "\n".join(parts), offsets, struck_offsets
 
 
 @main_thread_only
@@ -1049,8 +1228,9 @@ def clone_text_range(text_range: Any) -> Any:
     return text_range.getText().createTextCursorByRange(text_range)
 
 
-def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: bool) -> Any:
-    """Collapsed position of visible *offset* in *para* (*opened*: it starts inside a deletion).
+def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: bool) -> tuple[Any, int]:
+    """Collapsed position of visible *offset* in *para* (*opened*: it starts inside a deletion)
+    and the paragraph-relative offset it really is.
 
     Walks portions rather than stepping from the paragraph start: ``goRight`` also counts struck
     text, and a field or footnote number is one step but several visible characters. An offset
@@ -1058,18 +1238,22 @@ def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: 
     range that starts here (*at_end* False) or ends here (*at_end* True).
     """
     if at_end and offset == 0:
-        return para.getStart()
+        return para.getStart(), 0
     run = 0
     for portion, chunk in visible_portions(para, state=DeletionState(opened)):
         run_end = run + len(normalize_linebreaks(chunk))
         if (offset <= run_end) if at_end else (offset < run_end):
             if _portion_type(portion) != "Text":
-                return portion.getEnd() if at_end else portion.getStart()
+                return (portion.getEnd(), run_end) if at_end else (portion.getStart(), run)
             cursor = clone_text_range(portion.getStart())
-            go_right(cursor, offset - run, False)  # one step per code point inside a Text portion
-            return cursor
+            if not go_right(cursor, offset - run, False):  # one step per code point inside a Text portion
+                raise ToolExecutionError(
+                    "Could not reach character offset %d." % offset,
+                    code="TOOL_EXECUTION_ERROR",
+                )
+            return cursor, offset
         run = run_end
-    return para.getEnd()
+    return para.getEnd(), offset
 
 
 def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
@@ -1131,47 +1315,5 @@ def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:
 def page_not_found_message(page: int, total: int) -> str:
     """Format the error message for an out-of-range 0-based page index."""
     return f"Page {page} does not exist (document has {total} page(s); first page = 0)."
-
-
-@main_thread_only
-def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: int) -> tuple[Any, bool]:
-    """Return (cursor, fully_reached) selecting cursor-step range [start_offset, end_offset).
-
-    ``goRight`` is called in chunks because UNO's ``goRight`` takes a ``short`` (max 32767).
-    ``fully_reached`` is false when any ``goRight`` returns false (e.g. past document end).
-    Returns (None, False) on error.
-    """
-    try:
-        if model is None:
-            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-        # Offsets are cursor steps, not clamped; goRight stops at the end of the text on its own.
-        start_offset = max(0, start_offset)
-        end_offset = max(0, end_offset)
-        if start_offset > end_offset:
-            start_offset, end_offset = end_offset, start_offset
-        text = uno_call(model.getText, "Get document text")
-        cursor = uno_call(text.createTextCursor, "Create text cursor")
-        uno_call(lambda: cursor.gotoStart(False), "Cursor gotoStart")
-        # Move to start_offset in chunks. A goRight that runs out of text stops at the end and
-        # returns False: stop there, or an offset like 10**12 runs millions of UNO calls.
-        remaining = start_offset
-        while remaining > 0:
-            n = min(remaining, _GO_RIGHT_CHUNK)
-            if uno_call(lambda: cursor.goRight(n, False), "Cursor goRight") is False:
-                return cursor, False
-            remaining -= n
-        # Expand selection by (end_offset - start_offset)
-        fully_reached = True
-        remaining = end_offset - start_offset
-        while remaining > 0:
-            n = min(remaining, _GO_RIGHT_CHUNK)
-            if uno_call(lambda: cursor.goRight(n, True), "Cursor goRight") is False:
-                fully_reached = False
-                break
-            remaining -= n
-        return cursor, fully_reached
-    except UnoObjectError:
-        log.exception("get_text_cursor_at_range_reached failed")
-        return None, False
 
 

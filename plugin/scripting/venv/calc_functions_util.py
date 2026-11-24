@@ -17,12 +17,17 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
-   NA_NAN shows #N/A (na, xmatch miss, textsplit padding), NESTED_ARRAY_NAN shows
-   Err:533 (filter with no match and no if_empty), and DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1).
-3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", or a propagated
-   Err:<n> token). The add-in shows that error. Used where the cell must show a token other
-   than #NUM! and the helper catches its own parse errors (lookup, text, array and regression helpers),
-   and the first error of a range (first_error: npv, sumsq, sumproduct, subtotal).
+   NA_NAN shows #N/A (na, xmatch miss, textsplit padding, textafter/textbefore miss, prob size
+   mismatch), NESTED_ARRAY_NAN shows Err:533 (filter with no match and no if_empty),
+   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1), and ILLEGAL_PARAMETER_NAN
+   shows Err:504 (xmatch bad mode).
+3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", "Err:502", "Err:504",
+   or a propagated Err:<n> token). The add-in shows that error. Used where the cell must show
+   a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
+   and regression helpers), and the first error of a range (@propagate_errors, criteria_reduce,
+   first_error: npv, sumsq, sumproduct, subtotal, aggregate; first_coded_error: D*). "Err:502" / "Err:504" come from xlookup bad
+   mode, growth and trend. @propagate_errors returns an argument's own error (token or coded NaN)
+   before the helper runs.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -48,12 +53,26 @@ def formula_error_nan(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", 0x7FF8000000000000 | code))[0]
 
 
-# 0x7FFF is FormulaError::NotAvailable, 532 is FormulaError::DivisionByZero,
-# 533 is FormulaError::NestedArray. They are ordinary NaNs in Python;
-# the worker does not import plugin.calc.
+# 0x7FFF is FormulaError::NotAvailable, 504 is FormulaError::IllegalParameter,
+# 532 is FormulaError::DivisionByZero, 533 is FormulaError::NestedArray.
+# They are ordinary NaNs in Python; the worker does not import plugin.calc.
 NA_NAN: float = formula_error_nan(0x7FFF)
+ILLEGAL_PARAMETER_NAN: float = formula_error_nan(504)
 NESTED_ARRAY_NAN: float = formula_error_nan(533)
 DIV0_NAN: float = formula_error_nan(532)
+
+
+def nan_error_code(val: float) -> int:
+    """Low 32 bits of a NaN (FormulaError code), or 0 for a plain NaN (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+    return struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
+
+
+class RegressionError(ValueError):
+    """A regression input Calc rejects. str(exc) is the error token the cell shows.
+
+    Subclasses ValueError so linest/logest, which call require_samples and catch ValueError,
+    keep returning #VALUE!, and why growth/trend must catch RegressionError before ValueError.
+    """
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
@@ -63,7 +82,7 @@ def require_samples(n: int, k: int, const: bool) -> None:
     and GROWTH(5;3) are Err:504; CalculateRGPRKP and CalculateTrendGrowth, interpr5.cxx).
     """
     if n < k + int(const):
-        raise ValueError
+        raise RegressionError("Err:504")
 
 
 _SERIAL_OFFSET: int = 693594
@@ -94,6 +113,25 @@ def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
             return fn(*args, **kwargs)
         except (ValueError, TypeError, OverflowError):
             return float("nan")
+
+    return wrapper
+
+
+def propagate_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Return the error of an argument instead of calling fn.
+
+    A scalar error, including a plain NaN, always propagates. In a range only an
+    error with a code does. The last argument wins, because the interpreter pops
+    arguments from the last (EDATE(A1;B1) shows B1's error).
+    """
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        for arg in reversed((*args, *kwargs.values())):
+            cells = np.asarray(arg, dtype=object)
+            err = first_error(cells.ravel()) if cells.ndim == 0 else first_coded_error(cells.ravel())
+            if err is not None:
+                return err
+        return fn(*args, **kwargs)
 
     return wrapper
 
@@ -173,6 +211,7 @@ def _actual_actual_year_length(start: dt.date, end: dt.date) -> float:
     return 365.0
 
 
+@propagate_errors
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
     # Swap when start is after end. Excel and LibreOffice GetYearFrac return
     # a non-negative fraction either way. Bond callers check order themselves.
@@ -395,6 +434,11 @@ def first_error(cells: Iterable[Any]) -> float | str | None:
     return None
 
 
+def first_coded_error(cells: Iterable[Any]) -> float | str | None:
+    """Like ``first_error``, but a plain NaN is skipped, because a blank cell of a numeric range can arrive as one (docs/calc/py-data-shapes.md)."""
+    return first_error(v for v in cells if isinstance(v, str) or (is_calc_error(v) and nan_error_code(float(v))))
+
+
 def is_number(val: Any) -> bool:
     """Return True if val is a numeric type (int, float, np.integer, np.floating), excluding booleans."""
     # np.integer and np.floating count. bool and np.bool_ do not: they are logical.
@@ -470,7 +514,8 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
     """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
 
     Same-shaped known_y and known_x are one x variable (CheckMatrix nCase 1); with one variable
-    new_x may have any shape. Inputs Calc rejects raise ValueError.
+    new_x may have any shape. Shape and sample rejections raise RegressionError with Calc's token,
+    other rejections raise ValueError.
     """
     n = known_y.size
     y = known_y.ravel()
@@ -480,7 +525,9 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
         x = np.asarray(known_x, dtype=float)
         x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
     # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
-    if x.ndim != 2 or x.shape[0] != n or np.any(np.isnan(x)) or np.any(np.isnan(y)):
+    if x.ndim != 2 or x.shape[0] != n:
+        raise RegressionError("Err:502")
+    if np.any(np.isnan(x)) or np.any(np.isnan(y)):
         raise ValueError
     k = x.shape[1]
     with_intercept = as_nonzero(const)
@@ -491,7 +538,9 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
         at = np.asarray(new_x, dtype=float)
         at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
     # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
-    if at.ndim != 2 or at.shape[1] != k or np.any(np.isnan(at)):
+    if at.ndim != 2 or at.shape[1] != k:
+        raise RegressionError("Err:502")
+    if np.any(np.isnan(at)):
         raise ValueError
     # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the
     # intercept column indistinguishable to lstsq.
@@ -516,19 +565,15 @@ def scipy_stats() -> Any | None:
 
 def collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
-    # *A functions skip None (an empty cell). Text and blank strings count as 0; an error
-    # token stays NaN so it propagates.
+    # *A functions skip None (an empty cell). Callers are @propagate_errors, so
+    # no error token reaches here; text and blank strings count as 0, and a plain NaN stays NaN.
     vals: list[float] = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
             if v is None:
                 continue
-            if is_calc_error(v):
-                vals.append(float("nan"))
-                continue
             # A Python int bigger than the float range raises OverflowError, which
-            # a (ValueError, TypeError) handler missed, so AVERAGEA crashed instead
-            # of treating the cell as 0 the way other non-numbers do.
+            # _to_float_or_none turns into None so the cell counts as 0 like other non-numbers.
             f = _to_float_or_none(v)
             vals.append(0.0 if f is None else f)
     return np.asarray(vals, dtype=float)
@@ -632,9 +677,8 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         c_num = _to_float_or_none(val_str) if logical is None else logical
     elif isinstance(crit, _NUMERIC_TYPES):
         c_num = _to_float_or_none(crit)
-    # A boolean criterion does not match the text TRUE (COUNTIF(A1;TRUE())).
-    match_text = not isinstance(crit, (bool, np.bool_))
-    c_pattern = "" if not match_text else (val_str if val_str is not None else str(crit))
+    # Only a text criterion matches text cells; COUNTIF(A1;1) and COUNTIF(A1;TRUE()) do not match the text "1" or "TRUE".
+    c_pattern = val_str if val_str is not None else str(crit)
 
     def matcher(val: Any) -> bool:
         val_is_blank = is_criteria_blank(val)
@@ -652,7 +696,7 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             # compareByValue (queryevaluator.cxx): approxEqual counts as equal for every operator.
             return _CMP[op](v_num, v_num if approx_equal(v_num, c_num) else c_num)
         if c_num is not None:
-            if isinstance(val, str) and match_text and op in ("=", "<>"):
+            if isinstance(val, str) and val_str is not None and op in ("=", "<>"):
                 matched = wildcard_fullmatch(c_pattern, val)
                 return matched if op == "=" else not matched
             return op == "<>"
@@ -681,6 +725,12 @@ def match_criteria(val: Any, crit: Any) -> bool:
     return _parse_criterion(crit)(val)
 
 
+def criterion_text(crit: Any) -> Any:
+    """The text D* functions match. A criterion cell is read as text (doubleref.cxx passes the cell string to FillInExcelSyntax), and a boolean is "1" or "0"."""
+    num = _to_float_or_none(crit) if isinstance(crit, _NUMERIC_TYPES) else None
+    return crit if num is None else number_text(num)
+
+
 def extract_numeric_array(
     *args: Any,
     ignore_bool: bool = True,
@@ -690,10 +740,6 @@ def extract_numeric_array(
     vals: list[float] = []
     for arg in args:
         for x in np.asarray(arg, dtype=object).ravel():
-            if is_calc_error(x):
-                if propagate_nan:
-                    vals.append(float("nan"))
-                continue
             if ignore_bool and isinstance(x, (bool, np.bool_)):
                 continue
             if isinstance(x, str):
@@ -705,14 +751,19 @@ def extract_numeric_array(
     return np.asarray(vals, dtype=float)
 
 
-def criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[float] | None:
-    """Matching numbers for one or more (range, criterion) pairs. ``pairs`` is non-empty."""
+def criteria_reduce(
+    values: Any,
+    pairs: Sequence[tuple[Any, Any]],
+    reduce: Callable[[list[float]], float],
+) -> float | str | None:
+    """First matched error, else ``reduce`` of the matched numbers; booleans are 1 or 0, text is skipped; None on a shape mismatch."""
     v_arr = np.asarray(values, dtype=object)
     mask = multi_criteria_mask(pairs, base_shape=v_arr.shape)
     if mask is None:
         return None
-    # Defaults keep error cells and NaN (SUMIFS) and skip text and bools.
-    return extract_numeric_array(v_arr.ravel()[mask]).tolist()
+    cells = v_arr.ravel()[mask]
+    err = first_error(cells)
+    return float(reduce(extract_numeric_array(cells, ignore_bool=False).tolist())) if err is None else err
 
 
 def _complex_coeff(n: float) -> str:
