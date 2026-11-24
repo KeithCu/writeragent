@@ -120,10 +120,12 @@ Spawn N `formula_worker` children **while** the parent (or sibling processes) im
 
 ```text
 FormulaProcessPool / get_formula_pool
-  → BaseProcessWorker.__init__ → _spawn
-      Popen([sys.executable, formula_worker.py], stdin/stdout=PIPE, stderr=log file, bufsize=0)
-      optimize_popen_pipes (Linux F_SETPIPE_SZ on the stdout pipe)
-      read_pickle_frame(stdout, 15s, is_alive=self.is_alive)
+  → BaseProcessWorker.__init__(start=True) or execute → _ensure_live_process
+  → respawn → ChildSlot._spawn_child
+      Supervisor.spawn: ManagedSubprocess.start on the spawner thread
+        Popen(stdin/stdout/stderr=PIPE, bufsize=0); a thread drains stderr; optimize_popen_pipes
+      _publish, then read_ready_frame_during_io
+        read_pickle_frame(stdout, min(15s, spawn budget), is_alive=…, max_payload_bytes=…)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
 formula_worker.py and vision.py (child), current:

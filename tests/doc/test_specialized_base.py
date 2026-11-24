@@ -261,11 +261,11 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     assert json.dumps(result).count("ENTRY-") == 1
 
 
-def test_delegate_status_user_stopped_left_unchanged(
+def test_delegate_user_stop_keeps_code_and_reports_no_edits(
     writer_gateway: DelegateToSubagent,
 ) -> None:
-    """Discussion #2029: User-stopped or crash dict already status: 'error' is left unchanged."""
-    from unittest.mock import patch
+    """User-stop error keeps status, code, and error text, and reports empty edits plus note."""
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
 
     ctx = _structural_registry(writer_gateway)
     stopped = {"status": "error", "error": "Task stopped by user.", "code": "USER_STOPPED"}
@@ -275,6 +275,44 @@ def test_delegate_status_user_stopped_left_unchanged(
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
+    assert result["error"] == "Task stopped by user."
+    assert result["edits"] == {}
+    assert result["note"] == NO_EDIT_TOOL_NOTE
+
+
+def test_delegate_user_stop_reports_landed_edits(
+    writer_gateway: DelegateToSubagent,
+) -> None:
+    """A mutating tool call that landed before user stop is counted in edits without NO_EDIT_TOOL_NOTE."""
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
+
+    class _MutatingStructuralTool(ToolWriterStructuralBase):
+        name = "mutating_structural_tool"
+        description = "A mutating structural tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self, arguments=None) -> bool:
+            return True
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    ctx = _structural_registry(writer_gateway, tool=_MutatingStructuralTool())
+
+    def _run_inner(_ctx, smol_tools, **_kw):
+        by_name = {t.name: t for t in smol_tools}
+        by_name["mutating_structural_tool"].forward()
+        return {"status": "error", "code": "USER_STOPPED", "message": "Task stopped by user."}
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Edit heading")
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert result["message"] == "Task stopped by user."
+    assert result["edits"] == {"mutating_structural_tool": 1}
+    assert "note" not in result
 
 
 def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSubagent) -> None:
@@ -1029,6 +1067,41 @@ def test_delegate_shapes_reports_created_counts(
     assert result["connectors_created"] == 0
     assert result["created_names"] == ["Box"]
     assert result["pages"] == [0]
+    assert "note" not in result
+
+
+def test_delegate_shapes_user_stop_keeps_counts(
+    writer_gateway: DelegateToSubagent,
+) -> None:
+    from plugin.writer.specialized_base import ToolWriterShapeBase
+
+    class _WarningUpsert(ToolWriterShapeBase):
+        name = "shape_upsert"
+        description = "Fake upsert."
+        parameters = {"type": "object", "properties": {}}
+        is_mutation = True
+
+        def execute(self, ctx, **kw):
+            return {
+                "status": "ok",
+                "action": "create",
+                "name": "Box",
+                "page": 0,
+                "index": 0,
+                "warning": "Font fell back",
+            }
+
+    def _run_inner(_ctx, smol_tools, **_kw):
+        by_name = {t.name: t for t in smol_tools}
+        by_name["shape_upsert"].forward()
+        return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+
+    result = _run_shapes_delegation(writer_gateway, [_WarningUpsert()], _run_inner)
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert result["shapes_created"] == 1
+    assert result["edits"] == {"shape_upsert": 1}
+    assert result["warnings"] == ["Font fell back"]
     assert "note" not in result
 
 

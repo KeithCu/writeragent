@@ -1076,3 +1076,99 @@ def test_spawn_start_runtime_error_before_publish_reports(
         assert warm.child is None
     finally:
         warm.retire()
+
+
+def test_kill_signals_child_published_before_its_lock_hold(tmp_path: Any, supervisor: Supervisor) -> None:
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    child = Child(_managed_with_popen(), worker_name="warm-test", worker_id=1)
+    real_lock = warm._lifecycle_lock
+    injected = False
+
+    class _LockProxy:
+        def __enter__(self) -> Any:
+            nonlocal injected
+            if not injected:
+                injected = True
+                warm._publish(child)
+            return real_lock.__enter__()
+
+        def __exit__(self, *args: Any) -> Any:
+            return real_lock.__exit__(*args)
+
+    try:
+        warm._lifecycle_lock = _LockProxy()  # type: ignore[assignment]
+        assert warm.kill() is True
+        assert child.was_signaled() is True
+        assert warm.child is None
+        assert warm._cancel_pending is False
+    finally:
+        warm._lifecycle_lock = real_lock
+        warm.retire()
+
+
+def test_kill_after_ready_frame_is_interrupted(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+
+    def _fake_spawn(managed: ManagedSubprocess, *, on_ready: Any = None) -> None:
+        del on_ready
+        managed.popen = _FakePopen()  # type: ignore[assignment]
+
+    def _kill_on_ready(child: Child, *_args: Any, **_kwargs: Any) -> tuple[str, Any]:
+        del child
+        t = threading.Thread(target=warm.kill)
+        t.start()
+        t.join(timeout=5.0)
+        return ("ready", {"status": "ready", "pid": 4242})
+
+    monkeypatch.setattr(supervisor, "spawn", _fake_spawn)
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _kill_on_ready)
+    try:
+        with warm.lease(Deadline(10.0)) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "WORKER_SPAWN_FAILED"
+        assert warm.child is None
+        assert warm._generation == 0
+    finally:
+        warm.retire()
+
+
+def test_kill_between_ensure_live_and_lease_yields_error(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    warm.child = Child(_managed_with_popen(), worker_name="warm-test", worker_id=1)
+
+    def _ensure_then_kill(_deadline: Deadline) -> dict[str, Any] | None:
+        warm.kill()
+        return None
+
+    monkeypatch.setattr(warm, "_ensure_live", _ensure_then_kill)
+    try:
+        with warm.lease(Deadline(10.0)) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "WORKER_SPAWN_FAILED"
+    finally:
+        warm.retire()
+
+
+def test_lease_refuses_signaled_child_not_yet_dropped(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    child = Child(_managed_with_popen(), worker_name="warm-test", worker_id=1)
+    warm.child = child
+
+    def _ensure_then_signal(_deadline: Deadline) -> dict[str, Any] | None:
+        child._signaled = True
+        return None
+
+    monkeypatch.setattr(warm, "_ensure_live", _ensure_then_signal)
+    try:
+        with warm.lease(Deadline(10.0)) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "WORKER_SPAWN_FAILED"
+        assert warm.child is None
+    finally:
+        warm.retire()

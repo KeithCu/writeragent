@@ -2289,3 +2289,52 @@ def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.Monkey
         assert len(drain_calls) == 1
     finally:
         worker.kill()
+
+
+def test_respawn_killed_after_ready_leaves_slot_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 1
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = object()
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.returncode is None:
+                self.returncode = -9
+            return self.returncode
+
+    worker = BaseProcessWorker(1, "fake_script.py", worker_name="Budget", start=False)
+
+    def _fake_popen(_args: object, **_kwargs: Any) -> _Proc:
+        return _Proc()
+
+    def _kill_on_ready(child: Child, *_args: Any, **_kwargs: Any) -> tuple[str, Any]:
+        del child
+        t = threading.Thread(target=worker.kill)
+        t.start()
+        t.join(timeout=5.0)
+        return ("ready", {"status": "ready", "pid": 1})
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_kw: None)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _p: None)
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _kill_on_ready)
+
+    worker.tasks_executed = 7
+    worker.pending_exit = True
+    try:
+        worker.respawn()
+        assert worker.process is None
+        assert worker.tasks_executed == 7
+        assert worker.pending_exit is True
+    finally:
+        worker.kill()

@@ -79,6 +79,7 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     managed.popen = proc
     child = MagicMock()
     child.managed = managed
+    child.was_signaled.return_value = False
     io_owner_holder: list[int | None] = [None]
 
     def begin_io() -> None:
