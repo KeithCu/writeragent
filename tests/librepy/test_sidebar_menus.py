@@ -50,8 +50,9 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     assert "main.settings" in actions
     by_action = {a: icon for _label, a, icon in rows}
     assert by_action["main.settings"] is not None
-    assert by_action["main.settings"].startswith("gear_")
-    assert by_action["main.settings"].endswith(".png")
+    assert by_action["main.settings"].startswith("private:graphicrepository/")
+    assert by_action["scripting.run_python_dialog"] is not None
+    assert by_action["scripting.run_python_dialog"].endswith(".png")
     assert "vision.open_settings" in actions
     assert "main.report_bug" in actions
     assert "notebook.run_all" not in actions
@@ -273,55 +274,7 @@ def test_wire_header_no_search_control():
     assert "/assets/python_cell_" in latex_url
     assert latex_url.endswith(".png")
     settings_url = controls["btn_hdr_settings"].getModel.return_value.ImageURL
-    assert "/assets/gear_" in settings_url
-
-
-def test_load_menu_graphic_caching_and_reset():
-    from plugin.librepy.sidebar_menus import _graphic_cache, load_menu_graphic
-
-    _graphic_cache.clear()
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    gp = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = gp
-
-    mock_graphic = MagicMock()
-    gp.queryGraphic.return_value = mock_graphic
-
-    with (
-        patch("plugin.framework.uno_context.get_extension_url", return_value="vnd.sun.star.extension://test"),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_url", return_value="vnd.sun.star.extension://test/assets/gear_16.png"),
-    ):
-        # 1. First call loads and caches
-        res1 = load_menu_graphic(ctx, "gear_16.png")
-        assert res1 is mock_graphic
-        assert smgr.createInstanceWithContext.call_count == 1
-
-        # 2. Second call returns cached graphic without createInstanceWithContext
-        res2 = load_menu_graphic(ctx, "gear_16.png")
-        assert res2 is mock_graphic
-        assert smgr.createInstanceWithContext.call_count == 1
-
-        # 3. After reset, it calls createInstanceWithContext again
-        _graphic_cache.clear()
-        res3 = load_menu_graphic(ctx, "gear_16.png")
-        assert res3 is mock_graphic
-        assert smgr.createInstanceWithContext.call_count == 2
-
-        # 4. None result is not reused/cached
-        _graphic_cache.clear()
-        gp.queryGraphic.return_value = None
-        with patch("os.path.isfile", return_value=False):
-            res_none = load_menu_graphic(ctx, "missing_16.png")
-            assert res_none is None
-            assert smgr.createInstanceWithContext.call_count == 3
-
-            # Second call for missing_16.png should still call createInstanceWithContext because None was not cached
-            res_none2 = load_menu_graphic(ctx, "missing_16.png")
-            assert res_none2 is None
-            assert smgr.createInstanceWithContext.call_count == 4
+    assert settings_url.startswith("private:graphicrepository/")
 
 
 def test_execute_popup_under_button_uses_peer_and_position():

@@ -60,7 +60,7 @@ def test_calc_eval_sort_line_omits_formula_tools() -> None:
     # Naming write_range / =PY in the because-clause primed weak
     # models to call the tool we want them to avoid (glm-5.3-flash; see docs/eval/oss-20b-eval.md).
     calc = get_calc_eval_chat_system_prompt()
-    sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
+    sort_line = next(line for line in calc.splitlines() if "To reorder rows" in line)
     assert "write_range" not in sort_line
     assert "=PY" not in sort_line
 
@@ -74,13 +74,13 @@ def test_replace_prompt_slice_swaps_once_and_ignores_missing() -> None:
 def test_eval_prompts_match_kind_builder_without_document_model() -> None:
     """Eval assembly must not need a MagicMock document (LoLane is off UNO thread)."""
     assert get_writer_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
-        "writer", EVAL_HARNESS_NOTE, ctx=None
+        "writer", EVAL_HARNESS_NOTE
     )
     assert get_calc_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
-        "calc", EVAL_HARNESS_NOTE, ctx=None
+        "calc", EVAL_HARNESS_NOTE
     )
     assert get_draw_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
-        "draw", EVAL_HARNESS_NOTE, ctx=None
+        "draw", EVAL_HARNESS_NOTE
     )
 
 

@@ -46,6 +46,8 @@ jobs:
             docker tag "python-compute:${VER}" "python-compute:${tag}"
             docker tag "python-compute:${VER}" "${IMAGE}:${tag}"
           fi
+      - name: Smoke test
+        run: compute_service/smoke-docker.sh "python-compute:${{ steps.ver.outputs.version }}"
       - name: Push to GHCR
         run: |
           IMAGE="ghcr.io/keithcu/writeragent-compute"

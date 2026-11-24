@@ -1004,3 +1004,10 @@ Later (not this PR): rename `set_windows_notebook_host` and
 `_windows_notebook_host` since the separate-pool flag applies on every
 platform rather than only Windows, and inline `native_writer_tool_context`
 (now a one-line `TestingFactory.create_context` wrapper).
+
+## Open
+
+- `[eng S few]` Run the Windows UNO and mock-sidebar CI dispatches for TSLOP-WIN stage 2 and record the run ids and per-class outcomes in that section. (§ 2026-11 Windows skip experiment (TSLOP-WIN))
+- `[eng S few]` Rename `set_windows_notebook_host` and `_windows_notebook_host`, since the separate notebook pool now applies on every platform. (§ 2026-11 Windows skip experiment (TSLOP-WIN))
+- `[eng S few]` Inline `native_writer_tool_context`, now a one-line `TestingFactory.create_context` wrapper. (§ 2026-11 Windows skip experiment (TSLOP-WIN))
+- `[idea L few]` Find the root cause of the intermittent Draw `SalAbort` during `SvxShape` destruction on a URP release thread, a LibreOffice-side crash the harness only attributes today. (§ Findings: Unspecified Application Error)

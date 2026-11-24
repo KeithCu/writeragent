@@ -43,6 +43,9 @@ ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
     "com.sun.star.presentation.PresentationDocument",
 )
 
+CDP_BROWSER_TYPES: tuple[str, ...] = ("brave", "chromium", "chrome")
+BIDI_BROWSER_TYPE: str = "firefox"
+
 
 def get_plugin_dir() -> str:
     """Returns the absolute path to the plugin/ directory."""
@@ -89,6 +92,19 @@ WORKER_POOL_DEFAULT = "default"
 WORKER_POOL_EMBEDDINGS = "embeddings"
 # Settings → Python probes. A timeout must not kill the formula worker.
 WORKER_POOL_DIAGNOSTICS = "diagnostics"
+
+# Where the Tesseract OCR program is looked for, in order. "tesseract" is looked up on PATH; the
+# absolute paths are the default install folders that a GUI-started LibreOffice usually lacks on
+# PATH: the UB Mannheim installer on Windows does not edit PATH, and macOS apps started from Finder
+# get only /usr/bin:/bin:/usr/sbin:/sbin, which misses Homebrew (/opt/homebrew, /usr/local) and
+# MacPorts (/opt/local). Used by the vision worker and by Settings → Python → Test.
+TESSERACT_PROGRAMS: tuple[str, ...] = (
+    "tesseract",
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    "/opt/homebrew/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/opt/local/bin/tesseract",
+)
 
 
 # Model capabilities bitmasks (compatible with OnlyOfficeAI values)
@@ -146,8 +162,8 @@ def resolve_folder_rerank_model() -> str:
     return DEFAULT_FOLDER_RERANK_MODEL
 
 
-# Browser-style user agent for a small, whitelisted set of sites
-# (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
+# Browser-style user agent for ordinary pages fetched by visit_webpage.
+# DuckDuckGo and Wikipedia get the identifying USER_AGENT (a browser UA on DDG Lite is challenged far more often).
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
 

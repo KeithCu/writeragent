@@ -104,7 +104,7 @@ def test_extract_library_source_rejects_calls_in_lambda_defaults():
     exe = _new_executor(build_sandbox_policy())
     exe.custom_tools["evil"] = record
     with pytest.raises(ValueError, match="not library definitions"):
-        _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil")
+        _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil", "<wa.scripts.Test>")
     assert not recorded
 
 
@@ -397,7 +397,7 @@ def test_library_defs_do_not_leak_into_executor_custom_tools():
 
     exe = _new_executor(build_sandbox_policy())
     exe.custom_tools["helper"] = lambda: 7
-    ns = _eval_library(exe, "def added():\n    return helper()\n", "Helpers")
+    ns = _eval_library(exe, "def added():\n    return helper()\n", "Helpers", "<wa.scripts.Test>")
     assert ns.added() == 7
     assert set(exe.custom_tools) == {"helper"}
 
@@ -832,12 +832,12 @@ def test_eval_library_binds_unpack_and_class_docstring():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     exe = _new_executor(build_sandbox_policy())
-    ns1 = _eval_library(exe, "a, b = 1, 2\ndef add(x):\n    return x + a + b\n", "Test1")
+    ns1 = _eval_library(exe, "a, b = 1, 2\ndef add(x):\n    return x + a + b\n", "Test1", "<wa.scripts.Test>")
     assert ns1.a == 1
     assert ns1.b == 2
     assert ns1.add(3) == 6
 
-    ns2 = _eval_library(exe, "a, *rest = (1, 2, 3)\n", "Test2")
+    ns2 = _eval_library(exe, "a, *rest = (1, 2, 3)\n", "Test2", "<wa.scripts.Test>")
     assert ns2.a == 1
     assert ns2.rest == [2, 3]
 
@@ -845,12 +845,13 @@ def test_eval_library_binds_unpack_and_class_docstring():
         exe,
         'class Box:\n    "doc"\n    n = 1\n    def area(self):\n        return self.n\n',
         "Test3",
+        "<wa.scripts.Test>",
     )
     assert ns3.Box.__doc__ == "doc"
     assert ns3.Box().area() == 1
 
     try:
-        _eval_library(exe, "@staticmethod\ndef f():\n    pass\n", "Test4")
+        _eval_library(exe, "@staticmethod\ndef f():\n    pass\n", "Test4", "<wa.scripts.Test>")
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
@@ -871,7 +872,7 @@ def test_eval_library_rejects_class_target_call():
         "    make().x = 1\n"
     )
     try:
-        _eval_library(exe, code, "TestTargetCall")
+        _eval_library(exe, code, "TestTargetCall", "<wa.scripts.Test>")
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "lines 4" in str(exc)
@@ -986,5 +987,17 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # Direct _dispatch_named_script("not-a-tool", {})
     with pytest.raises(RuntimeError, match="Unknown named-script tool"):
         _dispatch_named_script("not-a-tool", {})
+
+
+def test_library_frames_carry_library_label():
+    from tests.scripting.sandbox_support import sandbox_run
+
+    with patch(
+        "plugin.scripting.named_scripts.call_host_tool",
+        side_effect=_helpers_rpc({"Helpers": "def bad(v):\n    return 1 / v\n"}),
+    ):
+        res = sandbox_run("import writeragent as wa\nresult = wa.scripts.Helpers.bad(0)\n")
+    assert res["status"] == "error"
+    assert 'File "<wa.scripts.Helpers>", line 2, in bad' in res.get("user_traceback", "")
 
 

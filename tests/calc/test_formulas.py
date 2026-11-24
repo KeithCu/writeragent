@@ -9,7 +9,7 @@ import pytest
 from plugin.calc.calc_utils import FORMULA, VALUE
 from plugin.calc.error_detector import ERROR_TYPES
 from plugin.calc.formulas import EvaluateFormula, formula_evaluation_error_message
-from plugin.framework.tool import ToolContext
+from plugin.framework.tool import ToolContext, prepare_tool_call
 
 
 @pytest.fixture(autouse=True)
@@ -288,7 +288,7 @@ def test_evaluate_formula_string_zero_stays_a_string():
 
 def test_evaluate_formula_undo_guard_when_undo_possible():
     doc = _EvalDoc(undo_possible=True)
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["status"] == "ok"
     assert doc.undo_mgr.hidden_contexts_entered == 1
     assert doc.undo_mgr.hidden_contexts_left == 1
@@ -297,7 +297,7 @@ def test_evaluate_formula_undo_guard_when_undo_possible():
 
 def test_evaluate_formula_undo_guard_when_undo_not_possible():
     doc = _EvalDoc(undo_possible=False, modified=False)
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["status"] == "ok"
     assert doc.undo_mgr.hidden_contexts_entered == 0
     assert doc.undo_mgr.cleared is True
@@ -307,7 +307,7 @@ def test_evaluate_formula_undo_guard_when_undo_not_possible():
 def test_evaluate_formula_cleanup_failure_no_clear_and_warns():
     doc = _EvalDoc(undo_possible=False, modified=False)
     doc.sheets.raise_on_remove = RuntimeError("Lock contention")
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["status"] == "ok"
     assert "warning" in res
     assert "Failed to clean up" in res["warning"]
@@ -323,18 +323,20 @@ def test_evaluate_formula_cleanup_failure_when_eval_fails_returns_error(monkeypa
         raise RuntimeError("Sheet retrieval failure")
 
     monkeypatch.setattr(doc.sheets, "getByName", _broken_get_by_name)
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["status"] == "error"
     assert "Failed to clean up" in res["message"]
 
 
 def test_evaluate_formula_none_parameters():
     doc = _EvalDoc()
-    res1 = EvaluateFormula().execute(_eval_ctx(doc), formula="")
+    res1 = EvaluateFormula().execute(_eval_ctx(doc), formula="", cell="A1")
     assert res1["status"] == "error"
     assert "formula is required" in res1["message"]
 
-    res2 = EvaluateFormula().execute(_eval_ctx(doc), formula="=2+3", cell=None)
+    prep = prepare_tool_call(EvaluateFormula(), _eval_ctx(doc), "evaluate_formula", {"formula": "=2+3", "cell": None})
+    assert prep.error is None and prep.kwargs["cell"] == "A1"
+    res2 = EvaluateFormula().execute(_eval_ctx(doc), **prep.kwargs)
     assert res2["status"] == "ok"
     assert res2["result"] == 7
 
@@ -358,7 +360,7 @@ def test_evaluate_formula_set_formula_raising():
     disposed_doc = _EvalDoc()
     disposed_doc.temp_cell.raise_on_set_formula = DisposedException("Sheet disposed")
     with pytest.raises(DocumentDisposedError):
-        EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
+        EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1", cell="A1")
 
 
 def test_evaluate_formula_holds_doc_lock_despite_read_only():
@@ -367,13 +369,13 @@ def test_evaluate_formula_holds_doc_lock_despite_read_only():
 
 
 def test_evaluate_formula_flags_array_results():
-    res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=SORT(A1:A5)")
+    res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=SORT(A1:A5)", cell="A1")
     assert res["status"] == "ok"
     assert res["requires_array"] is True
     assert "only the top-left value" in res["note"]
-    plain = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=2+3")
+    plain = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=2+3", cell="A1")
     assert "requires_array" not in plain
-    filter_res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=FILTER(A1:A5;A1:A5>0)")
+    filter_res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=FILTER(A1:A5;A1:A5>0)", cell="A1")
     assert filter_res["status"] == "ok"
     assert filter_res["requires_array"] is True
 
@@ -392,7 +394,7 @@ def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(mon
 
     monkeypatch.setattr(doc.sheets, "getByName", _disposed_get_by_name)
     with pytest.raises(DisposedException):
-        EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+        EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1", cell="A1")
 
 
 def test_evaluate_formula_cleanup_disposal_is_document_disposed():
@@ -400,7 +402,7 @@ def test_evaluate_formula_cleanup_disposal_is_document_disposed():
     doc = _EvalDoc(undo_possible=False, modified=False)
     doc.sheets.raise_on_remove = DisposedException("gone")
 
-    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["code"] == "DOCUMENT_DISPOSED"
 
 
@@ -412,7 +414,7 @@ def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch)
         raise DisposedException("gone")
 
     monkeypatch.setattr(doc.temp, "getCellByPosition", _disposed_cell)
-    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1", cell="A1")
     assert res["code"] == "DOCUMENT_DISPOSED"
 
 
@@ -423,13 +425,13 @@ def test_evaluate_formula_empty_formula_and_calc_error_codes():
     doc = _EvalDoc()
     tool = get_tools().get("evaluate_formula")
 
-    res_empty = tool.execute_safe(_eval_ctx(doc), formula="  ")
+    res_empty = tool.execute_safe(_eval_ctx(doc), formula="  ", cell="A1")
     assert res_empty["status"] == "error"
     assert res_empty["code"] == "INVALID_PARAM"
     assert doc.temp_cell.formulas == []
 
     doc.temp_cell.Error = 532
-    res_err = tool.execute_safe(_eval_ctx(doc), formula="=1/0")
+    res_err = tool.execute_safe(_eval_ctx(doc), formula="=1/0", cell="A1")
     assert res_err["status"] == "error"
     assert res_err["code"] == "CALC_ERROR"
     assert res_err["error_code"] == 532
@@ -438,7 +440,7 @@ def test_evaluate_formula_empty_formula_and_calc_error_codes():
 
 def test_evaluate_formula_repairs_py_literal_newlines():
     doc = _EvalDoc()
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula='=PY("x = 2\\nresult = x")')
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula='=PY("x = 2\\nresult = x")', cell="A1")
     assert res["status"] == "ok"
     assert doc.temp_cell.formulas == ['=PY("x = 2\nresult = x")']
 
@@ -449,7 +451,7 @@ def test_evaluate_formula_writes_calc_grammar(monkeypatch):
         lambda _doc, text, _pos=None: "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text,
     )
     doc = _EvalDoc()
-    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=SUM(A1,B1)")
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=SUM(A1,B1)", cell="A1")
     assert res["status"] == "ok"
     assert doc.temp_cell.formulas == ["=SUM(A1;B1)"]
     assert res["formula"] == "=SUM(A1;B1)"

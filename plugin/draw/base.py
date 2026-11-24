@@ -139,6 +139,19 @@ class ToolDrawTableBase(ToolDrawSpecialBase):
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 
 
+class ToolDrawMathBase(ToolDrawSpecialBase):
+    """Catalog row for math_insert.
+
+    DelegateToSubagent reads its domain enum when plugin.doc registers it, after this module is
+    imported but before plugin.draw's tool modules are. A domain declared only on a tool class in
+    another module would be listed in the prompt but rejected by the enum.
+    """
+
+    specialized_domain: ClassVar[str | None] = "math"
+    specialized_domain_description: ClassVar[str | None] = "Insert an editable LibreOffice Math formula from LaTeX or MathML on a page."
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+
 class ToolDrawVisionBase(ToolDrawSpecialBase):
     """Catalog marker only: lists the vision domain on Draw/Impress; no tool class derives from this.
 
@@ -147,7 +160,8 @@ class ToolDrawVisionBase(ToolDrawSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Runs OCR on the currently selected image and returns the recognized text."
+        "Runs OCR on the selected picture and returns its text; the page is unchanged. "
+        "Use this call for OCR; with no picture selected, ask the user to select one."
     )
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 

@@ -10,11 +10,16 @@ import io
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PIL import Image
 from pytest import MonkeyPatch
 
 from plugin.vision.venv import vision_paddle as paddle_mod
-from plugin.vision.venv.vision_paddle import html_from_paddle_regions, html_from_paddle_structure
+from plugin.vision.venv.vision_paddle import (
+    html_from_paddle_regions,
+    html_from_paddle_structure,
+    paddle_lang_code,
+)
 from plugin.vision.vision_common import MAX_TABLE_ROWS
 
 _TABLE_HTML = "<html><body><table><tr><th>Item</th><th>Qty</th></tr><tr><td>Widget</td><td>2</td></tr></table></body></html>"
@@ -209,6 +214,7 @@ def _install_fake_paddleocr(monkeypatch: MonkeyPatch, fake_mod: SimpleNamespace,
 
     if structure:
         monkeypatch.setattr(paddle_mod, "_pp_structure_engine", None)
+        monkeypatch.setattr(paddle_mod, "_pp_structure_lang", None)
     else:
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
@@ -537,3 +543,92 @@ def test_parse_ocr_v2_bad_confidence_does_not_abort():
     ])
     assert texts == ["Hello", "World"]
     assert [region["confidence"] for region in regions] == [0.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "en"),
+        ("", "en"),
+        ("  ", "en"),
+        ("en-US", "en"),
+        ("EN-us", "en"),
+        ("iso:zh-TW", "chinese_cht"),
+        (" ISO:zh-Hant-TW ", "chinese_cht"),
+        ("zh-HK", "chinese_cht"),
+        ("zh-MO", "chinese_cht"),
+        ("zh", "ch"),
+        ("zh-CN", "ch"),
+        ("zh-SG", "ch"),
+        ("zh-Hans-HK", "ch"),
+        ("ja-JP", "japan"),
+        ("ko", "korean"),
+        ("pt-BR", "pt"),
+        ("de", "de"),
+        ("en, de", "en"),
+        (" , de", "de"),
+        ("nb-NO", "no"),
+        ("sr", "rs_cyrillic"),
+        ("sr-Latn-RS", "rs_latin"),
+        ("fil-PH", "tl"),
+        ("kn-IN", "ka"),
+        ("ka", "ka"),
+        ("ka-GE", None),
+        ("rs_latin", "rs_latin"),
+        ("chinese_cht", "chinese_cht"),
+        ("japan", "japan"),
+        ("latin", "latin"),
+    ],
+)
+def test_paddle_lang_code(raw, expected):
+    assert paddle_lang_code(raw) == expected
+
+
+def test_extract_text_maps_lang_and_caches_by_code(monkeypatch: MonkeyPatch):
+    _V3PaddleOCR.instances.clear()
+    _install_fake_paddleocr(monkeypatch, SimpleNamespace(PaddleOCR=_V3PaddleOCR), structure=False)
+
+    res1 = paddle_mod.extract_text(b"png-bytes", {"lang": "zh-TW"})
+    res2 = paddle_mod.extract_text(b"png-bytes", {"lang": "iso:zh-Hant"})
+
+    assert res1["status"] == "ok"
+    assert res2["status"] == "ok"
+    assert len(_V3PaddleOCR.instances) == 1
+    assert _V3PaddleOCR.instances[0].kwargs["lang"] == "chinese_cht"
+
+
+@pytest.mark.parametrize(
+    ("helper_name", "cls_name", "message", "expected_code"),
+    [
+        ("extract_text", "PaddleOCR", "No models are available for lang='he' and ocr_version=None.", "OCR_LANGUAGE_UNSUPPORTED"),
+        ("extract_structure", "PPStructureV3", "No models are available for the language 'he' and OCR version None.", "OCR_LANGUAGE_UNSUPPORTED"),
+        ("extract_text", "PaddleOCR", "Unknown argument: show_log", "VISION_ERROR"),
+    ],
+)
+def test_unsupported_language_errors(monkeypatch: MonkeyPatch, helper_name, cls_name, message, expected_code):
+    def _exploding(**_kwargs):
+        raise ValueError(message)
+
+    _install_fake_paddleocr(
+        monkeypatch,
+        SimpleNamespace(**{cls_name: _exploding}),
+        structure=(helper_name == "extract_structure"),
+    )
+
+    result = getattr(paddle_mod, helper_name)(b"png-bytes", {"lang": "he"})
+    assert result["status"] == "error"
+    assert result["code"] == expected_code
+    if expected_code == "OCR_LANGUAGE_UNSUPPORTED":
+        assert result["details"] == {"language": "he", "engine": "paddle"}
+
+
+def test_georgian_tag_is_unsupported_without_constructing(monkeypatch: MonkeyPatch):
+    _V3PaddleOCR.instances.clear()
+    _install_fake_paddleocr(monkeypatch, SimpleNamespace(PaddleOCR=_V3PaddleOCR), structure=False)
+
+    result = paddle_mod.extract_text(b"png-bytes", {"lang": "ka-GE"})
+
+    assert result["status"] == "error"
+    assert result["code"] == "OCR_LANGUAGE_UNSUPPORTED"
+    assert result["details"] == {"language": "ka-GE", "engine": "paddle"}
+    assert _V3PaddleOCR.instances == []

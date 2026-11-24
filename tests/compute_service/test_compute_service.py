@@ -31,6 +31,7 @@ from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
 from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, request_conn
+from plugin.framework.child_runtime import Deadline
 
 
 def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
@@ -304,11 +305,11 @@ class TestExecuteLocal:
 
     def test_init_script_shared_seeds_session(self) -> None:
         sid = "shared-init-session"
-        r1 = json.loads(_handle_request({"code": "result = HELPER + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
+        r1 = json.loads(_handle_request({"code": "CELL = 1\nresult = HELPER + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
         assert r1["status"] == "ok", r1
         assert r1["result"] == 42
-        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid})["result_json"])
-        assert r2["status"] == "ok"
+        r2 = json.loads(_handle_request({"code": "result = HELPER + CELL + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
+        assert r2["status"] == "ok", r2
         assert r2["result"] == 43
 
     def test_init_script_isolated_seeds_request(self) -> None:
@@ -345,6 +346,15 @@ class TestExecuteLocal:
         assert r1["status"] == "ok" and r1["result"] == 10, r1
         assert r2["status"] == "ok" and r2["result"] == 11, r2
         assert mock_run.call_count == 3
+
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
+    @pytest.mark.parametrize("removed", [None, "  \n\t"], ids=["absent", "blank"])
+    def test_shared_init_removed_drops_old_bindings(self, removed: str | None) -> None:
+        sid = "shared-init-removed"
+        r1 = json.loads(_handle_request({"code": "CELL = 1\nresult = OLD_INIT", "session_id": sid, "init_script": "OLD_INIT = 5"})["result_json"])
+        assert r1["status"] == "ok" and r1["result"] == 5, r1
+        r2 = json.loads(_handle_request({"code": "result = OLD_INIT", "session_id": sid, "init_script": removed})["result_json"])
+        assert r2["status"] == "error" and "OLD_INIT" in r2["error"], r2
 
 
 class TestComputeHttp:
@@ -648,7 +658,7 @@ class TestComputeHttp:
         assert body.get("status") == "error"
 
     def test_numpy_mean(self, compute_url: str) -> None:
-        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [10, 20, 30, 40]})
+        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [[10, 20, 30, 40]]})
         assert body["status"] == "ok"
         assert body["result"] == 25.0
 
@@ -2567,23 +2577,22 @@ def test_bearer_scheme_case_insensitive() -> None:
     assert status == "401 Unauthorized"
 
 
-def test_session_reset_passes_bounded_timeout() -> None:
-    """The accept-time deadline is the reset lease budget, capped at SESSION_RESET_TIMEOUT_SEC."""
-    from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
+def test_session_reset_budget_is_max_timeout_sec() -> None:
+    """Reset admission deadline uses max_timeout_sec so it can outlast a long cell."""
+    seen: list[Deadline] = []
 
-    seen: list[float] = []
-
-    def fake_reset(sid: str, timeout_sec: float = SESSION_RESET_TIMEOUT_SEC) -> dict[str, Any]:
+    def fake_reset(sid: str, *, deadline: Deadline) -> dict[str, Any]:
         del sid
-        seen.append(timeout_sec)
+        seen.append(deadline)
         return {"status": "ok"}
 
-    app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
+    app = create_wsgi_app(ComputeSettings(default_timeout_sec=5, max_timeout_sec=90), reset_fn=fake_reset)
     status, _headers, parsed = _wsgi_post(app, b'{"id": "reset-budget"}', path="/v1/session/reset", query="session_id=s123", headers={"Content-Type": "application/json"})
     assert status == "200 OK"
     assert parsed.get("status") == "ok"
     assert len(seen) == 1
-    assert 0 < seen[0] <= SESSION_RESET_TIMEOUT_SEC
+    assert seen[0].budget_sec == 90.0
+    assert 5 < seen[0].left() <= 90
 
 
 def test_vision_unknown_helper_is_400() -> None:
@@ -3347,8 +3356,8 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     unblock_first_reset = threading.Event()
     read_called_during_first = threading.Event()
 
-    def mock_reset(session_id: str, timeout_sec: float = 0.0, **kwargs: Any) -> dict[str, Any]:
-        del session_id, timeout_sec, kwargs
+    def mock_reset(session_id: str, **kwargs: Any) -> dict[str, Any]:
+        del session_id, kwargs
         in_first_reset.set()
         unblock_first_reset.wait(timeout=5.0)
         return {"status": "ok"}

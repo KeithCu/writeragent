@@ -245,12 +245,11 @@ class NamedRangeList(ToolCalcRangeBase):
 
     name: str | None = "named_range_list"
     description: str = "Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name)."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "description": "Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name."}}}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "default": "global", "description": "Scope to list: 'global', 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name."}}}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        scope_arg = kwargs.get("scope", "global")
-        scope_clean = (str(scope_arg).strip() if scope_arg is not None else "") or "global"
+        scope_clean = kwargs["scope"].strip()
 
         doc = ctx.doc
         result: list[dict[str, Any]] = []
@@ -306,9 +305,9 @@ class NamedRangeAdd(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
-            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too)."},
-            "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
-            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
+            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
+            "scope": {"type": "string", "default": "global", "description": "Scope of the name: 'global' or a specific sheet name (e.g. 'Sheet1')."},
+            "base_cell": {"type": "string", "default": "A1", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Without a sheet prefix it is on the scope sheet (the first sheet for global scope). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name", "content"],
@@ -318,8 +317,8 @@ class NamedRangeAdd(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         name = kwargs["name"].strip()
         content = kwargs["content"].strip()
-        scope = kwargs.get("scope")
-        base_cell = kwargs.get("base_cell")
+        scope = kwargs["scope"]
+        base_cell = kwargs["base_cell"]
         flags_arg = kwargs.get("flags")
 
         invalid = _defined_name_error(name)
@@ -356,7 +355,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
             "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
-            "content": {"type": "string", "description": "New formula or range address content (Sheet1!A1:B5 is accepted too)."},
+            "content": {"type": "string", "description": "New formula or range address content."},
             "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -453,8 +452,8 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"The table cell range or named range containing both headers and data (A1:D20 or Table). {CALC_SHEET_PREFIX_NOTE}"},
-            "border": {"type": "string", "description": "Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'.", "enum": ["top", "bottom", "left", "right"]},
-            "scope": {"type": "string", "description": "Container scope for creating the names: 'global' (default) or specific sheet name."},
+            "border": {"type": "string", "default": "top", "description": "Which edge contains the title labels: 'top', 'bottom', 'left', or 'right'.", "enum": ["top", "bottom", "left", "right"]},
+            "scope": {"type": "string", "default": "global", "description": "Container scope for creating the names: 'global' or specific sheet name."},
         },
         "required": ["range"],
     }
@@ -463,8 +462,8 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
-        border = kwargs.get("border", "top")
-        scope = kwargs.get("scope")
+        border = kwargs["border"]
+        scope = kwargs["scope"]
 
         from com.sun.star.sheet.Border import BOTTOM, LEFT, RIGHT, TOP
 

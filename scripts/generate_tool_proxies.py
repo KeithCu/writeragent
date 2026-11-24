@@ -201,9 +201,9 @@ class ParamRecord(NamedTuple):
 
 
 def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
-    # Read tool.parameters directly, not get_parameters(doc_type). Chart tools' get_parameters
-    # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
-    # The only other get_parameters override is python_run_script
+    # Read tool.parameters directly, not get_parameters(doc_type). Chart tools, style_list,
+    # image_get, and the image tools narrow their schema per doc_type, but proxy stubs must
+    # keep the union. The only other get_parameters override is python_run_script
     # (in API_EXCLUDED_TOOLS).
     props = (tool.parameters or {}).get("properties", {})
     required_set = set((tool.parameters or {}).get("required", []))
@@ -822,7 +822,7 @@ def paging_start_param(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) 
             continue
         params = _collect_params(tool)
         start = next(
-            (p for p in params if not p.required and p.schema_key in PAGED_START_PARAMS and p.annotation == "int | None"),
+            (p for p in params if not p.required and p.schema_key in PAGED_START_PARAMS and p.annotation.removesuffix(" | None") == "int"),
             None,
         )
         if start is None:

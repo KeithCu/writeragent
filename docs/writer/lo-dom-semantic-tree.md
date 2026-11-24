@@ -42,8 +42,13 @@ The `page_get_objects` tool jumps the view cursor to a specific physical page an
 
 This allows the agent to safely scale its understanding of massive documents by asking: "What am I looking at on Page 12?"
 
+Every Writer page index exposed to the model (`page_get_objects`, `nav_goto_page`, `page:N` locators, `image_get`, `image_list.page`, and chat snapshot `AT_PAGE` anchor notes) is 0-based (first page = 0). Tools convert at the boundary via `jump_view_cursor_to_page` (`plugin/doc/text_helpers.py`) or ±1 against LibreOffice's 1-based `getPage()` and `AnchorPageNo`. Because `XTextViewCursor.jumpToPage` clamps out-of-range targets to the last page (`SwRootFrame::SetCurrPage` in `sw/source/core/layout/trvlfrm.cxx`) and takes a `sal_Int16`, `jump_view_cursor_to_page` guards `0 <= page < 0x7FFF` and compares `vc.getPage()` to detect missing pages.
+
 ## Future Extensions
 
 ### Calc Charts and Form Controls
 
 Similarly, Calc spreadsheets maintain their own Draw layer for charts, form controls, and shapes. Exposing this through the LO-DOM pattern would allow the agent to understand dashboard layouts, spatial organization, and chart metadata programmatically, without requiring screenshots of the spreadsheet.
+## Open
+
+- `[feature M many]` LO-DOM style tree for Calc's draw layer (charts, form controls, shapes) so the agent can read dashboard layout and chart metadata without screenshots. (§ Calc Charts and Form Controls)

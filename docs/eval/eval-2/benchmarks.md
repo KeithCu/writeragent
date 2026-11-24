@@ -26,7 +26,7 @@ Keep the stores separate. Do **not** fold headed stamps into
 | Partial | correctness / quality | **Oracle partial** (`1 − failures/checks`; AFC S/R, husks) |
 | Cost | C²/$ = metric² ÷ avg $/task | C²/$ = `partial_score`² ÷ USD among HAPPY |
 | Gate | Catalog sweep on OpenRouter | **`google/gemini-3.8-flash`** until HAPPY (gpt-oss is not the product gate) |
-| Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg), [`eval2-partial.svg`](eval2-partial.svg) |
+| Charts | `pareto-fronts-<date>.svg` / `pareto-distance-<date>.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg), [`eval2-partial.svg`](eval2-partial.svg) |
 
 Ranked by **hard → partial → cost**. **Hard** = product HAPPY (the
 deliverable did the job). **Partial** = oracle quality among recorded

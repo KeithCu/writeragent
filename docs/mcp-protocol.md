@@ -44,16 +44,16 @@ The chosen binary must be on `PATH`. `start()` stores a different `last_error` w
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
-| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP). `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
+| `GET` | `/mcp` | SSE stream: keepalive comments and `notifications/tools/list_changed` when the open document-type set changes. `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
 | `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
-| `GET` | `/health` | Liveness |
+| `GET` | `/health` | Liveness and `tool_catalog_generation` counter |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
 
 There is **no** `/api/config` endpoint (removed — config is Settings / `writeragent.json` only).
 
 **Code:** [`plugin/mcp_server/mcp_protocol.py`](../plugin/mcp_server/mcp_protocol.py), [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py), [`plugin/mcp_server/__init__.py`](../plugin/mcp_server/__init__.py), [`plugin/mcp_server/server.py`](../plugin/mcp_server/server.py) (`mcp_endpoint_url`).
 
-**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. Today only SSE keepalive is sent. `_mcp_initialize` filters to `_SUPPORTED_HTTP_PROTOCOL_VERSIONS` or else `MCP_PROTOCOL_VERSION`, and `initialize_result` copies that single `protocol_version`. Release OXTs strip `@deal`.
+**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp_server/wire_types.py`](../plugin/mcp_server/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. `GET /mcp` and `GET /sse` streams send keepalive comments plus `notifications/tools/list_changed` events when the open document-type set changes. `_mcp_initialize` filters to `_SUPPORTED_HTTP_PROTOCOL_VERSIONS` or else `MCP_PROTOCOL_VERSION`, and `initialize_result` copies that single `protocol_version`. Release OXTs strip `@deal`.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
@@ -260,9 +260,9 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 `tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"` or `tier="specialized_control"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
 - Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
-- Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
+- Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type, and the tool description lists only the target document type's topics when known; only Writer's `manual_read` description adds the review-modes/search/images line; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
 - A single gateway: **`delegate_to_subagent`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
-- MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
+- MCP helpers: `document_list_open`, `document_open`, `document_save`, `document_export` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
 
 It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
 
@@ -278,35 +278,37 @@ the wrong one.
 
 #### Tool counts by surface
 
-Registry totals at a typical build: **225** registered tools (core 41, specialized 174, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`.
+Registry totals at a typical build: **228** registered tools (core 41, specialized 174, specialized_control 6, mcp 5, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`, `document_open`, `document_save`, and `document_export`.
 
 | App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
 |-----|--------------|--------------------------------|-------------------------------------|
-| Writer | 16 | 15 | 130 (129) |
-| Calc | 17 | 16 | 95 (94) |
-| Draw | 24 | 23 | 83 (82) |
-| Impress | 24 | 23 | 83 (82) |
+| Writer | 16 | 18 | 133 (132) |
+| Calc | 17 | 19 | 98 (97) |
+| Draw | 24 | 26 | 86 (85) |
+| Impress | 24 | 26 | 86 (85) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`, `document_open`, `document_save`, and `document_export`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
-| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **15** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`/`document_open`/`document_save`/`document_export`; `image_get` only if the selected text model is vision-capable |
+| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **18** tools | Adds `document_list_open`, `document_open`, `document_save`, `document_export`, `image_get`; every schema also gets optional `document_url` |
 
-Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
+**Document file tools:** `document_open`, `document_save`, and `document_export` (`plugin/doc/document_file_tools.py`) are `tier="mcp"` helpers—exposed on MCP and reachable from Python scripts as `wa.document.open`, `wa.document.save`, and `wa.document.export`, but not offered to the sidebar chat model—that pick LibreOffice export filters from a per-document-type extension table rather than accepting a raw filter name (passing a filter from another LibreOffice module crashes `soffice`). `document_open` checks `resolve_document_by_url` first and returns `already_open: true` without reloading, falls back to `_default` (reusing an unmodified empty untitled window), and supports `as_template=true` for an untitled copy. `document_save` saves in place when `path` is omitted or switches the open document to the new file via `storeAsURL` when `path` is given (overwriting existing files without prompting; PDF/PNG/SVG are export-only). `document_export` writes a copy via `storeToURL` while keeping the open document's current file and format.
+
+Chat gets a short pointer block in the **system prompt** and the domain catalog in `delegate_to_subagent`'s description; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 
 ### Where delegation guidance lives (MCP vs sidebar chat)
 
-Sidebar chat injects the same specialized-delegation block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`SPECIALIZED_DELEGATION_TEMPLATE`, with a dynamic `domain: description` list).
+Sidebar chat injects the short pointer block into the **system prompt** via [`get_chat_system_prompt_for_document()`](../plugin/framework/prompts.py) (`SPECIALIZED_DELEGATION_TEMPLATE`) and places the dynamic `domain: description` catalog in `delegate_to_subagent`'s tool description (`DelegateToSubagent.description_for_services`).
 
 MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`** enriches the gateway tool only (see [`to_mcp_schema()`](../plugin/framework/tool.py)):
 
 | Field | What the host sees |
 |--------|-------------------|
-| **`delegate_to_subagent` → `description`** | Short tool summary (`_WRITER_/_CALC_/_DRAW_DELEGATE_DESCRIPTION`) plus a pointer to the `domain` and `task` properties; the delegation template is sidebar-only |
+| **`delegate_to_subagent` → `description`** | Short tool summary (`_WRITER_/_CALC_` lead, or Draw MCP description naming the bound domains) plus a pointer to the `domain` and `task` properties; the delegation template is sidebar-only |
 | **`inputSchema.properties.domain.description`** | `domain one of:` plus the same semicolon-separated domain list (enum values stay in `enum`) |
 | **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (carries the full task-writing rules) |
 
@@ -444,7 +446,9 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 
 > Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `tool_find` covers the full no-document catalog on demand).
 
-> Note: `tools/list` is not re-sent when the mode changes mid-connection (`listChanged` is `false`), so reconnect after switching modes.
+> Note: `initialize` advertises `tools.listChanged: true` so clients re-list when a document type is opened or closed. A `mcp.tool_exposure_mode` change mid-connection is still not announced, so reconnect after switching modes.
+
+**Tool list changes:** Registering MCP routes installs one process-wide `GlobalEventBroadcaster` listener (`DocumentService.watch_open_doc_types`) that records `open_doc_types()` in `mcp_session.record_open_doc_types`. When the set of open document types changes (a new type opens, or the last document of a type closes), `tool_catalog_generation()` advances. Connected `GET /mcp` and `GET /sse` streams check the counter every 0.5 s (`_SSE_STOP_POLL_SEC`) and write `event: message` / `data: {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}`. Multiple document events inside one 0.5 s slice coalesce into one notification, and because WriterAgent has one process-wide session every connected stream receives the same frame. `/health` exposes `tool_catalog_generation` for the stdio bridge. Clients that never open `GET /mcp` or ignore `notifications/tools/list_changed` must re-run `tools/list` or reconnect.
 
 ---
 
@@ -461,7 +465,7 @@ The MCP server is **implemented and opt-in** (default off). Live summary (paths 
   - **Per-result echo / mutation gates:** resolved target echoed as `document: {name, uid}` when the tool does not supply its own; concurrent mutating calls serialize per `uid:` / `url:` key. See `_resolve_mcp_doc_key` / `_mcp_tools_call` in `mcp_protocol.py`. Writer heading-tree / proximity / FTS caches share that `uid:` / `url:` identity (`DocumentService.doc_key`); document edits and unload emit `document:cache_invalidated`.
   - Companion guidance: https://github.com/KeithCu/cursor-libreoffice , https://github.com/KeithCu/libreoffice-skill
 - **Config:** `mcp.mcp_enabled` (default false), `mcp.mcp_port` (default **18765**) in [`plugin/framework/config.py`](../plugin/framework/config.py) / `writeragent.json`.
-- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
+- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start at LO launch (`McpModule.start_background`) and when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
 - **Stdio bridge (optional):** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for clients that speak stdio MCP.
 - **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `manual_read` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py).
 
@@ -568,7 +572,7 @@ The bridge is a **pure-stdlib** stdio MCP server that forwards JSON-RPC to Libre
 | `WRITERAGENT_MCP_URL` | `http://localhost:18765/mcp` | Target MCP endpoint |
 | `WRITERAGENT_MCP_PROTOCOL` | `2025-11-25` (keep in sync with [`wire_types.py`](../plugin/mcp_server/wire_types.py)) | Protocol version in placeholder `initialize` when LO is down |
 
-**When LibreOffice is down at handshake:** `initialize` still succeeds locally (placeholder `instructions`, `tools.listChanged: true`); `tools/list` returns `[]`; other methods return a clear "not reachable" error. A background watcher emits `notifications/tools/list_changed` when `/health` transitions to up, so tools refresh **without restarting the MCP client**.
+**When LibreOffice is down at handshake:** `initialize` still succeeds locally (placeholder `instructions`, `tools.listChanged: true`); `tools/list` returns `[]`; other methods return a clear "not reachable" error. A background watcher emits `notifications/tools/list_changed` when `/health` transitions to up or its `tool_catalog_generation` changes, so tools refresh **without restarting the MCP client**.
 
 **Stale instructions edge case:** `initialize` `instructions` are delivered **once per MCP session**. If the bridge served the placeholder because LO was still starting, the client will **not** automatically receive the real manual when LO comes up — only the tool list refreshes. **Restart the MCP client** (or reconnect) after LibreOffice is running if you need the full `initialize` instructions. Direct HTTP clients that connect after LO is up are unaffected.
 
@@ -824,6 +828,8 @@ needed) is fine here because it is small and entirely informational.
 
 #### 4. `MCPAutoStartJob` (~25 lines) — copy verbatim
 
+**Not needed:** auto-start ships via the `OnStartApp` startup job (`extension/Jobs.xcu`) → `McpModule.start_background`; do not add a second job.
+
 ```python
 class MCPAutoStartJob(unohelper.Base, XJob, XServiceInfo):
     """Triggered by onFirstVisibleTask — starts MCP server at LO launch."""
@@ -842,7 +848,7 @@ and does not conflict.
 
 #### 5. Icons — copy directly
 
-The six icon files live in WriterAgent [`extension/assets/`](../extension/assets/) (`running_16.png` / `stopped_16.png` / `starting_16.png` and 26px variants). **MCP Server Status** declares `icon: stopped` in [`plugin/mcp_server/module.yaml`](../plugin/mcp_server/module.yaml); Toggle MCP Server is text-only. Hand-maintained [`extension/Addons.xcu`](../extension/Addons.xcu) reserves the Status menu slot (`ImageIdentifier`) and ships a default `Images` node (`%origin%/assets/stopped_16.png`). At runtime `_update_menu_icons` loads `assets/{prefix}_16.png` via GraphicProvider (`PropertyValue.Name = "URL"`) and inserts/replaces the command image in each document module's ImageManager — the same pattern as nelson-mcp.
+The running and stopped icon files live in WriterAgent [`extension/assets/`](../extension/assets/) (`running_{16,24,32,40}.png` and `stopped_{16,24,32,40}.png`). **MCP Server Status** declares `icon: stopped` in [`plugin/mcp_server/module.yaml`](../plugin/mcp_server/module.yaml); Toggle MCP Server is text-only. Hand-maintained [`extension/Addons.xcu`](../extension/Addons.xcu) reserves the Status menu slot (`ImageIdentifier`) and ships a default `Images` node (`%origin%/assets/stopped_16.png`). At runtime `MenuIcons.apply` ([`plugin/menu_state.py`](../plugin/menu_state.py)) loads `menu_icon_filename(prefix)` through `load_menu_graphic` and inserts/replaces the command image in each document module's ImageManager (which caps the menubar at 16 px).
 
 ---
 
@@ -969,7 +975,7 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
 
-Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false** for read tools; shared constant `SEARCH_CASE_SENSITIVE_DEFAULT` in [`search.py`](../plugin/writer/search.py)),
+Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false** for read tools; shared property `case_sensitive_param()` in [`search.py`](../plugin/writer/search.py) for Writer, Calc, Draw and research grep search tools),
 `max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
 no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern is validated by LibreOffice's ICU engine via `TextSearch2` before searching (LibreOffice itself reports a bad pattern as zero hits); floating shapes and comments use Python `re` with no separate check (ICU-only syntax matches nothing there). Read search tools across domains share this case-insensitive default (omitted or JSON `null` means case-insensitive) and report `matched_case_sensitive`. Writer edit and anchor tools use the exact-first ladder (exact case first, insensitive fallback only when nothing matches); `apply_content`, `apply_style`, `set_selection`, `add_comment`, `footnotes_insert`, `page_insert_break`, and `page_replace_header_footer_text` report both `matched_case_sensitive` and `matched_folded` (cursor-only specialized `target='search'` inserts and TOC tools use the ladder without adding those fields).
 
@@ -1080,14 +1086,9 @@ In priority order (updated 2026-11-05):
 Use this list to keep MCP and related tooling moving forward. Nothing here is required for
 current functionality.
 
-### MCP / protocol (still open)
-
-- **Auto-start on LO launch**: optional `XJob` with `onFirstVisibleTask` that starts the
-  MCP server if `mcp_enabled` is true, so the server is up without opening Settings first.
-  Shipped half: server starts when Settings saves with MCP enabled or via Toggle / Status menu.
-
 ### Shipped since this doc was written (removed from backlog)
 
+- **Auto-start on LO launch:** `McpModule.start_background` ([`plugin/mcp_server/__init__.py`](../plugin/mcp_server/__init__.py)), called by [`plugin/main.py`](../plugin/main.py) during the `OnStartApp` bootstrap ([`extension/Jobs.xcu`](../extension/Jobs.xcu)), starts the MCP server at launch when `mcp.mcp_enabled` is true (so no separate `XJob` was needed; `McpModule.initialize` only registers routes).
 - **Stdio proxy:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for stdio MCP clients.
 - **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
 - **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).
@@ -1120,3 +1121,12 @@ current functionality.
     3.  The server returns the documentation for `create_shape`, `edit_shape`, etc.
     4.  The host "learns" the API on-the-fly and calls `execute_specialized_tool` with the correct parameters.
 *   **Benefit:** Zero schema bloat on the host, no refetching required, and it leverages the server's existing validation logic.
+
+## Open
+
+- `[feature S many]` Expose a direct paragraph-style setter tool (a `set_paragraph_style` equivalent now that `style_list` exists). (§ What they have that WriterAgent lacks and should eventually add)
+- `[feature S few]` Add a `set_document_protection` tool so users can lock the document while reviewing AI edits. (§ What they have that WriterAgent lacks and should eventually add)
+- `[eng S many]` Add behavioral hints to tool descriptions, such as noting that plain-text `target='search'` replacements preserve character formatting and when to use `set_track_changes`. (§ Tool and prompt improvements (optional))
+- `[idea L few]` Per-client or per-session LLM endpoint settings for MCP so two hosts can use different sub-agent backends. (§ Per-connection vs global configuration (multiple servers))
+- `[eng S few]` Optionally re-enable HTTP/1.1 on the MCP listener with an explicit `handle_expect_100` override, retested against LibreOffice's bundled Python. (§ Future options (if you re-enable HTTP/1.1))
+- `[eng S few]` Skip `get_active_document` in `tools/list` when AsyncCallback dispatch is unavailable so the HTTP worker cannot hang with no timeout. (§ Future options (if you re-enable HTTP/1.1))

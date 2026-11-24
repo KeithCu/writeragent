@@ -18,31 +18,31 @@ def test_partition_tool_errors_same_tool_later_ok_is_recovered() -> None:
     ok_y = {"status": "ok"}
     err_x2 = {"status": "error", "message": "x failed again"}
 
-    # [x err, x ok] -> ([], [err_x])
+    # [x err, x ok] -> ([], [calls1[0]])
     calls1 = [
         InnerToolCall("tool_x", err_x, mutating=True),
         InnerToolCall("tool_x", ok_x, mutating=True),
     ]
     unrecovered1, recovered1 = partition_tool_errors(calls1)
     assert unrecovered1 == []
-    assert recovered1 == [err_x]
+    assert recovered1 == [calls1[0]]
 
-    # [x err, y ok] -> ([err_x], [])
+    # [x err, y ok] -> ([calls2[0]], [])
     calls2 = [
         InnerToolCall("tool_x", err_x, mutating=True),
         InnerToolCall("tool_y", ok_y, mutating=True),
     ]
     unrecovered2, recovered2 = partition_tool_errors(calls2)
-    assert unrecovered2 == [err_x]
+    assert unrecovered2 == [calls2[0]]
     assert recovered2 == []
 
-    # [x err, x err] -> ([err_x, err_x2], [])
+    # [x err, x err] -> ([calls3[0], calls3[1]], [])
     calls3 = [
         InnerToolCall("tool_x", err_x, mutating=True),
         InnerToolCall("tool_x", err_x2, mutating=True),
     ]
     unrecovered3, recovered3 = partition_tool_errors(calls3)
-    assert unrecovered3 == [err_x, err_x2]
+    assert unrecovered3 == [calls3[0], calls3[1]]
     assert recovered3 == []
 
 
@@ -56,7 +56,7 @@ def test_partition_tool_errors_changed_arguments_is_recovered() -> None:
     ]
     unrecovered, recovered = partition_tool_errors(calls)
     assert unrecovered == []
-    assert recovered == [err]
+    assert recovered == [calls[0]]
 
 
 def test_expects_edits_checks_read_only_domains() -> None:
@@ -84,6 +84,7 @@ def test_apply_inner_outcome_finish_only_stays_ok() -> None:
     assert result_edit["finished"] is True
     assert result_edit["answer"] == answer
     assert result_edit.get("note") == NO_EDIT_TOOL_NOTE
+    assert result_edit["edits"] == {}
     assert json.dumps(result_edit).count(answer) == 1
 
     # finish-only on a read-only domain (document_research) -> status "ok", no note
@@ -93,6 +94,7 @@ def test_apply_inner_outcome_finish_only_stays_ok() -> None:
     assert result_ro["finished"] is True
     assert result_ro["answer"] == answer
     assert "note" not in result_ro
+    assert "edits" not in result_ro
     assert json.dumps(result_ro).count(answer) == 1
 
 
@@ -111,7 +113,33 @@ def test_apply_inner_outcome_recovered_error_stays_ok() -> None:
     assert result["status"] == "ok"
     assert result["finished"] is True
     assert result["recovered_tool_errors"] == ["Syntax error in python script"]
+    assert result["edits"] == {"python_run_script": 1}
+    assert "tool_errors" not in result
     assert "code" not in result
+
+
+def test_apply_inner_outcome_error_after_edits_reports_edits_and_tool_errors() -> None:
+    write_ok = {"status": "ok"}
+    chart_err = {"status": "error", "code": "INVALID_RANGE", "message": "Invalid range address"}
+    tree_err = {"status": "error", "message": "Tree unavailable"}
+    finish = {"status": "ok", "finished": True, "answer": "Partial update"}
+    payload = dict(finish)
+    calls = [
+        InnerToolCall("write_range", write_ok, mutating=True),
+        InnerToolCall("write_range", write_ok, mutating=True),
+        InnerToolCall("chart_upsert", chart_err, mutating=True),
+        InnerToolCall("get_tree", tree_err, mutating=False),
+        InnerToolCall(FINISH_TOOL_NAME, finish, mutating=False),
+    ]
+
+    result = apply_inner_outcome(payload, finish, calls, expect_edits=True)
+    assert result["status"] == "error"
+    assert result["edits"] == {"write_range": 2}
+    assert result["tool_errors"] == [
+        {"tool": "chart_upsert", "code": "INVALID_RANGE", "message": "Invalid range address"},
+        {"tool": "get_tree", "message": "Tree unavailable"},
+    ]
+    assert result["message"] == "Invalid range address; Tree unavailable"
 
 
 def test_apply_inner_outcome_unrecovered_error_is_error() -> None:
@@ -185,6 +213,7 @@ def test_apply_inner_outcome_incomplete_without_edits_has_note() -> None:
     calls_mut = [InnerToolCall("edit_shape", {"status": "ok"}, mutating=True)]
     res_mut = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_mut, expect_edits=True)
     assert res_mut["status"] == "incomplete"
+    assert res_mut["edits"] == {"edit_shape": 1}
     assert "note" not in res_mut
 
     res_ro_domain = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_ro, expect_edits=False)
@@ -337,3 +366,41 @@ def test_loop_hint_shapes_states_units_for_every_label() -> None:
     for label in ("Writer", "Calc", "Draw"):
         assert loop_hint("shapes", label) == expected
 
+
+def test_every_catalog_domain_has_a_description() -> None:
+    from collections import defaultdict
+
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+
+    get_tools()
+    for label in ("Writer", "Calc", "Draw"):
+        entries = catalog_entries_from_base(agent_label=label)
+        assert entries
+        descs_by_domain: dict[str, list[str]] = defaultdict(list)
+        for entry in entries:
+            descs_by_domain[entry["domain"]].append(entry["description"].strip())
+        for domain, descs in descs_by_domain.items():
+            assert any(descs), f"{label} domain {domain!r} has an empty description"
+
+
+def test_merged_vision_catalog_prefers_writer() -> None:
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+    from plugin.writer.specialized_base import ToolWriterVisionBase
+
+    get_tools()
+    merged = {e["domain"]: e["description"] for e in get_specialized_domain_catalog(agent_label=None)}
+    assert merged["vision"] == ToolWriterVisionBase.specialized_domain_description
+
+
+def test_indexes_toc_read_rule_reaches_sub_agent_not_catalog() -> None:
+    from plugin.doc.find_tools_tool import get_domain_guidance
+    from plugin.doc.specialized_catalog import loop_hint
+    from plugin.writer.specialized_base import ToolWriterIndexBase
+
+    hint = loop_hint("indexes", "Writer")
+    assert hint != ""
+    assert get_domain_guidance("indexes", agent_label=None) == hint
+    assert ToolWriterIndexBase.specialized_domain_description is not None
+    assert hint not in ToolWriterIndexBase.specialized_domain_description

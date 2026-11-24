@@ -338,7 +338,7 @@ def test_get_header_footer_returns_html_and_still_lists_logo_and_field():
                return_value='<p>ESCRITORIO ZOLET <span title="page-number"/></p>') as export:
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
-            style="Standard", region="header")
+            style="Standard", region="header", include_images=True)
 
     export.assert_called_once()
     assert res["status"] == "ok"
@@ -361,7 +361,7 @@ def test_get_header_propagates_export_error_and_disposal():
         patch("plugin.writer.page.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
         pytest.raises(ToolExecutionError, match="boom"),
     ):
-        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header", include_images=True)
     with (
         patch(
             "plugin.writer.page.xtext_to_content",
@@ -369,7 +369,7 @@ def test_get_header_propagates_export_error_and_disposal():
         ),
         pytest.raises(DocumentDisposedError),
     ):
-        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header", include_images=True)
 
 
 def test_set_header_footer_imports_html_even_when_a_logo_is_present():
@@ -507,7 +507,7 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
     with patch("plugin.writer.page.xtext_to_content", return_value="<p>plain</p>"):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
-            style="Standard", region="header")
+            style="Standard", region="header", include_images=True)
 
     assert res["status"] == "ok"
     assert "cap 1" in res["warning"]
@@ -553,7 +553,7 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
         patch("plugin.writer.page.xtext_to_content", return_value=""),
     ):
         res = PageGetHeaderFooterText().execute(
-            TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header")
+            TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header", include_images=True)
 
     assert res["status"] == "ok"
     assert res["images"] == ["TIMBRE"]
@@ -846,7 +846,7 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     from plugin.writer.page import PageInsertBreak
 
     doc, para = _pagebreak_doc()
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Assinaturas")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Assinaturas", occurrence=0)
     assert res["status"] == "ok" and "before" in res["message"]
     assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is True
     assert res["matched_case_sensitive"] is True
@@ -864,6 +864,7 @@ def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
         SimpleNamespace(doc=doc),
         before_text="Assinaturas",
         page_style="Annex",
+        occurrence=0,
     )
     assert res["status"] == "ok"
     assert "before" in res["message"]
@@ -880,7 +881,7 @@ def test_page_break_after_text_breaks_on_following_paragraph():
     from plugin.writer.page import PageInsertBreak
 
     doc, para = _pagebreak_doc(found_next=True)
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="clausula")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="clausula", occurrence=0)
     assert res["status"] == "ok" and "after" in res["message"]
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_called_once_with("BreakType", 4)
@@ -898,6 +899,7 @@ def test_page_break_restart_sets_page_number_offset(restart_num):
         after_text="clausula",
         page_style="Annex",
         restart_page_number=restart_num,
+        occurrence=0,
     )
     assert res["status"] == "ok"
     assert "after" in res["message"]
@@ -918,7 +920,7 @@ def test_page_break_after_text_last_paragraph_errors_instead_of_wrong_direction(
     from plugin.writer.page import PageInsertBreak
 
     doc, para = _pagebreak_doc(found_next=False)
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="assinatura final")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="assinatura final", occurrence=0)
     assert res["status"] == "error" and "last paragraph" in res["message"]
     para.setPropertyValue.assert_not_called()  # never the wrong-direction silent break
 
@@ -933,6 +935,7 @@ def test_page_break_page_style_last_paragraph_still_errors():
         after_text="assinatura final",
         page_style="Annex",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert "last paragraph" in res["message"]
@@ -962,7 +965,7 @@ def test_page_break_anchor_not_found():
     doc.getDrawPage.return_value = None
     doc.findFirst.return_value = None
     # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature", occurrence=0)
     assert res["status"] == "error"
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"
     assert "before_text not found in document" in res["message"]
@@ -985,7 +988,7 @@ def test_page_break_anchor_strips_markup_before_find():
     from plugin.writer.search import escape_for_lo_regex
 
     doc, para = _pagebreak_doc()
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="<b>Assinaturas</b>")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="<b>Assinaturas</b>", occurrence=0)
     assert res["status"] == "ok"
     assert doc.createSearchDescriptor.return_value.SearchString == escape_for_lo_regex("Assinaturas", fold=False)
 
@@ -999,6 +1002,7 @@ def test_page_break_unknown_page_style_changes_nothing():
         SimpleNamespace(doc=doc),
         before_text="Assinaturas",
         page_style="NoSuch",
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert "No page style named 'NoSuch'" in res["message"]
@@ -1015,6 +1019,7 @@ def test_page_break_restart_without_page_style_errors():
         SimpleNamespace(doc=doc),
         before_text="Assinaturas",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert res["message"] == "restart_page_number requires page_style."
@@ -1034,6 +1039,7 @@ def test_page_break_restart_rejects_non_positive():
             before_text="Assinaturas",
             page_style="Annex",
             restart_page_number=val,
+            occurrence=0,
         )
         assert res["status"] == "error"
         assert res["message"] == "restart_page_number must be an integer from 1 to 32767."
@@ -1048,6 +1054,7 @@ def test_page_break_page_style_must_be_a_string():
         SimpleNamespace(doc=doc),
         before_text="Assinaturas",
         page_style=123,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert res["message"] == "page_style must be a string."
@@ -1064,6 +1071,7 @@ def test_page_break_empty_style_with_restart_does_not_resolve():
         before_text="Assinaturas",
         page_style="",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert res["message"] == "restart_page_number requires page_style."
@@ -1241,7 +1249,7 @@ def _cursors_for(text_obj, hay):
 
 
 def _replace(doc, **kwargs):
-    args = {"style": "Standard", "region": "footer", "old_content": "Annex", "content": "Appendix"}
+    args = {"style": "Standard", "region": "footer", "old_content": "Annex", "content": "Appendix", "all_matches": False}
     args.update(kwargs)
     return PageReplaceHeaderFooterText().execute(SimpleNamespace(doc=doc), **args)
 
@@ -1250,16 +1258,16 @@ def test_replace_header_footer_rejects_bad_args():
     doc = MagicMock()
     tool = PageReplaceHeaderFooterText()
     both = tool.execute(
-        SimpleNamespace(doc=doc), region="footer", old_content="Annex", content="A",
+        SimpleNamespace(doc=doc), style="Standard", region="footer", old_content="Annex", content="A",
         occurrence=1, all_matches=True,
     )
     assert both["status"] == "error" and "all_matches" in both["message"]
     neg = tool.execute(
-        SimpleNamespace(doc=doc), region="footer", old_content="Annex", content="A",
-        occurrence=-1,
+        SimpleNamespace(doc=doc), style="Standard", region="footer", old_content="Annex", content="A",
+        occurrence=-1, all_matches=False,
     )
     assert neg["status"] == "error" and "occurrence must be a non-negative integer." in neg["message"]
-    empty = tool.execute(SimpleNamespace(doc=doc), region="footer", old_content="", content="A")
+    empty = tool.execute(SimpleNamespace(doc=doc), style="Standard", region="footer", old_content="", content="A", all_matches=False)
     assert empty["status"] == "error" and "old_content" in empty["message"]
     ok, err = tool.validate(region="nope", old_content="Annex", content="A")
     assert ok is False and err is not None and "region" in err
@@ -1415,7 +1423,7 @@ def test_set_page_style_width_rounds():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetStyleProperties().execute(ctx, width_mm=2.3)
+    res = PageSetStyleProperties().execute(ctx, style="Standard", width_mm=2.3)
     assert res["status"] == "ok"
     style.setPropertyValue.assert_called_with("Width", 230)
 
@@ -1431,7 +1439,7 @@ def test_set_page_style_stops_and_reports_updated():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetStyleProperties().execute(ctx, width_mm=10, height_mm=20)
+    res = PageSetStyleProperties().execute(ctx, style="Standard", width_mm=10, height_mm=20)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert res["updated"] == ["width"]
@@ -1446,7 +1454,7 @@ def test_set_page_style_bad_mm_writes_nothing():
     ctx = SimpleNamespace(doc=doc)
 
     with pytest.raises(ValueError, match="non-negative"):
-        PageSetStyleProperties().execute(ctx, width_mm=-1)
+        PageSetStyleProperties().execute(ctx, style="Standard", width_mm=-1)
     style.setPropertyValue.assert_not_called()
 
 
@@ -1458,7 +1466,7 @@ def test_is_landscape_flag_only_restores_size():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetStyleProperties().execute(ctx, is_landscape=True)
+    res = PageSetStyleProperties().execute(ctx, style="Standard", is_landscape=True)
     assert res["status"] == "ok"
     style.setPropertyValue.assert_any_call("IsLandscape", True)
     style.setPropertyValue.assert_any_call("Width", 21000)
@@ -1472,7 +1480,7 @@ def test_is_landscape_explicit_size_written_after_flag():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetStyleProperties().execute(ctx, is_landscape=True, width_mm=297, height_mm=210)
+    res = PageSetStyleProperties().execute(ctx, style="Standard", is_landscape=True, width_mm=297, height_mm=210)
     assert res["status"] == "ok"
     calls = [c.args for c in style.setPropertyValue.call_args_list]
     props = [c[0] for c in calls]
@@ -1499,10 +1507,10 @@ def test_page_style_layout_read_and_write(monkeypatch: pytest.MonkeyPatch):
 
     ctx = SimpleNamespace(doc=doc)
     with pytest.raises(ValueError, match="page_style_layout"):
-        PageSetStyleProperties().execute(ctx, page_style_layout=4)
+        PageSetStyleProperties().execute(ctx, style="Standard", page_style_layout=4)
     style.setPropertyValue.assert_not_called()
 
-    res_ok = PageSetStyleProperties().execute(ctx, page_style_layout=1)
+    res_ok = PageSetStyleProperties().execute(ctx, style="Standard", page_style_layout=1)
     assert res_ok["status"] == "ok"
     style.setPropertyValue.assert_any_call("PageStyleLayout", 1)
 
@@ -1534,7 +1542,7 @@ def test_set_header_first_skipped_when_shared():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetHeaderFooterText().execute(ctx, region="header_first", content="<p>Test</p>")
+    res = PageSetHeaderFooterText().execute(ctx, style="Standard", region="header_first", content="<p>Test</p>")
     assert res["status"] == "skipped"
     assert res["mirrored"] is True
     style.setPropertyValue.assert_not_called()
@@ -1549,7 +1557,7 @@ def test_set_header_rolls_back_enable_when_import_fails():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.writer.page.replace_xtext_with_html", side_effect=RuntimeError("import failed")):
-        res = PageSetHeaderFooterText().execute(ctx, region="header", content="<p>Test</p>")
+        res = PageSetHeaderFooterText().execute(ctx, style="Standard", region="header", content="<p>Test</p>")
         assert res["status"] == "error"
         calls = [c.args for c in style.setPropertyValue.call_args_list if c.args[0] == "HeaderIsOn"]
         assert calls[0] == ("HeaderIsOn", True)
@@ -1568,7 +1576,7 @@ def test_set_columns_spacing_zero_clears_inner_margins():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetColumns().execute(ctx, column_count=2, spacing_mm=0)
+    res = PageSetColumns().execute(ctx, style="Standard", column_count=2, spacing_mm=0)
     assert res["status"] == "ok"
     assert col1.RightMargin == 0
     assert col2.LeftMargin == 0
@@ -1591,7 +1599,7 @@ def test_page_set_columns_rejects_bad_values_before_touching_doc(
     doc = MagicMock()
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetColumns().execute(ctx, **kwargs)
+    res = PageSetColumns().execute(ctx, **{"style": "Standard", "spacing_mm": 0, **kwargs})
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert res["details"]["parameter"] == expected_param
@@ -1607,7 +1615,7 @@ def test_page_set_columns_accepts_cap() -> None:
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetColumns().execute(ctx, column_count=99)
+    res = PageSetColumns().execute(ctx, style="Standard", column_count=99, spacing_mm=0)
     assert res["status"] == "ok"
     text_columns.setColumnCount.assert_called_once_with(99)
 
@@ -1624,7 +1632,7 @@ def test_get_columns_marks_relative_width():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageGetColumns().execute(ctx)
+    res = PageGetColumns().execute(ctx, style="Standard")
     assert res["status"] == "ok"
     assert len(res["columns"]) == 1
     assert res["columns"][0]["width_unit"] == "relative"
@@ -1679,7 +1687,7 @@ def test_page_break_in_table_cell_errors():
     # Anchor path: para is in text table
     doc, para = _pagebreak_doc()
     para.getPropertyValue.side_effect = lambda prop: object() if prop == "TextTable" else None
-    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Anchor")
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Anchor", occurrence=0)
     assert res["status"] == "error"
     assert "table cell" in res["message"]
     para.setPropertyValue.assert_not_called()
@@ -1717,6 +1725,7 @@ def test_page_break_page_style_in_table_cell_still_errors():
         before_text="Anchor",
         page_style="Annex",
         restart_page_number=1,
+        occurrence=0,
     )
     assert res["status"] == "error"
     assert "table cell" in res["message"]
@@ -1772,7 +1781,7 @@ def test_get_header_footer_omits_scan_extras_when_draw_page_unreadable():
     doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     with patch("plugin.writer.page.xtext_to_content", return_value="<p>x</p>"):
-        res = PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+        res = PageGetHeaderFooterText().execute(ctx, style="Standard", region="header", include_images=True)
     assert res["status"] == "ok"
     assert res["content"] == "<p>x</p>"
     assert "fields" not in res
@@ -1797,7 +1806,7 @@ def test_get_header_footer_reports_disposed_region_text():
 
     style.getPropertyValue.side_effect = props
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
-    res = PageGetHeaderFooterText().execute_safe(ctx, style="Standard", region="header")
+    res = PageGetHeaderFooterText().execute_safe(ctx, style="Standard", region="header", include_images=True)
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -1822,7 +1831,7 @@ def test_replace_reports_disposed_instead_of_region_off():
     style.getPropertyValue.side_effect = props
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     res = PageReplaceHeaderFooterText().execute_safe(
-        ctx, style="Standard", region="footer", old_content="a", content="b"
+        ctx, style="Standard", region="footer", old_content="a", content="b", all_matches=False
     )
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
@@ -1840,7 +1849,7 @@ def test_replace_refuses_when_draw_page_unreadable():
     doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     res = PageReplaceHeaderFooterText().execute_safe(
-        ctx, style="Standard", region="footer", old_content="Annex", content="B"
+        ctx, style="Standard", region="footer", old_content="Annex", content="B", all_matches=False
     )
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"

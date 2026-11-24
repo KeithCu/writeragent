@@ -7,13 +7,16 @@ runs:
     - id: lo_cache_key
       shell: bash
       run: |
-        # ImageVersion is a runner process env var, not workflow env — read it here for the cache key.
         . /etc/os-release
         pkgs="libreoffice libreoffice-dev python3-uno gettext"
         pkg_hash=$(printf '%s' "$pkgs" | sha256sum | cut -c1-12)
-        image_version="${ImageVersion:-unknown}"
-        cache_key="${RUNNER_OS}-${VERSION_ID}-${VERSION_CODENAME}-${image_version}-lo-v2-${pkg_hash}"
+        # Omit ImageVersion so runners on different mirrors share one cache; apt-get treats it as a download cache and fetches missing/newer deps.
+        # Keep the OS release in restore_prefix to isolate Ubuntu versions, and append a monthly bucket to force periodic refreshes.
+        restore_prefix="${RUNNER_OS}-${VERSION_ID}-${VERSION_CODENAME}-lo-v3-"
+        bucket=$(date -u +%Y-%m)
+        cache_key="${restore_prefix}${pkg_hash}-${bucket}"
         echo "key=${cache_key}" >> "$GITHUB_OUTPUT"
+        echo "restore-prefix=${restore_prefix}" >> "$GITHUB_OUTPUT"
         echo "LibreOffice apt cache key: ${cache_key}"
 
     - name: Restore LibreOffice .deb cache
@@ -21,6 +24,8 @@ runs:
       with:
         path: ~/apt-lo-debs
         key: ${{ steps.lo_cache_key.outputs.key }}
+        restore-keys: |
+          ${{ steps.lo_cache_key.outputs.restore-prefix }}
 
     - name: apt-get install LibreOffice
       shell: bash
@@ -62,6 +67,8 @@ runs:
           exit 1
         fi
 
+        sudo apt-get autoclean -qq
+        rm -f "$HOME/apt-lo-debs"/*.deb
         for deb in /var/cache/apt/archives/*.deb; do
           cp -n "$deb" "$HOME/apt-lo-debs/" || true
         done

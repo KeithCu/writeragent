@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Poslední úpravu agentem se nepodařilo vrátit zpět."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Poslední úprava agentem byla vrácena zpět ({0} kroků)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Obrázek nebyl nalezen."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Obrázek se nepodařilo odstranit: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -697,11 +706,11 @@ msgstr "Nejprve otevřete tabulkový dokument v aplikaci Calc."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Editor Monaco je zakázán nastavením „scripting.force_internal_script_editor“"
-" v souboru writeragent.json."
+"Okno editora Python je zakázáno nastavením "
+"„scripting.force_internal_script_editor“ v souboru writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1227,6 +1236,10 @@ msgstr "Přijmout tuto změnu"
 msgid "Reject this change"
 msgstr "Odmítnout tuto změnu"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Náhled obrázku se nepodařilo dekódovat."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1623,6 +1636,25 @@ msgstr "proč"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "vy"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Spouštění…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Zrušeno."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Náhled selhal: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Spuštění selhalo: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2336,6 +2368,35 @@ msgstr "Otevírám „%s“ pro přístup pouze pro čtení."
 msgid "Web research completed."
 msgstr "Webový průzkum dokončen."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama neohlásila num_ctx, takže WriterAgent předpokládal {0} tokenů, což je"
+" pro webový průzkum příliš málo (samotný dotaz pro průzkum a nástroje "
+"využijí přibližně 2 000 tokenů, plus výstupní tokeny). Zvyšte num_ctx na "
+"alespoň {1} (pomocí PARAMETER num_ctx {2} nebo vyšší hodnoty v souboru "
+"Modelfile pomocí ollama create), poté použijte Test připojení v Nastavení "
+"(nebo restartujte LibreOffice) a zkuste to znovu."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Kontextové okno ({0} tokenů) je pro webový průzkum příliš malé (samotný "
+"dotaz pro průzkum a nástroje využijí přibližně 2 000 tokenů, plus výstupní "
+"tokeny). Zvyšte num_ctx na alespoň {1} (nebo přepněte na model s větším "
+"kontextovým oknem) a zkuste to znovu."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2614,10 +2675,6 @@ msgstr "Nový skript Python"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Název skriptu:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Spouštění…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2927,12 +2984,12 @@ msgstr "Kontrola virtuálního prostředí (venv) selhala"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Nastavte cestu k Python venv v Nastavení → Python (stejné venv, ve kterém "
-"jste spustili 'uv pip install pywebview rocher'). Vestavěný Python v "
-"LibreOffice nemůže editor spustit."
+"Nastavte cestu k virtuálnímu prostředí (venv) Pythonu v Nastavení → Python "
+"(stejné venv, ve kterém jste spustili „uv pip install pywebview“). Vestavěný"
+" Python v LibreOffice nemůže editor spustit."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3020,12 +3077,13 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Zvuková sonda selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco: test vypršel."
+msgid "UI / Editor probe timed out."
+msgstr "Časový limit sondy uživatelského rozhraní / editoru vypršel."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco: test selhal (viz writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr ""
+"Sonda uživatelského rozhraní / editoru selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3071,6 +3129,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB: test selhal (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR nelze v tomto venv spustit:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nebyla detekována žádná vstupní zařízení mikrofonu."
 
@@ -3103,8 +3165,10 @@ msgid "Audio Recording & Speech"
 msgstr "Záznam zvuku a řeč"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Knihovny Monaco: kontroluji mimo skript worker..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr ""
+"Knihovny uživatelského rozhraní / editoru: probíhá kontrola mimo skriptovací"
+" proces..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3476,7 +3540,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Pomocníci pro vidění vyžadují dokument Writer, Calc, Draw nebo Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Pomocník Vision selhal."
 
@@ -3569,6 +3633,225 @@ msgstr "Nepodařilo se otevřít vestavěný dialog pro skripty."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Při otevírání funkce Spustit skript Python došlo k neočekávané chybě."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Zkontrolujte soubor writeragent_debug.log ve složce uživatelského profilu "
+"LibreOffice"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Server MCP se nepodařilo spustit"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Zastavit server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Spustit server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Server MCP neběží"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Server MCP běží"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Cesty: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Místní URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Veřejná adresa URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Místní koncový bod:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Veřejný tunel ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Stav: Aktivní (připojeno)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Stav: Znovu se připojuje — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "zkouším znovu…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Stav: Spouštění tunelu…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Stav: Selhalo — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Stav: Neběží (je nainstalován binární soubor {0}?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Zkopírováno!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Testování…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Test tunelu"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Test tunelu MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Veřejný tunel přes {0} (bez ověření)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Veřejný tunel přes {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "znovu se připojuje…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Veřejný tunel přes {0} selhal: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Spouští se veřejný tunel přes {0}…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Veřejný tunel přes {0} neběží (je nainstalován binární soubor "
+"poskytovatele?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Testovací režim tunelu: poskytovatel {0} byl úspěšně simulován."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Neznámý poskytovatel tunelu: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binární soubor „{0}“ pro {1} nebyl nalezen v cestě PATH.\n"
+"\n"
+"Nainstalujte jej z: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Nepodařilo se spustit binární soubor {0} ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Tunel {0} běží a odpovídá!\n"
+"\n"
+"Veřejný koncový bod:\n"
+"{1}\n"
+"\n"
+"Kontrola stavu: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Tunel {0} je aktivní!\n"
+"\n"
+"Veřejný koncový bod:\n"
+"{1}\n"
+"\n"
+"(Veřejná adresa URL získaná z aktivní relace tunelu.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Binární soubor {0} „{1}“ je ověřen ({2}).\n"
+"\n"
+"(Poznámka: Aktivní tunel {3} je aktuálně spuštěn na {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Binární soubor {0} „{1}“ je nainstalován a ověřen ({2}).\n"
+"\n"
+"Server MCP běží lokálně na portu {3}.\n"
+"Zaškrtněte „Zpřístupnit přes veřejný tunel“ a klikněte na OK pro aktivaci veřejného směrování."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Binární soubor {0} „{1}“ je nainstalován a ověřen ({2}).\n"
+"\n"
+"Poznámka: Server MCP aktuálně neběží na portu {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Stav serveru MCP"
@@ -3589,10 +3872,60 @@ msgstr "Přijmout vše"
 msgid "Reject all"
 msgstr "Odmítnout vše"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Načítání modelů…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Rozpoznávání textu…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Nebyl detekován žádný text."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Vykreslování náhledu…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Nelze exportovat vybraný obrázek: {error}"
+msgid "Done: {count} characters."
+msgstr "Hotovo: {count} znaků."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vložení pomocí Vision OCR vyžaduje dokument Writer nebo Calc; pro "
+"Draw/Impress použijte Náhled."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Vkládání…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Vloženo {count} obrázků."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Vloženo: {count} znaků."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr "Obrázek byl ponechán, protože probíhá revize úprav agenta."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Nepodařilo se vytvořit dokument náhledu."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Náhled stránky se nepodařilo vykreslit."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3600,6 +3933,11 @@ msgid ""
 msgstr ""
 "Vyberte vložený obrázek (nebo oblast obsahující obrázky) a poté spusťte "
 "znovu."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Nelze exportovat vybraný obrázek: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3679,227 +4017,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Obrázek byl během přípravy vložení OCR odstraněn."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nelze odstranit nepojmenovaný obrázek po vložení pomocí OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Obrázek byl během vkládání OCR odstraněn."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Zkontrolujte soubor writeragent_debug.log ve složce uživatelského profilu "
-"LibreOffice"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Server MCP se nepodařilo spustit"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Zastavit server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Spustit server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Server MCP neběží"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Server MCP běží"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Cesty: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Místní URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Veřejná adresa URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Místní koncový bod:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Veřejný tunel ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Stav: Aktivní (připojeno)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Stav: Znovu se připojuje — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "zkouším znovu…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Stav: Spouštění tunelu…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Stav: Selhalo — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Stav: Neběží (je nainstalován binární soubor {0}?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Zkopírováno!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testování…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Test tunelu"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Test tunelu MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Veřejný tunel přes {0} (bez ověření)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Veřejný tunel přes {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "znovu se připojuje…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Veřejný tunel přes {0} selhal: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Spouští se veřejný tunel přes {0}…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Veřejný tunel přes {0} neběží (je nainstalován binární soubor "
-"poskytovatele?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Testovací režim tunelu: poskytovatel {0} byl úspěšně simulován."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Neznámý poskytovatel tunelu: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binární soubor „{0}“ pro {1} nebyl nalezen v cestě PATH.\n"
-"\n"
-"Nainstalujte jej z: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Nepodařilo se spustit binární soubor {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Tunel {0} běží a odpovídá!\n"
-"\n"
-"Veřejný koncový bod:\n"
-"{1}\n"
-"\n"
-"Kontrola stavu: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Tunel {0} je aktivní!\n"
-"\n"
-"Veřejný koncový bod:\n"
-"{1}\n"
-"\n"
-"(Veřejná adresa URL získaná z aktivní relace tunelu.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Binární soubor {0} „{1}“ je ověřen ({2}).\n"
-"\n"
-"(Poznámka: Aktivní tunel {3} je aktuálně spuštěn na {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Binární soubor {0} „{1}“ je nainstalován a ověřen ({2}).\n"
-"\n"
-"Server MCP běží lokálně na portu {3}.\n"
-"Zaškrtněte „Zpřístupnit přes veřejný tunel“ a klikněte na OK pro aktivaci veřejného směrování."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Binární soubor {0} „{1}“ je nainstalován a ověřen ({2}).\n"
-"\n"
-"Poznámka: Server MCP aktuálně neběží na portu {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Vložit OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4605,18 +4732,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Dovednost polidštění (přirozený text)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Je-li povoleno, vloží do systémového promptu pokyny, aby model generoval "
-"nebo upravoval text dokumentu tak, aby zněl přirozeněji a lidštěji "
-"(odstraňuje typické vzorce AI). Pravidla můžete upravit ve svém profilu "
-"LibreOffice ve složce writeragent/skills/humanizer/SKILL.md (soubor se "
-"automaticky vytvoří při prvním použití). Vyhrazenou kartu Dovednosti lze "
-"přidat později."
+"Pokud je povoleno, vloží do systémové výzvy vestavěné pokyny, aby generovaný"
+" nebo revidovaný text dokumentu zněl přirozeněji a lidštěji (odstraňuje "
+"vzorce typické pro AI)."
 
 msgid "Silence before send (ms)"
 msgstr "Ticho před odesláním (ms)"
@@ -4810,6 +4932,68 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Základní služby (konfigurace, události, protokolování)"
 
+msgid "Integrations"
+msgstr "Integrace"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Servery MCP pro chat v postranním panelu"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Přidat"
+
+msgid "Remove"
+msgstr "Odebrat"
+
+msgid "Use this MCP server in chat"
+msgstr "Použít tento server MCP v chatu"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Pouze chat v postranním panelu (doména mcp); nikdy není vystaven serveru MCP"
+" aplikace WriterAgent ani skriptům."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Důvěřovat nástrojům pouze pro čtení (bez dotazu)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Nástroje, které server označí jako readOnlyHint, se spustí bez potvrzení / "
+"změny / odmítnutí; u všech ostatních volání bude stále vyžadováno potvrzení"
+
+msgid "Name"
+msgstr "Název"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Předpony názvů nástrojů tohoto serveru (např. home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL serveru"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Koncový bod MCP pro streamování přes HTTP, např. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer token. Při potvrzení nastavení bude uložen do systémové klíčenky, je-"
+"li dostupná, jinak do souboru writeragent.json."
+
+msgid "Status"
+msgstr "Stav"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4908,68 +5092,6 @@ msgstr "Konfigurace klienta (zkopírujte do Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopírovat konfiguraci"
-
-msgid "Integrations"
-msgstr "Integrace"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Servery MCP pro chat v postranním panelu"
-
-msgid "Server"
-msgstr "Server"
-
-msgid "Add"
-msgstr "Přidat"
-
-msgid "Remove"
-msgstr "Odebrat"
-
-msgid "Use this MCP server in chat"
-msgstr "Použít tento server MCP v chatu"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Pouze chat v postranním panelu (doména mcp); nikdy není vystaven serveru MCP"
-" aplikace WriterAgent ani skriptům."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Důvěřovat nástrojům pouze pro čtení (bez dotazu)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Nástroje, které server označí jako readOnlyHint, se spustí bez potvrzení / "
-"změny / odmítnutí; u všech ostatních volání bude stále vyžadováno potvrzení"
-
-msgid "Name"
-msgstr "Název"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Předpony názvů nástrojů tohoto serveru (např. home -> mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL serveru"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr ""
-"Koncový bod MCP pro streamování přes HTTP, např. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer token. Při potvrzení nastavení bude uložen do systémové klíčenky, je-"
-"li dostupná, jinak do souboru writeragent.json."
-
-msgid "Status"
-msgstr "Stav"
 
 msgid "Notebook"
 msgstr "Poznámkový blok"
@@ -5081,13 +5203,18 @@ msgstr "Povolit přístup k souborům"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Je-li zaškrtnuto, Python může číst a zapisovat soubory kdekoli (open, io, "
-"pathlib, shutil, tempfile, sqlite3, glob a souborové operace modulu os, jako"
-" jsou listdir a stat). Pokud není zaškrtnuto, je toto čtení a zápis "
-"blokováno. Paměťové buffery (io.BytesIO, io.StringIO) zůstávají dostupné."
+"Pokud je zaškrtnuto, Python může číst a zapisovat soubory kdekoli (open, io,"
+" pathlib, shutil, tempfile, sqlite3, glob a souborová volání os, jako jsou "
+"listdir a stat). Pokud není zaškrtnuto, jsou tyto operace čtení a zápisu "
+"blokovány; vyrovnávací paměti v paměti (io.BytesIO, io.StringIO) a pomocné "
+"funkce pro soubory dokumentů (wa.document.open, wa.document.save, "
+"wa.document.export, které jsou dostupné pro MCP a skripty Pythonu, nikoli "
+"pro model chatu v postranním panelu) zůstávají k dispozici."
 
 msgid "Allow OS access"
 msgstr "Povolit přístup k operačnímu systému"
@@ -5124,11 +5251,11 @@ msgstr ""
 "Okno editoru pro Úpravu Pythonu v buňce, Spuštění skriptu Python, "
 "inicializační skript a LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (výchozí)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Vize / OCR"
@@ -5139,35 +5266,98 @@ msgstr "Měřítko obrázku"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "Zvětšit před OCR/rozvržením. Pro malé snímky obrazovky zkuste 2.0."
 
-msgid "Worker timeout (seconds)"
-msgstr "Časový limit procesu (sekundy)"
+msgid "Document timeout (s)"
+msgstr "Časový limit dokumentu (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Limit hostitelského podprocesu pro Vision Helpers (první stažení modelu)."
+"Zastaví zpracování dokumentu nástrojem Docling po uplynutí tohoto počtu "
+"sekund a ponechá dosud dokončené stránky. Stahování a načítání modelu se "
+"nezapočítává. Hodnota 0 limit vypne."
 
-msgid "Docling artifacts path"
-msgstr "Cesta k artefaktům Docling"
+msgid "OCR engine"
+msgstr "OCR engine"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Volitelná složka pro stažené modely docling-tools (pro offline použití)."
+"OCR engine používaný nástrojem Docling. Každý engine kromě RapidOCR (ONNX) "
+"musí být nainstalován ve virtuálním prostředí Pythonu; Nastavení → Python → "
+"Test vypíše nainstalované enginy."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, výchozí)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (příkazový řádek)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Jazyk OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Jazykové kódy jako en, de nebo zh-TW, oddělené čárkou. Moduly Docling čtou "
+"každý kód; modul Paddle čte první z nich. Prázdné pole použije jazyk obrázku"
+" nebo LibreOffice."
+
+msgid "Device"
+msgstr "Zařízení"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Hardware pro modely Docling. Automaticky použije GPU, pokud jej Docling "
+"nalezne; CPU funguje vždy."
+
+msgid "Auto"
+msgstr "Automaticky"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Práh spolehlivosti OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Minimální skóre textu pro RapidOCR. 0.0 je skutečná prahová hodnota (nikoliv"
-" výchozí). Zvyšte pro omezení nesmyslného textu."
-
-msgid "OCR entire image"
-msgstr "OCR celého obrázku"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Doporučeno pro vloženou grafiku exportovanou z LibreOffice."
+"Minimální spolehlivost pro rozpoznaný text (RapidOCR a EasyOCR; ostatní "
+"enginy ji ignorují). Zvyšte ji pro odstranění nekvalitního textu; 0.0 "
+"ponechá veškerý text."
 
 msgid "Table extraction mode"
 msgstr "Režim extrakce tabulek"
@@ -5206,6 +5396,13 @@ msgstr "Standardní HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Strukturované (rozvržení / mřížka buněk)"
 
+msgid "Delete image after OCR"
+msgstr "Odstranit obrázek po OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "Po vložení obsahu pomocí OCR odstraní zdrojový obrázek z dokumentu."
+
 msgid "Layout model"
 msgstr "Model rozvržení"
 
@@ -5227,8 +5424,44 @@ msgstr "Obohacení bloků kódu"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Specializované OCR pro snímky obrazovky kódu/terminálu."
 
-msgid "Docling document timeout (s)"
-msgstr "Časový limit dokumentu Docling (s)"
+msgid "RapidOCR model size"
+msgstr "Velikost modelu RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Velikost modelu RapidOCR pro jazyky PP-OCRv6; ostatní jazyky ji ignorují. "
+"„Tiny“ je nejrychlejší a neobsahuje japonský model; „medium“ je "
+"nejpřesnější."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (výchozí)"
+
+msgid "Medium"
+msgstr "Střední"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Opravit otočený text (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Znovu načíst oblast v úhlech 90, 180 a 270 stupňů, pokud je spolehlivě "
+"přečteno méně než polovina řádků. Opravuje skeny na šířku; časově náročné "
+"pouze u nekvalitních čtení. Platí pro moduly RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Rozpoznávání Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Pouze Apple Vision (macOS). Rychlé je svižnější, ale méně přesné a podporuje"
+" méně jazyků."

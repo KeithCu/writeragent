@@ -490,7 +490,9 @@ def run_venv_roundtrip(
     if grid_b is not None:
         wire = _pack_multi_data([grid, grid_b], force=pack_force)
     else:
-        wire = host_pack_data(grid, force=pack_force)
+        # The venv reads a top-level flat list as one input per =PY() argument,
+        # so a 1-D fixture is sent as its one-row grid.
+        wire = host_pack_data(ensure_rectangular_2d(grid), force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
         response = mgr.execute(ExecRequest(code=code, data=wire, timeout_sec=python_exec_timeout()))

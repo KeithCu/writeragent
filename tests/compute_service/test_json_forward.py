@@ -576,11 +576,20 @@ class TestHttpBlobForward:
         assert seen["data_json"] == data_literal
         assert out == result_json
 
+    def test_host_made_reply_has_no_lone_surrogate(self) -> None:
+        app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "error", "error": "bad \ud83d"})
+        status, out = _wsgi_post(app, b'{"code":"result=1","id":"\\ud83d"}', content_type="application/json")
+        assert status.startswith("200")
+        assert rb"\ud83d" not in out
+        parsed = json.loads(out)
+        assert parsed["error"] == "bad \ufffd"
+        assert parsed["id"] == "\ufffd"
+
 
 class TestFormulaPoolWire:
     def test_json_forward_does_not_host_pack(self) -> None:
         # 40×30 = 1200 cells (above compute pickle min_cells=1000) but under
-        # DEAL_MAX_SHAPE_DIM so materialize_inputs' list-of-grids pre still holds.
+        # DEAL_MAX_SHAPE_DIM so materialize_inputs' argument-list pre still holds.
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
@@ -641,6 +650,21 @@ class TestFormulaPoolWire:
             assert parsed["status"] == "ok"
             assert parsed["result"][0][0] == 0
             assert parsed["result"][-1][-1] == rows * cols - 1
+        finally:
+            pool.shutdown()
+
+    def test_lone_surrogate_keeps_the_python_error(self) -> None:
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        try:
+            err = run_cell(pool, code=r"print('out \ude00')" + "\n" + r"raise ValueError('bad \ud83d name')", req_id="surr-err")
+            assert err["status"] == "error"
+            assert err["error"].endswith("ValueError: bad \ufffd name")
+            assert err["stdout"] == "out \ufffd\n"
+            assert err["traceback"].endswith("ValueError: bad \ufffd name")
+
+            ok = run_cell(pool, code=r"result = [['\ud83d\ude00', '\ud83d', '\\ud83d']]", req_id="surr-ok")
+            assert ok["status"] == "ok"
+            assert ok["result"] == [["\U0001f600", "\ufffd", r"\ud83d"]]
         finally:
             pool.shutdown()
 
@@ -878,3 +902,34 @@ def test_validate_session_id_rejects_padded_init_suffix() -> None:
     with pytest.raises(ExecuteRequestError) as exc_info:
         validate_session_id("foo:init ")
     assert exc_info.value.code == "INVALID_SESSION_ID"
+
+
+@pytest.mark.parametrize(
+    ("text", "sent"),
+    [
+        ("a\ud83d", "a\ufffd"),
+        ("\ude00b", "\ufffdb"),
+        ("\ud83d\ud83d", "\ufffd\ufffd"),
+        ("\ude00\ud83d", "\ufffd\ufffd"),
+        ("\ud83d\ud83d\ude00", "\ufffd\U0001f600"),
+        ("\ud83d\ude00", "\U0001f600"),
+        ("\U0001f600", "\U0001f600"),
+        (r"\ud83d", r"\ud83d"),
+        ("\\\ud83d", "\\\ufffd"),
+        ("\ud7ff\ue000", "\ud7ff\ue000"),
+    ],
+    ids=[
+        "trailing-high",
+        "leading-low",
+        "two-high",
+        "reversed-pair",
+        "high-then-pair",
+        "surrogate-pair",
+        "astral-char",
+        "literal-escape",
+        "backslash-then-high",
+        "adjacent-non-surrogates",
+    ],
+)
+def test_dumps_response_replaces_only_lone_surrogates(text: str, sent: str) -> None:
+    assert json.loads(dumps_response({"k": [text]})) == {"k": [sent]}

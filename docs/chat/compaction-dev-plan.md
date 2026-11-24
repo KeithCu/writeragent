@@ -265,9 +265,8 @@ Stored in `writeragent.json` under the user's LibreOffice profile (defined in `p
 The current implementation represents **Version 1**. The following features and enhancements are planned or under consideration for future iterations:
 
 ### 1. Manual `/compact` and `/tokens` Slash Commands
-- Expose `/compact` in chat to allow users to trigger compaction on demand.
-- Add `/tokens` to show current estimated prompt tokens, context window limit, and usage ratio.
-- Depends on completing general slash-command dispatch (`plugin/chatbot/slash_commands.py`).
+- **`/compact` (Shipped):** Implemented in `plugin/chatbot/slash_commands.py` (`usage="/compact [focus]"`), allowing users to trigger compaction on demand.
+- **`/tokens` (Planned):** Add `/tokens` to show current estimated prompt tokens, context window limit, and usage ratio.
 
 ### 2. Sidebar UI Notification / Toast
 - Provide a subtle visual indicator (e.g., small badge, toast, or system message in chat) when auto-compaction occurs.
@@ -434,3 +433,15 @@ Hermes avoided `tiktoken` in favor of `estimate_tokens_rough`: ASCII at 4 chars/
 - **PR 1 (Commit `ba83bce2`):** Added pure `plugin/chatbot/compaction.py` module with estimator, tiered thresholds, remaining-budget ceiling walk, tool-pair cut logic, tail pressure stubs, and unit tests (`test_compaction.py`).
 - **PR 2 (Commit `a4baec01`):** Wired compaction into `plugin/chatbot/tool_loop.py` (`_spawn_llm_worker`, `_spawn_final_stream`, `_handle_stream_error`) inside `llm_request_lane` with status updates, overflow retry loop, and config kill switch.
 - **PR 3 (Commit `fe86daa4`):** Added mock-LLM integration test Packet K for full sidebar compaction smoke verification.
+
+## Open
+
+- `[feature S few]` Add a `/tokens` slash command showing estimated prompt tokens, the context window and the usage ratio (`/compact` already ships). (§ Future Features, 1. Manual `/compact` and `/tokens` Slash Commands)
+- `[feature S many]` Show a subtle notice in the sidebar when auto-compaction happens, such as "Compacted 8 older turns into summary". (§ Future Features, 2. Sidebar UI Notification / Toast)
+- `[feature M few]` Let a cheaper or faster model write compaction summaries via a `chat_compaction_model` override. (§ Future Features, 3. Dedicated Compaction Model Override)
+- `[feature S few]` Add a `chat_compaction_ratio` config key so power users can change the compaction trigger point. (§ Future Features, 4. User-Configurable Compaction Ratio)
+- `[eng M few]` Recover from HTTP 413 payload-too-large in screenshot-heavy Calc sessions by byte-scoring and downscaling or pruning older images. (§ Future Features, 5. HTTP 413 Byte-Based Scoring)
+- `[eng M few]` Reserve `max_tokens` per provider, subtracting `chat_max_tokens` where the engine shares context between prompt and completion. (§ Future Features, 7. Dynamic Provider-Aware `max_tokens` Reservation)
+- `[idea L few]` Use vendor-native server-side compaction (OpenAI `/responses/compact`, Anthropic) on compatible endpoints. (§ Future Features, 8. Native Server-Side Compaction Integration)
+- `[feature M many]` Run a memory-flush turn that saves durable facts to `MEMORY.md` before older turns are summarized away. (§ Future Features, 9. Long-Term Memory Flush Integration)
+- `[eng M many]` Persist `CompactionState` in `history_db` so reopening a long session does not re-summarize. (§ Future Features, 10. Session Persistence of Compaction State Across Restarts)

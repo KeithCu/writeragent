@@ -37,7 +37,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 18. [LLM access (deferred)](#18-llm-access-deferred)
 19. [Out of scope](#19-out-of-scope)
 20. [Suggested agent prompt](#20-suggested-agent-prompt)
-21. [Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan)
+21. [Visual/layout HTML fidelity (partly shipped)](#21-visuallayout-html-fidelity-partly-shipped)
 
 ---
 
@@ -102,7 +102,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path
-2. In that venv: pip install docling rapidocr-paddle numpy pillow onnxruntime
+2. In that venv: pip install "docling>=2.145" onnxruntime css-inline
    (Paddle-only fallback: pip install paddleocr paddlepaddle numpy — set params engine=paddle)
    (ultralytics not required until Phase 4 helpers)
 3. Open a Writer document
@@ -116,7 +116,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path (same venv as analysis helpers)
-2. pip install docling rapidocr-paddle numpy pillow onnxruntime
+2. pip install "docling>=2.145" onnxruntime css-inline
 3. Open a Calc document with a cell-anchored embedded image
 4. Click the image so it is selected (export source)
 5. WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text → Run
@@ -144,17 +144,24 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 
 | Launch | Role |
 |--------|------|
-| **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| OCR \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json` |
-| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling and rapidocr are both present, or when PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
+| **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json`. `worker_timeout_sec`, `artifacts_path`, and `force_full_page_ocr` are `writeragent.json`-only. |
+| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready under **Vision Libraries** only when Docling, rapidocr, and onnxruntime are all present, or, when Docling is not installed, PaddleOCR and Paddle are both present, and css-inline is present; otherwise Missing (OCR). Optional OCR engines (`easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` via `which` on `PATH` and its default install folders) are listed when present and never counted as Missing; a present `nemotron_ocr` also runs Docling's `NemotronOcrModel.validate_runtime`; when that fails, Test prints *Nemotron OCR cannot start in this venv: \<Docling's reason\>* (still never Missing); paddle/ultralytics/skimage stay Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). `vision.worker_timeout_sec` still allows per-vision override. |
+| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). Hidden key `vision.worker_timeout_sec` still allows per-vision override. |
 
-At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
+At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors hidden key `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
 
-Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py).
+Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py); live preview job: [`vision_preview.py`](../../plugin/vision/vision_preview.py).
+
+The dialog has four footer buttons: **Run**, **Preview**, **OK**, and **Cancel**.
+
+- **Preview** previews the first selected image in the active document using the dialog's unsaved values (without saving to disk, inserting into the document, or deleting the image). It runs `extract_structure` with the dialog's `insert_mode`, renders page 1 of a hidden Writer document (`5 mm` margins, `1600 px` wide via [`page_png.py`](../../plugin/writer/page_png.py)), and displays it in the scrollable preview pane. For Calc `structured` mode, the preview shows the layout HTML rather than the cell grid. Status progresses through `Running…` → `Loading models…` → `Recognizing text…` → `Rendering preview…` → `Done: N characters.` (or ends with `No text detected.` when OCR finds nothing, without rendering). Because LibreOffice UNO exposes no mouse-wheel listener for AWT controls, scrolling uses the vertical scrollbar (drag, arrows, page click, or keys when focused).
+- **Run** runs `extract_structure` on the active Writer or Calc document's selected image(s) using the dialog's unsaved values (without saving to disk), inserts the result(s) into the document (honoring live `delete_image_after_insert` on successful insert), keeps the dialog open, and reports status (`Running…` → `Loading models…` → `Recognizing text…` → `Inserting…` → `Inserted: N characters.` or `Inserted N images.`, counting only images that had content; or `No text detected.` when OCR finds nothing, inserting nothing and keeping the image). When `delete_image_after_insert` is enabled and Agent edit review is in Record or Wait mode, the image is kept (disposing a frame is not a redline, so rejecting changes could not restore it) and the status appends `Image kept because Agent edit review is recording changes.`. On Draw/Impress, Run fails fast and directs the user to **Preview**.
+- **OK** saves settings and closes the dialog (cancelling any in-flight Run or Preview).
+- **Cancel** discards unsaved edits, cancels any in-flight Run or Preview (preventing any pending insert/delete), and closes the dialog.
 
 ### 2.6 Optional follow-on UX (not Phase 1)
 
@@ -294,7 +301,7 @@ return png_bytes
 ### 4.5 PaddleOCR in `vision.py`
 
 - **Lazy-init** one `PaddleOCR` instance per warm worker process (module-level singleton; reset on worker respawn).
-- Phase 1 **`params`:** optional `lang` (string, default `"en"`).
+- **`params.lang` mapping** (`paddle_lang_code` and `_PADDLE_LANG_ALIASES` in [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py), default `"en"` when empty): takes the first non-empty comma entry, strips any `iso:` prefix, and ignores case. Only `-` separates BCP-47 subtags (`_` is preserved for PP-OCR codes such as `rs_latin` and `chinese_cht`). Known aliases map to PP-OCR codes (for example `zh-TW` → `chinese_cht`, `zh` → `ch`, `ja` → `japan`, `sr-Latn` → `rs_latin`; see `_PADDLE_LANG_ALIASES` for the full table). Bare `ka` passes through as PP-OCR Kannada while `ka-GE`/`ka-Geor` (Georgian) is unsupported; other tags drop their region (`en-US` → `en`). `latin`, `cyrillic`, `arabic`, and `devanagari` pass through for 2.x and are rejected by 3.x as `OCR_LANGUAGE_UNSUPPORTED`. When PaddleOCR raises `ValueError("No models are available for...")` (or `ka-GE`/`ka-Geor` is given), `vision_paddle.py` returns `OCR_LANGUAGE_UNSUPPORTED`.
 - Use current PaddleOCR 3.x Python API. Construct `PaddleOCR(use_angle_cls=True, lang=...)` and `PPStructureV3(...)` without `show_log` (3.x / PaddleX rejects it; 2.x defaults it off). Call 3.x `predict(image)` — `ocr(image, cls=True)` forwards `cls` into keyword-only `predict` and raises `TypeError`. 2.x still uses `ocr(image, cls=True)`.
 - **3.x Result parsing** ([`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py)): `ocr` / `predict` returns a Result whose `.json` is `{"res": {rec_texts, rec_scores, rec_polys}}`, not the 2.x `[[box, (text, score)], ...]` line list. PPStructureV3 pages are the same wrapper with `parsing_res_list` (`block_label`, `block_content`, `block_bbox`) and `table_res_list[].pred_html`. Both 3.x and 2.x shapes parse. Missing `PPStructureV3` is `PADDLEOCR_UNAVAILABLE`.
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
@@ -413,14 +420,14 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 
 | # | Library | Install | Role |
 |---|---------|---------|------|
-| **1** | **Docling** | `pip install docling rapidocr-paddle numpy pillow onnxruntime` | **Default** OCR, layout, tables — `engine=docling` |
+| **1** | **Docling** | `pip install "docling>=2.145" onnxruntime css-inline` | **Default** OCR, layout, tables — `engine=docling` |
 | **2** | **PaddleOCR** | `pip install paddleocr paddlepaddle numpy` | Lightweight fallback — `engine=paddle` |
 | **3** | **Ultralytics** | `pip install ultralytics` | YOLO detection — **Phase 4+** helpers only |
 
 Primary install (Docling default):
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow onnxruntime
+pip install "docling>=2.145" onnxruntime css-inline
 ```
 
 Paddle-only fallback:
@@ -432,7 +439,7 @@ pip install paddleocr paddlepaddle numpy
 Full stack:
 
 ```bash
-pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pillow onnxruntime
+pip install "docling>=2.145" onnxruntime css-inline paddleocr paddlepaddle ultralytics
 ```
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
@@ -442,14 +449,19 @@ Template params for OCR research (keyword arguments of the `run_vision(...)` cal
 | Param | Default | Values |
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
-| `ocr_backend` | `"rapidocr"` | `"auto"`, `"rapidocr"`, `"rapidocr_paddle"`, `"easyocr"`, `"tesseract"`, `"surya"` (requires `docling-surya` + `allow_external_plugins`) |
+| `ocr_backend` | `"rapidocr"` | `"rapidocr"`, `"rapidocr_openvino"`, `"rapidocr_paddle"`, `"rapidocr_torch"`, `"easyocr"`, `"tesseract"` (Tesseract command line), `"ocrmac"`, `"nemotron"` |
+| `lang` | `"en"` (or LO locale) | Comma-separated language codes. BCP-47-looking tokens (`en`, `de`, `zh-TW`, `chi_sim`) get Docling's `iso:` prefix; engine-native codes (`japan`, `latin`, `chinese_cht`, `script/Cyrillic`) pass through unchanged. `ch` is Chamorro (ISO); use `zh` for Chinese. The Paddle engine uses the first code, mapped to a PP-OCR code (§4.5). The LO locale default keeps its region (`zh-TW`). |
+| `device` | `"auto"` | `"auto"` \| `"cpu"` \| `"cuda"` \| `"mps"` (validated by Docling's `AcceleratorOptions`; invalid values return `INVALID_PARAM`) |
 | `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
-| `fallback_engine` | `true` | When Docling is missing, or a Docling runtime `VISION_ERROR` looks like a layout API/AttributeError (`get_engine_config` / `LayoutModelConfig`), auto-fallback to Paddle if installed |
+| `rapidocr_model_size` | `"small"` | `"tiny"` \| `"small"` \| `"medium"`. Applies to `rapidocr*` backends and PP-OCRv6 languages only (other languages ignore it). `tiny` with Japanese returns `INVALID_PARAM` |
+| `rapidocr_detect_orientation` | `false` | Re-read a region at 90°, 180°, and 270° when fewer than half its lines read confidently. Applies to `rapidocr*` backends only |
+| `ocrmac_recognition` | `"accurate"` | `"accurate"` \| `"fast"`. Applies to `ocrmac` only; bad values return `INVALID_PARAM` |
+| `fallback_engine` | `true` | When Docling is missing (`DOCLING_UNAVAILABLE`) or older than 2.145 (`DOCLING_API_MISMATCH`), fall back to Paddle if it is installed |
 
-`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`.
+`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is passed as `text_score` to `rapidocr*` backends and as `confidence_threshold` to `easyocr` (ignored by the other engines), and is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`. `rapidocr_model_size`, `rapidocr_detect_orientation`, and `ocrmac_recognition` are also part of the converter cache key; the first two apply to `rapidocr*` backends only, and `ocrmac_recognition` applies to `ocrmac` only.
 
-**Docling layout `model_spec` (issue 587):** `layout_model=heron` / `egret_large` maps to `LayoutObjectDetectionOptions` / `ObjectDetectionModelSpec` (`layout_heron_default` / `layout_egret_large`) on Docling ≥ **2.118.0** (released **2026-08-03**). On ≤ 2.117 the same keys still assign `DOCLING_LAYOUT_*` (`LayoutModelConfig`) onto legacy `LayoutOptions`. The legacy branch is removable once WriterAgent assumes Docling ≥ 2.118.0. When Docling is installed, `tests/vision/venv/test_vision_docling.py` imports it and calls `_build_pipeline_options` / `extract_text` without mocking layout types (skips if Docling, PIL, rapidocr, or onnxruntime is missing). The removable legacy `LayoutModelConfig` branch is not unit-tested.
+WriterAgent requires Docling ≥ 2.145 (released 2026-10-29). Vision checks the installed `docling` / `docling-slim` metadata before building a pipeline and returns `DOCLING_API_MISMATCH` naming the version plus `pip install -U "docling>=2.145"`. `layout_model` maps to `OBJECT_DETECTION_LAYOUT_<KEY>.model_spec` for heron, egret_large and egret_xlarge; other values use Heron. Real-Docling tests in `tests/vision/venv/test_vision_docling.py` skip when Docling is missing or older than 2.145.
 
 Success payloads may include `metrics.engine`, `metrics.ocr_backend`, and `metrics.input_format` (`image` or `pdf`) for provenance.
 
@@ -478,23 +490,32 @@ OpenCV is allowed by default in the LLM sandbox for ad hoc scripts; **new truste
 | Self-check? | Optional; graceful skip if absent (like `fg-data-profiling` for analysis) |
 | Sandbox blocklist? | Not required for trusted modules |
 
-### 7.4 Alternative: Surya (single library)
+### 7.4 Surya
 
-**[Surya](https://github.com/VikParuchuri/surya)** (`surya-ocr`) — transformer OCR + layout + reading order. **GPL-3.0** (compatible with WriterAgent GPL v3+). Use via Docling plugin [`docling-surya`](https://pypi.org/project/docling-surya/) with `ocr_backend=surya` and `allow_external_plugins=true` — not co-maintained as a separate native stack.
+No Surya OCR backend; Docling's `surya_ocr2_5` VLM preset is a separate, undecided engine path.
 
 ### 7.5 Docling vs native PaddleOCR
 
-Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.com/RapidAI/RapidOCR)** with a **`paddle` backend** (`rapidocr-paddle`) that runs the same model family. For direct PP-OCR API access, set `engine=paddle`. A custom Docling `BaseOcrModel` plugin wrapping PaddleOCR is a possible future research add-on.
+Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.com/RapidAI/RapidOCR)** with a **`paddle` backend** (`ocr_backend=rapidocr_paddle`) that runs the same model family. For direct PP-OCR API access, set `engine=paddle`. A custom Docling `BaseOcrModel` plugin wrapping PaddleOCR is a possible future research add-on.
 
 ### 7.6 OCR research quick reference
 
 | Goal | Params / install |
 |------|------------------|
-| Default (Docling + Paddle models via RapidOCR) | defaults — `pip install docling rapidocr-paddle onnxruntime` |
-| Compare EasyOCR / Tesseract | `ocr_backend=easyocr` or `tesseract` + matching pip extra |
-| Surya via Docling plugin | `pip install docling-surya surya-ocr`; `ocr_backend=surya`, `allow_external_plugins=true` |
-| Apple macOS Vision | Docling `OcrMacOptions` (system dependency) |
+| Default (Docling + RapidOCR ONNX) | defaults — `pip install "docling>=2.145" onnxruntime css-inline` |
+| Sideways scans / speed vs accuracy (RapidOCR) | `rapidocr_detect_orientation=true` / `rapidocr_model_size=tiny\|medium` |
+| RapidOCR with OpenVINO / Paddle / PyTorch | `ocr_backend=rapidocr_openvino` / `rapidocr_paddle` / `rapidocr_torch` + matching engine package |
+| EasyOCR / Tesseract CLI | `ocr_backend=easyocr` (`pip install easyocr`) or `ocr_backend=tesseract` (Tesseract on `PATH`, or in `C:\Program Files\Tesseract-OCR`, `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`) |
+| Apple macOS Vision / NVIDIA Nemotron | `ocr_backend=ocrmac` (`pip install ocrmac`, macOS) or `ocr_backend=nemotron` (`pip install nemotron-ocr` in a Linux x86_64 CUDA venv you set up; see notes) |
 | Lightweight Paddle-only | `engine=paddle`; `pip install paddleocr paddlepaddle` |
+
+**Tesseract CLI notes:** Docling runs one OSD subprocess and one OCR subprocess per OCR region, so full-page OCR (the image default) is the cheap mode. Each `lang` needs its `traineddata`, and `osd` avoids per-region OSD errors. The tessdata dir is not configurable because Docling lists languages from Tesseract's default dir (`tesseract_ocr_cli_model.py:_set_languages`).
+
+**EasyOCR notes:** Every language in `lang` must share one recognition model: Latin-script languages mix freely; Japanese, Korean, Simplified and Traditional Chinese, Thai, Tamil, Telugu and Kannada each pair only with English; Cyrillic, Arabic, Devanagari and Bengali each mix within their own group plus English; other mixes return `INVALID_PARAM` (EasyOCR `Reader.setModelLanguage`). `device` = `auto`, `cuda`, or `mps` turns the GPU on (Docling `decide_device`). Models download on first use to `~/.EasyOCR/model` (or `EASYOCR_MODULE_PATH`). With `artifacts_path` set, models are read from `<artifacts_path>/EasyOcr` with downloads off — prefetch with `docling-tools models download easyocr --easyocr-lang de -o <artifacts_path>`. When the `easyocr` package is present but a dependency does not import, the result is `OCR_BACKEND_UNAVAILABLE` naming the missing module, with no Paddle fallback.
+
+**Apple Vision (ocrmac) notes:** Runs on device, needs no model download, and requires macOS with `pip install ocrmac` (pyobjc Vision). Off macOS the result is `OCR_BACKEND_UNAVAILABLE` at pre-flight. `lang` tags are matched to Vision's list (`en` → `en-US`, `zh-TW` → `zh-Hant`); that list depends on the macOS version and `ocrmac_recognition`, and `fast` reads fewer languages. Unknown languages return `OCR_LANGUAGE_UNSUPPORTED`. `text_score` is ignored. A broken `ocrmac`/pyobjc install, or Vision reporting no recognition languages, returns `OCR_BACKEND_UNAVAILABLE` with no Paddle fallback.
+
+**NVIDIA Nemotron OCR notes:** Nemotron runs in a separate venv the user creates and points Settings → Python at. WriterAgent only needs that venv's python binary and never checks its Python version. Docling 2.151 checks for Linux x86_64, Python 3.12, a CUDA 13 build of PyTorch, and a CUDA device (`NemotronOcrModel.validate_runtime`). A venv that fails any check, or has a broken `nemotron_ocr`, returns `OCR_BACKEND_UNAVAILABLE` with Docling's reason and no Paddle fallback. Settings → Python → Test prints the same reason. Install with `pip install nemotron-ocr`, or `docling-slim[feat-ocr-nemotron]` (the `docling` meta-package has no such extra, although Docling's own message names one). `device` must be `auto` or `cuda`. For `lang`, `en` / `english` pick the English recognizer, `zh`, `zh-TW`, `ja`, `ko`, `ru`, or `multilingual` pick the multilingual one, other Latin-script languages use the English recognizer with a Docling log warning, and only the first `lang` entry is used. Weights `nvidia/nemotron-ocr-v2` download on first use; for offline use, run `docling-tools models download nemotron_ocr_v2 -o <artifacts_path>` (a missing artifact folder returns `VISION_ERROR` with Docling's message). `text_score` is ignored.
 
 ### 7.7 Other packages (mention only)
 
@@ -511,9 +532,10 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 | Config schema + tabs | [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml) (`settings_tab: false`, `config_dialog`) |
 | Generated XDL | `VisionSettingsDialog.xdl` via `make manifest` / [`manifest_xdl.py`](../../scripts/manifest_xdl.py) |
 | Menu entry | [`extension/Addons.xcu`](../../extension/Addons.xcu) → `vision.open_settings` in [`main.py`](../../plugin/main.py) |
-| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)` |
+| Dialog runtime | [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py) — populate/apply `vision.*`, modeless `setVisible(True)`, `_PreviewPane` + Run/Preview jobs |
+| Preview / Run jobs | [`vision_preview.py`](../../plugin/vision/vision_preview.py) — `load_models` warm-up + `extract_structure` + hidden Writer page 1 render (`run_vision_preview`) or Writer/Calc insert (`run_vision_insert`) |
 
-Persisted keys include `device`, `images_scale`, `ocr_backend`, `lang`, `table_mode`, `layout_model`, `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run.
+Settings → Vision OCR Settings → General holds `ocr_backend`, `lang`, and `device` (alongside `images_scale`, `document_timeout`, and `text_score`). Advanced holds `rapidocr_model_size`, `rapidocr_detect_orientation`, and `ocrmac_recognition` (alongside `layout_model`, `do_formula_enrichment`, and `do_code_enrichment`). Persisted keys also include `table_mode`, `layout_model`, hidden `worker_timeout_sec`, and related Docling pipeline toggles. Template `[Vision]` scripts can still override individual params per run. Before OCR, both Preview and Run (`_make_load_models_hook`) send `LOAD_MODELS_HELPER` (`"load_models"`) with the exact OCR params, once per run while params match; `vision_docling.load_models` calls `converter.initialize_pipeline(...)` on the single-entry `_converter_cache` so the subsequent OCR call reuses the loaded models.
 
 ---
 
@@ -646,7 +668,7 @@ def is_vision_result(value: Any) -> bool:
 6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
 7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/html_import.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
-**What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
+**What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (partly shipped)](#21-visuallayout-html-fidelity-partly-shipped).
 
 **Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings. If the **image disappears** after insert, redeploy the extension (older builds imported HTML at the graphic anchor and replaced the selection). Current builds insert a paragraph break after the anchor first; a regression surfaces as `The image was removed during OCR insert.`
 
@@ -656,7 +678,7 @@ Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 
-Host `run_trusted_vision` rejects helpers in `HELPER_NAMES` but not `IMPLEMENTED_HELPERS` with `UNKNOWN_HELPER` before export. Images larger than `VISION_IMAGE_MAX_BYTES` (15 MiB, under the 16 MiB pickle frame cap) return `IMAGE_TOO_LARGE` and are not sent. PDF bytes do not fall back to Paddle. A layout spec missing `get_engine_config` returns `LAYOUT_MODEL_UNAVAILABLE` and is not converted.
+Host `run_trusted_vision` rejects helpers in `HELPER_NAMES` but not `IMPLEMENTED_HELPERS` with `UNKNOWN_HELPER` before export. Images larger than `VISION_IMAGE_MAX_BYTES` (15 MiB, under the 16 MiB pickle frame cap) return `IMAGE_TOO_LARGE` and are not sent. PDF bytes do not fall back to Paddle.
 
 Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, not a write under the current selection.
 
@@ -676,8 +698,10 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `NO_OUTPUT_ANCHOR` | Calc: selected graphic has no resolvable cell **Anchor** |
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |
+| `DOCLING_API_MISMATCH` | Installed Docling older than 2.145; message names the version and the upgrade command (Paddle fallback applies) |
 | `CSS_INLINE_UNAVAILABLE` | `css-inline` not installed — required for pretty HTML insert: `pip install css-inline` |
-| `OCR_BACKEND_UNAVAILABLE` | Docling installed but chosen `ocr_backend` / plugin missing |
+| `OCR_BACKEND_UNAVAILABLE` | Chosen engine's packages/program missing or wrong platform (message carries the install line), or the engine was found but cannot start (Tesseract program does not run, EasyOCR/ocrmac dependency does not import, Apple Vision lists no languages); no Paddle fallback |
+| `OCR_LANGUAGE_UNSUPPORTED` | Docling's OCR engine or PaddleOCR has no model for the requested language (`details` has `language`, `engine`) |
 | `VISION_ERROR` | OCR runtime failure |
 | `UNKNOWN_HELPER` | Bad helper name in spec |
 
@@ -737,8 +761,8 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 | Writer selection spans multiple images | OCR each graphic separately; insert HTML after **each**; intervening text ignored; selection collapsed before insert |
 | `image_name` set but not in document | `IMAGE_NOT_FOUND` — *Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.* |
 | Calc graphic not cell-anchored | `NO_OUTPUT_ANCHOR` — *Anchor the image to a cell, select it, then Run again.* |
-| Venv missing Docling / Paddle | `DOCLING_UNAVAILABLE` or `PADDLEOCR_UNAVAILABLE` — pip install + Settings → Python path |
-| OCR returns empty | `status: ok`, `full_text: ""`, `html: ""`, `warnings: ["No text detected."]` — insert fails with empty HTML error |
+| Venv missing or old Docling / missing Paddle | `DOCLING_UNAVAILABLE`, `DOCLING_API_MISMATCH` (Docling too old), or `PADDLEOCR_UNAVAILABLE` — pip install + Settings → Python path |
+| OCR returns empty | `status: ok`, `full_text: ""`, `html: ""`, `warnings: ["No text detected."]` — nothing is inserted; dialog/tool report no text |
 | Success (Writer/Calc) | Insert **`html`** after each Writer graphic or cell below Calc anchor; status — *Inserted formatted HTML* |
 | HTML looks like plain body text | Check log for `insert_vision_result:`; redeploy extension; confirm `css-inline` in venv. Headings need post-inline augment (see [§10 HTML pipeline](#html-insert-pipeline-and-expectations)) |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows* |
@@ -765,21 +789,28 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 Venv package requirements for Vision Helpers are also summarized in the [domain package groups table](../scripting/numpy-domains.md#planned-domain-package-groups). Trusted-code pattern (host stub → venv module): [../enabling_numpy_in_libreoffice.md §5](../enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow onnxruntime
+pip install "docling>=2.145" onnxruntime css-inline
 ```
 
-**First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
+**RapidOCR notes:** Docling uses PP-OCRv6 models for about 52 languages (where `rapidocr_model_size` applies); for other languages it selects PP-OCRv5 (`onnxruntime`, `openvino`, `paddle`) or PP-OCRv4 (`torch`), logs a warning, and ignores `rapidocr_model_size`. For CUDA, install `onnxruntime-gpu` instead of `onnxruntime` (never both), and `paddlepaddle-gpu` for `rapidocr_paddle`. On Windows, `device=auto` requests DirectML; `num_threads` is forwarded to `onnxruntime`, `openvino`, and `paddle`. `rapidocr` 3.9.2 depends on `opencv-python`. For offline use, prefetch models with:
+
+```bash
+docling-tools models download rapidocr --rapidocr-backend-lang onnxruntime:iso:en [--rapidocr-model-size medium] -o <artifacts_path>
+```
+
+**First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional hidden `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
 
 **Self-check (shipped):** [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are not blocked but not part of curated extras, and probed via host subprocess per §15):
 
 | Probe | Report |
 |-------|--------|
-| `import docling`, `import rapidocr` (or onnxruntime variant), `css_inline` | OCR required (Docling primary); Missing (OCR) when stack not ready |
+| `import docling`, `import rapidocr`, `import onnxruntime`, `css_inline` | OCR required (Docling primary); Missing (OCR) when stack not ready |
+| `find_spec` / `which` (PATH + default install folders) for `easyocr`, `openvino`, `nemotron_ocr`, `ocrmac`, `tesseract` | optional OCR engines; listed when present and never counted as Missing; a present `nemotron_ocr` also runs Docling's `NemotronOcrModel.validate_runtime` and when that fails, Test prints *Nemotron OCR cannot start in this venv: \<Docling's reason\>* (still never Missing) |
 | `import paddleocr`, `import paddle` | optional fallback (or OCR ready when Paddle-only); never required Missing when Docling works |
 | `import ultralytics` | Optional (not installed) until Phase 4 |
 | Optional `import skimage` | Optional (not installed) |
 
-Docling without rapidocr is not OCR-ready. The default backend is rapidocr (vision_common.DEFAULT_OCR_BACKEND).
+Docling without rapidocr and onnxruntime is not OCR-ready. The default backend is rapidocr (vision_common.DEFAULT_OCR_BACKEND).
 
 When any group still has Missing packages, Test ends (after all probes finish) with copy-paste lines:
 
@@ -824,7 +855,7 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **2** | Settings **Test** reports paddle/ultralytics; install messaging; dedicated vision worker timeout | **Yes — shipped** |
 | **3** | `extract_structure`; export by graphic name (`image_name` param) | **Yes — shipped** |
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
-| **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-deferred-dev-plan)) | **Yes** (planned) |
+| **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-partly-shipped)) | **Yes** (planned) |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
 | **6** | **`image_extract_structure`** via `domain=vision` (gated on venv); **`analyze_image`** multi-helper; optional multimodal hybrid | **Partial — shipped** (`extract_structure` only) |
 
@@ -904,7 +935,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer, Calc, and Draw: `vision` catalog line in the specialized domain list (only when vision is available).
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 
@@ -944,9 +975,9 @@ Copy when handing work to an coding agent:
 
 ---
 
-## 21. Visual/layout HTML fidelity (deferred dev plan)
+## 21. Visual/layout HTML fidelity (partly shipped)
 
-**Status:** **Not started** — documented for a future implementation day. **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is shipped; this section describes what it would take to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
+**Status:** **Tier C (multi-column layout HTML) is shipped** via `html_from_layout_blocks` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py), called from [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py). **Phase 1 structured text** (css-inline, heading/body augment, single-wrap StarWriter insert) is also shipped. Tier B (block color sampling), Tier A semantic enrichment, and Phase 4 host insert remain open; this section describes the full plan to make results look **closer to marketing flyers, posters, and multi-column infographics** (e.g. the Akihabara weekend guide in [`Showcase/HermesAkihabara.png`](../Showcase/HermesAkihabara.png)).
 
 **Goal:** Preserve **reading order and semantics** while recovering **approximate** layout: colored header bands, side-by-side columns, tinted panels, and per-block text/background colors sampled from the source image. **Not** pixel-perfect reproduction and **not** re-inserting the source PNG (user already has the graphic selected).
 
@@ -1000,17 +1031,17 @@ flowchart TD
   Inline --> Egress --> SW
 ```
 
-**New module (proposed):** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py)
+**Module:** [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) — current entry point is `html_from_layout_blocks(blocks: list[dict])`, called unconditionally from `structured_html_from_vision_result` in [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (pure Python in venv — no UNO).
 
+**Proposed Tier B contract (not yet implemented):**
 - Input: `DoclingDocument`, source `png_bytes`, `params` (`html_mode`, `color_samples`, `column_gap_px`, …).
 - Output: single HTML string (same contract as today’s `result["html"]`).
-- Pure Python in venv — no UNO.
 
-**Mode switch (proposed API):**
+**Proposed Tier B mode switch (`params.html_mode`, not yet implemented):**
 
 | `params.html_mode` | Behavior |
 |--------------------|----------|
-| `structured` (default) | Current path: `export_to_html` → `prepare_html_for_lo_import` |
+| `structured` (default) | Docling `export_to_html` path (not what runs today; see [§21.6](#216-phase-2--column-detection-tier-c-shipped)) |
 | `layout` | Walk Docling blocks + sample colors → layout HTML → `prepare_html_for_lo_import` |
 | `structured+layout` (optional) | Docling HTML body embedded inside layout shell for hybrid |
 
@@ -1058,31 +1089,9 @@ Do these **before** building layout HTML to avoid dead ends.
 
 **Estimated effort:** 2–3 days including tests and manual QA on Akihabara + one table-heavy scan.
 
-### 21.6 Phase 2 — Column detection (Tier C)
+### 21.6 Phase 2 — Column detection (Tier C, shipped)
 
-**Objective:** Flyer body in **two columns** instead of one vertical stack.
-
-1. **Column clustering** on block bboxes (same reading order pass):
-   - Sort blocks by `(y, x)`.
-   - Split when median `x` of a horizontal band falls into two clusters (k=2 k-means on block centers, or gap threshold at 40% page width).
-   - Assign each block to `col0` / `col1`.
-
-2. **LO-safe layout:** prefer **one row, two `<td valign="top">`** per band, not CSS `column-count`:
-   ```html
-   <table style="width:100%;border:none;"><tr>
-     <td style="width:50%;vertical-align:top;">…left stack…</td>
-     <td style="width:50%;vertical-align:top;">…right stack…</td>
-   </tr></table>
-   ```
-   StarWriter handles tables better than div grids ([§21.1](#211-why-structured-text-is-not-enough-today)).
-
-3. **Reading order:** within each cell, preserve Docling order; full-document order may differ from single-column export — document in UI status string.
-
-4. **Params:** `column_mode: auto | single | two`, `column_gap_px` (table cellpadding).
-
-5. **Tests:** synthetic bboxes in two columns → HTML contains two `<td>` with expected text; UNO smoke insert.
-
-**Estimated effort:** 2–4 days; fragile on irregular flyers — ship behind `html_mode=layout` only.
+**Shipped:** `html_from_layout_blocks(blocks)` in [`plugin/vision/venv/vision_layout_html.py`](../../plugin/vision/venv/vision_layout_html.py) is called unconditionally from `structured_html_from_vision_result` in [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (no `html_mode` switch or column parameters). It takes a list of block dicts, splits narrow runs at a fixed 50% of the widest block edge into two-column `<table style="width:100%;border:none;"><tr><td ...>` bands (LO's StarWriter import handles `<table>` better than CSS columns or div grids, [§21.1](#211-why-structured-text-is-not-enough-today)), and skips table blocks so they are appended separately after the body. Tested in [`tests/vision/venv/test_vision_layout_html.py`](../../tests/vision/venv/test_vision_layout_html.py).
 
 ### 21.7 Phase 3 — Tier A semantic enrichment (can parallel Phase 1)
 
@@ -1162,9 +1171,24 @@ Only if inline HTML + tables still collapse in Writer:
 | **1** | Phase 0 spikes (0a–0d); fixtures; go/no-go on table-grid |
 | **2** | `vision_layout_html.py` color sampling + unit tests |
 | **3** | Docling block walk → layout HTML; wire `html_mode=layout` |
-| **4** | Column clustering + table grid; UNO tests |
+| **4** | **Shipped** (Tier C two-column table grid in `vision_layout_html.py`); UNO tests remain |
 | **5** | Template UX, docs, Akihabara manual QA, edge cases, `make test` |
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **Tier B block color sampling** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-partly-shipped). Add bbox color sampling to the existing `vision_layout_html.py` and gate the new color styling behind `params.html_mode=layout`; Tier C two-column layout is already on by default, so do not duplicate `vision_layout_html.py` or gate the shipped column layout. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(...)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+
+## Open
+
+- `[feature M many]` Draw and Impress text-box egress: insert OCR text near the selected graphic instead of returning text only. (§ 4b. Phase 1b Calc development plan (shipped))
+- `[feature L few]` `detect_objects`, `detect_layout` and `recognize_pipeline` helpers on Ultralytics with Vision Helpers templates. (§ 9. Trusted helpers (planned API))
+- `[feature M many]` `analyze_image` multi-helper LLM tool taking a helper name, params and a source (selection, named graphic or nearby file). (§ 18.2 Planned: `analyze_image` (multi-helper))
+- `[feature S few]` Per-folder OCR result cache keyed by content hash, beside the embeddings cache. (§ 14. Caching)
+- `[idea S few]` `perceptual_hash` helper on numpy. (§ 9. Trusted helpers (planned API))
+- `[feature S many]` Context-menu entry or a Recognize Image menu item on a graphic that runs the Extract text helper. (§ 2.6 Optional follow-on UX (not Phase 1))
+- `[feature S few]` Image name field in the Monaco script toolbar instead of editing `image_name` in params. (§ 3. Current code state (grounded))
+- `[feature M many]` Block colour sampling for visual layout HTML: banners and panels take background and text colours sampled from the source image, behind `html_mode=layout`. (§ 21.5 Phase 1 — Block color sampling (Tier B))
+- `[eng S few]` Validation spikes for visual layout HTML: StarWriter colour retention, XHTML import versus StarWriter, and table-grid columns. (§ 21.4 Phase 0 — Validation spikes (1 day, low risk))
+- `[fidelity S many]` Semantic enrichment of vision HTML: list items, title versus section heading levels, and bold ALL-CAPS lines. (§ 21.7 Phase 3 — Tier A semantic enrichment (can parallel Phase 1))
+- `[idea L few]` Host insert path for visual layout through vision-only style application, XHTML import, Writer text frames or an ODT fragment, if inline tables and colours are not enough. (§ 21.8 Phase 4 — Host / insert path (if Tiers B–C insufficient))
+- `[feature S many]` Write the alt text or description of a graphic from its OCR summary. (§ 2.4 Applying results (host egress))

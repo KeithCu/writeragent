@@ -87,7 +87,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| **Corpus conversion rate** | ≥ 90% formula cells | Count on `tests/fixtures/spreadsheet_import_corpus/` (to be added) |
+| **Corpus conversion rate** | ≥ 90% formula cells | Count on `tests/fixtures/spreadsheet_import_corpus/` |
 | **Value fidelity** | ≥ 99% cells match oracle | `ABS(converted - original) < 1e-9` or string equality |
 | **Regression** | 0 crashes on corpus | `make test` + optional UNO suite |
 | **Time to convert** | &lt; 5 s for 10k used cells | Main-thread budget; progress dialog if longer |
@@ -170,13 +170,13 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | Function catalog | [`list_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
 | Formula pre-eval / oracle | [`evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |
 | Error scan | [`error_detector.py`](../../plugin/calc/error_detector.py) |
+| Benchmark corpus | [`tests/fixtures/spreadsheet_import_corpus/`](../../tests/fixtures/spreadsheet_import_corpus/) |
 
 ### What does not exist
 
 - Formula AST parser for Calc syntax.
 - LO function → Python codegen.
 - Import menu / conversion orchestrator.
-- Benchmark corpus for conversion rate.
 
 ### Architecture choice: explicit `data` args (not Excel `xl()`)
 
@@ -1067,7 +1067,7 @@ Use `list_functions` (chat tool) against a live Calc session for the authoritati
 conversion_rate = converted_formula_cells / total_formula_cells_in_scope
 ```
 
-Measured on **`tests/fixtures/spreadsheet_import_corpus/`** (to create in Phase 0/1):
+Measured on **`tests/fixtures/spreadsheet_import_corpus/`** (five workbooks today; the table below is the target mix):
 
 | Fixture class | Example content | Expected P1+P2 rate |
 |---------------|-----------------|---------------------|
@@ -1174,3 +1174,9 @@ Run with `make test`. New tests follow module naming in [AGENTS.md](../../AGENTS
 All core components (Ingest, Preservation, Parser, Translators, Vectorization, Dialog, Chat tool) exist in-tree as a **prototype**.
 
 **Not scheduled:** Phase 6 LLM fallback, more builtin coverage, or promoting this to a product feature.
+
+## Open
+
+- `[idea L few]` LLM fallback that proposes Python for `TODO` cells and shows a diff before applying, for roughly 3-5% more coverage. (§ 10 Phased dev plan, Phase 6)
+- `[feature S few]` "All sheets" conversion scope in the dialog and chat tool, which today handle sheet and selection only. (§ 2 Proposed UX)
+- `[fidelity M few]` Translate the 15 financial functions still marked not started in the inventory, such as `PPMT`, `RATE`, `SYD` and `VDB`. (§ 8.12 Master function inventory, Financial)

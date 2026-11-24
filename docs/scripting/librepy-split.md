@@ -266,7 +266,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Role |
 |------|------|
-| [`plugin/contrib/smolagents/local_python_executor.py`](../../plugin/contrib/smolagents/local_python_executor.py) | Restricted executor (`send_tools` takes a dict; no `Tool` import) |
+| [`plugin/contrib/smolagents/local_python_executor.py`](../../plugin/contrib/smolagents/local_python_executor.py) | Restricted executor (`send_tools` takes a dict; no `Tool` import; local patch: `InterpreterError.user_traceback` and `ExecutionTimeoutError.user_traceback` (user frames for `=PY()` errors and timeouts)) |
 | [`plugin/contrib/smolagents/utils.py`](../../plugin/contrib/smolagents/utils.py) | `BASE_BUILTIN_MODULES`, helpers |
 | [`plugin/contrib/smolagents/__init__.py`](../../plugin/contrib/smolagents/__init__.py) | Package |
 
@@ -724,7 +724,7 @@ Makefile
   make build / deploy                # WriterAgent OXT (keep exclusive of LibrePy until overlay lands)
 ```
 
-**LibrePy menu Context:** In [`extension-core/Addons.xcu`](../extension-core/Addons.xcu), every submenu item must set an explicit `Context` property. Menubar icons for Run Python Script, Edit Python in Cell, and Settings come from `AddonUI/Images` (`%origin%/assets/python_32.png` / `python_cell_32.png` / `gear_32.png`); the sidebar hamburger sets the same files in Python. Do not rely on “empty Context = all applications” when the same submenu mixes Writer-only and Calc-only entries — LibreOffice may hide shared items (Settings, Run Python Script, Reset Python Session) in Calc. Shared items use the full menubar context string (Writer, Calc, Draw, Impress, Web, Global); doc-specific items set `TextDocument` or `SpreadsheetDocument` only. WriterAgent [`extension/Addons.xcu`](../../extension/Addons.xcu) uses the same rule on shared items. Regression tests: [`tests/scripts/test_librepy_addons_xcu.py`](../../tests/scripts/test_librepy_addons_xcu.py), [`tests/scripts/test_writeragent_addons_xcu.py`](../../tests/scripts/test_writeragent_addons_xcu.py).
+**LibrePy menu Context:** In [`extension-core/Addons.xcu`](../extension-core/Addons.xcu), every submenu item must set an explicit `Context` property. Menubar icons for Run Python Script, Edit Python in Cell, and Settings come from `AddonUI/Images` (`%origin%/assets/python_32.png` / `python_cell_32.png` / `gear_32.png`); the sidebar hamburger uses the same python PNGs (`python`/`python_cell`), but LibreOffice's stock Settings icon. Do not rely on “empty Context = all applications” when the same submenu mixes Writer-only and Calc-only entries — LibreOffice may hide shared items (Settings, Run Python Script, Reset Python Session) in Calc. Shared items use the full menubar context string (Writer, Calc, Draw, Impress, Web, Global); doc-specific items set `TextDocument` or `SpreadsheetDocument` only. WriterAgent [`extension/Addons.xcu`](../../extension/Addons.xcu) uses the same rule on shared items. Regression tests: [`tests/scripts/test_librepy_addons_xcu.py`](../../tests/scripts/test_librepy_addons_xcu.py), [`tests/scripts/test_writeragent_addons_xcu.py`](../../tests/scripts/test_writeragent_addons_xcu.py).
 
 **Menu order:** LibreOffice addon menus sort by `oor:name`, not XML document order — use sequential names (`M01`, `M02`, …) including separators (`private:separator`). Both products group working commands above an admin block (Settings, Vision OCR Settings, Reset Python Session) with **Report bug…** last. LibrePy’s command/admin cluster tracks WriterAgent’s shared actions (no AI/MCP/Debug/Search/Convert Sheet). WriterAgent keeps two separators (after Extend/Edit, before admin); LibrePy keeps one (before admin). Jupyter notebooks open via **File → Open** (no menu item).
 
@@ -853,7 +853,7 @@ Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
 ### Layer 5 adds (~14 paths)
 
-`vision/__init__.py`, `vision/module.yaml`, `vision_common.py`, `vision_templates.py`, `vision_runner.py`, `vision_egress.py`, `vision_availability.py`, `vision/venv/vision.py`, `vision/venv/vision_docling.py`, `vision/venv/vision_paddle.py`, `vision/venv/vision_html_export.py`, `vision/venv/vision_layout_html.py`, `vision/venv/__init__.py`, `calc/vision_egress.py`, `chatbot/module_config_dialog.py`
+`vision/__init__.py`, `vision/module.yaml`, `vision_common.py`, `vision_templates.py`, `vision_runner.py`, `vision_egress.py`, `vision_availability.py`, `vision_preview.py`, `vision/venv/vision.py`, `vision/venv/vision_docling.py`, `vision/venv/vision_paddle.py`, `vision/venv/vision_html_export.py`, `vision/venv/vision_layout_html.py`, `vision/venv/__init__.py`, `calc/vision_egress.py`, `chatbot/module_config_dialog.py`, `writer/page_png.py`
 
 Omit `vision_tools.py` for menu-only core (chat `image_extract_structure`).
 
@@ -875,7 +875,7 @@ Omit `vision_tools.py` for menu-only core (chat `image_extract_structure`).
 | Units | pint |
 | Text | spacy, textdescriptives, … |
 | Quant | yfinance, pandas_ta, … |
-| Vision | docling, rapidocr-paddle, pillow, css-inline |
+| Vision | docling, rapidocr, onnxruntime, css-inline |
 | Python editor | pywebview, PyQt6, PyQt6-WebEngine, qtpy (+ rocher for Monaco) |
 
 See [numpy-domains.md](numpy-domains.md) and [../images/recognition.md](../images/recognition.md) for authoritative lists.
@@ -1072,7 +1072,7 @@ flowchart LR
 | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py) | Click-to-navigate from sidebar |
 | [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open; the CLI is WriterAgent-only) |
 | [`plugin/scripting/venv/editor_main.py`](../../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
-| [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_32.png` (PSF two-snakes) |
+| [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_24.png` (macOS; `python_32.png` / `python_48.png` written by `apply_deck_icons` from the DPI bucket) |
 | [`extension-core/registry/.../Factories.xcu`](../extension-core/registry/org/openoffice/Office/UI/Factories.xcu) | PythonPanelFactory registration |
 | [`extension/Dialogs/PythonSidebarDialog.xdl`](../../extension/Dialogs/PythonSidebarDialog.xdl) | Sidebar layout |
 
@@ -1161,7 +1161,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 ### User venv packages
 
 ```bash
-uv pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime
+uv pip install "docling>=2.145" onnxruntime css-inline
 # optional fallback: paddleocr paddlepaddle
 ```
 
@@ -1174,3 +1174,11 @@ Models are **not** bundled in the OXT; user venv installs them.
 | [`vision_tools.py`](../../plugin/vision/vision_tools.py) | `image_extract_structure` LLM tool |
 | `plugin/framework/tool.py` | Tool registration |
 | Draw/Impress page-positioned OCR | Deferred — [../images/recognition.md](../images/recognition.md) Phase 1b.2 |
+
+## Open
+
+- `[eng L few]` Option B overlay: strip the duplicate `=PY()` add-in, Python menus and bundled `plugin/scripting/` from the WriterAgent OXT so it relies on LibrePy for the Python stack. (§ Still open (option B overlay — not this quality pass))
+- `[eng S few]` Add an `org.extension.librepy` extension dependency to WriterAgent's `description.xml` once the strip lands. (§ 7. Implementation order (lowest risk))
+- `[eng M few]` Verify LibrePy and WriterAgent installed together: one `=PY()` add-in, chat Python tools using the core worker, and a deploy flow that no longer removes the other OXT. (§ 7. Implementation order (lowest risk))
+- `[feature S few]` Re-include the 257 Calc-parity `calc.*` helpers in LibrePy by removing `LIBREPY_CALC_FUNCTIONS_EXCLUDES` once spreadsheet conversion moves into core and parity is validated. (§ Calc-parity `xl` helpers (deferred from LibrePy))
+- `[feature M few]` Page-positioned OCR for Draw and Impress in the Vision helpers. (§ Appendix G — Vision/OCR)

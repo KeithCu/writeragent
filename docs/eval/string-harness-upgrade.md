@@ -363,3 +363,10 @@ No `make test-uno`. No LO scripted pack work.
   (beyond the flag row) when we want native fidelity on every task —
   already supported by the harness; not required for the string-world
   work in this doc.
+
+## Open
+
+- `[feature M few]` Multi-turn eval: refresh `[DOCUMENT CONTENT]` after each user turn using `export_for_prompt()`. (§ Later (not this plan))
+- `[eng S few]` Implement more core tools on the worlds, such as `add_comment` and `sheet_list`, when a task needs them. (§ Later (not this plan))
+- `[eng M few]` Run MIPROv2 against `agent_score` once the metric is stable. (§ Later (not this plan))
+- `[eng M few]` Run full-pack `--backend lo` ranking across all 19 tasks for native fidelity on every task (`eval_scheduler.py` / `run_eval_multi.py` already implement `--backend lo` and `--backend auto`, and [benchmarks.md](benchmarks.md) ships the 37×19 dual-lane board). (§ Later (not this plan))

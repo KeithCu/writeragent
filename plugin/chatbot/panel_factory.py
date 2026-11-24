@@ -54,6 +54,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
+from plugin.framework.menu_icon_dpi import apply_deck_icons
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
@@ -155,6 +156,7 @@ from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import (
     get_image_model,
     get_text_model,
+    memo_image_models_or_fetch,
     memo_text_models_or_fetch,
     set_image_model,
     set_text_model,
@@ -492,6 +494,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self._released = False
                     try:
                         _initialize_extension_paths(self.ctx)
+                        apply_deck_icons(self.ctx)
                         root_window = self._getOrCreatePanelRootWindow()
                         log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
                         # Wiring reads self.toolpanel. On failure the except
@@ -781,10 +784,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_text_model(set_val, update_lru=False)
 
         if image_model_selector:
-            # Refresh visual (image) model via shared helper; persist correction if strict replaced value
+            # Warm memo now; cold memo via background worker (never HTTP on UI thread).
             current_image = get_image_model()
+
+            def _on_image_fetched(ids: list[str]) -> None:
+                self._paint_fetched_image_models(current_endpoint, ids)
+
+            image_catalog = memo_image_models_or_fetch(
+                current_endpoint,
+                _on_image_fetched,
+                task_name="sidebar-image-models",
+            )
             set_image_val = populate_image_model_selector(
                 image_model_selector,
+                current_endpoint,
+                remote_models=image_catalog,
                 skip_remote_fetch=True,
             )
             if set_image_val != current_image:
@@ -816,6 +830,37 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     sel,
                     get_text_model(),
                     "model_lru",
+                    endpoint,
+                    remote_models=ids,
+                    skip_remote_fetch=True,
+                    keep_text=bool(typed),
+                )
+        finally:
+            self._in_refresh_controls = prior
+
+    def _paint_fetched_image_models(self, endpoint: str, ids: list[str]) -> None:
+        """Repaint the sidebar image model combo after an off-thread catalog fetch.
+
+        When the box holds typed text, only the list items are replaced, so
+        the text and caret stay exactly as they were. When the box is empty
+        or holds a placeholder, the stored model (or endpoint placeholder) is
+        shown. It runs between commit points, so it writes nothing to config.
+        """
+        if self._released or endpoint != get_current_endpoint():
+            return
+        sel = get_optional_control(self.m_panelRootWindow, "image_model_selector")
+        if not sel:
+            return
+        from plugin.chatbot.config_ui_helpers import populate_image_model_selector
+        from plugin.framework.model_lru import sanitize_model_combobox_value
+
+        prior = self._in_refresh_controls
+        self._in_refresh_controls = True
+        try:
+            with suppress_disposed("paint fetched sidebar image models", logger=log):
+                typed = sanitize_model_combobox_value(str(sel.getText() or ""))
+                populate_image_model_selector(
+                    sel,
                     endpoint,
                     remote_models=ids,
                     skip_remote_fetch=True,
@@ -1117,7 +1162,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         ext_url = get_extension_url(self.ctx)
 
-        from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
+        from plugin.framework.menu_icon_dpi import (
+            STOCK_ICON_SEARCH,
+            STOCK_ICON_SETTINGS,
+            menu_icon_asset_url,
+            menu_icon_filename,
+        )
 
         third_kind = header_third_button_kind(model)
         third_btn: list[tuple[str, Any, Any, Any, Any]] = []
@@ -1127,7 +1177,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     "btn_latex",
                     ActionHandlerButtonListener("scripting.edit_python_cell"),
                     _("Edit Python in Cell..."),
-                    menu_icon_asset_rel("python_cell", ctx=self.ctx),
+                    menu_icon_filename("python_cell", ctx=self.ctx),
                     "",
                 )
             ]
@@ -1142,14 +1192,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 latex_ctrl.setVisible(False)
 
         header_buttons: list[tuple[str, Any, Any, Any, Any]] = [
-            ("btn_settings", SettingsButtonListener(), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
-            ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog"), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
+            ("btn_settings", SettingsButtonListener(), _("Settings"), STOCK_ICON_SETTINGS, ""),
+            ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog"), _("Run Python Script..."), menu_icon_filename("python", ctx=self.ctx), ""),
             *third_btn,
-            ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog"), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
+            ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog"), _("Search Nearby Files..."), STOCK_ICON_SEARCH, ""),
             # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
         ]
-        for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in header_buttons:
+        for btn_id, listener_obj, tooltip_text, icon, label_text in header_buttons:
             btn_ctrl = controls.get(btn_id)
             if btn_ctrl:
                 btn_m = btn_ctrl.getModel()
@@ -1157,8 +1207,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     btn_m.HelpText = tooltip_text
                     if label_text is not None:
                         btn_m.Label = label_text
-                    if icon_rel_path and ext_url:
-                        btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel_path
+                    if icon and ext_url:
+                        btn_m.ImageURL = menu_icon_asset_url(ext_url, icon)
                 btn_ctrl.addActionListener(listener_obj)
 
         send_listener = None

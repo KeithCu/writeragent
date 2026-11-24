@@ -38,8 +38,8 @@ def _mock_ctx(doc: MagicMock | None = None, doc_svc: MagicMock | None = None) ->
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"name": "S", "column_count": 0},
-        {"name": "S", "column_count": 100},
+        {"name": "S", "column_count": 0, "spacing_mm": 0},
+        {"name": "S", "column_count": 100, "spacing_mm": 0},
         {"name": "S", "column_count": 2, "spacing_mm": -1},
         {"name": "S", "column_count": 2, "spacing_mm": float("inf")},
     ],
@@ -140,7 +140,7 @@ def test_section_tools_refuse_index_and_password_sections(
     ctx = _mock_ctx(doc=doc)
     calls = [
         SectionDelete().execute(ctx, name="S"),
-        SectionSetColumns().execute(ctx, name="S", column_count=2),
+        SectionSetColumns().execute(ctx, name="S", column_count=2, spacing_mm=0),
         SectionSetProtection().execute(ctx, name="S", protected=True),
         SectionSetVisibility().execute(ctx, name="S", visible=False),
         SectionSetPassword().execute(ctx, name="S", password="x"),

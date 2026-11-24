@@ -52,6 +52,7 @@ from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.config import (
+    api_key_locked_for_endpoint,
     api_key_needs_keystore_read,
     get_api_key_for_endpoint,
     get_config,
@@ -136,9 +137,9 @@ def _model_key(table: dict[str, Any], model_id: str) -> str:
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
 
-# Waiters for background /v1/models text catalog fetches, keyed by _catalog_memo_key.
-_text_fetch_lock = threading.Lock()
-_text_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
+# Waiters for background /v1/models catalog fetches, keyed by _catalog_memo_base.
+_catalog_fetch_lock = threading.Lock()
+_catalog_fetch_waiters: dict[str, list[tuple[str, Callable[[list[str]], None]]]] = {}
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -377,15 +378,19 @@ def _catalog_base(endpoint: str) -> str:
     return _key_slot_base(endpoint)
 
 
+def _catalog_memo_base(endpoint: str) -> str:
+    if not endpoint or not isinstance(endpoint, str):
+        return ""
+    return _v1_prefix(endpoint) or normalize_endpoint_url(endpoint)
+
+
 def _catalog_memo_key(endpoint: str, api_key_override: str | None = None) -> str:
     """Cache key for endpoint catalog memoization.
 
     Both the override and the saved key are stripped so they match the key
     ``build_auth_headers`` sends.
     """
-    if not endpoint or not isinstance(endpoint, str):
-        return ""
-    base = _v1_prefix(endpoint) or normalize_endpoint_url(endpoint)
+    base = _catalog_memo_base(endpoint)
     if not base:
         return ""
     key_slot = _key_slot_base(endpoint)
@@ -733,70 +738,130 @@ def drop_non_text_models(
     return [m for m in ids if m not in memo.non_text_ids]
 
 
-def memo_text_models_or_fetch(
+def _memo_models_or_fetch(
     endpoint: str,
     on_fetched: Callable[[list[str]], None],
     *,
+    kind: str,
     task_name: str,
 ) -> list[str] | None:
-    """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI.
+    """Return memoized catalog ids, or fetch once off-thread and post to UI.
 
-    Called on the main thread; never performs HTTP there. Skips both the memo
-    read and the worker fetch while the endpoint's key is an uncached
-    ``keystore:`` reference (matching ``has_native_vision`` step 4b), because
-    computing the memo key hashes the saved key and would trigger a keyring
-    prompt on the UI thread. At most one fetch per endpoint+key runs in flight;
-    concurrent callers share the waiter list and receive one ``main.post``.
-    A failed fetch is not memoized; the next populate retries.
+    Called on the main thread; never performs HTTP or OS keystore reads there.
+    When the endpoint's key is an uncached ``keystore:`` reference, the worker
+    reads and caches the key off-thread before computing the memo key and
+    fetching ``/v1/models``. At most one fetch per endpoint runs in flight;
+    concurrent text and image callers share the waiter list and receive one
+    ``main.post`` with their respective slice. A failed fetch is not memoized;
+    the next populate retries.
     """
     from plugin.framework.client.auth import provider_requires_api_key
 
     if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
         return None
-    if api_key_needs_keystore_read(_key_slot_base(endpoint)):
-        return None
     if provider_requires_api_key(get_provider_from_endpoint(endpoint)) and not has_api_key_for_endpoint(endpoint):
         return None
+    # A cancelled prompt is re-raised only by Send or Settings, never by a repaint.
+    if api_key_locked_for_endpoint(endpoint):
+        return None
 
-    cached = cached_text_models(endpoint)
-    if cached is not None:
-        return drop_non_text_models(endpoint, cached)
+    if not api_key_needs_keystore_read(_key_slot_base(endpoint)):
+        if kind == "text":
+            cached = cached_text_models(endpoint)
+            if cached is not None:
+                return drop_non_text_models(endpoint, cached)
+        else:
+            cached = cached_image_models(endpoint)
+            if cached is not None:
+                return cached
 
-    key = _catalog_memo_key(endpoint)
-    with _text_fetch_lock:
-        if key in _text_fetch_waiters:
-            _text_fetch_waiters[key].append(on_fetched)
+    waiter_key = _catalog_memo_base(endpoint)
+    with _catalog_fetch_lock:
+        if waiter_key in _catalog_fetch_waiters:
+            _catalog_fetch_waiters[waiter_key].append((kind, on_fetched))
             return None
-        _text_fetch_waiters[key] = [on_fetched]
+        _catalog_fetch_waiters[waiter_key] = [(kind, on_fetched)]
 
     def _job() -> None:
-        ids: list[str] | None = None
-        done: list[Callable[[list[str]], None]] = []
+        text_ids: list[str] | None = None
+        image_ids: list[str] | None = None
+        done: list[tuple[str, Callable[[list[str]], None]]] = []
         try:
-            ids = fetch_available_models(endpoint)
+            if kind == "text":
+                text_ids = fetch_available_models(endpoint)
+            else:
+                image_ids = fetch_available_image_models(endpoint)
         finally:
-            with _text_fetch_lock:
-                done = _text_fetch_waiters.pop(key, [])
+            with _catalog_fetch_lock:
+                done = _catalog_fetch_waiters.pop(waiter_key, [])
 
-        if ids is not None:
-            fetched_ids = drop_non_text_models(endpoint, ids)
+        provider = get_provider_from_endpoint(endpoint)
+        # Non-OpenRouter hosts populate both slices from one /v1/models GET, so a miss
+        # means that request failed and retrying it here would double a timeout; only
+        # OpenRouter needs a separate GET (/v1/images/models) for the other slice.
+        if any(w_kind == "text" for w_kind, _ in done) and text_ids is None:
+            text_ids = cached_text_models(endpoint)
+            if text_ids is None and kind != "text" and provider == "openrouter":
+                text_ids = fetch_available_models(endpoint)
+        if any(w_kind == "image" for w_kind, _ in done) and image_ids is None:
+            image_ids = cached_image_models(endpoint)
+            if image_ids is None and kind != "image" and provider == "openrouter":
+                image_ids = fetch_available_image_models(endpoint)
 
+        deliveries: list[tuple[Callable[[list[str]], None], list[str]]] = []
+        filtered_text = drop_non_text_models(endpoint, text_ids) if text_ids is not None else None
+        for w_kind, cb in done:
+            payload = filtered_text if w_kind == "text" else image_ids
+            if payload is not None:
+                deliveries.append((cb, payload))
+
+        if deliveries:
             def _deliver() -> None:
-                for cb in done:
-                    def _call(fn: Callable[[list[str]], None] = cb) -> None:
-                        fn(fetched_ids)
+                for cb, payload in deliveries:
+                    def _call(fn: Callable[[list[str]], None] = cb, data: list[str] = payload) -> None:
+                        fn(data)
 
-                    best_effort(_call, "deliver fetched text models")
+                    best_effort(_call, f"deliver {task_name}")
 
             main.post(_deliver)
 
     try:
         run_in_background(_job, name=task_name)
     except Exception:
-        with _text_fetch_lock:
-            _text_fetch_waiters.pop(key, None)
+        with _catalog_fetch_lock:
+            _catalog_fetch_waiters.pop(waiter_key, None)
         raise
     return None
+
+
+def memo_text_models_or_fetch(
+    endpoint: str,
+    on_fetched: Callable[[list[str]], None],
+    *,
+    task_name: str,
+) -> list[str] | None:
+    """Return memoized text-output ``/v1/models`` ids, or fetch once off-thread and post to UI."""
+    return _memo_models_or_fetch(
+        endpoint,
+        on_fetched,
+        kind="text",
+        task_name=task_name,
+    )
+
+
+def memo_image_models_or_fetch(
+    endpoint: str,
+    on_fetched: Callable[[list[str]], None],
+    *,
+    task_name: str,
+) -> list[str] | None:
+    """Return memoized image-output ids, or fetch once off-thread and post to UI."""
+    return _memo_models_or_fetch(
+        endpoint,
+        on_fetched,
+        kind="image",
+        task_name=task_name,
+    )
 
 
 def cached_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
@@ -1373,8 +1438,9 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     4b. UI-thread uncached keystore guard: when ``api_key_override`` is None,
        ``main.is_current()`` is True, and the endpoint's key is an uncached
        ``keystore:`` ref, skip both the provider memo (whose key hashes the
-       secret) and the background lookup so neither reads the OS store or opens
-       a second prompt before the Send worker reads it once.
+       secret) and the background lookup so vision stays out as a third reader
+       and cannot raise a second prompt while the sidebar models worker or Send
+       is reading the key once.
     5. Static default models list (``DEFAULT_MODELS``): fallback only when the
        API fetch failed or the provider has no vision API. ``ModelCapability.VISION``
        -> True; else if ``PROVIDER_VISION`` has the provider -> that value; else
@@ -1399,10 +1465,10 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     on_ui_thread = main.is_current()
     if api_key_override is None and on_ui_thread and api_key_needs_keystore_read(raw_ep):
         # The memo key hashes the saved key, and computing it would read the
-        # OS keyring on the UI thread. Until this session has read the key
-        # once (the Send worker does that), skip the provider memo and the
-        # background lookup, which would open a second prompt, and answer
-        # from the static catalog.
+        # OS keyring on the UI thread. Until the sidebar models worker or Send
+        # reads the key once, skip the provider memo and the background lookup
+        # so vision is not a third reader that could raise a second prompt, and
+        # answer from the static catalog.
         warm, answer = True, None
     else:
         warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)

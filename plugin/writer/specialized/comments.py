@@ -105,10 +105,11 @@ class CommentList(ToolWriterCommentBase):
                     "Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all."
                 ),
             },
-            "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
+            "start_index": {"type": "integer", "default": 0, "description": "Zero-based row to start this page at."},
             "max_comments": {
                 "type": "integer",
-                "description": "Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.",
+                "default": 100,
+                "description": "Maximum rows to return. Values below 1 are treated as 1, like tracking_list.",
             },
         },
         "required": [],
@@ -117,12 +118,12 @@ class CommentList(ToolWriterCommentBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         author_filter = kwargs.get("author_filter")
         # prepare_tool_call has already checked that start_index is an integer; negatives clamp to 0.
-        start_index = max(0, kwargs.get("start_index") or 0)
-        max_raw = kwargs.get("max_comments", 100)
-        max_val, max_err = parse_non_negative_int(max_raw, name="max_comments")
+        start_index = max(0, kwargs["start_index"])
+        max_val, max_err = parse_non_negative_int(kwargs["max_comments"], name="max_comments")
         if max_err:
             return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
-        max_comments = max(1, max_val if max_val is not None else 100)
+        assert max_val is not None
+        max_comments = max(1, max_val)
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
         fields = list(_iter_annotations(doc))
@@ -165,8 +166,8 @@ class AddComment(ToolBase):
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
         "case_sensitive": {"type": "boolean", "description": f"For search: {LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-        "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
-        "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
+        "occurrence": {"type": "integer", "default": 0, "description": "0-based match to comment on when search repeats. Ignored when parent_name is set."},
+        "author": {"type": "string", "default": "WriterAgent", "description": "Comment author."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
     }, "required": ["content"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -358,7 +359,7 @@ class CommentResolve(ToolWriterCommentBase):
         "properties": {
             "name": {"type": "string", "description": "The 'name' field returned by comment_list."},
             "resolution": {"type": "string", "description": "Optional resolution text added as a reply."},
-            "author": {"type": "string", "description": "Author name for the resolution reply. Default: AI."},
+            "author": {"type": "string", "default": "AI", "description": "Author name for the resolution reply."},
         },
         "required": ["name"],
     }
@@ -367,7 +368,7 @@ class CommentResolve(ToolWriterCommentBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         comment_name = kwargs["name"]
         resolution = kwargs.get("resolution", "")
-        author = kwargs.get("author", "AI")
+        author = kwargs["author"]
 
         doc = ctx.doc
         target = _annotation_or_error(doc, comment_name)
@@ -480,7 +481,7 @@ class CommentScanTasks(ToolWriterCommentBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "unresolved_only": {"type": "boolean", "description": "Only unresolved tasks (default true)."},
+            "unresolved_only": {"type": "boolean", "default": True, "description": "Only unresolved tasks."},
             "prefix_filter": enum_param(list(WORKFLOW_TASK_PREFIXES), "Filter by task prefix."),
         },
         "required": [],
@@ -488,7 +489,7 @@ class CommentScanTasks(ToolWriterCommentBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        unresolved_only = kwargs.get("unresolved_only", True)
+        unresolved_only = kwargs["unresolved_only"]
         prefix_filter = kwargs.get("prefix_filter", None)
         doc = ctx.doc
         fields = list(_iter_annotations(doc))

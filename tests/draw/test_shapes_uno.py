@@ -4,10 +4,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Live check: shape_group builds ShapeCollection via the service manager."""
 
+import os
+import re
+import shutil
+import tempfile
+
+import uno
+from com.sun.star.beans import PropertyValue
+
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.shapes import DeleteShape, GetDrawSummary, GroupShapes, UpsertShape
-from plugin.draw.tree import find_shape_on_page
+from plugin.draw.tree import GetDrawTree, find_shape_on_page
 from plugin.framework.tool import ToolContext
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from tests.testing_utils import with_native_doc
 
@@ -89,12 +98,7 @@ def test_calc_shapes_target_active_sheet(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_writer_octagon_geometry_after_add(ctx, doc):
-    """Writer reapplies CustomShapeGeometry after add so the shape paints.
-
-    Draw and Impress must not do that second write (it can abort soffice).
-    This test is the Writer exception: the process stays up and the geometry
-    has a type plus Path or ViewBox.
-    """
+    """Writer reapplies CustomShapeGeometry after add so the geometry has Type plus Path or ViewBox."""
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
     created = UpsertShape().execute(
         tctx,
@@ -113,6 +117,66 @@ def test_writer_octagon_geometry_after_add(ctx, doc):
     names = {str(prop.Name) for prop in geom}
     assert "Type" in names
     assert "Path" in names or "ViewBox" in names
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_octagon_geometry_after_add(ctx, doc):
+    """Draw reapplies CustomShapeGeometry after add so ViewBox and Path expand and shapes paint."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    for idx, shape_type in enumerate(("octagon", "round-rectangle", "trapezoid")):
+        created = UpsertShape().execute(
+            tctx,
+            action="create",
+            shape_type=shape_type,
+            page=0,
+            x=1000 + idx * 5000,
+            y=1000,
+            width=4000,
+            height=4000,
+            fill_color="#FF0000",
+        )
+        assert created.get("status") == "ok", (shape_type, created)
+        shape = page.getByIndex(page.getCount() - 1)
+        geom = {str(prop.Name): prop.Value for prop in shape.getPropertyValue("CustomShapeGeometry")}
+        assert geom.get("Type") == shape_type, (shape_type, geom)
+        assert geom.get("ViewBox") is not None, (shape_type, geom)
+        assert geom.get("Path"), (shape_type, geom)
+        assert getattr(shape.getPropertyValue("FillStyle"), "value", None) == "SOLID"
+
+    tree = GetDrawTree().execute(tctx, page=0)["tree"]
+    assert len(tree) == 3
+    for node in tree:
+        assert node["style"]["FillStyle"] == "SOLID"
+        assert "LineStyle" in node["style"]
+        assert "custom_geometry_empty" not in node
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_impress_octagon_geometry_after_add(ctx, doc):
+    """Impress reapplies CustomShapeGeometry after add so ViewBox and Path expand and shapes paint."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    created = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="octagon",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=4000,
+        fill_color="#FF0000",
+    )
+    assert created.get("status") == "ok", created
+    shape = page.getByIndex(page.getCount() - 1)
+    geom = {str(prop.Name): prop.Value for prop in shape.getPropertyValue("CustomShapeGeometry")}
+    assert geom.get("Type") == "octagon", geom
+    assert geom.get("ViewBox") is not None, geom
+    assert geom.get("Path"), geom
+    assert getattr(shape.getPropertyValue("FillStyle"), "value", None) == "SOLID"
 
 
 @native_test
@@ -441,4 +505,438 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     assert summary["created_names"] == ["Start", r2["name"]]
     assert summary["pages"] == [0]
     assert page.getByIndex(start_count + 1).Name == r2["name"] != ""
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_fill_and_line_style_enums(ctx, doc):
+    """FillStyle, LineStyle, and TextFitToSizeType enums apply and read back cleanly."""
+    import uno
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rect_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=3000,
+        height=2000,
+        fill_style="solid",
+        fill_color="#FF0000",
+        line_color="#0000FF",
+        line_width=100,
+        text="hi",
+    )
+    assert rect_res.get("status") == "ok", rect_res
+    assert "warnings" not in rect_res, rect_res
+    rect = page.getByIndex(rect_res["index"])
+    assert rect.getPropertyValue("FillStyle") == uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    assert rect.getPropertyValue("LineStyle") == uno.Enum("com.sun.star.drawing.LineStyle", "SOLID")
+    assert rect.getPropertyValue("TextFitToSize") == uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT")
+
+    edit_res = upsert.execute(tctx, action="edit", page=0, index=rect_res["index"], fill_style="none")
+    assert edit_res.get("status") == "ok", edit_res
+    assert "warnings" not in edit_res, edit_res
+    assert rect.getPropertyValue("FillStyle") == uno.Enum("com.sun.star.drawing.FillStyle", "NONE")
+
+    line_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=1000,
+        y=4000,
+        width=3000,
+        height=0,
+        line_color="#00FF00",
+        line_width=50,
+    )
+    assert line_res.get("status") == "ok", line_res
+    assert "warnings" not in line_res, line_res
+    line = page.getByIndex(line_res["index"])
+    assert line.getPropertyValue("LineStyle") == uno.Enum("com.sun.star.drawing.LineStyle", "SOLID")
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_negative_size_and_line_direction(ctx, doc):
+    """Negative width/height normalize span and preserve LineShape start->end direction."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rtl_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2890,
+        height=0,
+    )
+    assert rtl_res.get("status") == "ok", rtl_res
+    rtl_line = page.getByIndex(rtl_res["index"])
+    assert (rtl_line.getPosition().X, rtl_line.getPosition().Y) == (2110, 3000)
+    assert (rtl_line.getSize().Width, rtl_line.getSize().Height) == (2890, 0)
+    rtl_poly = [[(p.X, p.Y) for p in seq] for seq in rtl_line.getPropertyValue("PolyPolygon")]
+    assert rtl_poly == [[(5000, 3000), (2110, 3000)]]
+
+    diag_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2000,
+        height=-1000,
+    )
+    assert diag_res.get("status") == "ok", diag_res
+    diag_line = page.getByIndex(diag_res["index"])
+    assert (diag_line.getPosition().X, diag_line.getPosition().Y) == (3000, 2000)
+    assert (diag_line.getSize().Width, diag_line.getSize().Height) == (2000, 1000)
+    diag_poly = [[(p.X, p.Y) for p in seq] for seq in diag_line.getPropertyValue("PolyPolygon")]
+    assert diag_poly == [[(5000, 3000), (3000, 2000)]]
+
+    rect_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2000,
+        height=-1000,
+    )
+    assert rect_res.get("status") == "ok", rect_res
+    rect = page.getByIndex(rect_res["index"])
+    assert (rect.getPosition().X, rect.getPosition().Y) == (3000, 2000)
+    assert (rect.getSize().Width, rect.getSize().Height) == (2000, 1000)
+
+    rect_edit = upsert.execute(tctx, action="edit", page=0, index=rect_res["index"], width=-1500)
+    assert rect_edit.get("status") == "ok", rect_edit
+    assert (rect.getPosition().X, rect.getPosition().Y) == (1500, 2000)
+    assert (rect.getSize().Width, rect.getSize().Height) == (1500, 1000)
+
+    line_edit = upsert.execute(
+        tctx,
+        action="edit",
+        page=0,
+        index=rtl_res["index"],
+        x=6000,
+        y=4000,
+        width=-1000,
+        height=500,
+    )
+    assert line_edit.get("status") == "ok", line_edit
+    assert (rtl_line.getPosition().X, rtl_line.getPosition().Y) == (5000, 4000)
+    assert (rtl_line.getSize().Width, rtl_line.getSize().Height) == (1000, 500)
+    edited_poly = [[(p.X, p.Y) for p in seq] for seq in rtl_line.getPropertyValue("PolyPolygon")]
+    assert edited_poly == [[(6000, 4000), (5000, 4500)]]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_shape_upsert_negative_line_direction(ctx, doc):
+    """Writer lines with negative width preserve direction and stay in anchor coords."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    rtl_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=5000,
+        y=3000,
+        width=-2890,
+        height=0,
+    )
+    assert rtl_res.get("status") == "ok", rtl_res
+    line = page.getByIndex(rtl_res["index"])
+    pos1 = line.getPosition()
+    size1 = line.getSize()
+    assert abs(pos1.X - 2110) <= 2
+    assert abs(pos1.Y - 3000) <= 2
+    assert abs(size1.Width - 2890) <= 2
+    assert size1.Height == 0
+    poly1 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert len(poly1) == 1 and len(poly1[0]) == 2
+    assert poly1[0][0][0] > poly1[0][1][0]
+    assert abs((poly1[0][0][0] - poly1[0][1][0]) - 2890) <= 2
+
+    # Edit with negative width only (no x/y): stays at Y without a margin jump and keeps RTL.
+    edit_neg = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=-1000)
+    assert edit_neg.get("status") == "ok", edit_neg
+    pos2 = line.getPosition()
+    assert abs(pos2.Y - pos1.Y) <= 2
+    assert abs(pos2.X - (pos1.X - 1000)) <= 2
+    poly2 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly2[0][0][0] > poly2[0][1][0]
+    assert abs((poly2[0][0][0] - poly2[0][1][0]) - 1000) <= 2
+
+    # Edit with positive width only (no x/y): getPosition() stays unchanged and direction flips LTR.
+    edit_pos = upsert.execute(tctx, action="edit", page=0, index=rtl_res["index"], width=1500)
+    assert edit_pos.get("status") == "ok", edit_pos
+    pos3 = line.getPosition()
+    assert abs(pos3.X - pos2.X) <= 2
+    assert abs(pos3.Y - pos2.Y) <= 2
+    poly3 = [[(p.X, p.Y) for p in seq] for seq in line.getPropertyValue("PolyPolygon")]
+    assert poly3[0][0][0] < poly3[0][1][0]
+    assert abs((poly3[0][1][0] - poly3[0][0][0]) - 1500) <= 2
+
+
+def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
+    """Export a single shape to SVG and return (x, y) of each TextPosition element."""
+    tmpdir = tempfile.mkdtemp(prefix="shape_svg_")
+    try:
+        out_path = os.path.join(tmpdir, "shape.svg")
+        exporter = ctx.getServiceManager().createInstanceWithContext("com.sun.star.drawing.GraphicExportFilter", ctx)
+        exporter.setSourceDocument(shape)
+        exporter.filter(
+            (
+                PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(out_path)),
+                PropertyValue(Name="MediaType", Value="image/svg+xml"),
+            )
+        )
+        with open(out_path, encoding="utf-8") as fh:
+            svg = fh.read()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    positions: list[tuple[int, int]] = []
+    for match in re.finditer(r'<tspan[^>]*class="TextPosition"[^>]*>', svg):
+        tag = match.group(0)
+        x_m = re.search(r'\bx="(-?\d+)"', tag)
+        y_m = re.search(r'\by="(-?\d+)"', tag)
+        if x_m and y_m:
+            positions.append((int(x_m.group(1)), int(y_m.group(1))))
+    return positions
+
+
+def _iter_paragraphs_and_portions(shape):
+    """Yield (paragraph, portion) pairs for all text in a shape."""
+    para_enum = shape.getText().createEnumeration()
+    while enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        port_enum = para.createEnumeration()
+        while enum_has_more(port_enum):
+            yield para, port_enum.nextElement()
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_text_style_and_alignment(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+        text="Hi",
+        font_size=18,
+        bold=True,
+        italic=True,
+        h_align="left",
+        v_align="top",
+        corner_radius=500,
+    )
+    assert res.get("status") == "ok", res
+    assert not res.get("warnings"), res
+
+    shape = page.getByIndex(res["index"])
+    italic_enum = uno.Enum("com.sun.star.awt.FontSlant", "ITALIC")
+    items = list(_iter_paragraphs_and_portions(shape))
+    assert items
+    for para, port in items:
+        assert port.getPropertyValue("CharWeight") == 150.0
+        assert port.getPropertyValue("CharPosture") == italic_enum
+        assert para.getPropertyValue("ParaAdjust") == 0
+    assert shape.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "TOP")
+    assert shape.getPropertyValue("CornerRadius") == 500
+
+    positions = _svg_text_positions(ctx, shape)
+    assert positions
+    x0, y0 = positions[0]
+    assert x0 < 8000 // 4, positions
+    assert y0 < 4000 // 2, positions
+
+    edit_res = upsert.execute(
+        tctx,
+        action="edit",
+        page=0,
+        index=res["index"],
+        bold=False,
+        h_align="right",
+        v_align="bottom",
+    )
+    assert edit_res.get("status") == "ok", edit_res
+    for _para, port in _iter_paragraphs_and_portions(shape):
+        assert port.getPropertyValue("CharWeight") == 100.0
+
+    positions2 = _svg_text_positions(ctx, shape)
+    assert positions2
+    x1, y1 = positions2[0]
+    assert x1 > 8000 // 2, positions2
+    assert y1 > 4000 // 2, positions2
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    res = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="round-rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=2000,
+        corner_radius=300,
+    )
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    assert any("corner_radius" in str(w) for w in warnings), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_shape_upsert_wrap_text(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+    long_text = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
+
+    res1 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+        text=long_text,
+        font_size=18,
+    )
+    assert res1.get("status") == "ok", res1
+    shape1 = page.getByIndex(res1["index"])
+    pos1 = _svg_text_positions(ctx, shape1)
+    assert len({y for _x, y in pos1}) == 1, pos1
+
+    res2 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=6000,
+        width=8000,
+        height=4000,
+        text=long_text,
+        font_size=18,
+        wrap_text=True,
+        h_align="center",
+        v_align="center",
+    )
+    assert res2.get("status") == "ok", res2
+    shape2 = page.getByIndex(res2["index"])
+    assert shape2.getPropertyValue("TextWordWrap") is True
+    pos2 = _svg_text_positions(ctx, shape2)
+    assert len({y for _x, y in pos2}) >= 2, pos2
+    for para, _port in _iter_paragraphs_and_portions(shape2):
+        assert para.getPropertyValue("ParaAdjust") == 3
+    assert shape2.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "CENTER")
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_wrap_text_off_draw_custom_shape(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    res = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=6000,
+        height=3000,
+        text="Hello world",
+        wrap_text=False,
+    )
+    assert res.get("status") == "ok", res
+    shape = page.getByIndex(res["index"])
+    assert shape.getPropertyValue("TextWordWrap") is False
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_arrowheads_line_and_connector(ctx, doc):
+    from plugin.draw.tree import build_shape_tree
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    for shape_type, y in (("line", 1000), ("connector", 3000)):
+        created = upsert.execute(
+            tctx,
+            action="create",
+            shape_type=shape_type,
+            page=0,
+            x=1000,
+            y=y,
+            width=4000,
+            height=0 if shape_type == "line" else 1000,
+            line_end="arrow",
+            line_start="none",
+        )
+        assert created.get("status") == "ok", created
+        shape = page.getByIndex(created["index"])
+        assert shape.getPropertyValue("LineEndName") == "Arrow"
+        assert len(shape.getPropertyValue("LineEnd").Coordinates) > 0
+        assert shape.getPropertyValue("LineEndWidth") >= 300
+        assert shape.getPropertyValue("LineStartName") == ""
+        assert len(shape.getPropertyValue("LineStart").Coordinates) == 0
+
+    tree = build_shape_tree(page)
+    for node in tree:
+        assert node["style"]["LineEndName"] == "Arrow"
+        assert "LineStartName" not in node["style"]
+
+    edited = upsert.execute(
+        tctx,
+        action="edit",
+        index=0,
+        page=0,
+        line_end="none",
+        line_start="arrow",
+    )
+    assert edited.get("status") == "ok", edited
+    line_shape = page.getByIndex(0)
+    assert line_shape.getPropertyValue("LineEndName") == ""
+    assert len(line_shape.getPropertyValue("LineEnd").Coordinates) == 0
+    assert line_shape.getPropertyValue("LineStartName") == "Arrow"
+    assert len(line_shape.getPropertyValue("LineStart").Coordinates) > 0
+    tree_after = build_shape_tree(page)
+    assert tree_after[0]["style"]["LineStartName"] == "Arrow"
+    assert "LineEndName" not in tree_after[0]["style"]
 

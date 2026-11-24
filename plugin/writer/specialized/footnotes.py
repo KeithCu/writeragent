@@ -84,7 +84,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                     "position matters and the tool is run outside normal user cursor control."
                 ),
             },
-            "occurrence": {"type": "integer", "description": ("0-based index when insert_after matches multiple times (default 0 = first match).")},
+            "occurrence": {"type": "integer", "default": 0, "description": ("0-based index when insert_after matches multiple times (0 = first match).")},
             "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
         },
         "required": ["note", "text"],
@@ -104,7 +104,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         mode = None
         if has_search:
             rng, err, mode = occurrence_range_or_error(
-                doc, insert_after, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="insert_after"
+                doc, insert_after, kwargs["occurrence"], case_sensitive=case_sensitive, subject="insert_after"
             )
             if err is not None:
                 err.update(mode.result_fields())

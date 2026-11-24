@@ -482,19 +482,43 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
                     node[key] = {"name": _safe_attr(linked, "Name"), "text": _shape_text(linked).strip()}
 
         style: dict[str, Any] = {}
-        for prop in ["FillColor", "LineColor", "ZOrder", "RotateAngle", "LineWidth"]:
+        for prop in [
+            "FillColor",
+            "FillStyle",
+            "LineColor",
+            "LineStyle",
+            "ZOrder",
+            "RotateAngle",
+            "LineWidth",
+            "LineStartName",
+            "LineEndName",
+        ]:
             val: Any = uno_read(lambda: shape.getPropertyValue(prop), None)
             if val is not None:
-                if prop in ["FillColor", "LineColor"] and isinstance(val, int) and val != -1:
+                if prop in ("FillStyle", "LineStyle"):
+                    style[prop] = val.value
+                elif prop in ("FillColor", "LineColor") and isinstance(val, int) and val != -1:
                     style[prop] = f"#{val:06X}"
+                elif prop in ("LineStartName", "LineEndName"):
+                    if val:
+                        style[prop] = val
                 else:
                     style[prop] = val
 
+        # Flag CustomShapes with no Path/ViewBox: they will not paint and must be
+        # recreated because shape_upsert(action="edit") does not re-apply geometry.
         geom_props: Any = uno_read(lambda: shape.getPropertyValue("CustomShapeGeometry"), None)
         if geom_props:
+            has_path_or_viewbox = False
             for p in geom_props:
                 if p.Name == "Type":
                     node["custom_shape_type"] = p.Value
+                elif p.Name in ("Path", "ViewBox") and p.Value is not None and p.Value != ():
+                    has_path_or_viewbox = True
+            if not has_path_or_viewbox:
+                node["custom_geometry_empty"] = True
+        elif "CustomShape" in shape_type:
+            node["custom_geometry_empty"] = True
 
         if style:
             node["style"] = style
@@ -514,7 +538,9 @@ class GetDrawTree(ToolBase):
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
-        "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
+        "value/state. CustomShapes with custom_geometry_empty=true have no Path/ViewBox and will not "
+        "paint (recreate them; edit does not re-apply geometry). Address shapes by name from this tree "
+        "— draw-page index shifts when other shapes sit between fields."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

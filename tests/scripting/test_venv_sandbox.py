@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
-from plugin.scripting.payload_codec import host_unpack_data
+from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.sandbox import build_sandbox_policy
 from plugin.scripting.venv import venv_sandbox as vs
 from plugin.scripting.venv.venv_sandbox import (
@@ -1557,13 +1557,10 @@ def test_run_sandboxed_code_timeout_carries_execution_timeout_code(fresh_sandbox
     [
         "import writeragent as wa\nresult = dir(wa)",
         "import writeragent as wa\nresult = dir(wa.shape)",
-        "import writeragent as wa\nresult = wa.__doc__",
-        "import writeragent as wa\nresult = wa.shape.upsert.__doc__",
-        "import writeragent as wa\nresult = getattr(wa, '__doc__')",
     ],
 )
 def test_blocked_introspection_suggests_wa_help(fresh_sandbox_sessions, code: str) -> None:
-    """dir() and __doc__ remain blocked in the sandbox and point the model to wa.help(name)."""
+    """dir() stays blocked in the sandbox and points the model to wa.help(name)."""
     res = sandbox_run(code, session_id="calc:help-hint-test", timeout_sec=5)
     assert res["status"] == "error", res
     assert "wa.help(name)" in res["message"]
@@ -2030,4 +2027,165 @@ def test_dataframe_from_data_spills_the_source_rows(fresh_sandbox_sessions) -> N
     )
     assert res["status"] == "ok", res
     assert result_to_calc_grid(res["result"]) == rows
+
+
+def test_sandbox_allows_binding_bare_math_names_and_keeps_auto_math(fresh_sandbox_sessions) -> None:
+    res = sandbox_run(
+        (
+            "ceil = floor = exp = sin = cos = tan = asin = acos = atan = atan2 = degrees = radians = 0\n"
+            "log = {}\n"
+            "sqrt = 2\n"
+            "result = [log, sqrt, round(math.log(math.e), 6), abs(-3), sum([1, 2])]"
+        ),
+        session_id="calc:bare-math-names",
+        timeout_sec=5,
+    )
+    assert res["status"] == "ok", res
+    assert res["result"] == [{}, 2, 1.0, 3, 3]
+
+    bare_err = sandbox_run("result = sqrt(4)", timeout_sec=5)
+    assert bare_err["status"] != "ok"
+    assert "Forbidden function evaluation: 'sqrt'" in bare_err.get("message", "")
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected_gids", "expect_captured_note"),
+    [
+        pytest.param("f1", ["first"], False, id="returned_f1"),
+        pytest.param("[f2, f1]", ["second", "first"], False, id="list_order"),
+        pytest.param("plt.close(f1)\n[f1, f2]", ["first", "second"], False, id="closed_in_list"),
+        pytest.param("plt.plot([1])", ["first", "second"], True, id="artist_keeps_capture"),
+    ],
+)
+def test_returned_figures_render_in_returned_order(
+    fresh_sandbox_sessions,
+    tail: str,
+    expected_gids: list[str],
+    expect_captured_note: bool,
+) -> None:
+    pytest.importorskip("matplotlib")
+    import matplotlib.pyplot as plt
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "f1 = plt.figure(); f1.add_subplot().set_gid('first')\n"
+        "f2 = plt.figure(); f2.add_subplot().set_gid('second')\n"
+        f"{tail}"
+    )
+    res = sandbox_run(code, session_id="calc:returned-figs", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert plt.get_fignums() == []
+    images = find_image_payloads(res["result"])
+    assert len(images) == len(expected_gids)
+    for img, gid in zip(images, expected_gids, strict=True):
+        assert f'id="{gid}"'.encode() in img["data"]
+    stdout = res.get("stdout", "")
+    assert ("Captured" in stdout) is expect_captured_note
+
+
+def test_blank_returned_figure_shows_seaborn_figure(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("seaborn")
+    pytest.importorskip("pandas")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "import pandas as pd\n"
+        "import seaborn as sns\n"
+        "df = pd.DataFrame({'Country': ['US', 'CA'], 'Sales': [10, 20], 'Segment': ['A', 'B']})\n"
+        "fig = plt.figure()\n"
+        "plot = sns.catplot(data=df, x='Country', y='Sales', hue='Segment', kind='bar')\n"
+        "fig"
+    )
+    res = sandbox_run(code, session_id="calc:blank-fig-seaborn", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param("pairplot = sns.pairplot(df)", id="pairplot"),
+        pytest.param("g = sns.catplot(data=df, x='Country', y='Sales', hue='Segment', kind='bar')\ng", id="catplot"),
+        pytest.param("sns.jointplot(data=df, x='Sales', y='Sales')", id="jointplot"),
+    ],
+)
+def test_seaborn_grid_result_is_a_plot(fresh_sandbox_sessions, tail: str) -> None:
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("seaborn")
+    pytest.importorskip("pandas")
+
+    code = (
+        "import pandas as pd\n"
+        "import seaborn as sns\n"
+        "df = pd.DataFrame({'Country': ['US', 'CA', 'US'], 'Sales': [10, 20, 30], 'Segment': ['A', 'B', 'A']})\n"
+        f"{tail}"
+    )
+    res = sandbox_run(code, session_id="calc:seaborn-grid", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+
+
+def test_axes_array_result_captures_its_figure(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "fig, axs = plt.subplots(1, 2)\n"
+        "axs"
+    )
+    res = sandbox_run(code, session_id="calc:axes-array", timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_2"' in res["result"]["data"]
+
+
+def test_runtime_error_returns_user_traceback_without_host_paths() -> None:
+    res = sandbox_run("def f(x):\n    return x / 0\n\nresult = f(2)")
+    assert res["status"] == "error"
+    tb = res.get("user_traceback", "")
+    assert "in f" in tb
+    assert ".py" not in tb
+    assert "traceback" not in res
+
+
+def test_dir_refusal_keeps_fix_hint_in_user_traceback() -> None:
+    res = sandbox_run("print(dir(1))")
+    assert res["status"] == "error"
+    assert "wa.help(name)" in res.get("message", "")
+    assert "wa.help(name)" in res.get("user_traceback", "")
+
+
+def test_init_script_frames_carry_init_label(fresh_sandbox_sessions) -> None:
+    res = sandbox_run(
+        "result = helper(0)",
+        init_script="def helper(v):\n    return 1 / v\n",
+        init_session_id="calc:tb-init:init",
+        init_script_hash="tb-init",
+    )
+    assert res["status"] == "error"
+    tb = res.get("user_traceback", "")
+    assert 'File "<init script>", line 2, in helper' in tb
+    assert 'File "<sandbox>", line 1, in <module>' in tb
+
+
+def test_named_init_session_without_script_drops_committed_init(fresh_sandbox_sessions) -> None:
+    sid = "calc:init-removed"
+    first = sandbox_run("cell_only = 1\nresult = HELPER", session_id=sid, init_script="HELPER = 1", init_session_id=f"{sid}:init")
+    assert first["status"] == "ok", first
+    second = sandbox_run("result = cell_only", session_id=sid, init_script="", init_session_id=f"{sid}:init")
+    assert second["status"] == "error" and "cell_only" in second["message"], second
+    third = sandbox_run("result = HELPER", session_id=sid, init_session_id=f"{sid}:init")
+    assert third["status"] == "error" and "HELPER" in third["message"], third
+
+
+def test_shared_run_without_init_session_keeps_init_bindings(fresh_sandbox_sessions) -> None:
+    # Run Python Script reuses the Calc workbook's calc:… session and sends no init kwargs.
+    sid = "calc:rps-keeps-init"
+    first = sandbox_run("result = HELPER", session_id=sid, init_script="HELPER = 1", init_session_id=f"{sid}:init")
+    assert first["status"] == "ok", first
+    second = sandbox_run("result = HELPER + 1", session_id=sid)
+    assert second["status"] == "ok" and second["result"] == 2, second
 

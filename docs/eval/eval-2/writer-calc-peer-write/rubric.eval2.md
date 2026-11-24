@@ -50,3 +50,7 @@ and +5 style. Do not fail on `.docx` vs `.odt` vs `.ods` vs `.xlsx`.
 
 CLI: `scripts/eval_2_floorstand_oracle.py` or
 `scripts/eval_2_headed.py --task writer-calc-peer-write --score`.
+
+## Open
+
+- `[eng S few]` Extend the peer-write oracle with the deferred checks: exact gold dollars and unit counts, Store 4099 and 3737 status strings, sheet-tab cosmetics and highlight colors. (§ Soft / later (not v1))

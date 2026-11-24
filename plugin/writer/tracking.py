@@ -250,8 +250,8 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
-            "max_changes": {"type": "integer", "description": "Maximum rows to return (default 100)."},
+            "start_index": {"type": "integer", "default": 0, "description": "Zero-based row to start this page at."},
+            "max_changes": {"type": "integer", "default": 100, "description": "Maximum rows to return."},
         },
         "required": [],
     }
@@ -289,8 +289,8 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
                 "Couldn't read every tracked change (saw %d of %d). The list was not returned, so indexes would be wrong. Use Edit > Track Changes > Manage."
                 % (len(redline_objs), total)
             )
-        start_index = kwargs.get("start_index", 0)
-        max_changes = kwargs.get("max_changes", 100)
+        start_index = kwargs["start_index"]
+        max_changes = kwargs["max_changes"]
         # The model can send 0 or a negative number; clamp instead of failing.
         start_index = max(0, int(start_index))
         max_changes = max(1, int(max_changes))

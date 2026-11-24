@@ -1966,3 +1966,24 @@ def test_read_and_handle_answers_multiple_server_requests() -> None:
     assert msg == {"id": 99, "result": {}}
     assert len(written) == 2
 
+
+def test_ensure_body_ready_ends_status_bar_indicator() -> None:
+    from plugin.writer.locale import grammar_obs
+
+    sink = grammar_obs.StatusBarGrammarStatus()
+    mock_indicator = MagicMock()
+    sink._indicator = mock_indicator
+    grammar_obs.set_grammar_status(sink)
+    client = MagicMock()
+    client.is_alive.return_value = True
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+            patch.object(grammar_obs, "resolve_status_bar_frame", return_value=MagicMock()),
+        ):
+            _ready_runtime(client)
+        mock_indicator.end.assert_called_once()
+        assert not sink.is_active()
+    finally:
+        grammar_obs.set_grammar_status(None)
+

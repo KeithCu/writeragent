@@ -175,3 +175,9 @@ LibreOffice also supports **Advanced Filter** / database-oriented APIs (`com.sun
 - [TableFilterField2](https://api.libreoffice.org/docs/idl/ref/structcom_1_1sun_1_1star_1_1sheet_1_1TableFilterField2.html)
 - [XSheetFilterable](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1sheet_1_1XSheetFilterable.html)
 - DevGuide: [Spreadsheet Documents — Filtering](https://wiki.documentfoundation.org/Documentation/DevGuide/Spreadsheet_Documents#Filtering)
+
+## Open
+
+- `[fidelity S few]` Expose the filter descriptor's regex, case-sensitivity and copy-output properties as optional `sheet_apply_filter` parameters. (§ 5.3 UNO descriptor features not exposed)
+- `[idea M few]` Helper-column "effective filter" workflow for boolean logic a linear AND/OR chain cannot express. (§ 5.4 Higher-level features)
+- `[feature M few]` New tools for Calc Advanced Filter and database-range queries, kept separate from `sheet_apply_filter`. (§ 5.4 Higher-level features)

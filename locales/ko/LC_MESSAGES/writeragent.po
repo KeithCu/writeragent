@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "마지막 에이전트 편집을 취소할 수 없습니다."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "마지막 에이전트 편집을 취소했습니다 ({0} 단계)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "이미지를 찾을 수 없습니다."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "이미지를 삭제할 수 없습니다: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -648,11 +657,11 @@ msgstr "먼저 Calc 스프레드시트를 여십시오."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"writeragent.json의 \"scripting.force_internal_script_editor\" 설정으로 인해 Monaco "
-"편집기가 비활성화되었습니다."
+"writeragent.json의 \"scripting.force_internal_script_editor\" 설정으로 인해 Python "
+"편집기 창이 비활성화되었습니다."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1157,6 +1166,10 @@ msgstr "이 변경 내용 수락"
 msgid "Reject this change"
 msgstr "이 변경 내용 거부"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "미리보기 이미지를 디코딩할 수 없습니다."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1547,6 +1560,25 @@ msgstr "왜"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "귀하"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "실행 중…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "취소되었습니다."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "미리보기 실패: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "실행 실패: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2238,6 +2270,31 @@ msgstr "'%s' 파일을 읽기 전용으로 여는 중입니다."
 msgid "Web research completed."
 msgstr "웹 조사가 완료되었습니다."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama가 num_ctx를 보고하지 않아 WriterAgent가 {0} 토큰으로 가정했습니다. 이는 웹 검색에 너무 작은 "
+"값입니다(검색 프롬프트와 도구만으로 약 2,000 토큰이 필요하며, 출력 토큰은 별도입니다). num_ctx를 최소 {1} 이상으로 높인"
+" 후(Modelfile에서 PARAMETER num_ctx {2} 이상 설정 후 ollama create 사용), 설정에서 연결 테스트를"
+" 수행하거나 LibreOffice를 재시작하고 다시 시도하십시오."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"컨텍스트 창({0} 토큰)이 웹 검색을 수행하기에 너무 작습니다(검색 프롬프트와 도구만으로 약 2,000 토큰이 필요하며, 출력 토큰은 "
+"별도입니다). num_ctx를 최소 {1} 이상으로 높이거나 더 큰 컨텍스트 창을 가진 모델로 전환한 후 다시 시도하십시오."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2508,10 +2565,6 @@ msgstr "새 Python 스크립트"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "스크립트 이름:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "실행 중…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2810,11 +2863,11 @@ msgstr "가상 환경(Venv) 확인 실패"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"설정 → Python에서 Python 가상 환경(venv) 경로를 설정하십시오('uv pip install pywebview "
-"rocher'를 실행한 동일한 venv여야 합니다). LibreOffice 내장 Python으로는 편집기를 실행할 수 없습니다."
+"설정 → Python에서 Python venv 경로를 지정하십시오('uv pip install pywebview'를 실행한 동일한 "
+"venv여야 합니다). LibreOffice 내장 Python으로는 편집기를 실행할 수 없습니다."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2901,12 +2954,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "오디오 프로브에 실패했습니다(writeragent_debug.log 참조)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco 프로브 시간 초과."
+msgid "UI / Editor probe timed out."
+msgstr "UI / 편집기 프로브 시간이 초과되었습니다."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco 프로브 실패 (writeragent_debug.log 참조)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / 편집기 프로브에 실패했습니다(writeragent_debug.log 참조)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -2948,6 +3001,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB 프로브 실패 (writeragent_debug.log 참조)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "이 가상 환경(venv)에서 Nemotron OCR을 시작할 수 없습니다:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "마이크 입력 장치가 감지되지 않았습니다."
 
@@ -2980,8 +3037,8 @@ msgid "Audio Recording & Speech"
 msgstr "오디오 녹음 및 음성"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco 라이브러리: 스크립트 워커 외부 확인 중..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / 편집기 라이브러리: 스크립트 작업자 외부 확인 중..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3334,7 +3391,7 @@ msgstr "Viz '{helper}' 완료됨. {msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "비전 도우미를 사용하려면 Writer, Calc, Draw 또는 Impress 문서가 필요합니다."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Vision 도우미가 실패했습니다."
 
@@ -3420,6 +3477,221 @@ msgstr "내장 스크립트 대화 상자를 열 수 없습니다."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Python 스크립트 실행을 여는 동안 예기치 않은 오류가 발생했습니다."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr "LibreOffice 사용자 구성 폴더의 writeragent_debug.log를 확인하십시오"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP 서버 시작 실패"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "MCP 서버 중지"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "MCP 서버 시작"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP 서버가 실행 중이 아닙니다"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP 서버 실행 중"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "경로: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "로컬 URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "공용 URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "로컬 엔드포인트:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "공용 터널 ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "상태: 활성 (연결됨)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "상태: 재연결 중 — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "재시도 중…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "상태: 터널 시작 중…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "상태: 실패 — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "상태: 실행 중 아님 ({0} 바이너리가 설치되어 있습니까?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ 복사됨!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "테스트 중…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "터널 테스트"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP 터널 테스트"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0}을(를) 통한 공용 터널 (인증 없음)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0}을(를) 통한 공용 터널: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "재연결 중…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0}을(를) 통한 공용 터널 실패: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0}을(를) 통한 공용 터널 시작 중…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "{0}을(를) 통한 공용 터널이 실행 중이 아닙니다 (공급자 바이너리가 설치되어 있습니까?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "터널 테스트 모드: {0} 공급자가 성공적으로 시뮬레이션되었습니다."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "알 수 없는 터널 제공자: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"PATH에서 {1}용 바이너리 '{0}'을(를) 찾을 수 없습니다.\n"
+"\n"
+"다음에서 설치하세요: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "{0} 바이너리 실행 실패 ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} 터널이 실행 중이며 응답하고 있습니다!\n"
+"\n"
+"공용 엔드포인트:\n"
+"{1}\n"
+"\n"
+"상태 확인: 정상 (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} 터널이 활성화되었습니다!\n"
+"\n"
+"공용 엔드포인트:\n"
+"{1}\n"
+"\n"
+"(활성 터널 세션에서 획득한 공용 URL입니다.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} 바이너리 '{1}'이(가) 확인되었습니다 ({2}).\n"
+"\n"
+"(참고: 현재 {4}에서 활성 {3} 터널이 실행 중입니다.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} 바이너리 '{1}'이(가) 설치 및 확인되었습니다 ({2}).\n"
+"\n"
+"MCP 서버가 로컬 포트 {3}에서 실행 중입니다.\n"
+"'공용 터널을 통해 노출'을 체크하고 확인을 클릭하여 공용 라우팅을 활성화하세요."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} 바이너리 '{1}'이(가) 설치 및 확인되었습니다 ({2}).\n"
+"\n"
+"참고: MCP 서버가 현재 포트 {3}에서 실행 중이지 않습니다."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP 서버 상태"
@@ -3440,15 +3712,68 @@ msgstr "모두 수락"
 msgid "Reject all"
 msgstr "모두 거부"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "모델을 불러오는 중…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "텍스트 인식 중…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "감지된 텍스트가 없습니다."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "미리보기 렌더링 중…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "선택한 이미지를 내보낼 수 없습니다: {error}"
+msgid "Done: {count} characters."
+msgstr "완료: {count}자."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr "Vision OCR 삽입은 Writer 또는 Calc 문서가 필요합니다. Draw/Impress에서는 미리보기를 사용하세요."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "삽입 중…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "이미지 {count}개를 삽입했습니다."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "삽입됨: {count}자."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr "에이전트 편집 검토가 변경 사항을 기록 중이므로 이미지가 유지되었습니다."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "미리보기 문서를 만들 수 없습니다."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "미리보기 페이지를 렌더링할 수 없습니다."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr "포함된 이미지(또는 이미지가 포함된 범위)를 선택한 후 다시 실행하십시오."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "선택한 이미지를 내보낼 수 없습니다: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3524,223 +3849,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "OCR 삽입을 준비하는 동안 이미지가 제거되었습니다."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "OCR 삽입 후 이름 없는 이미지를 삭제할 수 없습니다."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "OCR 삽입 중에 이미지가 제거되었습니다."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "LibreOffice 사용자 구성 폴더의 writeragent_debug.log를 확인하십시오"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP 서버 시작 실패"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "MCP 서버 중지"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "MCP 서버 시작"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP 서버가 실행 중이 아닙니다"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP 서버 실행 중"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "경로: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "로컬 URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "공용 URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "로컬 엔드포인트:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "공용 터널 ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "상태: 활성 (연결됨)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "상태: 재연결 중 — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "재시도 중…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "상태: 터널 시작 중…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "상태: 실패 — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "상태: 실행 중 아님 ({0} 바이너리가 설치되어 있습니까?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ 복사됨!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "테스트 중…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "터널 테스트"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP 터널 테스트"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0}을(를) 통한 공용 터널 (인증 없음)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0}을(를) 통한 공용 터널: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "재연결 중…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0}을(를) 통한 공용 터널 실패: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0}을(를) 통한 공용 터널 시작 중…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "{0}을(를) 통한 공용 터널이 실행 중이 아닙니다 (공급자 바이너리가 설치되어 있습니까?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "터널 테스트 모드: {0} 공급자가 성공적으로 시뮬레이션되었습니다."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "알 수 없는 터널 제공자: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"PATH에서 {1}용 바이너리 '{0}'을(를) 찾을 수 없습니다.\n"
-"\n"
-"다음에서 설치하세요: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "{0} 바이너리 실행 실패 ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} 터널이 실행 중이며 응답하고 있습니다!\n"
-"\n"
-"공용 엔드포인트:\n"
-"{1}\n"
-"\n"
-"상태 확인: 정상 (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} 터널이 활성화되었습니다!\n"
-"\n"
-"공용 엔드포인트:\n"
-"{1}\n"
-"\n"
-"(활성 터널 세션에서 획득한 공용 URL입니다.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} 바이너리 '{1}'이(가) 확인되었습니다 ({2}).\n"
-"\n"
-"(참고: 현재 {4}에서 활성 {3} 터널이 실행 중입니다.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} 바이너리 '{1}'이(가) 설치 및 확인되었습니다 ({2}).\n"
-"\n"
-"MCP 서버가 로컬 포트 {3}에서 실행 중입니다.\n"
-"'공용 터널을 통해 노출'을 체크하고 확인을 클릭하여 공용 라우팅을 활성화하세요."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} 바이너리 '{1}'이(가) 설치 및 확인되었습니다 ({2}).\n"
-"\n"
-"참고: MCP 서버가 현재 포트 {3}에서 실행 중이지 않습니다."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: OCR 삽입"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4417,15 +4535,12 @@ msgid "Humanizer skill (natural prose)"
 msgstr "휴머나이저 기술 (자연스러운 문체)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"활성화 시, 모델이 생성하거나 수정한 문서 텍스트가 더 자연스럽고 인간답게 들리도록 시스템 프롬프트에 지침을 주입합니다 (AI 특유의 "
-"부자연스러운 패턴 제거). LibreOffice 프로필의 writeragent/skills/humanizer/SKILL.md에서 규칙을 "
-"편집하십시오 (파일은 처음 사용할 때 자동으로 생성됩니다). 전용 기술(Skills) 탭은 나중에 추가될 수 있습니다."
+"활성화 시, 모델이 생성하거나 수정한 문서 텍스트가 더 자연스럽고 사람처럼 들리도록(AI 특유의 부자연스러운 패턴 제거) 내장 가이드를 "
+"시스템 프롬프트에 삽입합니다."
 
 msgid "Silence before send (ms)"
 msgstr "전송 전 무음 (ms)"
@@ -4602,6 +4717,62 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "핵심 서비스(구성, 이벤트, 로깅)"
 
+msgid "Integrations"
+msgstr "통합"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "사이드바 채팅용 MCP 서버"
+
+msgid "Server"
+msgstr "서버"
+
+msgid "Add"
+msgstr "추가"
+
+msgid "Remove"
+msgstr "제거"
+
+msgid "Use this MCP server in chat"
+msgstr "채팅에서 이 MCP 서버 사용"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr "사이드바 채팅 전용(mcp 도메인); WriterAgent의 MCP 서버나 스크립트에 노출되지 않음."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "읽기 전용 도구 신뢰(프롬프트 없음)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr "서버가 readOnlyHint로 표시한 도구는 수락/변경/거부 없이 실행됨; 그 외 모든 호출은 여전히 확인을 요청함"
+
+msgid "Name"
+msgstr "이름"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "이 서버의 도구 이름에 접두사를 붙입니다(예: home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "서버 URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP 엔드포인트(예: http://localhost:8000/mcp)"
+
+msgid "Token"
+msgstr "토큰"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer 토큰입니다. 설정 확인 시 시스템 키링을 사용할 수 있으면 키링에 저장하고, 그렇지 않으면 writeragent.json에 "
+"저장합니다."
+
+msgid "Status"
+msgstr "상태"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4693,62 +4864,6 @@ msgstr "클라이언트 구성 (Claude / Hermes-Agent에 복사):"
 
 msgid "Copy Config"
 msgstr "설정 복사"
-
-msgid "Integrations"
-msgstr "통합"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "사이드바 채팅용 MCP 서버"
-
-msgid "Server"
-msgstr "서버"
-
-msgid "Add"
-msgstr "추가"
-
-msgid "Remove"
-msgstr "제거"
-
-msgid "Use this MCP server in chat"
-msgstr "채팅에서 이 MCP 서버 사용"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr "사이드바 채팅 전용(mcp 도메인); WriterAgent의 MCP 서버나 스크립트에 노출되지 않음."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "읽기 전용 도구 신뢰(프롬프트 없음)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr "서버가 readOnlyHint로 표시한 도구는 수락/변경/거부 없이 실행됨; 그 외 모든 호출은 여전히 확인을 요청함"
-
-msgid "Name"
-msgstr "이름"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr "이 서버의 도구 이름에 접두사를 붙입니다(예: home -> mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "서버 URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Streamable-HTTP MCP 엔드포인트(예: http://localhost:8000/mcp)"
-
-msgid "Token"
-msgstr "토큰"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer 토큰입니다. 설정 확인 시 시스템 키링을 사용할 수 있으면 키링에 저장하고, 그렇지 않으면 writeragent.json에 "
-"저장합니다."
-
-msgid "Status"
-msgstr "상태"
 
 msgid "Notebook"
 msgstr "노트북"
@@ -4851,12 +4966,16 @@ msgstr "파일 액세스 허용"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"이 옵션을 선택하면 Python이 어디서든 파일을 읽고 쓸 수 있습니다(open, io, pathlib, shutil, tempfile,"
-" sqlite3, glob 및 listdir, stat과 같은 os 파일 호출). 선택하지 않으면 해당 읽기 및 쓰기 작업이 차단됩니다."
-" 메모리 내 버퍼(io.BytesIO, io.StringIO)는 계속 사용할 수 있습니다."
+"체크 시, Python이 어디서든 파일을 읽고 쓸 수 있습니다(open, io, pathlib, shutil, tempfile, "
+"sqlite3, glob 및 listdir, stat과 같은 os 파일 호출). 체크 해제 시, 해당 읽기 및 쓰기 작업이 차단됩니다. "
+"메모리 내 버퍼(io.BytesIO, io.StringIO) 및 문서 파일 도우미(wa.document.open, "
+"wa.document.save, wa.document.export - MCP 및 Python 스크립트에서 접근 가능하며 사이드바 채팅 "
+"모델에는 제공되지 않음)는 계속 사용할 수 있습니다."
 
 msgid "Allow OS access"
 msgstr "OS 액세스 허용"
@@ -4889,11 +5008,11 @@ msgid ""
 "and LaTeX."
 msgstr "셀에서 Python 편집, Python 스크립트 실행, 초기화 스크립트 및 LaTeX를 위한 편집기 창입니다."
 
-msgid "Monaco (default)"
-msgstr "Monaco (기본값)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "비전 / OCR"
@@ -4904,31 +5023,93 @@ msgstr "이미지 배율"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "OCR/레이아웃 전 업스케일링합니다. 작은 스크린샷에는 2.0을 시도하십시오."
 
-msgid "Worker timeout (seconds)"
-msgstr "작업자 시간 제한 (초)"
+msgid "Document timeout (s)"
+msgstr "문서 시간 제한 (초)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Vision Helper용 호스트 하위 프로세스 제한 (첫 모델 다운로드)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
+msgstr ""
+"이 시간(초)이 지나면 문서 하나에 대한 Docling 처리를 중단하고 지금까지 완료된 페이지만 유지합니다. 모델 다운로드 및 로딩 "
+"시간은 포함되지 않습니다. 0으로 설정하면 제한이 해제됩니다."
 
-msgid "Docling artifacts path"
-msgstr "Docling 아티팩트 경로"
+msgid "OCR engine"
+msgstr "OCR 엔진"
 
-msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "docling-tools 모델 다운로드를 위한 선택적 폴더 (오프라인 사용)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Docling이 사용하는 OCR 엔진입니다. RapidOCR (ONNX)을 제외한 모든 엔진은 Python venv에 설치되어 있어야 "
+"합니다. 설정 → Python → 테스트에서 설치된 엔진 목록을 확인할 수 있습니다."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, 기본값)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (명령줄)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR 언어"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"en, de, zh-TW와 같은 언어 코드를 쉼표로 구분하여 입력합니다. Docling 엔진은 모든 코드를 읽으며, Paddle 엔진은 "
+"첫 번째 코드만 읽습니다. 비워두면 이미지 또는 LibreOffice의 언어를 사용합니다."
+
+msgid "Device"
+msgstr "장치"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Docling 모델용 하드웨어입니다. '자동'은 Docling이 GPU를 찾으면 GPU를 사용하며, CPU는 항상 작동합니다."
+
+msgid "Auto"
+msgstr "자동"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR 신뢰도 임계값"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
-msgstr "RapidOCR 최소 텍스트 점수. 0.0은 실제 임계값입니다(기본값이 아님). 불필요한 텍스트를 줄이려면 높이십시오."
-
-msgid "OCR entire image"
-msgstr "전체 이미지 OCR"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "LibreOffice에서 내보낸 포함된 그래픽에 권장됩니다."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
+msgstr ""
+"인식된 텍스트의 최소 신뢰도 (RapidOCR 및 EasyOCR; 다른 엔진은 무시함). 불필요한 텍스트를 제외하려면 높이십시오; "
+"0.0은 모든 텍스트를 유지합니다."
 
 msgid "Table extraction mode"
 msgstr "표 추출 모드"
@@ -4967,6 +5148,13 @@ msgstr "표준 HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "구조화됨(레이아웃 / 셀 그리드)"
 
+msgid "Delete image after OCR"
+msgstr "OCR 후 이미지 삭제"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "OCR이 내용을 삽입한 후 문서에서 원본 이미지를 제거합니다."
+
 msgid "Layout model"
 msgstr "레이아웃 모델"
 
@@ -4988,8 +5176,40 @@ msgstr "코드 블록 강화"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "코드/터미널 스크린샷을 위한 특수 OCR."
 
-msgid "Docling document timeout (s)"
-msgstr "Docling 문서 시간 제한 (초)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR 모델 크기"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Docling 내부 변환당 시간 제한입니다. 0은 제한 없음입니다."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"PP-OCRv6 언어에 대한 RapidOCR 모델 크기; 다른 언어는 무시합니다. Tiny는 가장 빠르며 일본어 모델이 없습니다; "
+"medium은 가장 정확합니다."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (기본값)"
+
+msgid "Medium"
+msgstr "보통"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "회전된 텍스트 수정 (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"확신도가 절반 미만인 줄이 있을 경우 90도, 180도, 270도에서 영역을 다시 읽습니다. 옆으로 된 스캔본을 수정하며, 인식률이 낮을"
+" 때만 시간이 소요됩니다. RapidOCR 엔진에 적용됩니다."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision 인식"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr "Apple Vision(macOS) 전용입니다. '빠르게'는 속도는 빠르지만 정확도가 낮고 지원하는 언어 수가 적습니다."

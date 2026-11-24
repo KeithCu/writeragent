@@ -6,13 +6,20 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import importlib.util
 import logging
+import re
+import shutil
+import sys
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
+from plugin.framework.constants import TESSERACT_PROGRAMS
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
+    LOAD_MODELS_HELPER,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
@@ -27,26 +34,175 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
+# Floor 2.145: iso: language tags arrived in 2.127, RapidOCR model_size in 2.133, and detect_orientation in 2.145.
+_DOCLING_MIN_VERSION: tuple[int, int] = (2, 145)
+_DOCLING_REQUIREMENT = "docling>=%d.%d" % _DOCLING_MIN_VERSION
+# Double quotes stop the shell reading ">" as a redirect (cmd.exe and POSIX shells alike).
+_DOCLING_INSTALL_CMD = f'pip install "{_DOCLING_REQUIREMENT}" onnxruntime css-inline'
+
+# A token that looks like a BCP-47 tag (en, en-US, en_US, zh-Hant-TW, chi_sim) gets Docling's
+# "iso:" prefix; Docling maps iso: tags per engine (docling/utils/ocr_language.py
+# OcrLanguageResolver.canonicalize_ocr_language). Anything else (japan, latin, chinese_cht,
+# script/Cyrillic) is an engine-native code and passes through unchanged.
+_BCP47_LIKE = re.compile(r"[A-Za-z]{2,3}([-_][A-Za-z0-9]{1,8})*")
+
+
+def docling_ocr_langs(raw: Any) -> tuple[str, ...]:
+    """Split a comma list, strip, drop empties/duplicates (order kept), add iso: to BCP-47-looking tokens; empty -> ("iso:en",)."""
+    if raw is None:
+        return ("iso:en",)
+    parts = [str(item).strip() for item in raw] if isinstance(raw, (list, tuple)) else [p.strip() for p in str(raw).split(",")]
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in parts:
+        if not tok:
+            continue
+        if not tok.startswith("iso:") and _BCP47_LIKE.fullmatch(tok):
+            tok = f"iso:{tok}"
+        if tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return tuple(out) if out else ("iso:en",)
 
 
 class OcrBackendError(ValueError):
     """Raised when the requested OCR backend is not available or unknown."""
 
 
-class LayoutModelError(RuntimeError):
-    """Docling layout model_spec cannot be applied. Do not convert with it."""
+@dataclass(frozen=True, slots=True)
+class OcrBackend:
+    """One ocr_backend id: the Docling OcrOptions class it builds and what must be installed for it."""
+
+    options_class: str  # attribute of docling.datamodel.pipeline_options
+    modules: tuple[str, ...] = ()  # top-level modules that must be importable in the venv
+    programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
+    install_hint: str = ""
+    rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
+    # OcrOptions field that takes the text_score setting (RapidOCR text_score, EasyOCR confidence_threshold);
+    # empty when the engine has no recognition-confidence filter.
+    threshold_field: str = ""
+    # sys.platform value the engine runs on ("" = any). Docling's OcrMacModel.__init__
+    # (models/stages/ocr/ocr_mac_model.py) refuses anything but "darwin".
+    sys_platform: str = ""
+    # Start of the ImportError/RuntimeError message Docling's model __init__ raises when the
+    # engine passed pre-flight but cannot start (broken dependency, program that does not run).
+    startup_errors: tuple[str, ...] = ()
 
 
-class DoclingApiMismatchError(LayoutModelError):
-    """Docling internal API version mismatch (e.g. get_engine_config / LayoutModelConfig)."""
+def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
+    return OcrBackend(
+        "RapidOcrOptions",
+        ("rapidocr", module),
+        install_hint=f"pip install rapidocr {pip_name}",
+        rapidocr_engine=engine,
+        threshold_field="text_score",
+    )
+
+
+# Kept in sync with _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py
+# (host diagnostics cannot import this venv-side module because LibrePy builds may omit plugin.vision).
+OCR_BACKENDS: dict[str, OcrBackend] = {
+    "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
+    "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
+    "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
+    "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
+    "easyocr": OcrBackend(
+        "EasyOcrOptions",
+        ("easyocr",),
+        install_hint="pip install easyocr",
+        threshold_field="confidence_threshold",
+        startup_errors=("EasyOCR is not installed",),
+    ),
+    "tesseract": OcrBackend(
+        "TesseractCliOcrOptions",
+        programs=TESSERACT_PROGRAMS,
+        install_hint=(
+            "Install the Tesseract OCR program with its eng and osd language data (Linux: your package manager; "
+            "macOS: Homebrew or MacPorts; Windows: the UB Mannheim installer). WriterAgent looks for tesseract "
+            "on PATH and in its default install folder."
+        ),
+        startup_errors=("Tesseract is not available",),
+    ),
+    "nemotron": OcrBackend(
+        "NemotronOcrOptions",
+        ("nemotron_ocr",),
+        install_hint=(
+            "Nemotron OCR runs in a Python venv set up for it: Linux x86_64 with an NVIDIA GPU, a CUDA build "
+            "of PyTorch, and pip install nemotron-ocr (Docling 2.151 also checks for Python 3.12 and CUDA 13). "
+            "Point Settings → Python at that venv and keep Device on Auto or CUDA."
+        ),
+        # NemotronOcrModel.validate_runtime (docling/models/stages/ocr/nemotron_ocr_model.py) raises RuntimeError
+        # for the platform, Python, CUDA and device checks; NemotronOcrModel.__init__ re-raises a failed
+        # nemotron_ocr.inference import as "Nemotron OCR is not installed".
+        startup_errors=("Nemotron OCR is not installed", "Nemotron OCR is only supported", "Nemotron OCR requires"),
+    ),
+    "ocrmac": OcrBackend(
+        "OcrMacOptions",
+        ("ocrmac",),
+        sys_platform="darwin",
+        install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
+        startup_errors=("ocrmac is not correctly installed", "Apple Vision did not report any recognition language"),
+    ),
+}
+
+
+def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
+    """Return (row, program) for *name*; raise OcrBackendError when unknown or when its modules/program are missing."""
+    row = OCR_BACKENDS.get(name)
+    if row is None:
+        raise OcrBackendError(
+            f"Unknown ocr_backend {name!r}; expected one of: {', '.join(sorted(OCR_BACKENDS))}"
+        )
+    if row.sys_platform and sys.platform != row.sys_platform:
+        raise OcrBackendError(
+            f"OCR backend {name!r} does not run on this system (the Python venv reports {sys.platform!r}). {row.install_hint}"
+        )
+    missing = [m for m in row.modules if importlib.util.find_spec(m) is None]
+    program = next((found for found in map(shutil.which, row.programs) if found), "")
+    if row.programs and not program:
+        missing.append(row.programs[0])
+    if missing:
+        raise OcrBackendError(
+            f"OCR backend {name!r} needs {', '.join(missing)}, which is not installed for the Python venv. {row.install_hint}"
+        )
+    return row, program
+
+
+class DoclingApiMismatchError(RuntimeError):
+    """Installed Docling is older than _DOCLING_MIN_VERSION; reported as DOCLING_API_MISMATCH."""
+
+
+def _check_docling_version() -> None:
+    """Raise DoclingApiMismatchError when installed Docling is older than _DOCLING_MIN_VERSION.
+
+    Reads the docling distribution, then docling-slim (slim installs ship the code without the
+    docling meta-package): the same order as docling/__init__.py _resolve_version. No metadata
+    means Docling is not installed; the Docling import that follows reports DOCLING_UNAVAILABLE.
+    A version string without major.minor is not blocked.
+    """
+    for dist in ("docling", "docling-slim"):
+        try:
+            installed = importlib.metadata.version(dist)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        match = re.match(r"(\d+)\.(\d+)", installed)
+        if match and (int(match[1]), int(match[2])) < _DOCLING_MIN_VERSION:
+            raise DoclingApiMismatchError(
+                f"Docling {installed} is installed, but WriterAgent Vision needs Docling "
+                "%d.%d or newer. Upgrade it in the Settings → Python venv: " % _DOCLING_MIN_VERSION
+                + f'pip install -U "{_DOCLING_REQUIREMENT}"'
+            )
+        return
+
+
+_OCRMAC_RECOGNITION = ("accurate", "fast")  # OcrMacOptions.recognition values ocrmac accepts
 
 
 @dataclass(frozen=True, slots=True)
 class DoclingPipelineParams:
     """Normalized pipeline parameters parsed once for cache key and options application."""
     backend: str
-    lang: str
+    lang: tuple[str, ...]
     input_format: str
     images_scale: float
     device: str
@@ -61,6 +217,9 @@ class DoclingPipelineParams:
     full_page_ocr: bool
     document_timeout: float
     artifacts_path: str
+    rapidocr_model_size: str        # "tiny" | "small" | "medium"; Docling validates
+    rapidocr_detect_orientation: bool
+    ocrmac_recognition: str         # "accurate" | "fast"; validated in from_params
 
     @classmethod
     def from_params(cls, params: dict[str, Any], *, input_format: str = "image") -> DoclingPipelineParams:
@@ -75,9 +234,12 @@ class DoclingPipelineParams:
             full_page_ocr = False
         else:
             full_page_ocr = vision_bool(params.get("force_full_page_ocr", True))
+        recognition = str(params.get("ocrmac_recognition") or "accurate").strip().lower() or "accurate"
+        if recognition not in _OCRMAC_RECOGNITION:
+            raise ValueError(f"ocrmac_recognition must be 'accurate' or 'fast', not {recognition!r}")
         return cls(
             backend=resolve_ocr_backend(params),
-            lang=str(params.get("lang") or "en").strip() or "en",
+            lang=docling_ocr_langs(params.get("lang")),
             input_format=input_format,
             images_scale=float(params.get("images_scale") or 1.0),
             device=str(params.get("device") or "").strip(),
@@ -92,6 +254,9 @@ class DoclingPipelineParams:
             full_page_ocr=full_page_ocr,
             document_timeout=float(params.get("document_timeout") or 0),
             artifacts_path=str(params.get("artifacts_path") or "").strip(),
+            rapidocr_model_size=str(params.get("rapidocr_model_size") or "small").strip().lower() or "small",
+            rapidocr_detect_orientation=vision_bool(params.get("rapidocr_detect_orientation", False)),
+            ocrmac_recognition=recognition,
         )
 
 
@@ -101,104 +266,38 @@ _converter_cache: dict[DoclingPipelineParams, Any] = {}
 
 def _resolve_ocr_options(norm: DoclingPipelineParams) -> Any:
     """Build Docling OcrOptions for the requested backend, raising OcrBackendError on failure."""
-    backend = norm.backend
+    row, program = _installed_ocr_backend(norm.backend)
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
-    if backend == "auto":
-        return None
-    if backend == "surya":
-        try:
-            return importlib.import_module("docling_surya").SuryaOcrOptions(lang=[norm.lang])
-        except ImportError as exc:
-            raise OcrBackendError(
-                "Surya OCR backend is not installed. pip install docling-surya surya-ocr — or choose another ocr_backend."
-            ) from exc
-
-    spec = {
-        "rapidocr": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
-        "rapidocr_paddle": ("RapidOcrOptions", "paddle", f"OCR backend {backend!r} is not available"),
-        "rapidocr_onnx": ("RapidOcrOptions", "onnxruntime", f"OCR backend {backend!r} is not available"),
-        "rapidocr_openvino": ("RapidOcrOptions", "openvino", f"OCR backend {backend!r} is not available"),
-        "rapidocr_torch": ("RapidOcrOptions", "torch", f"OCR backend {backend!r} is not available"),
-        "easyocr": ("EasyOcrOptions", None, "EasyOCR backend is not available"),
-        "tesseract": ("TesseractOcrOptions", None, "Tesseract backend is not available"),
-    }.get(backend)
-    if spec is None:
-        raise OcrBackendError(f"Unknown ocr_backend {backend!r}")
-    cls_name, rapid_engine, unavailable = spec
-    kwargs: dict[str, Any] = {"lang": [norm.lang]}
-    if rapid_engine is not None:
-        kwargs["backend"] = rapid_engine
-        kwargs["text_score"] = norm.text_score
-    try:
-        return getattr(pipeline_options_mod, cls_name)(**kwargs)
-    except (ImportError, AttributeError) as exc:
-        raise OcrBackendError(f"{unavailable}: {exc}") from exc
+    ocr_mode = pipeline_options_mod.OcrMode
+    kwargs: dict[str, Any] = {
+        "lang": list(norm.lang),
+        "mode": ocr_mode.FULL_PAGE if norm.full_page_ocr else ocr_mode.DEFAULT,
+    }
+    if row.threshold_field:
+        kwargs[row.threshold_field] = norm.text_score
+    # Engine-only fields are added only for their own engine, because the other OcrOptions classes forbid extra fields.
+    if row.rapidocr_engine:
+        kwargs["backend"] = row.rapidocr_engine
+        kwargs["model_size"] = norm.rapidocr_model_size
+        kwargs["detect_orientation"] = norm.rapidocr_detect_orientation
+    if norm.backend == "ocrmac":
+        kwargs["recognition"] = norm.ocrmac_recognition
+    if program:
+        # Absolute path, so Docling's --version/--list-langs/OCR subprocesses do not depend on the worker's PATH.
+        kwargs["tesseract_cmd"] = program
+    return getattr(pipeline_options_mod, row.options_class)(**kwargs)
 
 
-def _is_object_detection_layout(layout_opts: Any) -> bool:
-    """True when layout_options expects ObjectDetectionModelSpec (Docling >= 2.118)."""
-    if getattr(layout_opts, "kind", None) == "layout_object_detection":
-        return True
-    spec = getattr(layout_opts, "model_spec", None)
-    if spec is None:
-        return False
-    # Inspect the class, not the instance: MagicMock instances invent callable attrs.
-    get_engine = getattr(type(spec), "get_engine_config", None)
-    return callable(get_engine)
-
-
-# One id drives DOCLING_LAYOUT_<ID>, preset "layout_<id>", and
-# OBJECT_DETECTION_LAYOUT_<ID>. Unknown OD keys use the heron preset
-# only; _resolve_layout_model_spec still raises on the original key.
-_LAYOUT_KEYS = ("heron", "egret", "egret_large", "egret_xlarge", "v2")
+# layout_model values with a Docling object-detection preset
+# (docling/datamodel/stage_model_specs.py OBJECT_DETECTION_LAYOUT_<KEY>); any other value uses Heron.
+_LAYOUT_KEYS = ("heron", "egret_large", "egret_xlarge")
 
 
 def _resolve_layout_model_spec(layout_key: str) -> Any:
-    """Legacy LayoutModelConfig from layout_model_specs (Docling <= 2.117 LayoutOptions)."""
-    if layout_key not in _LAYOUT_KEYS:
-        raise LayoutModelError(
-            f"Unknown layout_model {layout_key!r}; expected one of {sorted(_LAYOUT_KEYS)}"
-        )
-    layout_specs = importlib.import_module("docling.datamodel.layout_model_specs")
-    return getattr(layout_specs, "DOCLING_LAYOUT_" + layout_key.upper())
-
-
-def _resolve_od_layout_model_spec(layout_key: str) -> Any:
-    """ObjectDetectionModelSpec for Docling >= 2.118."""
-    resolved = layout_key if layout_key in _LAYOUT_KEYS else "heron"
-    preset_id = "layout_" + resolved
-    stage_attr = "OBJECT_DETECTION_LAYOUT_" + resolved.upper()
-
-    pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
-    od_cls = getattr(pipeline_mod, "LayoutObjectDetectionOptions", None)
-    from_preset = getattr(od_cls, "from_preset", None) if od_cls is not None else None
-    if callable(from_preset):
-        try:
-            preset_opts = from_preset(preset_id)
-            spec = getattr(preset_opts, "model_spec", None)
-            if spec is not None:
-                return spec
-        except Exception:
-            log.debug("LayoutObjectDetectionOptions.from_preset(%s) failed", preset_id, exc_info=True)
-
+    """ObjectDetectionModelSpec for *layout_key*; keys outside _LAYOUT_KEYS use Heron."""
     stage_mod = importlib.import_module("docling.datamodel.stage_model_specs")
-    preset = getattr(stage_mod, stage_attr, None)
-    if preset is None:
-        preset = getattr(stage_mod, "OBJECT_DETECTION_LAYOUT_HERON", None)
-    spec = getattr(preset, "model_spec", None)
-    if spec is not None:
-        return spec
-
-    od_spec_cls = getattr(stage_mod, "ObjectDetectionModelSpec", None)
-    if callable(od_spec_cls):
-        legacy = _resolve_layout_model_spec(layout_key)
-        return od_spec_cls(
-            name=str(getattr(legacy, "name", "") or "layout_heron"),
-            repo_id=str(getattr(legacy, "repo_id", "") or "docling-project/docling-layout-heron"),
-            revision=str(getattr(legacy, "revision", "") or "main"),
-        )
-
-    raise RuntimeError("Docling ObjectDetectionModelSpec is unavailable")
+    key = layout_key if layout_key in _LAYOUT_KEYS else "heron"
+    return getattr(stage_mod, "OBJECT_DETECTION_LAYOUT_" + key.upper()).model_spec
 
 
 def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
@@ -212,13 +311,17 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
     pipeline_options.do_formula_enrichment = norm.do_formula_enrichment
     pipeline_options.do_code_enrichment = norm.do_code_enrichment
 
-    if norm.device or norm.num_threads > 0:
-        acc = getattr(pipeline_options, "accelerator_options", None)
-        if acc is not None:
-            if norm.device:
-                acc.device = norm.device
-            if norm.num_threads > 0:
-                acc.num_threads = norm.num_threads
+    acc_kwargs: dict[str, Any] = {}
+    if norm.device:
+        acc_kwargs["device"] = norm.device
+    if norm.num_threads > 0:
+        acc_kwargs["num_threads"] = norm.num_threads
+    if acc_kwargs:
+        # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
+        # so a bad device raises ValueError (INVALID_PARAM).
+        pipeline_options.accelerator_options = importlib.import_module(
+            "docling.datamodel.pipeline_options"
+        ).AcceleratorOptions(**acc_kwargs)
 
     table_opts = pipeline_options.table_structure_options
     if norm.table_mode == "fast":
@@ -227,31 +330,8 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
     table_opts.do_cell_matching = norm.do_cell_matching
 
     layout_opts = pipeline_options.layout_options
-    if hasattr(layout_opts, "create_orphan_clusters"):
-        layout_opts.create_orphan_clusters = norm.create_orphan_clusters
-    if hasattr(layout_opts, "model_spec"):
-        if _is_object_detection_layout(layout_opts):
-            layout_opts.model_spec = _resolve_od_layout_model_spec(norm.layout_model)
-            spec = layout_opts.model_spec
-            get_engine = getattr(type(spec), "get_engine_config", None)
-            if not callable(get_engine):
-                raise DoclingApiMismatchError(
-                    "layout model_spec is missing get_engine_config; refusing LayoutModelConfig on OD options"
-                )
-        else:
-            layout_opts.model_spec = _resolve_layout_model_spec(norm.layout_model)
-
-
-def _apply_ocr_mode(pipeline_options: Any, norm: DoclingPipelineParams) -> None:
-    """Prefer Docling ``OcrMode.FULL_PAGE`` over deprecated ``force_full_page_ocr``."""
-    ocr_opts: Any = getattr(pipeline_options, "ocr_options", None)
-    pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
-    ocr_mode_cls = getattr(pipeline_mod, "OcrMode", None)
-    if ocr_mode_cls is not None and hasattr(ocr_opts, "mode"):
-        ocr_opts.mode = ocr_mode_cls.FULL_PAGE if norm.full_page_ocr else ocr_mode_cls.DEFAULT
-        return
-    if hasattr(ocr_opts, "force_full_page_ocr"):
-        ocr_opts.force_full_page_ocr = norm.full_page_ocr
+    layout_opts.create_orphan_clusters = norm.create_orphan_clusters
+    layout_opts.model_spec = _resolve_layout_model_spec(norm.layout_model)
 
 
 def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
@@ -263,14 +343,11 @@ def _build_pipeline_options(norm: DoclingPipelineParams) -> Any:
     pipeline_options = pdf_opts_cls(
         do_ocr=True,
         do_table_structure=True,
+        # Kept so user-installed Docling OCR plugins still load; no ocr_backend row uses one.
         allow_external_plugins=True,
     )
-    if ocr_options is not None:
-        pipeline_options.ocr_options = ocr_options
-    if norm.backend == "surya":
-        setattr(pipeline_options, "ocr_model", "suryaocr")
+    pipeline_options.ocr_options = ocr_options
     _apply_pipeline_params(pipeline_options, norm)
-    _apply_ocr_mode(pipeline_options, norm)
     return pipeline_options
 
 
@@ -279,6 +356,7 @@ def _get_docling_converter(norm: DoclingPipelineParams) -> Any:
     if cached is not None:
         return cached
 
+    _check_docling_version()
     base_models = importlib.import_module("docling.datamodel.base_models")
     converter_mod = importlib.import_module("docling.document_converter")
     input_format_enum = base_models.InputFormat
@@ -306,11 +384,11 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
 
     input_format = detect_vision_input_format(image, params)
     norm = DoclingPipelineParams.from_params(params, input_format=input_format)
+    converter = _get_docling_converter(norm)
     base_models = importlib.import_module("docling.datamodel.base_models")
     buf = BytesIO(image)
     stream_name = "document.pdf" if input_format == "pdf" else "image.png"
     stream = base_models.DocumentStream(name=stream_name, stream=buf)
-    converter = _get_docling_converter(norm)
     result = converter.convert(stream)
     # Missing document after convert must raise a clear error, not None/AttributeError.
     document = getattr(result, "document", None)
@@ -469,7 +547,33 @@ def export_docling_to_html(document: Any) -> str:
 
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
-    # OcrBackendError subclasses ValueError; DoclingApiMismatchError subclasses LayoutModelError.
+    # Docling's engine models raise these from __init__ when pre-flight found the engine but it cannot start:
+    # EasyOcrModel / OcrMacModel / NemotronOcrModel re-raise a failed engine import as a new ImportError inside
+    # the except block (the real cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`,
+    # ocr_mac_model._get_vision_languages raises RuntimeError from the pyobjc error, and
+    # NemotronOcrModel.validate_runtime raises RuntimeError when the venv's platform, Python, CUDA or device
+    # does not suit Nemotron. Reporting them as OCR_BACKEND_UNAVAILABLE keeps them out of the
+    # DOCLING_UNAVAILABLE arm, so no Paddle fallback runs.
+    if isinstance(exc, (ImportError, RuntimeError)):
+        backend = next(
+            (
+                bid
+                for bid, row in OCR_BACKENDS.items()
+                if row.startup_errors and str(exc).startswith(row.startup_errors)
+            ),
+            "",
+        )
+        if backend:
+            cause = exc.__cause__ or exc.__context__ or exc
+            if str(exc).startswith("Apple Vision did not report any recognition language"):
+                detail = f"{exc} ({cause})" if cause is not exc else str(exc)
+            else:
+                detail = f"{str(cause).rstrip('.')}. {OCR_BACKENDS[backend].install_hint}"
+            return error_result(
+                "OCR_BACKEND_UNAVAILABLE",
+                f"OCR backend {backend!r} was found but cannot start: {detail}",
+                helper=helper,
+            )
     if isinstance(exc, ImportError):
         if is_css_inline_import_error(exc):
             return css_inline_unavailable_result(helper)
@@ -487,12 +591,26 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"import_error": root_msg},
         )
+    # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
     if isinstance(exc, OcrBackendError):
         return error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
-    if isinstance(exc, DoclingApiMismatchError) or (isinstance(exc, AttributeError) and "get_engine_config" in str(exc)):
+    if isinstance(exc, DoclingApiMismatchError):
         return error_result("DOCLING_API_MISMATCH", str(exc), helper=helper)
-    if isinstance(exc, LayoutModelError):
-        return error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
+    # Docling raises docling.exceptions.OcrLanguageNotSupportedError (a RuntimeError) when the engine
+    # has no model for a requested language; its message lists the supported iso: tags. Matched by name so
+    # this module never imports Docling just to map an error; getattr keeps pyright happy on Exception.
+    if type(exc).__name__ == "OcrLanguageNotSupportedError":
+        return error_result(
+            "OCR_LANGUAGE_UNSUPPORTED",
+            str(exc),
+            helper=helper,
+            details={"language": getattr(exc, "language", ""), "engine": getattr(exc, "engine", "")},
+        )
+    # RapidOCR has no PP-OCRv6 checkpoint at the chosen rapidocr_model_size for this language (tiny has no
+    # Japanese model). Docling raises docling.exceptions.RapidOcrModelSizeNotSupportedError, a RuntimeError,
+    # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.
+    if type(exc).__name__ == "RapidOcrModelSizeNotSupportedError":
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)
@@ -562,3 +680,21 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         metrics=metrics,
         warnings=warnings,
     )
+
+
+def load_models(params: dict[str, Any]) -> dict[str, Any]:
+    """Eagerly load Docling pipeline models into the cached converter for *params*.
+
+    ``DocumentConverter`` is lazy; ``initialize_pipeline`` (docling
+    ``document_converter.py:675``) loads the layout, table, and OCR models
+    into the cached converter so the next OCR call reuses them.
+    """
+    try:
+        fmt = detect_vision_input_format(None, params)
+        norm = DoclingPipelineParams.from_params(params, input_format=fmt)
+        converter = _get_docling_converter(norm)
+        input_format_enum = importlib.import_module("docling.datamodel.base_models").InputFormat
+        converter.initialize_pipeline(input_format_enum.PDF if fmt == "pdf" else input_format_enum.IMAGE)
+    except Exception as exc:
+        return _docling_error(exc, LOAD_MODELS_HELPER)
+    return ok_result(LOAD_MODELS_HELPER)

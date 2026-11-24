@@ -580,11 +580,13 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
 
 _STYLE_PROPERTY = {
     "type": "string",
-    "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
+    "default": "Standard",
+    "description": "The name of the page style (e.g., 'Standard' or 'Default Style').",
 }
 _COLUMNS_STYLE_PROPERTY = {
     "type": "string",
-    "description": "The name of the page style. Defaults to 'Standard'.",
+    "default": "Standard",
+    "description": "The name of the page style.",
 }
 
 
@@ -663,7 +665,7 @@ class PageGetStyleProperties(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": _STYLE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
+        return get_page_style_properties(ctx.doc, kwargs["style"])
 
 
 # ------------------------------------------------------------------
@@ -735,7 +737,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         resolved = _resolve_page_style_target(self, doc, style_name)
         if isinstance(resolved, dict):
             return resolved
@@ -839,8 +841,9 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             ),
             "include_images": {
                 "type": "boolean",
+                "default": True,
                 "description": (
-                    "Include embedded logo/image bytes in the HTML (default true). "
+                    "Include embedded logo/image bytes in the HTML. "
                     "Headers are small; omitting images would hide the letterhead the "
                     "caller is about to edit."),
             },
@@ -849,10 +852,10 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         region = kwargs["region"]
         assert isinstance(region, str)
-        include_images = bool(kwargs.get("include_images", True))
+        include_images = kwargs["include_images"]
         # type/enum checks are done by the tool schema in ToolRegistry
 
         resolved = _resolve_page_style_target(self, ctx.doc, style_name)
@@ -953,7 +956,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         region = kwargs["region"]
         assert isinstance(region, str)
         content = kwargs["content"]
@@ -1224,7 +1227,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         "properties": {
             "style": {
                 "type": "string",
-                "description": "Page style name. Defaults to 'Standard'.",
+                "default": "Standard",
+                "description": "Page style name.",
             },
             "region": enum_param(
                 list(REGION_PROPS),
@@ -1252,7 +1256,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "all_matches": {
                 "type": "boolean",
-                "description": "Replace every match (default false). Cannot be combined with occurrence.",
+                "default": False,
+                "description": "Replace every match. Cannot be combined with occurrence.",
             },
         },
         "required": ["region", "old_content", "content"],
@@ -1260,7 +1265,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         region = kwargs["region"]
         assert isinstance(region, str)
         old_content = kwargs["old_content"]
@@ -1273,7 +1278,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
         explicit = explicit_case_sensitive(kwargs.get("case_sensitive"))
-        all_matches = kwargs.get("all_matches", False)
+        all_matches = kwargs["all_matches"]
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
             return self._tool_error("occurrence cannot be combined with all_matches=true.")
@@ -1404,7 +1409,7 @@ class PageGetColumns(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": _COLUMNS_STYLE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         target = _resolve_text_columns(self, ctx.doc, style_name)
         if isinstance(target, dict):
             return target
@@ -1440,16 +1445,16 @@ class PageSetColumns(ToolWriterPageBase):
         "properties": {
             "style": _COLUMNS_STYLE_PROPERTY,
             "column_count": {"type": "integer", "description": "Number of columns (1-99)."},
-            "spacing_mm": {"type": "number", "description": "Spacing between columns in mm. Defaults to 0."},
+            "spacing_mm": {"type": "number", "default": 0, "description": "Spacing between columns in mm."},
         },
         "required": ["column_count"],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        style_name = kwargs.get("style", "Standard")
+        style_name = kwargs["style"]
         column_count: int = kwargs["column_count"]
-        spacing_raw = kwargs.get("spacing_mm", 0)
+        spacing_raw = kwargs["spacing_mm"]
 
         err = column_layout_error(column_count, spacing_raw)
         if err is not None:
@@ -1554,7 +1559,7 @@ class PageInsertBreak(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
-        "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
+        "occurrence": {"type": "integer", "default": 0, "description": "0-based match to use when the anchor text repeats."},
         "case_sensitive": {"type": "boolean", "description": LADDER_CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
@@ -1593,7 +1598,7 @@ class PageInsertBreak(ToolWriterPageBase):
 
         if has_anchor:
             res = self._insert_anchored_break(
-                doc, before_text, after_text, page_style, restart, case_sensitive, kwargs.get("occurrence", 0)
+                doc, before_text, after_text, page_style, restart, case_sensitive, kwargs["occurrence"]
             )
             res.setdefault("matched_case_sensitive", resolve_case_sensitive(raw_cs))
             return res

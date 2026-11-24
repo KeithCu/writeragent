@@ -160,14 +160,19 @@ def test_page_locator_dispatches_and_bad_page_errors(monkeypatch):
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()
+    doc.vc.getPage.return_value = 4
     hit = resolve_locator(doc, "page:3")
     assert hit["para_index"] == 6
-    doc.vc.jumpToPage.assert_called_once_with(3)
+    doc.vc.jumpToPage.assert_called_once_with(4)
     assert doc.locked == 1
     assert doc.unlocked == 1
 
     with pytest.raises(ToolExecutionError, match="page:abc"):
         resolve_locator(doc, "page:abc")
+
+    doc.vc.getPage.return_value = 2
+    with pytest.raises(ToolExecutionError, match="document has 2 page"):
+        resolve_locator(doc, "page:3")
 
 
 def test_page_locator_when_clone_fails_skips_body_move(monkeypatch):
@@ -176,13 +181,14 @@ def test_page_locator_when_clone_fails_skips_body_move(monkeypatch):
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()
+    doc.vc.getPage.return_value = 4
     # When clone fails (e.g. view cursor in an exotic context that cannot clone),
     # with_view_cursor_left_body_locked intentionally skips moving the view cursor
     # to body start and does not lock controllers, but still executes the page jump.
     doc.vc.getText.side_effect = RuntimeError("cannot clone")
     hit = resolve_locator(doc, "page:3")
     assert hit["para_index"] == 6
-    doc.vc.jumpToPage.assert_called_once_with(3)
+    doc.vc.jumpToPage.assert_called_once_with(4)
     assert doc.locked == 0
     assert doc.unlocked == 0
 
@@ -970,4 +976,39 @@ def test_writer_anchor_note_reports_at_page_number():
         anchor_type="AT_PAGE",
         anchor_page=3,
     )
-    assert "page 3" in _writer_anchor_note(shape)
+    assert "page 2" in _writer_anchor_note(shape)
+
+
+def test_watch_open_doc_types_reports_now_and_after_document_events(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import plugin.doc.document_helpers as document_helpers
+
+    ctx = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+    monkeypatch.setattr(document_helpers, "get_ctx", lambda: ctx)
+    monkeypatch.setattr(document_helpers, "_OPEN_DOC_TYPES_LISTENER", None)
+
+    open_types: dict[str, object] = {"calc": object()}
+    monkeypatch.setattr(document_helpers.DocumentService, "open_documents_by_type", lambda _self: dict(open_types))
+
+    seen: list[frozenset[str]] = []
+    svc = document_helpers.DocumentService()
+    svc.watch_open_doc_types(seen.append)
+    assert seen == [frozenset({"calc"})]
+
+    broadcaster.addDocumentEventListener.assert_called_once()
+    listener = broadcaster.addDocumentEventListener.call_args.args[0]
+
+    open_types["writer"] = object()
+    listener.documentEventOccured(SimpleNamespace(EventName="OnLoad", ViewController=object(), Source=None))
+    assert seen[-1] == frozenset({"calc", "writer"})
+
+    del open_types["writer"]
+    listener.documentEventOccured(SimpleNamespace(EventName="OnUnload", ViewController=None, Source=None))
+    assert seen[-1] == frozenset({"calc"})
+
+    svc.watch_open_doc_types(seen.append)
+    broadcaster.addDocumentEventListener.assert_called_once()

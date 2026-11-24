@@ -198,7 +198,7 @@ def _run_web_search_tool_call_handler(
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=approval_callback,
@@ -216,8 +216,7 @@ def _run_web_search_tool_call_handler(
          patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
          patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
          patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
-         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
-         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
         mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
         _run_web_agent(MagicMock(), outer_query, None, params)
 
@@ -285,28 +284,26 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
     assert chat_lines == []
 
 
-def test_visit_handler_does_not_preclaim_the_url():
-    from plugin.chatbot.web_research import WebAgentRunParams, _VisitedUrls, _run_web_agent
+def test_visit_handler_leaves_page_store_empty():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
     from plugin.contrib.smolagents.memory import ToolCall
 
-    visited = _VisitedUrls()
     params = WebAgentRunParams(
         smol_model=MagicMock(),
         max_steps=5,
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=None,
         chat_append_callback=None,
         outer_query="topic",
-        visited_urls=visited,
     )
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
-        step = ToolCall(name="visit_webpage", arguments={"url": "https://example.com/a/"}, id="v1")
+        step = ToolCall(name="visit_webpage", arguments={"urls": ["https://example.com/a/"]}, id="v1")
         assert tool_call_handler is not None
         assert tool_call_handler(step) is None
         return "done"
@@ -315,74 +312,142 @@ def test_visit_handler_does_not_preclaim_the_url():
          patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
          patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
          patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
-         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
-         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
         mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
         _run_web_agent(MagicMock(), "topic", None, params)
 
-    assert visited == set()
+    assert params.pages.get("https://example.com/a") is None
 
 
-def test_visit_dedup_fetches_the_first_url_only():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
+def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatch):
+    from plugin.chatbot import web_pages
+    from plugin.chatbot.web_pages import PageStore, PagedVisitTool
+    from plugin.chatbot.web_research import WebResearchToolCallingAgent
 
-    inner = MagicMock()
-    inner.forward.return_value = "page body"
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a") == "page body"
-    assert "Already visited" in tool.forward("https://example.com/a/")
-    inner.forward.assert_called_once_with("https://example.com/a")
-
-
-def test_visit_dedup_retries_after_a_fetch_error():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
 
     inner = MagicMock()
-    inner.forward.return_value = "Error visiting page"
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a").startswith("Error")
-    assert seen == set()
-    inner.forward.side_effect = RuntimeError("navigate failed")
-    try:
-        tool.forward("https://example.com/b")
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError("forward should raise")
-    assert "https://example.com/b" not in seen
-    inner.forward.side_effect = None
-    inner.forward.return_value = "Failed to navigate"
-    assert tool.forward("https://example.com/a").startswith("Failed")
-    assert seen == set()
-    inner.forward.return_value = "page body"
-    assert tool.forward("https://example.com/a") == "page body"
-    assert seen == {"https://example.com/a"}
+    inner.forward.side_effect = lambda u: f"Body for {u}"
+    store = PageStore()
+    visit_tool = PagedVisitTool(inner, store)
+    assert list(visit_tool.inputs) == ["url"]
+
+    agent = WebResearchToolCallingAgent(tools=[visit_tool], model=MagicMock())
+
+    single_out = agent.execute_tool_call("visit_webpage", {"url": "https://single.test/1"})
+    assert "Body for https://single.test/1" in single_out
+    assert store.get("https://single.test/1") is not None
+
+    multi_out = agent.execute_tool_call("visit_webpage", {"urls": ["https://a.test/1", "https://b.test/2"]})
+    assert "Body for https://a.test/1" in multi_out
+    assert "Body for https://b.test/2" in multi_out
+    assert store.get("https://a.test/1") is not None
+    assert store.get("https://b.test/2") is not None
+
+    agent.state["target_urls"] = ["https://state.test/1"]
+    state_out = agent.execute_tool_call("visit_webpage", {"urls": "target_urls"})
+    assert "Body for https://state.test/1" in state_out
+
+    from plugin.contrib.smolagents.utils import AgentToolExecutionError
+
+    store.put = MagicMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(AgentToolExecutionError):
+        agent.execute_tool_call("visit_webpage", {"urls": ["https://err.test/1"]})
 
 
-def test_visit_dedup_retries_after_an_empty_extract():
-    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [("https://example.com/a/", "Read: example.com..."), ("https://www.bbc.co.uk/news", "Read: bbc.co.uk...")],
+)
+def test_web_research_single_url_status_callback(monkeypatch, url, expected):
+    from plugin.chatbot import web_pages
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
 
-    inner = MagicMock()
-    inner.forward.return_value = ""
-    seen = _VisitedUrls()
-    tool = _VisitWebpageDedupTool(inner, seen)
-    assert tool.forward("https://example.com/a") == ""
-    assert seen == set()
-    inner.forward.return_value = "   \n"
-    assert tool.forward("https://example.com/a/") == "   \n"
-    assert seen == set()
-    inner.forward.return_value = "page body"
-    assert tool.forward("https://example.com/a") == "page body"
-    assert seen == {"https://example.com/a"}
-    assert "Already visited" in tool.forward("https://example.com/a/")
-    assert inner.forward.call_count == 3
+    monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
+    statuses: list[str] = []
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=4,
+        cancel=None,
+        cache_path="",
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=statuses.append,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        step = ToolCall(name="visit_webpage", arguments={"url": url}, id="v1")
+        assert tool_call_handler is not None
+        assert tool_call_handler(step) is None
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert expected in statuses
+
+
+def test_find_all_pages_status_is_not_blank():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    statuses: list[str] = []
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=4,
+        cancel=None,
+        cache_path="",
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=statuses.append,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        assert tool_call_handler is not None
+        for idx, args in enumerate(
+            [
+                {"text": "x"},
+                {"text": "x", "url": None},
+                {"text": "x", "url": "  "},
+                {"text": "x", "url": "https://example.com/a"},
+            ]
+        ):
+            assert tool_call_handler(ToolCall(name="find_in_page", arguments=args, id=f"f{idx}")) is None
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert len(statuses) == 4
+    assert statuses[0] == statuses[1] == statuses[2]
+    assert statuses[0] != "Read: ..."
+    assert statuses[3] == "Read: example.com..."
 
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):
 
-    from plugin.chatbot.web_research import VisitWebpageCdpTool
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
 
     calls: list[tuple[str, str | None]] = []
     ids = iter(["tab-a", "tab-b"])
@@ -399,8 +464,8 @@ def test_cdp_visit_uses_a_private_target(monkeypatch):
 
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", fake_cdp)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://a.test")
-    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://b.test")
+    assert "body text" in VisitWebpageBrowserTool(CdpPageDriver(), stop_checker=None).forward("https://a.test")
+    assert "body text" in VisitWebpageBrowserTool(CdpPageDriver(), stop_checker=None).forward("https://b.test")
     assert [method for method, _target in calls if method == "Target.getTargets"] == []
     assert [target for method, target in calls if method == "Page.navigate"] == ["tab-a", "tab-b"]
     assert [target for method, target in calls if method == "Target.closeTarget"] == ["tab-a", "tab-b"]
@@ -411,36 +476,36 @@ def test_cdp_cleanup_waits_until_visit_leaves():
 
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
-    wr._cdp_refcount.run_enter()
+    wr._browser_refcount.reset_for_tests()
+    wr._browser_refcount.run_enter()
     started = threading.Event()
     release = threading.Event()
     cleaned = threading.Event()
 
     def visit() -> None:
-        assert wr._cdp_refcount.visit_enter()
+        assert wr._browser_refcount.visit_enter()
         started.set()
         assert release.wait(2)
-        wr._cdp_refcount.visit_leave()
+        wr._browser_refcount.visit_leave()
 
     thread = threading.Thread(target=visit)
     finisher = None
     try:
         thread.start()
         assert started.wait(1)
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
-            finisher = threading.Thread(target=wr._cdp_refcount.finish)
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser", side_effect=cleaned.set):
+            finisher = threading.Thread(target=wr._browser_refcount.finish)
             finisher.start()
             assert not cleaned.wait(0.15)
             release.set()
             finisher.join(2)
             thread.join(2)
         assert cleaned.is_set()
-        assert wr._cdp_refcount.closing is False
-        assert wr._cdp_refcount.visits_inflight == 0
+        assert wr._browser_refcount.closing is False
+        assert wr._browser_refcount.visits_inflight == 0
     finally:
         release.set()
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
         thread.join(1)
         if finisher is not None:
             finisher.join(1)
@@ -451,45 +516,45 @@ def test_one_research_run_finishing_leaves_the_shared_browser():
 
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     started = threading.Event()
     release = threading.Event()
     cleaned = threading.Event()
 
     def visit() -> None:
-        assert wr._cdp_refcount.visit_enter()
+        assert wr._browser_refcount.visit_enter()
         started.set()
         assert release.wait(2)
-        wr._cdp_refcount.visit_leave()
+        wr._browser_refcount.visit_leave()
 
     thread = threading.Thread(target=visit)
     finisher = None
     try:
-        wr._cdp_refcount.run_enter()
-        wr._cdp_refcount.run_enter()
+        wr._browser_refcount.run_enter()
+        wr._browser_refcount.run_enter()
         thread.start()
         assert started.wait(1)
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser", side_effect=cleaned.set):
             # The other run still holds the browser, so this finish must not
-            # wait for the in-flight visit or kill Chrome.
-            wr._cdp_refcount.finish()
+            # wait for the in-flight visit or kill the browser.
+            wr._browser_refcount.finish()
             assert not cleaned.is_set()
-            assert wr._cdp_refcount.closing is False
-            assert wr._cdp_refcount.visit_enter()
-            wr._cdp_refcount.visit_leave()
-            finisher = threading.Thread(target=wr._cdp_refcount.finish)
+            assert wr._browser_refcount.closing is False
+            assert wr._browser_refcount.visit_enter()
+            wr._browser_refcount.visit_leave()
+            finisher = threading.Thread(target=wr._browser_refcount.finish)
             finisher.start()
             assert not cleaned.wait(0.15)
             release.set()
             finisher.join(2)
             thread.join(2)
         assert cleaned.is_set()
-        assert wr._cdp_refcount.closing is False
-        assert wr._cdp_refcount.runs == 0
-        assert wr._cdp_refcount.visits_inflight == 0
+        assert wr._browser_refcount.closing is False
+        assert wr._browser_refcount.runs == 0
+        assert wr._browser_refcount.visits_inflight == 0
     finally:
         release.set()
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
         thread.join(1)
         if finisher is not None:
             finisher.join(1)
@@ -498,38 +563,121 @@ def test_one_research_run_finishing_leaves_the_shared_browser():
 def test_cdp_launch_failure_releases_the_run(monkeypatch):
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     mode = {"fail": True}
 
-    def fake_url(*args, **kwargs):
+    launched: list[str] = []
+
+    def fake_url(browser_type: str) -> str:
+        launched.append(browser_type)
         if mode["fail"]:
             raise RuntimeError("no browser")
         return "ws://shared"
 
-    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_chrome_cdp_url", fake_url)
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_cdp_url", fake_url)
     try:
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_cdp(object(), "chrome")
+                wr._begin_shared_browser("chrome")
             # The only run failed to launch. Teardown still runs, and the count is released.
             cleanup.assert_called_once()
-        assert wr._cdp_refcount.runs == 0
+            mock_rm_pid.assert_called_once_with()
+        assert wr._browser_refcount.runs == 0
 
         mode["fail"] = False
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
-            assert wr._begin_shared_cdp(object(), "chrome") == "ws://shared"
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
+            assert isinstance(wr._begin_shared_browser("chrome"), wr.CdpPageDriver)
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_cdp(object(), "firefox")
+                wr._begin_shared_browser("brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
-            assert wr._cdp_refcount.runs == 1
-            wr._cdp_refcount.finish()
+            mock_rm_pid.assert_not_called()
+            assert wr._browser_refcount.runs == 1
+            wr._browser_refcount.finish()
             cleanup.assert_called_once()
-        assert wr._cdp_refcount.runs == 0
-        assert wr._cdp_refcount.closing is False
+            mock_rm_pid.assert_called_once_with()
+        assert wr._browser_refcount.runs == 0
+        assert wr._browser_refcount.closing is False
+        assert launched == ["chrome", "chrome", "brave"]
     finally:
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
+
+
+def test_firefox_begin_dispatches_to_bidi_and_finish_closes_it():
+    from plugin.chatbot import web_research as wr
+
+    wr._browser_refcount.reset_for_tests()
+    fake_client = MagicMock()
+    try:
+        with (
+            patch("plugin.chatbot.web_research_firefox.begin_firefox_bidi", return_value=fake_client) as mock_begin,
+            patch("plugin.chatbot.web_research_firefox.close_firefox_bidi") as mock_close_bidi,
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as mock_cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
+            assert wr._begin_shared_browser("firefox") is fake_client
+            mock_begin.assert_called_once_with()
+            wr._browser_refcount.finish()
+            mock_close_bidi.assert_called_once_with()
+            mock_cleanup.assert_called_once_with()
+            mock_rm_pid.assert_called_once_with()
+    finally:
+        wr._browser_refcount.reset_for_tests()
+
+
+@pytest.mark.parametrize(
+    "exc, expect_warning",
+    [
+        (ImportError("No module named 'websockets'"), True),
+        (RuntimeError("Firefox refused"), False),
+    ],
+)
+def test_firefox_import_error_warns_chat_while_runtime_error_is_silent(exc, expect_warning):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    chat_lines: list[str] = []
+    ctx.chat_append_callback = chat_lines.append
+    ctx.send_cancellation = None
+
+    def _cfg(key: str):
+        if key == "chatbot.web_research_browser":
+            return "firefox"
+        if key == "chatbot.max_tool_rounds":
+            return 2
+        if key == "chat_max_tokens":
+            return 2048
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=32_000),
+        patch("plugin.chatbot.web_research._begin_shared_browser", side_effect=exc),
+        patch("plugin.chatbot.web_research._run_web_agent", return_value="ok"),
+    ):
+        WebResearchTool().execute(ctx, query="test")
+
+    if expect_warning:
+        assert len(chat_lines) == 1
+        assert "make vendor" in chat_lines[0]
+    else:
+        assert chat_lines == []
 
 
 def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
@@ -968,11 +1116,11 @@ def test_visit_webpage_rejects_non_http_urls(tmp_path):
     assert "Error fetching the webpage" in tool.forward("javascript:alert(1)")
 
 def test_cdp_visit_rejects_non_http_urls():
-    from plugin.chatbot.web_research import VisitWebpageCdpTool
-    tool = VisitWebpageCdpTool("ws://local")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("file:///etc/passwd")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("chrome://version")
-    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("javascript:alert(1)")
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
+    tool = VisitWebpageBrowserTool(CdpPageDriver())
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("file:///etc/passwd")
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("chrome://version")
+    assert "Error visiting webpage via browser: URL must use http or https scheme." in tool.forward("javascript:alert(1)")
 
 def test_visit_webpage_does_not_cache_fetch_errors(tmp_path):
     """Transient fetch failures must not poison the page cache."""
@@ -1116,21 +1264,22 @@ def test_chromium_cdp_enabled():
 
     import plugin.chatbot.web_research as wr
 
+    fake_driver = MagicMock()
+
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
-         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
-         patch.object(wr._cdp_refcount, "finish") as mock_finish, \
+         patch("plugin.chatbot.web_research._begin_shared_browser", return_value=fake_driver) as mock_begin, \
+         patch.object(wr._browser_refcount, "finish") as mock_finish, \
          patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.client.llm_client.LlmClient"):
 
          WebResearchTool().execute(ctx, query="test query")
 
-         mock_begin.assert_called_once_with(ctx.ctx, "chromium")
+         mock_begin.assert_called_once_with("chromium")
          mock_finish.assert_called_once()
 
-         # The agent parameters should have cdp_url="ws://mock"
          agent_params = mock_run.call_args.args[3]
-         assert agent_params.cdp_url == "ws://mock"
+         assert agent_params.browser is fake_driver
 
 def test_cdp_connection_leak_early_exception():
     from plugin.chatbot.web_research import WebResearchTool
@@ -1163,8 +1312,8 @@ def test_cdp_connection_leak_early_exception():
     import plugin.chatbot.web_research as wr
 
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
-         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
-         patch.object(wr._cdp_refcount, "finish") as mock_finish, \
+         patch("plugin.chatbot.web_research._begin_shared_browser", return_value=MagicMock()) as mock_begin, \
+         patch.object(wr._browser_refcount, "finish") as mock_finish, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
          patch("plugin.framework.client.llm_client.LlmClient"):
@@ -1172,7 +1321,7 @@ def test_cdp_connection_leak_early_exception():
          with pytest.raises(FakeException):
              WebResearchTool().execute(ctx, query="test query")
 
-         mock_begin.assert_called_once_with(ctx.ctx, "chrome")
+         mock_begin.assert_called_once_with("chrome")
          # Important: Even though the exception was raised during LlmClient setup, finish must be called
          mock_finish.assert_called_once()
 
@@ -1269,3 +1418,240 @@ def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None
             reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
         )["core"]
         assert "web_research" in core_proxy_tools
+
+
+def test_web_agent_tools_read_stored_parts_beyond_old_cap():
+    import re
+    from dataclasses import replace
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+
+    url = "https://example.test/long-article"
+    body_paras = "".join(f"<p>Paragraph {i:04d}: " + ("word " * 18) + "</p>\n" for i in range(1500))
+    html = f"<html><body>{body_paras}<p>TAILMARKER</p></body></html>".encode("utf-8")
+    assert len(html) > 140_000
+
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="find tailmarker",
+    )
+
+    captured_tools: list[dict[str, Any]] = []
+    find_results: list[str] = []
+    read_results: list[str] = []
+
+    def capture_agent(*args, tools=None, **kwargs):
+        captured_tools.append({t.name: t for t in (tools or [])})
+        return MagicMock()
+
+    def first_execute(agent, task, **kwargs):
+        tools_by_name = captured_tools[-1]
+        visit_out = tools_by_name["visit_webpage"].forward([url])
+        assert "Part 1 of " in visit_out
+        find_out = tools_by_name["find_in_page"].forward("tailmarker", url)
+        find_results.append(find_out)
+        return "done"
+
+    def second_execute(agent, task, **kwargs):
+        tools_by_name = captured_tools[-1]
+        read_results.append(tools_by_name["read_page"].forward(url, 1))
+        return "done"
+
+    with patch("urllib.request.urlopen", return_value=_FakeUrlopenResponse(html)) as mock_open, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", side_effect=capture_agent), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls:
+        mock_exe_cls.return_value.execute_safe.side_effect = first_execute
+        _run_web_agent(MagicMock(), "find tailmarker", None, params)
+        mock_open.assert_called_once()
+
+        mock_exe_cls.return_value.execute_safe.side_effect = second_execute
+        _run_web_agent(MagicMock(), "read part 1", None, replace(params, smol_model=MagicMock()))
+        mock_open.assert_called_once()
+
+    assert find_results
+    match = re.search(r"Part (\d+):", find_results[0])
+    assert match is not None and int(match.group(1)) > 7
+    assert "TAILMARKER" in find_results[0]
+    assert read_results and "Part 1 of " in read_results[0]
+
+
+def test_cdp_visit_keeps_text_up_to_page_cap(monkeypatch):
+    from plugin.chatbot.web_pages import PAGE_TEXT_MAX_CHARS
+    from plugin.chatbot.web_research import CdpPageDriver, VisitWebpageBrowserTool
+
+    long_value = "A" * 250_000
+    responses = iter([
+        json.dumps({"success": True, "result": {"targetId": "tab-cap"}}),
+        json.dumps({"success": True}),
+        json.dumps({"success": True, "result": {"result": {"type": "string", "value": long_value}}}),
+        json.dumps({"success": True}),
+    ])
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", lambda *a, **kw: next(responses))
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    out = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.test/huge")
+    assert out.startswith("A" * PAGE_TEXT_MAX_CHARS)
+    assert f"stay below {PAGE_TEXT_MAX_CHARS} characters" in out
+
+
+def _execute_web_research_with_window(
+    api_config: dict[str, Any],
+    resolved_window: int | None,
+    *,
+    deep: bool = False,
+    browser: str = "off",
+):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.send_cancellation = None
+
+    captured: dict[str, Any] = {}
+
+    def _fake_shallow(_ctx, _q, _hist, agent_params, **_kwargs):
+        captured["pages"] = agent_params.pages
+        captured["api"] = agent_params.smol_model.api
+        return "ok"
+
+    def _fake_deep(_ctx, query_str, agent_params):
+        captured["pages"] = agent_params.pages
+        captured["api"] = agent_params.smol_model.api
+        return "deep ok", query_str
+
+    def _cfg(key: str):
+        if key == "chatbot.max_tool_rounds":
+            return 5
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_browser":
+            return browser
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window) as mock_resolve,
+        patch("plugin.chatbot.web_research._begin_shared_browser") as mock_cdp,
+        patch("plugin.chatbot.web_research._run_web_agent", side_effect=_fake_shallow) as mock_shallow,
+        patch("plugin.chatbot.web_research._run_deep_web_research", side_effect=_fake_deep) as mock_deep,
+    ):
+        res = WebResearchTool().execute(ctx, query="test sizing", deep=deep)
+    return res, captured, mock_resolve, mock_cdp, mock_shallow, mock_deep
+
+
+@pytest.mark.parametrize(
+    "api_config, resolved_window, expected_budget, expected_part",
+    [
+        pytest.param({"endpoint": "http://localhost:11434", "model": "gemma4"}, 8_192, 4_096, 2_048, id="ollama-8k"),
+        pytest.param({"endpoint": "https://openrouter.ai/api", "model": "anthropic/claude-opus-4"}, 200_000, 48_000, 24_000, id="opus-200k"),
+        pytest.param({"endpoint": "https://custom.example/v1", "model": "custom-model"}, None, 12_000, 6_000, id="custom-unknown"),
+        pytest.param({"endpoint": "http://localhost:11434", "model": "x", "is_openrouter": True}, None, 12_000, 6_000, id="explicit-openrouter-proxy"),
+    ],
+)
+def test_web_research_sizes_page_store_from_context_window(api_config, resolved_window, expected_budget, expected_part):
+    res, captured, mock_resolve, _cdp, _shallow, _deep = _execute_web_research_with_window(api_config, resolved_window)
+    assert res["status"] == "ok"
+    mock_resolve.assert_called_once_with(captured["api"])
+    assert captured["pages"].budget_chars == expected_budget
+    assert captured["pages"].part_chars == expected_part
+
+
+@pytest.mark.parametrize("deep", [False, True])
+@pytest.mark.parametrize(
+    "resolved_window, expected_label, expect_assumed",
+    [
+        pytest.param(2_048, "2K", False, id="known-2k"),
+        pytest.param(4_096, "4K", False, id="known-4k"),
+        pytest.param(None, "4K", True, id="ollama-unknown"),
+    ],
+)
+def test_web_research_rejects_too_small_context_window(deep, resolved_window, expected_label, expect_assumed):
+    res, _captured, mock_resolve, mock_cdp, mock_shallow, mock_deep = _execute_web_research_with_window(
+        {"endpoint": "http://localhost:11434", "model": "gemma4"},
+        resolved_window,
+        deep=deep,
+        browser="chrome",
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "WEB_RESEARCH_CONTEXT_TOO_SMALL"
+    assert "num_ctx" in res["message"]
+    assert expected_label in res["message"]
+    assert "8K" in res["message"]
+    if expect_assumed:
+        assert "assumed" in res["message"]
+        assert "PARAMETER num_ctx 8192" in res["message"]
+        assert "ollama create" in res["message"]
+        assert "Test Connection" in res["message"]
+        assert "OLLAMA_CONTEXT_LENGTH" not in res["message"]
+    else:
+        assert "assumed" not in res["message"]
+    mock_resolve.assert_called_once()
+    mock_cdp.assert_not_called()
+    mock_shallow.assert_not_called()
+    mock_deep.assert_not_called()
+
+
+def test_deep_web_research_uses_sized_page_store():
+    res, captured, mock_resolve, _cdp, _shallow, _deep = _execute_web_research_with_window(
+        {"endpoint": "https://api.example/v1", "model": "m"},
+        32_768,
+        deep=True,
+    )
+    assert res["status"] == "ok"
+    mock_resolve.assert_called_once()
+    assert captured["pages"].budget_chars == 16_384
+    assert captured["pages"].part_chars == 8_192
+
+
+def test_web_research_prompt_overhead_fits_within_minimum_window():
+    """Keep the measured prompt + examples + wire tool-schema overhead well below MIN_WEB_RESEARCH_CONTEXT_TOKENS."""
+    from plugin.chatbot.web_pages import MIN_WEB_RESEARCH_CONTEXT_TOKENS
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.models import get_tool_json_schema
+
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=25,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="topic",
+    )
+    captured_agent: list[Any] = []
+
+    def _capture(agent, _task, **_kwargs):
+        captured_agent.append(agent)
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls:
+        mock_exe_cls.return_value.execute_safe.side_effect = _capture
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert len(captured_agent) == 1
+    agent = captured_agent[0]
+    wire_tools = json.dumps([get_tool_json_schema(t) for t in agent.tools.values()])
+    overhead_tokens = (len(agent.system_prompt) + len(wire_tools)) // 4
+    assert 1_000 < overhead_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS // 3

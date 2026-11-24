@@ -158,6 +158,10 @@ def formula_evaluation_error_message(error_code: int) -> str:
     return f"Formula evaluation error: {label}"
 
 
+# Formula context cell when the caller omits cell or passes an empty string.
+_EVAL_CONTEXT_CELL = "A1"
+
+
 class EvaluateFormula(ToolCalcErrorBase):
     """Pre-evaluate a spreadsheet formula on a temporary worksheet copy without side effects."""
 
@@ -165,7 +169,7 @@ class EvaluateFormula(ToolCalcErrorBase):
     description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"formula": {"type": "string", "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."}, "cell": {"type": "string", "description": "Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5' (defaults to 'A1'). A sheet prefix is ignored. A defined name is rejected."}},
+        "properties": {"formula": {"type": "string", "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."}, "cell": {"type": "string", "default": _EVAL_CONTEXT_CELL, "description": "Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5'. A sheet prefix is ignored. A defined name is rejected."}},
         "required": ["formula"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -177,7 +181,7 @@ class EvaluateFormula(ToolCalcErrorBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         formula_string = kwargs["formula"].strip()
-        cell_address = (kwargs.get("cell") or "A1").strip()
+        cell_address = kwargs["cell"].strip() or _EVAL_CONTEXT_CELL
         if not formula_string:
             return self._tool_error("formula is required", code="INVALID_PARAM")
         if not formula_string.startswith("="):

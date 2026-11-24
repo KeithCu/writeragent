@@ -16,10 +16,12 @@ from typing import Any
 from plugin.vision.vision_common import (
     DEFAULT_VISION_INSERT_MODE,
     IMPLEMENTED_HELPERS,
+    LOAD_MODELS_HELPER,
     VISION_IMAGE_MAX_BYTES,
     detect_vision_input_format,
     error_result,
     fallback_engine_enabled,
+    ok_result,
     resolve_engine,
 )
 
@@ -44,11 +46,10 @@ def _apply_paddle_fallback(
     # PDF bytes stay on the Docling error: Paddle decode is PNG/JPEG only, and
     # decoding %PDF as an image only logs a second failure.
     # Fall back only for DOCLING_UNAVAILABLE (package missing) or
-    # DOCLING_API_MISMATCH (Docling version break, issue 587). Docling emits
-    # that code instead of matching brittle substrings ('get_engine_config' /
-    # 'LayoutModelConfig'). OCR_BACKEND_UNAVAILABLE (user-configured rapidocr
-    # missing) and LAYOUT_MODEL_UNAVAILABLE are configuration errors for the
-    # requested engine and must not fall back.
+    # DOCLING_API_MISMATCH (installed Docling older than the version vision_docling requires).
+    # OCR_BACKEND_UNAVAILABLE (the chosen engine is missing, on the wrong platform, or found
+    # but cannot start — vision_docling `_installed_ocr_backend` / `startup_errors`) and
+    # OCR_LANGUAGE_UNSUPPORTED are configuration errors for the requested engine and must not fall back.
     code = docling_result.get("code")
     if (
         docling_result.get("status") != "error"
@@ -110,6 +111,16 @@ def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any])
     return updated
 
 
+def _load_models(params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        engine = resolve_engine(params)
+    except ValueError as exc:
+        return error_result("INVALID_PARAM", str(exc), helper=LOAD_MODELS_HELPER)
+    if engine != "docling":
+        return ok_result(LOAD_MODELS_HELPER)
+    return importlib.import_module("plugin.vision.venv.vision_docling").load_models(params)
+
+
 def run_vision(
     spec: dict[str, Any] | str,
     image: Any,
@@ -141,6 +152,8 @@ def run_vision(
         )
 
     try:
+        if helper == LOAD_MODELS_HELPER:
+            return _load_models(params)
         result = _dispatch_helper(helper, image, params)
         return apply_structured_insert_html(result, params)
     except ModuleNotFoundError as exc:

@@ -150,9 +150,9 @@ def test_emit_vector_pass_keeps_text_format_per_cell():
     assert output.cells["B1"].formula == '=PY("calc.fmt(data, \'0.0\')";A1)'
     assert output.cells["B2"].formula == '=PY("calc.fmt(data, \'0.0\')";A2)'
     assert output.cells["B3"].formula == '=PY("calc.fmt(data, \'0.0\')";A3)'
-    assert output.cells["C1"].formula == '=PY("(np.abs(np.asarray(data)) * 2)";A1:A3;0)'
-    assert output.cells["C2"].formula == '=PY("(np.abs(np.asarray(data)) * 2)";A1:A3;1)'
-    assert output.cells["C3"].formula == '=PY("(np.abs(np.asarray(data)) * 2)";A1:A3;2)'
+    assert output.cells["C1"].formula == '=PY("((np.abs(np.asarray(data[0]).ravel()) * 2))[int(data[1])]";A1:A3;0)'
+    assert output.cells["C2"].formula == '=PY("((np.abs(np.asarray(data[0]).ravel()) * 2))[int(data[1])]";A1:A3;1)'
+    assert output.cells["C3"].formula == '=PY("((np.abs(np.asarray(data[0]).ravel()) * 2))[int(data[1])]";A1:A3;2)'
     assert report.skipped == []
 
 
@@ -175,9 +175,9 @@ def test_emit_vector_pass_values_match_each_row():
         parsed = PyFormula.parse(output.cells[addr].formula or "")
         assert parsed is not None
         assert parsed.data_args() == ["A1:A3", str(idx)]
-        ns: dict[str, object] = {"data": col_data, "np": np}
+        ns: dict[str, object] = {"data": [col_data, idx], "np": np}
         exec(f"result = {parsed.code}", ns)
-        assert float(np.asarray(ns["result"]).ravel()[idx]) == cells[addr].value
+        assert float(ns["result"]) == cells[addr].value
 
 
 def test_emit_vector_pass_keeps_unsafe_columns_per_cell():

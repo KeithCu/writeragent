@@ -217,13 +217,11 @@ def should_exclude(path, with_tests=False):
         or path_norm.startswith("build/generated/locales/")
     ) and (path_norm.endswith(".po") or path_norm.endswith(".pot")):
         return True
-    # Dev-only logo sources; ship only the 32 px PNGs used by menus in the OXT.
-    if path_norm.endswith("assets/python_logo.svg") or path_norm.endswith("assets/python_logo.NOTICE"):
+    # SVG sources, attribution notes, and the README-only logo.jpg are dev-only;
+    # the OXT ships the PNGs that menus, decks, and the Extension Manager load.
+    if path_norm == "extension/assets/logo.jpg":
         return True
-    if path_norm.endswith("assets/jupyter_logo.svg") or path_norm.endswith("assets/jupyter_logo.NOTICE"):
-        return True
-    # Attribution only; 48 px PNGs ship. Buttons do not scale graphics (see dialog_views).
-    if path_norm.endswith("assets/provider_logos.NOTICE"):
+    if path_norm.startswith("extension/assets/") and path_norm.endswith((".svg", ".NOTICE")):
         return True
 
     parts = [p for p in path_norm.split("/") if p]

@@ -555,45 +555,51 @@ def test_debug_call_tool_rejects_non_dict_args():
     assert isinstance(res, dict) and "error" in res
 
 
+def _free_port() -> int:
+    import socket
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+def _read_until(sock: Any, needle: bytes, timeout: float = 2.0) -> bytes:
+    sock.settimeout(timeout)
+    data = b""
+    deadline = time.monotonic() + timeout
+    while needle not in data:
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting for %r in %r" % (needle, data[:300]))
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise AssertionError("eof before %r in %r" % (needle, data[:300]))
+        data += chunk
+    return data
+
+
+def _alive(tcp_server):
+    with tcp_server.sse_registry.lock:
+        return [thread for thread in list(tcp_server.sse_registry.threads) if thread.is_alive()]
+
+
+def _wait_alive(tcp_server, want: bool, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        alive = bool(_alive(tcp_server))
+        if alive == want:
+            return True
+        time.sleep(0.02)
+    return bool(_alive(tcp_server)) == want
+
+
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
     import socket
 
     from plugin.mcp_server.routes import HttpRouteRegistry
     from plugin.mcp_server.server import HttpServer
-
-    def _free_port() -> int:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-        probe.close()
-        return port
-
-    def _read_until(sock: socket.socket, needle: bytes, timeout: float = 2.0) -> bytes:
-        sock.settimeout(timeout)
-        data = b""
-        deadline = time.monotonic() + timeout
-        while needle not in data:
-            if time.monotonic() > deadline:
-                raise AssertionError("timed out waiting for %r in %r" % (needle, data[:300]))
-            chunk = sock.recv(4096)
-            if not chunk:
-                raise AssertionError("eof before %r in %r" % (needle, data[:300]))
-            data += chunk
-        return data
-
-    def _alive(tcp_server):
-        with tcp_server.sse_registry.lock:
-            return [thread for thread in list(tcp_server.sse_registry.threads) if thread.is_alive()]
-
-    def _wait_alive(tcp_server, want: bool, timeout: float = 2.0) -> bool:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            alive = bool(_alive(tcp_server))
-            if alive == want:
-                return True
-            time.sleep(0.02)
-        return bool(_alive(tcp_server)) == want
 
     services = MagicMock()
     services.tools = MagicMock()
@@ -1247,4 +1253,96 @@ def test_tools_list_leaves_out_the_mcp_domain():
         tools = handler._mcp_tools_list({})["tools"]
     delegate = next(t for t in tools if t["name"] == DELEGATE_SUBAGENT_TOOL)
     assert "mcp" not in delegate["inputSchema"]["properties"]["domain"]["enum"]
+
+
+def test_sse_stream_writes_tools_list_changed_when_catalog_advances():
+    import threading
+    import plugin.mcp_server.mcp_session as mcp_session
+    from plugin.mcp_server.mcp_protocol import _TOOLS_LIST_CHANGED_EVENT
+
+    mcp_session.reset_tool_catalog_for_tests()
+    try:
+        services = MagicMock()
+        services.tools = MagicMock()
+        protocol = MCPProtocolHandler(services)
+        stop_event = threading.Event()
+        handler = MagicMock()
+        handler.connection = MagicMock()
+        sse = MagicMock()
+        sse.reserve.return_value = stop_event
+        handler.server.sse_registry = sse
+
+        calls = {"n": 0}
+
+        def _fake_select(_r, _w, _x, _t):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                mcp_session.record_open_doc_types(frozenset({"calc"}))
+                mcp_session.record_open_doc_types(frozenset({"calc", "writer"}))
+            else:
+                stop_event.set()
+            return ([], [], [])
+
+        with patch("plugin.mcp_server.mcp_protocol.select.select", side_effect=_fake_select):
+            protocol._run_sse_keepalive_loop(handler, interval=15, stop_event=stop_event)
+
+        writes = [c.args[0] for c in handler.wfile.write.call_args_list]
+        assert writes.count(_TOOLS_LIST_CHANGED_EVENT) == 1
+        sse.release.assert_called_once_with(handler.connection)
+    finally:
+        mcp_session.reset_tool_catalog_for_tests()
+
+
+def test_get_mcp_stream_announces_new_document_type():
+    import socket
+    import plugin.mcp_server.mcp_session as mcp_session
+    from plugin.mcp_server.routes import HttpRouteRegistry
+    from plugin.mcp_server.server import HttpServer
+
+    mcp_session.reset_tool_catalog_for_tests()
+    services = MagicMock()
+    services.tools = MagicMock()
+    protocol = MCPProtocolHandler(services)
+    registry = HttpRouteRegistry()
+    registry.add("GET", "/mcp", protocol.handle_mcp_sse)
+
+    srv = None
+    client = None
+    last_error = None
+    for _attempt in range(3):
+        candidate = HttpServer(route_registry=registry, port=_free_port(), host="127.0.0.1")
+        try:
+            candidate.start()
+            srv = candidate
+            break
+        except OSError as exc:
+            last_error = exc
+            candidate.stop()
+    if srv is None or srv._server is None:
+        pytest.fail("HTTP server did not bind: %s" % last_error)
+    try:
+        for _spin in range(40):
+            try:
+                client = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
+                break
+            except ConnectionRefusedError:
+                time.sleep(0.05)
+        assert client is not None
+        client.sendall(b"GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n")
+        _read_until(client, b": keepalive")
+
+        mcp_session.record_open_doc_types(frozenset({"calc"}))
+        mcp_session.record_open_doc_types(frozenset({"calc", "writer"}))
+        first = _read_until(client, b'"method": "notifications/tools/list_changed"')
+        assert b"event: message\n" in first
+
+        mcp_session.record_open_doc_types(frozenset({"calc"}))
+        second = _read_until(client, b'"method": "notifications/tools/list_changed"')
+        assert b"event: message\n" in second
+    finally:
+        if client is not None:
+            client.close()
+        srv.stop()
+        assert _wait_alive(srv._server, False), "SSE keepalive thread still alive after HttpServer.stop"
+        mcp_session.reset_tool_catalog_for_tests()
 

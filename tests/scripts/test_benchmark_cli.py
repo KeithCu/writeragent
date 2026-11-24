@@ -77,6 +77,8 @@ def test_build_eval_argv_task_not_implemented() -> None:
         pytest.param("OPENROUTER_API_KEY", "or-key", "or-key", id="openrouter"),
         pytest.param("ANTHROPIC_API_KEY", "ant-key", None, id="anthropic"),
         pytest.param("EVAL_ANTHROPIC_API_KEY", "eval-ant-key", None, id="eval_anthropic"),
+        pytest.param("GEMINI_API_KEY", "gem-key", None, id="gemini"),
+        pytest.param("EVAL_GEMINI_API_KEY", "eval-gem-key", None, id="eval_gemini"),
     ],
 )
 def test_benchmark_main_api_key_reaches_subprocess(
@@ -88,6 +90,8 @@ def test_benchmark_main_api_key_reaches_subprocess(
     for name in (
         "EVAL_ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY",
+        "EVAL_GEMINI_API_KEY",
+        "GEMINI_API_KEY",
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
         "WRITERAGENT_API_KEY",

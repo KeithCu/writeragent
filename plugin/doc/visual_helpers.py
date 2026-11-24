@@ -12,6 +12,7 @@ Px ↔ 1/100 mm conversion rounds in both directions (`UNITS_PER_INCH` / `PX_PER
 
 from __future__ import annotations
 
+import copy
 from functools import cmp_to_key
 import logging
 import re
@@ -30,7 +31,8 @@ from plugin.framework.doc_type import (
     get_document_type,
 )
 from plugin.doc.text_helpers import FAILED
-from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -570,18 +572,25 @@ def position_on_draw_page(draw_page: Any, width: int, height: int, x_mm: int | f
 
 
 class GraphicEntry(tuple[str, Any]):
-    """(name, graphic) pair preserving Calc sheet metadata when available."""
+    """(name, graphic) pair preserving Calc sheet metadata and Writer draw-page index when available."""
 
     sheet_index: int | None = None
     sheet_name: str | None = None
+    shape_index: int | None = None
 
 
 class AmbiguousGraphicNameError(ValueError):
-    """Raised when looking up a graphic by name matches multiple objects across sheets."""
+    """Raised when looking up a graphic by name matches multiple objects across sheets or on a Writer draw page."""
 
-    def __init__(self, message: str, sheet_indices: list[int] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        sheet_indices: list[int] | None = None,
+        shape_indices: list[int] | None = None,
+    ) -> None:
         super().__init__(message)
         self.sheet_indices: list[int] = sheet_indices or []
+        self.shape_indices: list[int] = shape_indices or []
 
 
 def _graphics_on_page(page: Any) -> Iterator[tuple[str, Any]]:
@@ -654,8 +663,27 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
 
     try:
         graphic_objects: Any = doc.getGraphicObjects()
+        by_name: dict[str, GraphicEntry] = {}
         for name in graphic_objects.getElementNames():
-            graphics.append((name, graphic_objects.getByName(name)))
+            item = GraphicEntry((name, graphic_objects.getByName(name)))
+            by_name[name] = item
+            graphics.append(item)
+        # Every fly image is also on the draw page as a "FrameShape" (sw/source/core/unocore/
+        # unodraw.cxx:SwFmDrawPage::CreateShape) and does not report the drawing service, so the
+        # name map gives flies their draw-page index while the service probe adds only real draw
+        # pictures: Word pictures with rotation or effects stay SdrGrafObj on import
+        # (sw/source/writerfilter/dmapper/GraphicImport.cxx, fdo#70457) and are not in getGraphicObjects().
+        draw_page = doc.getDrawPage()
+        for i in range(draw_page.getCount()):
+            shape = draw_page.getByIndex(i)
+            if shape.supportsService(DRAW_GRAPHIC_SERVICE):
+                item = GraphicEntry((shape.getName(), shape))
+                item.shape_index = i
+                graphics.append(item)
+            elif shape.supportsService(WRITER_GRAPHIC_SERVICE):
+                fly = by_name.get(shape.getName())
+                if fly is not None:
+                    fly.shape_index = i
     except Exception as ex:
         if is_disposal(ex):
             raise
@@ -729,6 +757,26 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     return False
 
 
+def delete_graphic(doc: Any, graphic: Any) -> None:
+    """Remove a graphic object from a Writer, Calc, Draw, or Impress document."""
+    doc_type = get_visual_doc_type(doc)
+    if not is_writer_like(doc_type):
+        try:
+            removed = remove_graphic_from_draw_pages(doc, graphic)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc), code="AMBIGUOUS_NAME") from exc
+        if not removed:
+            raise ToolExecutionError(_("Image not found."), code="IMAGE_NOT_FOUND")
+        return
+    try:
+        anchor = graphic.getAnchor()
+        text = anchor.getText()
+        text.removeTextContent(graphic)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
+
+
 def get_graphic_object_by_name(
     doc: Any,
     image_name: str,
@@ -737,18 +785,28 @@ def get_graphic_object_by_name(
 ) -> Any | None:
     if not image_name:
         return None
-    matches = [(item[1], getattr(item, "sheet_index", None)) for item in list_graphic_objects(doc, doc_type=doc_type) if item[0] == image_name]
+    matches = [
+        (item[1], getattr(item, "sheet_index", None), getattr(item, "shape_index", None))
+        for item in list_graphic_objects(doc, doc_type=doc_type)
+        if item[0] == image_name
+    ]
     if sheet_index is not None:
-        return next((graphic for graphic, idx in matches if idx == sheet_index), None)
+        return next((graphic for graphic, idx, _shape_idx in matches if idx == sheet_index), None)
     if len(matches) == 1:
         return matches[0][0]
     if len(matches) < 2:
         return None
-    sheet_indices = [idx for _g, idx in matches if idx is not None]
-    sheets_info = f" (sheets {sheet_indices})" if sheet_indices else ""
+    sheet_indices = [idx for _g, idx, _s in matches if idx is not None]
+    if sheet_indices:
+        raise AmbiguousGraphicNameError(
+            f"Several shapes named '{image_name}' (sheets {sheet_indices}); specify sheet_index.",
+            sheet_indices=sheet_indices,
+        )
+    shape_indices = [s for _g, _idx, s in matches if s is not None]
+    idx_info = f" at draw-page indexes {', '.join(str(i) for i in shape_indices)}" if shape_indices else ""
     raise AmbiguousGraphicNameError(
-        f"Several shapes named '{image_name}'{sheets_info}; specify sheet_index.",
-        sheet_indices=sheet_indices,
+        f"Several objects named '{image_name}'{idx_info}; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N).",
+        shape_indices=shape_indices,
     )
 
 
@@ -765,3 +823,17 @@ def graphic_from_object(obj: Any) -> Any | None:
         reraise_if_disposed(ex)
         log.debug("graphic_from_object missing Graphic: %s", ex)
     return None
+
+
+def without_sheet_index_off_calc(params: dict[str, Any], doc_type: str | None) -> dict[str, Any]:
+    """Return *params* without ``sheet_index`` when *doc_type* is known and not Calc.
+
+    sheet_index picks between same-named graphics on different Calc sheets
+    (get_graphic_object_by_name); Writer, Draw and Impress graphics have no sheet. None
+    (type not probed, e.g. MCP with no document) keeps the full schema. Never mutates *params*.
+    """
+    if doc_type in (None, "calc") or "sheet_index" not in params["properties"]:
+        return params
+    out = copy.deepcopy(params)
+    del out["properties"]["sheet_index"]
+    return out

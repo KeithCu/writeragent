@@ -33,3 +33,7 @@ exists. Do not File→Open a flat PDF as the edit surface.
 
 No in-repo gold package, no fixtures, no headed `--task`, no oracle CLI.
 See [`SOURCE.md`](SOURCE.md).
+
+## Open
+
+- `[eng L few]` Unpark the Writer-on-a-real-template sibling: add a gold package, fixtures, a headed `--task` and an oracle that catches a wiped letterhead or lost named styles, once header fidelity holds. (§ Not ready)

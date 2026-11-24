@@ -264,7 +264,7 @@ class HarperRuntime:
                     raise RuntimeError("harper-ls process not running after start")
                 with self.lock:
                     self.state = HarperRuntimeState.READY
-            get_grammar_status().request("Harper", result="Harper ready")
+            get_grammar_status().ready("Harper", result="Harper ready")
             _schedule_proofread_again()
         except Exception as exc:
             log.exception("[harper] Background ensure failed")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -100,6 +101,9 @@ SHORT_NAMES: dict[str, str] = {
     "x-ai/grok-4.6": "Grok 4.6",
     "inception/mercury-2.5-preview": "Mercury 2.5",
     "inception/mercury-3": "Mercury 3",
+    "google/gemini-4-hydrogen": "Gemini 4 Hydrogen",
+    "google/gemini-4-neon": "Gemini 4 Neon",
+    "thinkingmachines/inkling-2-mini": "Inkling 2 Mini",
     "inception/mercury-2": "Mercury 2",
     "qwen/qwen3.8-27b": "Qwen 3.8 27B",
     "qwen/qwen3.8-flash": "Qwen 3.8F",
@@ -128,6 +132,11 @@ def _short_label(row: dict[str, Any]) -> str:
     model_id = str(row.get("openrouter_id") or "")
     name = SHORT_NAMES.get(model_id) or model_id.rsplit("/", 1)[-1]
     return f"{name} {float(row['avg_correctness']):.3f}"
+
+
+def _board_size(rows: list[dict[str, Any]]) -> str:
+    n_tasks = max((int(row.get("n_examples") or 0) for row in rows), default=0)
+    return f"{len(rows)} models × {n_tasks} tasks"
 
 
 def _plotable_rows(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -183,6 +192,10 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "anthropic/claude-opus-5.5": (8, -10, "left", "top"),
     "meta/muse-ember": (-8, -8, "right", "top"),
     "liquid/lfm-3-1.7b": (8, 4, "left", "bottom"),
+    # Hydrogen sits just left of Sonnet; label below so it does not cover Sonnet's marker.
+    "google/gemini-4-hydrogen": (-6, -10, "right", "top"),
+    "google/gemini-4-neon": (0, 8, "center", "bottom"),
+    "thinkingmachines/inkling-2-mini": (6, -8, "left", "top"),
 }
 
 Y_AXIS_MIN = 0.52
@@ -258,7 +271,7 @@ def write_pareto_fronts_svg(summaries: list[dict[str, Any]], out_path: Path) -> 
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 cost–quality Pareto fronts (29 models × 19 tasks)",
+        title=f"WriterAgent eval-1 cost–quality Pareto fronts ({_board_size(rows)})",
     )
     ax.legend(frameon=False, loc="lower right", title="Front")
     fig.text(0.01, 0.01, FOOTNOTE, fontsize=7, color="#5f6368")
@@ -318,7 +331,7 @@ def write_pareto_distance_svg(summaries: list[dict[str, Any]], out_path: Path) -
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 distance to F1 frontier (29 models × 19 tasks)",
+        title=f"WriterAgent eval-1 distance to F1 frontier ({_board_size(rows)})",
     )
     cbar = fig.colorbar(scatter, ax=ax, pad=0.02)
     cbar.set_label("Distance to F1 (normalized log-cost × correctness)")
@@ -337,14 +350,21 @@ def write_pareto_distance_svg(summaries: list[dict[str, Any]], out_path: Path) -
     plt.close(fig)
 
 
+def pareto_svg_names(date_tag: str) -> tuple[str, str]:
+    """Dated SVG file names (a new name per refresh so cached copies are not reused)."""
+    return f"pareto-fronts-{date_tag}.svg", f"pareto-distance-{date_tag}.svg"
+
+
 def write_all_pareto_svgs(
     summaries: list[dict[str, Any]],
     *,
     docs_eval_dir: Path,
+    date_tag: str | None = None,
 ) -> list[Path]:
-    """Write fronts and distance SVGs."""
-    fronts_path = docs_eval_dir / "pareto-fronts.svg"
-    distance_path = docs_eval_dir / "pareto-distance.svg"
+    """Write fronts and distance SVGs named ``pareto-*-<date_tag>.svg`` (default: today)."""
+    fronts_name, distance_name = pareto_svg_names(date_tag or datetime.date.today().isoformat())
+    fronts_path = docs_eval_dir / fronts_name
+    distance_path = docs_eval_dir / distance_name
     write_pareto_fronts_svg(summaries, fronts_path)
     write_pareto_distance_svg(summaries, distance_path)
     return [fronts_path, distance_path]
@@ -373,6 +393,12 @@ def main(argv: list[str] | None = None) -> int:
         "--exclude",
         help="Comma-separated model IDs to exclude (overrides DEFAULT_EXCLUDE).",
     )
+    parser.add_argument(
+        "--date",
+        dest="date_tag",
+        default=None,
+        help="Date in the SVG file names (default: today, YYYY-MM-DD). Update doc links to match.",
+    )
     args = parser.parse_args(argv)
 
     if args.include_all:
@@ -383,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         exclude = DEFAULT_EXCLUDE
 
     summaries = load_eligible_summaries(args.in_path, exclude=exclude)
-    written = write_all_pareto_svgs(summaries, docs_eval_dir=args.out_dir)
+    written = write_all_pareto_svgs(summaries, docs_eval_dir=args.out_dir, date_tag=args.date_tag)
     for path in written:
         print(f"Wrote {path}")
     return 0

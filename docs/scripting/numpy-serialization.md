@@ -402,7 +402,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 
 **Policy:** `BINARY_MIN_CELLS = 100` — 2D grids with **≥ 100 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
-**Still deferred:** vendored codecs, mmap, payload cache, venv tool RPC.
+**Still deferred:** vendored codecs, mmap, payload cache. Venv tool RPC is shipped for Run Python Script and chat `python_run_script` via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) (see `Venv ↔ LibreOffice tool RPC`).
 
 ### Current pipeline and costs
 
@@ -458,13 +458,15 @@ This caches **execution output** on the host — separate from the worker [**cod
 
 Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads, built by `payload_codec.pack_multi_data_envelope`). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
 
+On Collabora Online the JSON `data` field carries one argument directly or several as a JSON array. Because Calc sends a range as a nested grid (`[[…]]`) and a single cell or literal as a bare value, `calc_range._is_json_argument_list` treats any non-empty JSON list containing a bare value or a nested grid as one input per item, while a list of flat rows stays a single range.
+
 | Layer | Module |
 |-------|--------|
 | Arg split / convert | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) — rectangular grids + `pack_calc_data_for_wire` |
 | Add-in execution | [`function.py`](../../plugin/calc/python/function.py) |
 | Range value type | [`calc_range.py`](../../plugin/scripting/calc_range.py) — `CalcRange`, `materialize_inputs` |
 | Wire codec | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) |
-| Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_function_multi.py`](../../tests/calc/python/test_function_multi.py) |
+| Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_online_py_json_contract.py`](../../tests/compute_service/test_online_py_json_contract.py) |
 
 User-facing varargs examples: [core §9 — Multi-Range Support](../enabling_numpy_in_libreoffice.md#multi-range-support-varargs).
 
@@ -809,3 +811,14 @@ UNO read → Py list per cell → host_pack (array.tobytes) → pickle.dumps (pr
 | Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
 | Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
 | DataFrame `.to_dict` | Priority 5 |
+
+## Open
+
+- `[eng S few]` Profile inside LibreOffice (legs A to D: UNO range read, host pack, worker round-trip, host unpack) on realistic sheets, as the gate for every other serialization change. (§ Priority 1 — Profile inside LibreOffice (gate for everything else))
+- `[eng M few]` Pack closer to UNO cells with a single UNO-to-bytes pass or Cython pack, only if the profile shows read and pack dominate. (§ Priority 3 — Host: pack closer to UNO cells (code, if profiling says read/pack hurts))
+- `[eng M few]` Cython flatten accelerator build and packaging, currently experimental and not shipped. (§ Building host native extensions (Cython))
+- `[eng M few]` Keep `split_grid` opaque through the matrix and session egress path, decoding to lists only per-cell, if host unpack dominates. (§ Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot))
+- `[idea S few]` Optional `float32` envelope dtype to roughly halve wire bytes when precision allows. (§ Priority 5 — Smaller wire and pandas egress (experiments))
+- `[eng M few]` Worker payload cache keyed by `data_id` plus range content hash so an unchanged range is not resent on every recalc. (§ Priority 6 — Worker payload cache (same range, many recalcs))
+- `[idea M few]` Vendored msgpack/orjson codecs or temp-file mmap transport, only if LibreOffice profiles show serialization dominating. (§ Priority 7 — Defer unless LO profiles disagree with bench)
+- `[eng S few]` Add a `--candidates` option to `scripts/bench_serialization.py` to compare orjson, msgpack and zlib against the current formats. (§ Benchmark checklist (regression / future optimizations))

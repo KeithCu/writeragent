@@ -614,18 +614,22 @@ Per project rule, run `make test` before considering implementation complete.
 
 ## Recommended Milestones
 
-### Milestone 1: OpenRouter Stateless Beta
+### Milestone 1: OpenRouter Stateless Beta (partially shipped)
+
+**Status:** Partially shipped — `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`, `parse_responses_sync`) implements a stateless Responses transport called from `plugin/framework/client/openai_shim.py` (`OpenAIShim`, provider `openai` only) for `gpt-6*` models when tools are present. `OpenRouterShim` has no Responses path, so OpenRouter routing, the config-only `api_mode=responses` opt-in, and the exit criterion below are still open.
+
+**Status (partial):** Stateless Responses transport is implemented in `plugin/framework/client/responses_shim.py` (`uses_responses_api`, `responses_payload`, `parse_responses_chunk`) and called from `plugin/framework/client/openai_shim.py` for `gpt-6*` models when tools are present. The general `api_mode=responses` config setting remains open.
 
 Purpose: make the beta testable with minimal blast radius.
 
 Work:
 
-- Add config-only `api_mode=responses`.
-- Add Responses tool schema converter with `strict: false`.
-- Add stateless message/item adapter.
-- Add non-streaming parser and streaming accumulator.
-- Keep all state local and in-memory.
-- Use full converted history for every OpenRouter Responses request.
+- Config-only `api_mode=responses` (still open).
+- Responses tool schema converter (`_responses_tools` in `plugin/framework/client/responses_shim.py`) with `strict: false` (done).
+- Stateless message/item adapter (`responses_input` / `responses_payload` in `plugin/framework/client/responses_shim.py`) (done).
+- Non-streaming parser (`parse_responses_sync`) and streaming parser (`parse_responses_chunk`) in `plugin/framework/client/responses_shim.py` (done).
+- Keep all state local and in-memory (done).
+- Use full converted history for every OpenRouter Responses request (still open).
 
 Exit criteria:
 
@@ -775,3 +779,17 @@ Exit criteria:
 - llama.cpp: [Server README](https://github.com/ggml-org/llama.cpp/tree/master/tools/server), [Responses PR #18486](https://github.com/ggml-org/llama.cpp/pull/18486), [Codex compliance PR #21174](https://github.com/ggml-org/llama.cpp/pull/21174)
 - vLLM: [OpenAI-compatible server](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html)
 - LiteLLM: [Responses API proxy](https://docs.litellm.ai/docs/response_api)
+
+---
+
+## Open
+
+- `[feature M few]` Opt-in `api_mode` setting so any OpenAI or OpenRouter model can use stateless Responses; the shim today is chosen only for `gpt-6*` models with tools. (§ Phase 1: Config and Mode Selection)
+- `[feature M few]` OpenAI stateful continuation: per-session `ResponsesSessionState` on `ChatSession`, send `previous_response_id` on follow-up turns, and retry stateless when the id is expired. (§ Phase 4: Responses Session State)
+- `[eng S few]` Reset or rebuild Responses state on Clear Chat, model, endpoint or tool-schema change, and on edited history, ignoring late responses through a `history_revision` stamp. (§ Phase 4: Responses Session State)
+- `[feature M few]` Settings UI for API mode, state strategy and compaction, with helper text and a debug log line per request showing the state path used. (§ Milestone 3: Settings UI and Telemetry)
+- `[feature M few]` OpenAI compaction through `context_management` or standalone `/responses/compact`, with the compacted window kept as the canonical replay input. (§ Phase 9: Responses Compaction)
+- `[eng M few]` Persist optional Responses metadata (response ids, output items) inside the existing history JSON message blobs so a restart can resume provider state. (§ Phase 10: Persistence)
+- `[idea M few]` Tool-schema hash caching and `allowed_tools` for stable tool lists on OpenAI, and a Conversations API mode if `previous_response_id` proves useful. (§ Milestone 4: Persistence and Optimization)
+- `[eng S few]` Settle the OpenRouter beta unknowns by testing: `strict: false` versus `strict: null`, and whether assistant history items need `id` and `status`. (§ Open Questions)
+- `[idea S few]` Decide whether smolagents runs use stateful Responses within a single run or stay stateless. (§ Phase 4: Responses Session State)

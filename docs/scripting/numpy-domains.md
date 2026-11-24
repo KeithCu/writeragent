@@ -69,7 +69,7 @@ Future trusted-helper domains (Geospatial, Audio, optional `prophet`) will each 
 
 | Domain | Settings → Python **Test** group | Entry doc |
 |--------|----------------------------------|-----------|
-| **Vision** | **Vision Libraries** — OCR required: Docling (`docling`, `rapidocr`, `css_inline`) **or** Paddle (`paddleocr`, `paddle`, `css_inline`); optional: `paddleocr`/`paddle` fallback, `ultralytics`, `skimage` | [../images/recognition.md](../images/recognition.md) |
+| **Vision** | **Vision Libraries** — OCR required: Docling (`docling`, `rapidocr`, `onnxruntime`, `css_inline`) **or** Paddle (`paddleocr`, `paddle`, `css_inline`) when Docling is not installed; optional: `paddleocr`/`paddle` fallback, `easyocr`/`openvino`/`nemotron_ocr`/`ocrmac`/`tesseract` (listed when present), `ultralytics`, `skimage` | [../images/recognition.md](../images/recognition.md) |
 | **Embeddings** | **Embeddings Libraries** (`envwrap`, `sentence_transformers`, `sqlite_vec`, `langgraph`, `langchain_core`, `langchain_text_splitters`) | [../embeddings.md](../embeddings.md#embeddings-venv-packages) |
 | **Visualization** | **Visualization Libraries** (`matplotlib`, `seaborn`) | [Visualization § Phase A–C](#visualization) |
 | **Symbolic Math (SymPy)** | **Computer Algebra** (`sympy`) | [Symbolic Math §3](#symbolic-math) |
@@ -167,7 +167,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 
 | Component | Module | Behavior |
 |-----------|--------|----------|
-| Figure → bytes | [`venv/to_wire.py`](../../plugin/scripting/venv/to_wire.py) | `figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
+| Figure → bytes | [`venv/to_wire.py`](../../plugin/scripting/venv/to_wire.py), [`venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `figure_to_image_payload()` (SVG default); `plot_image_payload()` (SVG, or 150-dpi PNG above 1 MiB); `_capture_open_figures_payload()` gives one image per open figure, skipping blank ones; `_returned_figures()` for a returned `Figure`, seaborn grid or list of them; `serialize_result()` for nested `Figure`; `Agg` backend; figure cleanup |
 | Wire format | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `pack_image_envelope()`, `is_image_payload()`; shared temp-file helper |
 | Calc `=PYTHON()` | [`function.py`](../../plugin/calc/python/function.py), [`python_image_egress.py`](../../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to formula cell on its owning sheet |
 | Chat / LLM | [`venv.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on the tool document (`ctx.doc`), not the front window, plus `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
@@ -175,7 +175,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | LLM prompts | [`import_policy.py`](../../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
 | LLM sandbox | [`sandbox.py`](../../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` allowed (not on the sandbox blocklist) |
 | Settings Test | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `matplotlib` under **Scientific Libraries**; **Visualization Libraries** group (`matplotlib`, `seaborn`) when Viz helpers are used |
-| Tests | [`test_matplotlib_output.py`](../../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../../tests/calc/python/test_function.py), [`test_venv_python_image.py`](../../tests/calc/python/test_venv_image.py), [`test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py), [`test_viz.py`](../../tests/scripting/test_viz.py), [`test_plot_data.py`](../../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure merge, Calc chat insert, RPS venv path, trusted helpers |
+| Tests | [`test_matplotlib_output.py`](../../tests/scripting/test_matplotlib_output.py), [`test_python_function.py`](../../tests/calc/python/test_function.py), [`test_venv_python_image.py`](../../tests/calc/python/test_venv_image.py), [`test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py), [`test_viz.py`](../../tests/scripting/test_viz.py), [`test_plot_data.py`](../../tests/calc/test_plot_data.py) | Codec, sandbox e2e, multi-figure capture, Calc chat insert, RPS venv path, trusted helpers |
 
 **Works today:**
 
@@ -193,9 +193,18 @@ python_run_script(code="… plt.plot(…) …")
 2. image_insert(image_path=<returned path>)
 ```
 
+**Which figures become pictures:**
+
+- Every open figure becomes its own image (SVG; a 150-dpi PNG when the SVG is over 1 MiB).
+- Use `plt.subplots` for one picture with several plots.
+- End the cell on a figure, a seaborn grid (e.g. `pairplot = sns.pairplot(df)`) or a list of figures to show exactly those, in that order; the others are discarded.
+- A blank figure is skipped when another has a drawing.
+- A non-plot last value is replaced by any open figure, so call `plt.close()` first to return a value.
+- Desktop places one floating picture per image; Collabora draws them stacked in the cell.
+
 **Native LO charts** ([`charts.py`](../../plugin/calc/charts.py) — `chart_upsert`, `chart_list`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
 
-**Known limitations:** No UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Multiple open figures are merged into one vertical stack (PNG). Optional polish (anchor/z-order, replace-existing-chart, UNO e2e): [Monaco Phase 3](monaco-editor-dev-plan.md#phase-3--broader-surfaces).
+**Known limitations:** No UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Each open figure becomes its own image. Optional polish (anchor/z-order, replace-existing-chart, UNO e2e): [Monaco Phase 3](monaco-editor-dev-plan.md#phase-3--broader-surfaces).
 
 Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot` (or `WriterAgentPlot_N` for an integer N ≥ 2 with no sign, whitespace, or leading zero; any other suffix is not a slot) that belongs to the target cell (see the owner tag below). Shapes preserve the graphic's intrinsic aspect ratio instead of stretching to a fixed size. Slot 0 may fill a large merged placeholder block (both dimensions at least 40 mm by 30 mm); later slots pack beside it at their intrinsic aspect ratio. When created, successive slots chain horizontally from the live outer edge of preceding slots without gaps or overlaps (resizing an earlier slot on recalculation may cause overlap if its aspect changes). In right-to-left sheets (`TableLayout == 1`), slots chain from right to left. An existing slot is not reloaded when its image bytes are unchanged, tracked via the SHA-256 digest in its owner tag; matplotlib SVG output is written without a date and with a fixed id salt so an unchanged figure gives identical bytes. When image bytes differ, the graphic is swapped and the box the user arranged is kept. Only when the new image's aspect ratio differs by more than 1% from the old graphic's does a non-fill slot take the new aspect, keeping its long side and its top-left corner (top-right in right-to-left sheets). When an image fails to load, the failure is logged and the remaining slots still update: a new slot stays as a 10 cm × 6 cm empty-graphic placeholder, an existing slot keeps its previous picture, and the cell value is unchanged. If the formula cell's row or column is hidden, newly created plot shapes are set to hidden (`Visible=False`), while existing shapes preserve their visibility state across recalculations. Stock Calc moves a cell-anchored shape's anchor to the cell under its top-left corner whenever the shape is positioned, so slots after the first end up anchored to other cells, and LibrePy cannot write `maStart` back. Each plot therefore records both its owner formula cell and its anchor cell at the time of writing in a `wa-plot:<oc>,<or>[@<ac>,<ar>][:<sha>]` tag stored in `UserDefinedAttributes` (saved in ODF; the shape's alt text is left alone; 0.9.1 tags without `@<ac>,<ar>` gain the anchor on their next recalc). When a tagged shape's anchor moves, the owner is shifted by the same delta: if the shifted owner equals the target cell, the formula and plot moved together (row/column insertion or deletion above or left of them) and the plot is reused; otherwise the recorded owner keeps the plot (user drag, or columns inserted between the formula and slot k) unless the shifted owner cell now holds another `=PY()` formula. A plot without a tag is matched by its anchor. Stale `WriterAgentPlot_N` shapes for higher slots on the cell, and duplicate shapes for one slot (e.g. a plot pasted from another workbook whose name did not collide under `SdrObject::MakeNameUnique`; in-document pasted copies are renamed by Calc to `WriterAgentPlot 1`, etc. and are never slots), are removed only when `image_count` is passed (on the index-0 insert); callers that omit `image_count` do not remove them. User images and other shapes at that cell are left alone; a plot from before the name prefix gets a new sibling instead of being guessed. A missing document, sheet, draw page, or formula cell raises `ImageEgressError`. Chat tools set `image_inserted` false. On the main thread, `=PY()` processes every slot and then returns the first such error instead of "Image inserted"; off-main, the `WriterAgent image: ` note is written only when the cell's note is empty or already starts with that prefix. Any other note text is left in place, because a Calc cell has one note and `insertNew` replaces it, while the cell text can still say "Image inserted". The temp PNG/SVG is removed after `GraphicURL` returns.
 
@@ -720,7 +729,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
 ### Cross-cutting ergonomic improvements {#cross-cutting-ergonomic-improvements}
 
 1. **Vectorized / Array inputs for scalar helpers (`[Units]`, `[Math]`):**
-   - Allow helpers like `convert_quantity([10, 20, 30], "m/s", "km/h")` to accept lists / Calc column ranges directly and return converted column arrays without requiring manual Python list comprehensions in `=PY()`.
+   - **Shipped for `[Units]`:** `convert_quantity`, `parse_quantity`, and `format_quantity` in [`plugin/scripting/venv/units.py`](../../plugin/scripting/venv/units.py) accept scalars, 1D lists, and 2D Calc column ranges directly without list comprehensions in `=PY()` (see [Data Engineering / Units](#data-engineering-units)). Vectorized inputs for `[Math]` remain planned.
 2. **Theme-aware visualization styles:**
    - Detect active LibreOffice light/dark appearance via `get_monaco_theme_info()` and apply theme-aware figure backgrounds and palette hints (`plt.style.use('dark_background')` or transparent canvas in dark mode) so charts look native in dark documents.
 3. **Presentation-ready number & table styling on Calc egress:**
@@ -739,7 +748,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
   - *Dimensionality mismatch diagnostics:* Return clear, human-readable dimension descriptions (e.g. `"Incompatible: [length] vs [mass] * [length] / [time]^2"`) when checks fail.
 - **Analysis Helpers (EDA, Regression, Outliers):**
   - *Target/feature column auto-detection:* Default `target_col` to the last column and `feature_cols` to all preceding numeric columns when omitted.
-  - *Data hygiene helper:* Add a lightweight `clean_data` helper (`drop_na`, `fill_na_median`, `strip_headers`) to prep spreadsheet tables before statistical modeling.
+  - *Data hygiene helper (shipped as `clean_and_prepare`):* [`clean_and_prepare`](../../plugin/scripting/venv/analysis.py) handles type coercion, optional `drop_duplicates`, and `fill_numeric` / `fill_categorical` imputation before modeling.
 - **Time Series & Forecasting:**
   - *Summary KPI banner:* Add executive summary metrics (`MAPE`, `Expected Next Value`, `Trend %`) above the projected data table. Frequency-based seasonality (and weekday forecast dates) is shipped; see [Forecasting](#forecasting).
 - **Text / Document Analytics:**
@@ -747,3 +756,30 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
   - *Topic weight breakdown:* Format `topics` output with relative percentage weights per section for quick at-a-glance density inspection.
 - **Optimization (Scipy):**
   - *Calc range mapping:* Clarify cell-range parameter mappings in `optimize_portfolio` and `linear_program` templates for easy spreadsheet bound referencing.
+
+## Open
+
+- `[feature M few]` Optional Facebook Prophet model (`model="prophet"`) for `forecast_time_series` with a Forecasting Libraries Settings group and `MISSING_PACKAGE` when absent. (§ Forecasting Phase 1, Work item 4)
+- `[feature S few]` Auto-plot for `decompose_time_series`, which the forecasting phase left as a nice-to-have. (§ Forecasting Phase 1, Explicitly out of Phase 1)
+- `[idea L few]` `create_interactive_chart` for static multi-view export or embedded HTML/JS if LibreOffice egress can carry it. (§ Visualization & Plotting, Phase C)
+- `[eng S few]` UNO end-to-end test of full `=PYTHON()` plot insertion, which today is covered only by mocked geometry tests. (§ Visualization & Plotting, Phase A known limitations)
+- `[feature S many]` LLM tool surface for text analytics, which is reachable only through the dialog, Run Python Script or `python_run_script`. (§ Text / Document Analytics)
+- `[fidelity S few]` Show the `truncated` (analyzed_chars / total_chars) note in the Text Analytics dialog formatter. (§ Text / Document Analytics)
+- `[feature M few]` Add `pulp` and `ortools` backends to the Optimization helpers beyond the shipped `scipy.optimize` ones. (§ Optimization & Operations Research)
+- `[feature M few]` Bayesian optimization helper using `scikit-optimize`. (§ New Domain Proposals)
+- `[idea S few]` `pyarrow` IO module (`plugin/scripting/io.py`) and a `calc.convert()` Calc-parity wrapper for units. (§ Data Engineering / Units (Pint))
+- `[feature L few]` Geospatial `map_data` helper producing a static map image plus attribute table from location columns, with a Geo Helpers script section. (§ Geospatial)
+- `[feature M few]` Audio analysis helpers (`analyze_audio`, `spectrogram_plot`) using librosa in the venv with Audio Helpers templates. (§ Audio / Signal Processing)
+- `[fidelity S many]` Theme-aware matplotlib styles that follow the LibreOffice light or dark appearance. (§ Cross-cutting ergonomic improvements)
+- `[fidelity S many]` Light default formatting (bold header, fill, percent and decimal formats) when tabular analysis results are written to Calc. (§ Cross-cutting ergonomic improvements)
+- `[fidelity S many]` Route Vision `extract_structure` table results straight into Calc cell ranges instead of HTML only. (§ Domain-specific polish opportunities)
+- `[feature S many]` Status progress message such as "Initializing OCR engine..." on the first heavy OCR model load. (§ Domain-specific polish opportunities)
+- `[fidelity S few]` Unpack multi-solution `solve_equation` results into 1D/2D Calc arrays under `=PY()`. (§ Domain-specific polish opportunities)
+- `[feature S few]` Optional `evaluate` / `float_precision` parameter on `solve_equation` and `symbolic_simplify` for decimal approximations. (§ Domain-specific polish opportunities)
+- `[fidelity S few]` Template examples and warnings for offset temperature conversions (`degC` versus `delta_degC`) in Units helpers. (§ Domain-specific polish opportunities)
+- `[fidelity S few]` Human-readable dimension descriptions when `check_dimensionality` finds incompatible units. (§ Domain-specific polish opportunities)
+- `[feature S few]` Default `target_col` to the last column and `feature_cols` to the preceding numeric columns in regression when omitted. (§ Domain-specific polish opportunities)
+- `[feature S many]` Summary KPI banner (MAPE, expected next value, trend percent) above the forecast table. (§ Domain-specific polish opportunities)
+- `[feature M many]` Writer in-document highlighting of detected entities or low-readability sentences. (§ Domain-specific polish opportunities)
+- `[fidelity S few]` Show relative percentage topic weights per section in `topics` output. (§ Domain-specific polish opportunities)
+- `[fidelity S few]` Clarify cell-range parameter mapping in the `optimize_portfolio` and `linear_program` templates. (§ Domain-specific polish opportunities)

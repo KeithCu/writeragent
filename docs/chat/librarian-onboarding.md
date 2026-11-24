@@ -58,7 +58,7 @@ Onboarding is **not** a hidden intercept on missing `USER.md`. It is the last it
 - **Re-entry:** pick Librarian any time. Same smol agent (`librarian_onboarding`).
 - **History:** global `ChatSession` with id `writeragent_librarian` (not per document). Switching to Chat shows document chat; switching back restores the Librarian transcript. Clear only wipes the active session.
 - **LLM exit:** `reply_to_user` with `switch_to_document_mode=true` (same flag name as the old leave tool). That sets the dropdown to **Chat** on the UI thread, swaps to `doc_session`, and refreshes `[DOCUMENT CONTENT]`. Librarian history is kept. Human exit is still the dropdown.
-- **Profile injection:** each turn appends `USER.md` under `[USER PROFILE / MEMORY]`, capped by `prompts._cap_injected_prompt_blob` (`CHAT_DOCUMENT_CONTEXT_MAX_CHARS`), the same cap as the main chat prompt. Both main chat and Librarian keep the profile in the system prompt.
+- **Profile injection:** each turn appends `USER.md` under `[USER PROFILE / MEMORY]`, capped by `memory.cap_injected_prompt_blob` (`CHAT_DOCUMENT_CONTEXT_MAX_CHARS`), the same cap as the main chat prompt. Both main chat and Librarian keep the profile in the system prompt.
 
 See [`docs/chat-librarian-mode-dev-plan.md`](chat-librarian-mode-dev-plan.md).
 
@@ -515,3 +515,9 @@ def _init_chat_session(self):
 **Last Updated**: 2026-05-09
 **Priority**: High 🚀
 **Approach**: Agent-Driven Conversation ✨
+## Open
+
+- `[idea S few]` Append an explicit "Respond in <UI language>" line to the Librarian instructions from the UNO locale if context-driven language matching ever proves unreliable. (§ Optional future work (not urgent))
+- `[idea M few]` Structured knowledge-goal tracking (name, favorite color, work style, teaching steps) with status per goal and a nested YAML profile; no `knowledge_goals.py` exists. (§ Knowledge Goals System)
+- `[idea M few]` Separate profiles or onboarding for multiple users on a shared machine. (§ Open Questions)
+- `[idea S few]` Selectable Librarian personalities. (§ Open Questions)

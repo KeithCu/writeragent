@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from dataclasses import dataclass, field
 
@@ -23,6 +23,9 @@ from plugin.vision.vision_common import (
     merge_vision_params,
 )
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 
 
 def supports_vision_manual(doc: Any) -> bool:
@@ -41,6 +44,13 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     return {"params": merge_vision_params(ctx, raw_params)}
 
 
+def no_image_selected_error() -> ToolExecutionError:
+    return ToolExecutionError(
+        _("Select an embedded image (or a range containing images), then Run again."),
+        code="NO_IMAGE_SELECTED",
+    )
+
+
 def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     """Export the currently selected embedded graphic as raw PNG bytes."""
     try:
@@ -52,7 +62,7 @@ def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
             code="IMAGE_EXPORT_FAILED",
         ) from exc
     if not png_bytes:
-        raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+        raise no_image_selected_error()
     return png_bytes
 
 
@@ -89,12 +99,13 @@ def _validate_helper(helper: str) -> str:
 
 
 def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
+    # Keep the region so zh-TW reaches Docling and Paddle as Traditional Chinese.
     # 1. CharLocale from the target graphic
     if graphic_obj is not None:
         try:
             locale = graphic_obj.getPropertyValue("CharLocale")
-            if locale and getattr(locale, "Language", None):
-                return str(locale.Language).lower()
+            if locale and locale.Language:
+                return f"{locale.Language}-{locale.Country}" if locale.Country else locale.Language
         except Exception as exc:
             reraise_if_disposed(exc)
 
@@ -103,16 +114,26 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
 
     lo_locale = get_lo_locale(ctx)
     if lo_locale:
-        return lo_locale.split("_")[0].split("-")[0].lower()
+        return lo_locale.replace("_", "-")
 
     return "en"
 
 
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, cancel: SendCancellation | None = None) -> dict[str, Any]:
+def run_trusted_vision(
+    ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None = None,
+    cancel: SendCancellation | None = None,
+    on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv.
 
     *cancel* aborts the venv OCR mid-run. Callers pass it explicitly: *ctx* is
     the UNO component context, which never carries the tool's stop flag.
+    *on_exported*, if given, runs on the calling thread after the export and
+    size check with the exact params dict the OCR call sends and the PNG bytes.
     """
     name = _validate_helper(helper)
     params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
@@ -141,6 +162,8 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
+    if on_exported is not None:
+        on_exported(spec["params"], png_bytes)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
     return run_vision(ctx, spec, png_bytes, context=context, cancel=cancel)
 
@@ -154,6 +177,7 @@ class VisionBatch:
     insert_into_document: bool = True
     results: list[dict[str, Any]] = field(default_factory=list)
     failures: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    inserted_count: int = 0
     stopped_early: bool = False
     cancelled: bool = False
 
@@ -163,7 +187,7 @@ class VisionBatch:
             if self.results:
                 err_out["images_processed"] = len(self.results)
                 err_out["image_names"] = list(self.target_names[: len(self.results)])
-                err_out["inserted"] = bool(self.insert_into_document and self.results)
+                err_out["inserted"] = self.inserted_count > 0
                 err_out["partial"] = True
                 err_out["individual_results"] = list(self.results)
             return err_out
@@ -176,7 +200,7 @@ class VisionBatch:
             failed["image_names"] = [str(r.get("image_name")) for r in self.results]
             failed["failed_image"] = first_name
             failed["failed_images"] = failed_names
-            failed["inserted"] = bool(self.insert_into_document and self.results)
+            failed["inserted"] = self.inserted_count > 0
             failed["partial"] = bool(self.results)
             failed["individual_results"] = list(self.results)
             if len(self.target_names) > 1:
@@ -200,7 +224,7 @@ class VisionBatch:
             if isinstance(single_metrics, dict):
                 metrics.update(single_metrics)
 
-        inserted = bool(self.insert_into_document)
+        inserted = self.inserted_count > 0
         if self.stopped_early:
             image_names = list(self.target_names[: len(self.results)])
             message = _("Stopped after {count} of {total} images.").format(count=len(self.results), total=len(self.target_names))
@@ -231,7 +255,16 @@ class VisionBatch:
         return res_out
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, cancel: SendCancellation | None = None) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(
+    ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None = None,
+    insert_into_document: bool = True,
+    cancel: SendCancellation | None = None,
+    on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -254,7 +287,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
         pairs = graphic_objects_in_selection(doc)
         if not pairs:
-            raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+            raise no_image_selected_error()
         return [name for name, _unused in pairs]
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)
@@ -271,7 +304,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel)
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported)
 
             if result.get("status") == "error":
                 if result.get("code") == "USER_STOPPED":
@@ -283,12 +316,13 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
                 continue
 
             if insert_into_document:
-                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
+                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> VisionInsertOutcome:
                     from plugin.vision.vision_egress import insert_vision_result
 
-                    insert_vision_result(ctx, doc, res, params=per_insert)
+                    return insert_vision_result(ctx, doc, res, params=per_insert)
 
-                main.call(_insert, bound_scope=None)
+                if main.call(_insert, bound_scope=None) != "empty":
+                    batch.inserted_count += 1
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}

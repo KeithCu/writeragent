@@ -268,8 +268,8 @@ def test_position_after_table_preserves_table():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    # 1st call: empty leftover paragraph; 2nd call: goLeft spanned table cell text.
-    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    # 1st call: empty leftover paragraph; 2nd: goLeft spanned table cell; 3rd: goRight into next.
+    cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
     ctx = _edit_ctx()
     # Mock table count to increase from 0 to 1 so honesty check passes.
     ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
@@ -293,7 +293,7 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    cursor.getString.side_effect = ["", "\nCell 1\n"]
+    cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
     ctx = _edit_ctx()
     # Table count remains 0 before and after.
     ctx.doc.getTextTables.return_value.getCount.return_value = 0
@@ -1659,6 +1659,15 @@ def test_all_matches_disposed_undo_manager_reraises():
     ("target", "extra_kwargs", "patches"),
     [
         pytest.param(
+            "end",
+            {},
+            [
+                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
+                ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
+            ],
+            id="end",
+        ),
+        pytest.param(
             "selection",
             {},
             [
@@ -1674,6 +1683,7 @@ def test_all_matches_disposed_undo_manager_reraises():
                 ("plugin.writer.search.find_literal_ranges", {"return_value": ([MagicMock()], MatchMode(True, False))}),
                 ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
                 ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
+                ("plugin.writer.html_import.replace_single_range_with_content", {"return_value": html_import_styles.WriteReport()}),
             ],
             id="search",
         ),
@@ -1688,12 +1698,33 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
         for p_target, p_kwargs in patches:
             stack.enter_context(patch(p_target, **p_kwargs))
         if target == "search":
-            stack.enter_context(patch.object(ApplyDocumentContent, "_replace_found", return_value=[]))
+            cap_links = stack.enter_context(patch("plugin.writer.apply_document_content.capture_outline_hyperlinks"))
+            cap_links.return_value.links = []
+            cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
     assert res["message"] == "Table insert produced no table in document."
+
+
+def test_table_insert_failed_inside_outline_undo_keeps_code():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.apply_document_content._verify_table_insert",
+               side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")):
+        cap_links.return_value.links = [MagicMock()]
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
 
 
 def test_table_count_read_reraises_disposed():
@@ -1798,5 +1829,23 @@ def test_edit_selection_passes_pinned_range_to_html_import():
     assert mock_attach.call_args[0][1] is pinned_anchor
 
 
+def test_one_string_and_list_content_reach_import_the_same() -> None:
+    from plugin.writer import html_import
 
+    ctx = _edit_ctx()
+    with patch.object(
+        html_import,
+        "insert_content_at_position",
+        return_value=html_import_styles.WriteReport(),
+    ) as mock_insert, patch(
+        "plugin.writer.apply_document_content.attach_edited_context",
+        side_effect=lambda res, _a: res,
+    ):
+        res_list = ApplyDocumentContent().execute(ctx, content=["<h1>A</h1>", "<p>B</p>"], target="end")
+        res_str = ApplyDocumentContent().execute(ctx, content="<h1>A</h1>\n<p>B</p>", target="end")
 
+    assert res_list["status"] == "ok"
+    assert res_str["status"] == "ok"
+    assert mock_insert.call_count == 2
+    assert mock_insert.call_args_list[0] == mock_insert.call_args_list[1]
+    assert mock_insert.call_args_list[0].args[2] == "<h1>A</h1>\n<p>B</p>"

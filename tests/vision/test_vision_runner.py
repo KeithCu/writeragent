@@ -179,10 +179,10 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
     result = run_trusted_vision(ctx, doc, helper="extract_text", params={})
 
     assert result["full_text"] == "hi"
-    assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr"
+    assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr-FR"
 
 
-def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None):
+def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
     name = params["image_name"]
     return {
         "status": "ok",
@@ -285,7 +285,7 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
         name = params["image_name"]
         if name == "Img2":
             return {"status": "error", "code": "VISION_ERROR", "helper": helper, "message": "boom"}
@@ -374,15 +374,15 @@ def test_resolve_locale_runtime_exception_graphic_falls_back_to_ui_locale():
     graphic.getPropertyValue.side_effect = RuntimeException("unexpected error")
     with patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
         res = _resolve_locale_language(MagicMock(), graphic)
-    assert res == "en"
+    assert res == "en-US"
 
 
 def test_named_image_locale_ignores_other_selection():
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
-    graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr") if prop == "CharLocale" else None
-    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+    graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr", Country="FR", Variant="") if prop == "CharLocale" else None
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
             patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
@@ -392,7 +392,7 @@ def test_named_image_locale_ignores_other_selection():
         run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
 
     mock_get_obj.assert_called_once_with(doc, "Photo1")
-    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "fr"
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "fr-FR"
 
 
 def test_named_image_without_char_locale_uses_ui_locale_not_selection():
@@ -400,7 +400,7 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
     doc = MagicMock()
     graphic = MagicMock()
     graphic.getPropertyValue.return_value = None
-    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de")
+    doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.vision.vision_runner._get_graphic_object", return_value=graphic) as mock_get_obj, \
             patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
@@ -411,7 +411,24 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
         run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
 
     mock_get_obj.assert_called_once_with(doc, "Photo1")
-    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "en"
+    assert mock_run_vision.call_args[0][1]["params"]["lang"] == "en-US"
+
+
+@pytest.mark.parametrize(
+    ("char_locale", "lo_locale", "expected"),
+    [
+        (SimpleNamespace(Language="zh", Country="TW", Variant=""), "en_US", "zh-TW"),
+        (SimpleNamespace(Language="ja", Country="", Variant=""), "en_US", "ja"),
+        (None, "zh_TW", "zh-TW"),
+        (None, "ja", "ja"),
+    ],
+)
+def test_resolve_locale_keeps_region(char_locale, lo_locale, expected):
+    graphic = None if char_locale is None else MagicMock()
+    if graphic is not None:
+        graphic.getPropertyValue.return_value = char_locale
+    with patch("plugin.framework.i18n.get_lo_locale", return_value=lo_locale):
+        assert _resolve_locale_language(MagicMock(), graphic) == expected
 
 
 def test_run_trusted_vision_rejects_oversized_image_before_rpc():
@@ -495,7 +512,7 @@ def test_stop_break_reports_partial_and_stopped():
     mock_pairs = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
     scope = SendCancellation()
 
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
         name = params["image_name"]
         if name == "Img1":
             scope.cancel()
@@ -536,7 +553,7 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
 
     call_count = [0]
 
-    def fake_run_trusted(ctx, doc, *, helper, params, cancel=None):
+    def fake_run_trusted(ctx, doc, *, helper, params, cancel=None, on_exported=None):
         call_count[0] += 1
         if call_count[0] == 1:
             return {"status": "ok", "helper": helper, "full_text": "text1", "html": "<p>1</p>"}
@@ -559,4 +576,66 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
     assert result["inserted"] is False
     assert len(result["individual_results"]) == 1
     assert result["individual_results"][0]["full_text"] == "text1"
+
+
+def test_run_trusted_vision_calls_on_exported_with_sent_params():
+    from plugin.vision.vision_runner import run_trusted_vision
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    events = []
+
+    def hook(params, data):
+        events.append(("hook", dict(params), data))
+
+    def fake_run_vision(_ctx, spec, png_bytes, **kwargs):
+        events.append(("run_vision", dict(spec["params"]), png_bytes))
+        return {"status": "ok", "helper": spec["helper"]}
+
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", return_value={"image_name": "Img1", "lang": "fr"}),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png-data"),
+        patch("plugin.vision.vision_runner.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision),
+    ):
+        run_trusted_vision(ctx, doc, helper="extract_structure", on_exported=hook)
+
+    assert len(events) == 2
+    assert events[0][0] == "hook"
+    assert events[1][0] == "run_vision"
+    assert events[0][1]["lang"] == "fr"
+    assert "image_name" not in events[0][1]
+    assert events[0][2] == b"png-data"
+
+
+def test_run_and_insert_vision_for_selection_forwards_on_exported():
+    ctx = MagicMock()
+    doc = MagicMock()
+    hook = MagicMock()
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", return_value={"status": "ok", "helper": "extract_structure", "full_text": "ok", "html": "<p>ok</p>"}) as mock_run,
+    ):
+        run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False, on_exported=hook)
+
+    assert mock_run.call_args.kwargs["on_exported"] is hook
+
+
+def test_run_and_insert_all_empty_reports_not_inserted():
+    ctx = MagicMock()
+    doc = MagicMock()
+    empty_res = {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": []}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", return_value=empty_res),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "ok"
+    assert result["inserted"] is False
 

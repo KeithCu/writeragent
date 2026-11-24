@@ -284,11 +284,15 @@ def _stub_deal_sentences_spans_pre_crosshair(sentences: object) -> bool:
     )
 
 
-def _stub_deal_json_list_of_grids_arg_ok_crosshair(module: Any, obj: object) -> bool:
+def _stub_deal_json_argument_list_arg_ok_crosshair(module: Any, obj: object) -> bool:
     if not isinstance(obj, (list, tuple)) or len(obj) > 1:
         return False
     for item in obj:
-        if not isinstance(item, (list, tuple)) or len(item) > 1:
+        if not isinstance(item, (list, tuple)):
+            if not module._deal_inner_grid_cell_ok(item):
+                return False
+            continue
+        if len(item) > 1:
             return False
         for row in item:
             if isinstance(row, (list, tuple)):
@@ -523,8 +527,8 @@ def _patch_calc_range(module: Any) -> None:
     module._deal_binary_op_pre = lambda self, other: (
         module._deal_grid_values_ok(self._values) and module._deal_calc_range_other_ok(other)
     )
-    module._deal_json_list_of_grids_arg_ok = (
-        lambda obj: _stub_deal_json_list_of_grids_arg_ok_crosshair(module, obj)
+    module._deal_json_argument_list_arg_ok = (
+        lambda obj: _stub_deal_json_argument_list_arg_ok_crosshair(module, obj)
     )
     module._deal_materialize_inner_ok = lambda inner: _stub_deal_materialize_inner_ok_crosshair(
         module, inner

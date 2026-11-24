@@ -63,7 +63,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `shape_get_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | `com.sun.star.text.TextDocument`, `com.sun.star.sheet.SpreadsheetDocument`, `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
-| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | same four document services |
+| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index; bold/italic, h_align/v_align, wrap_text, corner_radius. `line` may have a zero width or height | same four document services |
 | `shape_fill_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
 | `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index, dotted path, or **Name** | same four document services |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | same four document services |
@@ -108,6 +108,8 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 - **Optional `page` parameter**: Draw/Impress tools whose optional `page` goes through `DrawBridge.resolve_page` share `DRAW_PAGE_PROPERTY` (`plugin/draw/base.py`: 0-based page/slide index, active page if omitted).
 
 ### 2.4 math_insert (math domain)
+
+The `math` domain is declared on `ToolDrawMathBase` in `plugin/draw/base.py`, because `DelegateToSubagent` captures its enum before `plugin.draw` tool modules are discovered.
 
 > **Shape size:** `math_insert` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size. An embed map unit that is not a plain length (PIXEL) also falls back to the heuristic, because it needs a DPI the visual object does not report.
 
@@ -568,3 +570,21 @@ Review row 14 is keep-as-is, with no work: the undo stack is shared with the use
 - [Writer specialized toolsets](../writer/specialized-toolsets.md) — Architecture reference
 - [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `peer_send_work / peer_send_result`; Draw is a v1 peer, not a mega-agent tool list
 - [AGENTS.md](../../AGENTS.md) — Project overview
+
+---
+
+## Open
+
+- `[feature M many]` Slide and shape animations for Impress (`get_animations`, `set_animations`, `add_animation`). (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature S many]` Slide show controls to start and stop a presentation. (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature M few]` Draw layer management tools. (§ 5.2 Priority 2: High-Value Features & Technical Designs)
+- `[feature M few]` Insert and control audio and video media on slides. (§ 5.3 Priority 3: Specialized Domains)
+- `[feature M many]` Export tools for PDF, image and video output from Draw and Impress. (§ 5.3 Priority 3: Specialized Domains)
+- `[feature L few]` Custom shows, timings and rehearse, and a presenter console with a notes timer. (§ 5.5 Priority 5: Future / Nice-to-Have)
+- `[feature M few]` Guides and grid control (snap settings, custom guides) and 3D shape creation. (§ 5.5 Priority 5: Future / Nice-to-Have)
+- `[eng M few]` Extend prompt optimization with Impress examples and Impress-specific rubrics in `scripts/prompt_optimization/dataset.py` (Draw already has `DrawWorld` in `scripts/prompt_optimization/eval_worlds.py`, `LOBackend` `"draw"` / `get_draw_export()` in `scripts/prompt_optimization/tools_lo.py`, and Draw examples `FLOWCHART_GEN`, `ORG_CHART_GEN`, `SOLAR_SLD_GEN` with rubrics in `scripts/prompt_optimization/dataset.py`). (§ 5.4 Priority 4: Evaluation System Integration)
+- `[idea L few]` Let the outer agent see nested tool schemas of a `shapes` delegation to check arguments instead of exchanging prose. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M few]` Return OCR text from `get_image` alongside the pixels so OCR no longer needs a vision delegation. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M few]` Let `delegate` accept structured refs (`page`, `shape_name`, `range`) instead of prose conventions in `task`. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea M few]` Replace keyword routing rules with a redirect error returned when a delegation uses the wrong domain. (§ 9. Future ideas (from Opus prompt review, Nov 2026))
+- `[idea L few]` Deliver peer results automatically at turn end and block extra tool calls while waiting, instead of relying on model memory for the protocol. (§ 9. Future ideas (from Opus prompt review, Nov 2026))

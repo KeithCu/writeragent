@@ -154,6 +154,103 @@ def test_executor_still_forbids_class_dunder():
         raise AssertionError("np.__class__ must remain forbidden")
 
 
+def _string_or_none(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def test_executor_allows_string_identity_dunders():
+    """__name__, __qualname__, __doc__, and __module__ reads return a string or None."""
+    executor = LocalPythonExecutor(additional_authorized_imports=["operator"])
+    executor.send_tools({})
+    executor(
+        "import math\n"
+        "import operator\n"
+        "def greet(x):\n"
+        "    return x\n"
+        "class Box:\n"
+        '    """a box"""\n'
+        "    pass\n"
+        "obj = Box()\n"
+        "result = {\n"
+        '    "fn": greet.__name__,\n'
+        '    "fn_qual": greet.__qualname__,\n'
+        '    "fn_doc": greet.__doc__,\n'
+        '    "fn_mod": greet.__module__,\n'
+        '    "cls": Box.__name__,\n'
+        '    "cls_qual": Box.__qualname__,\n'
+        '    "cls_doc": Box.__doc__,\n'
+        '    "cls_mod": Box.__module__,\n'
+        '    "typ": type(obj).__name__,\n'
+        '    "typ_qual": type(obj).__qualname__,\n'
+        '    "typ_doc": type(obj).__doc__,\n'
+        '    "typ_mod": type(obj).__module__,\n'
+        '    "sin": math.sin.__name__,\n'
+        '    "sin_qual": math.sin.__qualname__,\n'
+        '    "sin_doc": math.sin.__doc__,\n'
+        '    "sin_mod": math.sin.__module__,\n'
+        '    "getattr_fn": getattr(greet, "__name__"),\n'
+        '    "getattr_cls": getattr(Box, "__doc__"),\n'
+        '    "getattr_typ": getattr(type(obj), "__name__"),\n'
+        '    "getattr_qual": getattr(math.sin, "__qualname__"),\n'
+        '    "getattr_mod": getattr(math.sin, "__module__"),\n'
+        '    "attrgetter": operator.attrgetter("__name__")(math.sin),\n'
+        "}\n"
+    )
+    got = executor.state["result"]
+    assert got["fn"] == "greet"
+    assert got["cls"] == "Box"
+    assert got["cls_qual"] == "Box"
+    assert got["cls_doc"] == "a box"
+    assert got["typ"] == "Box"
+    assert got["typ_qual"] == "Box"
+    assert got["typ_doc"] == "a box"
+    assert got["sin"] == "sin"
+    assert got["sin_qual"] == "sin"
+    assert got["sin_mod"] == "math"
+    assert isinstance(got["sin_doc"], str) and got["sin_doc"]
+    assert got["getattr_fn"] == "greet"
+    assert got["getattr_cls"] == "a box"
+    assert got["getattr_typ"] == "Box"
+    assert got["getattr_qual"] == "sin"
+    assert got["getattr_mod"] == "math"
+    assert got["attrgetter"] == "sin"
+    for key in ("fn_qual", "fn_doc", "fn_mod", "cls_mod", "typ_mod"):
+        assert _string_or_none(got[key])
+        if key != "fn_doc":
+            assert isinstance(got[key], str) and got[key]
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = obj.__class__",
+            id="instance_class",
+        ),
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = type(obj).__subclasses__",
+            id="type_subclasses",
+        ),
+        pytest.param(
+            "class Box:\n    pass\nobj = Box()\nresult = getattr(obj, '__class__')",
+            id="getattr_class",
+        ),
+        pytest.param(
+            "result = getattr(int, '__subclasses__')",
+            id="getattr_subclasses",
+        ),
+    ],
+)
+def test_executor_still_forbids_escape_dunders(code: str) -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    message = str(exc_info.value)
+    assert "Forbidden access to dunder attribute" in message
+    assert "__class__" in message or "__subclasses__" in message
+
+
 def test_executor_allows_repr_builtin():
     executor = _executor_with_dummy_version()
     executor("result = repr([1, 'a'])")
@@ -661,7 +758,7 @@ def test_import_tool_guards():
     executor = LocalPythonExecutor(additional_authorized_imports=["math"])
     executor.send_tools({})
 
-    # from math import sqrt works (overridable)
+    # from math import sqrt works
     executor("from math import sqrt\nresult = sqrt(4)")
     assert executor.state["result"] == 2.0
 
@@ -2758,11 +2855,214 @@ def test_process_callables_allowed_when_os_true():
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "def f(x):\n    return x / 0\n\nresult = f(2)",
+            id="nested",
+        ),
+        pytest.param(
+            "def inner(items):\n    total = 0\n    for i in items:\n        total += 10 / i\n    return total\n\nresult = inner([2, 1, 0])",
+            id="loop_in_callee",
+        ),
+        pytest.param(
+            "class Box:\n    def fail(self, n):\n        return 1 / n\n\nresult = Box().fail(0)",
+            id="method",
+        ),
+        pytest.param(
+            "def k(x):\n    return 1 / x\n\nresult = sorted([1, 0], key=k)",
+            id="library_callback",
+        ),
+        pytest.param(
+            "def f():\n    return 1 / 0\n\ntry:\n    f()\nexcept ZeroDivisionError:\n    raise",
+            id="bare_reraise",
+        ),
+        pytest.param(
+            "def f():\n    return 1 / 0\n\ndef g(err):\n    raise err\n\ntry:\n    f()\nexcept ZeroDivisionError as saved:\n    g(saved)",
+            id="raise_stored_elsewhere",
+        ),
+        pytest.param(
+            "def f(a, b):\n    return a + b\n\nresult = f(1)",
+            id="bad_call",
+        ),
+        pytest.param(
+            "def check():\n    return 1 / 0\n\nif check():\n    result = 1",
+            id="if_header",
+        ),
+        pytest.param(
+            "def outer():\n    def inner():\n        return 1 / 0\n    return inner()\n\nresult = outer()",
+            id="nested_def",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    err = e\nraise err",
+            id="raise_err_same_frame",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    raise e",
+            id="raise_e_in_handler",
+        ),
+        pytest.param(
+            "def f():\n    return 1/0\ntry:\n    f()\nexcept ZeroDivisionError as e:\n    err = e\ntry:\n    raise err\nexcept ZeroDivisionError:\n    pass\nraise err",
+            id="raise_twice",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError as e:\n    raise e from None",
+            id="raise_from_none",
+        ),
+        pytest.param(
+            "f = lambda x: 1/x\nresult = f(0)",
+            id="lambda",
+        ),
+        pytest.param(
+            "result = sorted([1, 0], key=lambda v: 1/v)",
+            id="lambda_callback",
+        ),
+        pytest.param(
+            "f = lambda a: (lambda b: 1/b)(a)\nresult = f(0)",
+            id="lambda_in_lambda",
+        ),
+        pytest.param(
+            "f = lambda x: (\n    1/x)\nresult = f(0)",
+            id="multiline_lambda",
+        ),
+        pytest.param(
+            "def g(x):\n    return 1/x\nf = lambda v: g(v)\nresult = f(0)",
+            id="lambda_calls_def",
+        ),
+        pytest.param(
+            "result = sum(1/x for x in [1, 0])",
+            id="genexp",
+        ),
+        pytest.param(
+            "g = (1/x for x in [0])\nresult = list(g)",
+            id="genexp_consumed_later",
+        ),
+        pytest.param(
+            "def f(xs):\n    return sum(1/x for x in xs)\nresult = f([0])",
+            id="genexp_in_def",
+        ),
+        pytest.param(
+            "result = [1/x for x in [1, 0]]",
+            id="listcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "def f(xs):\n    return [1/x for x in xs]\nresult = f([0])",
+            id="listcomp_in_def",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "result = {1/x for x in [0]}",
+            id="setcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+        pytest.param(
+            "result = {x: 1/x for x in [0]}",
+            id="dictcomp",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
+        ),
+    ],
+)
+def test_user_traceback_frames_match_cpython(code: str) -> None:
+    import traceback as stdlib_tb
+
+    with pytest.raises(Exception) as cp_exc:
+        exec(compile(code, "<sandbox>", "exec"), {})
+    cp_lines = "".join(stdlib_tb.format_exception(cp_exc.type, cp_exc.value, cp_exc.tb)).splitlines()
+    cp_frames = [line for line in cp_lines if line.startswith('  File "<sandbox>"')]
+    cp_type = cp_lines[-1].split(":", 1)[0]
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    with pytest.raises(InterpreterError) as sb_exc:
+        executor(code)
+    sb_lines = sb_exc.value.user_traceback.splitlines()
+    sb_frames = [line for line in sb_lines if line.startswith('  File "<sandbox>"')]
+    sb_type = sb_lines[-1].split(":", 1)[0]
+
+    assert sb_frames == cp_frames
+    assert sb_type == cp_type
 
 
+def test_user_traceback_text_for_nested_call() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def f(x):\n    return x / 0\n\nresult = f(2)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    expected = (
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 4, in <module>\n'
+        "    result = f(2)\n"
+        '  File "<sandbox>", line 2, in f\n'
+        "    return x / 0\n"
+        "ZeroDivisionError: division by zero"
+    )
+    assert exc_info.value.user_traceback == expected
 
 
+def test_user_traceback_collapses_recursion() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def rec(n):\n    return rec(n + 1)\n\nresult = rec(0)"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    tb = exc_info.value.user_traceback
+    assert "[Previous line repeated " in tb
+    assert len(tb.splitlines()) <= 12
 
 
+def test_user_traceback_labels_init_and_earlier_cell_frames() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor("# init comment\ndef helper(v):\n    return 1 / v\n", filename="<init script>")
+    executor("def cellfn(v):\n    return helper(v)\n")
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("result = cellfn(0)")
+    expected = (
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 1, in <module>\n'
+        "    result = cellfn(0)\n"
+        '  File "<earlier cell>", line 2, in cellfn\n'
+        "    return helper(v)\n"
+        '  File "<init script>", line 3, in helper\n'
+        "    return 1 / v\n"
+        "ZeroDivisionError: division by zero"
+    )
+    assert exc_info.value.user_traceback == expected
 
+
+def test_user_traceback_rerun_of_same_code_stays_sandbox() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "def g():\n    return 1/0\nresult = g()"
+    with pytest.raises(InterpreterError):
+        executor(code)
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    assert '  File "<sandbox>", line 2, in g' in exc_info.value.user_traceback
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGALRM timeout path is Unix-only; the thread-pool fallback may win the race and carry no frames",
+)
+def test_timeout_user_traceback_names_running_line() -> None:
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    code = "def spin():\n    while True:\n        pass\n\nspin()"
+    with pytest.raises(ExecutionTimeoutError) as exc_info:
+        executor(code)
+    lines = exc_info.value.user_traceback.splitlines()
+    file_lines = [line for line in lines if line.startswith("  File ")]
+    assert file_lines[0] == '  File "<sandbox>", line 5, in <module>'
+    assert file_lines[-1] in {
+        '  File "<sandbox>", line 2, in spin',
+        '  File "<sandbox>", line 3, in spin',
+    }
+    assert lines[-1].startswith("ExecutionTimeoutError: Code execution exceeded")
+
+
+def test_user_traceback_empty_for_parse_error() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("result = (1,")
+    assert exc_info.value.user_traceback == ""
 

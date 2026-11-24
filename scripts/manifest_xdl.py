@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from scripts.manifest_common import (
     _DLG_NS,
     _dlg,
+    field_hover_text,
     require_widget,
     write_if_changed as _write_if_changed,
 )
@@ -72,40 +73,37 @@ _STANDALONE_FIELD_X = 130
 _STANDALONE_FIELD_WIDTH = 200
 _STANDALONE_ROW_HEIGHT = 14
 _STANDALONE_ROW_GAP = 4
-_STANDALONE_HELPER_HEIGHT = 10
-_STANDALONE_HELPER_GAP = 1
 _STANDALONE_TAB_TOP = 5
 _STANDALONE_CONTENT_TOP = 26
 _STANDALONE_FOOTER_MARGIN = 28
 
-_DEFAULT_PAGE_ORDER = ["general", "ocr", "tables", "advanced"]
+_DEFAULT_PAGE_ORDER = ["general", "tables", "advanced"]
 _PAGE_LABELS = {
     "general": "General",
-    "ocr": "OCR",
     "tables": "Tables",
     "advanced": "Advanced",
 }
 
 
-def _standalone_common_attrs(field_name, y, width=None, height=None):
+def _standalone_common_attrs(field_name, y, left, width=None, height=None):
     return {
         _dlg("id"): field_name,
         _dlg("tab-index"): "0",
-        _dlg("left"): str(_STANDALONE_FIELD_X),
+        _dlg("left"): str(left),
         _dlg("top"): str(y),
         _dlg("width"): str(width or _STANDALONE_FIELD_WIDTH),
         _dlg("height"): str(height or _STANDALONE_ROW_HEIGHT),
     }
 
 
-def _add_standalone_label(board, field_name, label_text, y, page):
-    ET.SubElement(board, _dlg("text"), {
+def _add_standalone_label(board, field_name, label_text, y, page, schema) -> ET.Element:
+    return ET.SubElement(board, _dlg("text"), {
         _dlg("id"): f"label_{field_name}",
         _dlg("tab-index"): "0",
         _dlg("page"): str(page),
-        _dlg("left"): str(_STANDALONE_MARGIN),
+        _dlg("left"): str(schema.get("label_x", _STANDALONE_MARGIN)),
         _dlg("top"): str(y + 2),
-        _dlg("width"): str(_STANDALONE_LABEL_WIDTH),
+        _dlg("width"): str(schema.get("label_width", _STANDALONE_LABEL_WIDTH)),
         _dlg("height"): str(_STANDALONE_ROW_HEIGHT),
         _dlg("value"): label_text,
     })
@@ -122,29 +120,30 @@ _STANDALONE_ALLOWED_WIDGETS = frozenset({
 })
 
 
-def _add_standalone_field(board, field_name, schema, y, page, dialog_width, *, where=""):
+def _add_standalone_field(board, field_name, schema, y, page, *, where="") -> int:
     widget = require_widget(schema, _STANDALONE_ALLOWED_WIDGETS, where=where or field_name)
     label_text = schema.get("label", field_name.replace("_", " ").title())
+    left = schema.get("x", _STANDALONE_FIELD_X)
 
+    label_el = None
     if widget != "checkbox":
-        _add_standalone_label(board, field_name, label_text, y, page)
+        label_el = _add_standalone_label(board, field_name, label_text, y, page, schema)
 
     if widget == "checkbox":
-        attrs = _standalone_common_attrs(field_name, y)
+        attrs = _standalone_common_attrs(field_name, y, schema.get("x", _STANDALONE_MARGIN))
         attrs[_dlg("page")] = str(page)
-        attrs[_dlg("left")] = str(_STANDALONE_MARGIN)
         attrs[_dlg("width")] = str(schema.get("width", 280))
         attrs[_dlg("height")] = "10"
         attrs[_dlg("value")] = label_text
         attrs[_dlg("checked")] = "true" if schema.get("default") else "false"
-        ET.SubElement(board, _dlg("checkbox"), attrs)
+        ctrl_el = ET.SubElement(board, _dlg("checkbox"), attrs)
     elif widget == "password":
-        attrs = _standalone_common_attrs(field_name, y)
+        attrs = _standalone_common_attrs(field_name, y, left, width=schema.get("width"))
         attrs[_dlg("page")] = str(page)
         attrs[_dlg("echochar")] = "*"
-        ET.SubElement(board, _dlg("textfield"), attrs)
+        ctrl_el = ET.SubElement(board, _dlg("textfield"), attrs)
     elif widget in ("number", "slider"):
-        attrs = _standalone_common_attrs(field_name, y, width=80)
+        attrs = _standalone_common_attrs(field_name, y, left, width=schema.get("width", 80))
         attrs[_dlg("page")] = str(page)
         attrs[_dlg("spin")] = "true"
         if "min" in schema:
@@ -154,17 +153,17 @@ def _add_standalone_field(board, field_name, schema, y, page, dialog_width, *, w
         if schema.get("step") is not None:
             attrs[_dlg("value-step")] = str(schema["step"])
         attrs[_dlg("decimal-accuracy")] = "1" if schema.get("type") == "float" else "0"
-        ET.SubElement(board, _dlg("numericfield"), attrs)
+        ctrl_el = ET.SubElement(board, _dlg("numericfield"), attrs)
     elif widget in ("select", "combo"):
-        attrs = _standalone_common_attrs(field_name, y)
+        attrs = _standalone_common_attrs(field_name, y, left, width=schema.get("width"))
         attrs[_dlg("page")] = str(page)
         attrs[_dlg("dropdown")] = "true"
         attrs[_dlg("spin")] = "true"
         attrs[_dlg("border")] = "1"
         attrs[_dlg("autocomplete")] = "true"
         attrs[_dlg("linecount")] = "20"
-        el = ET.SubElement(board, _dlg("combobox"), attrs)
-        menu = ET.SubElement(el, _dlg("menupopup"))
+        ctrl_el = ET.SubElement(board, _dlg("combobox"), attrs)
+        menu = ET.SubElement(ctrl_el, _dlg("menupopup"))
         for opt in schema.get("options", []):
             if isinstance(opt, dict):
                 menu_val = opt.get("label", opt.get("value", str(opt)))
@@ -172,31 +171,66 @@ def _add_standalone_field(board, field_name, schema, y, page, dialog_width, *, w
                 menu_val = str(opt)
             ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): menu_val})
     else:
-        attrs = _standalone_common_attrs(field_name, y)
+        attrs = _standalone_common_attrs(field_name, y, left, width=schema.get("width"))
         attrs[_dlg("page")] = str(page)
-        ET.SubElement(board, _dlg("textfield"), attrs)
+        ctrl_el = ET.SubElement(board, _dlg("textfield"), attrs)
 
-    y += _STANDALONE_ROW_HEIGHT
-    helper_text = schema.get("helper")
-    if helper_text:
-        y += _STANDALONE_HELPER_GAP
-        # What was wrong: helper width used the field width (default 420) minus
-        # the margins, so a 350-wide Vision window drew 404-wide lines. The
-        # dialog width is already known here; the line is that width minus the
-        # margins, and it starts at the left margin.
-        helper_width = int(dialog_width) - _STANDALONE_MARGIN * 2
-        ET.SubElement(board, _dlg("text"), {
-            _dlg("id"): f"hlp_{field_name}",
-            _dlg("tab-index"): "0",
-            _dlg("page"): str(page),
-            _dlg("left"): str(_STANDALONE_MARGIN),
-            _dlg("top"): str(y),
-            _dlg("width"): str(helper_width),
-            _dlg("height"): str(_STANDALONE_HELPER_HEIGHT),
-            _dlg("value"): helper_text,
-        })
-        y += _STANDALONE_HELPER_HEIGHT
-    return y + _STANDALONE_ROW_GAP
+    hover = field_hover_text(schema)
+    if hover:
+        ctrl_el.set(_dlg("help-text"), hover)
+        if label_el is not None:
+            label_el.set(_dlg("help-text"), hover)
+
+    # inline keeps the next field on this row; layout keys (x, width, label_x,
+    # label_width, inline) match SettingsDialog's schema.
+    return y if schema.get("inline") else y + _STANDALONE_ROW_HEIGHT + _STANDALONE_ROW_GAP
+
+
+_FOOTER_BUTTON_LABELS = {
+    "run": "Run",
+    "preview": "Preview",
+    "apply": "Apply",
+    "ok": "OK",
+    "close": "Close",
+    "cancel": "Cancel",
+}
+
+
+def _add_preview_area(board, width: int, content_bottom: int, footer_y: int) -> None:
+    """Add page-0 preview placeholder, vertical scrollbar, and status label."""
+    margin = _STANDALONE_MARGIN
+    gap = _STANDALONE_ROW_GAP
+    status_y = footer_y - gap - 12
+    top = content_bottom + gap
+    bottom = status_y - gap
+    bar_left = width - margin - 10
+    pane_h = max(1, bottom - top)
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): "preview_area",
+        _dlg("left"): str(margin),
+        _dlg("top"): str(top),
+        _dlg("width"): str(bar_left - margin - 2),
+        _dlg("height"): str(pane_h),
+        _dlg("value"): "",
+    })
+    ET.SubElement(board, _dlg("scrollbar"), {
+        _dlg("id"): "sb_preview",
+        _dlg("left"): str(bar_left),
+        _dlg("top"): str(top),
+        _dlg("width"): "10",
+        _dlg("height"): str(pane_h),
+        _dlg("align"): "vertical",
+        _dlg("live-scroll"): "true",
+        _dlg("tabstop"): "true",
+    })
+    ET.SubElement(board, _dlg("text"), {
+        _dlg("id"): "lbl_preview_status",
+        _dlg("left"): str(margin),
+        _dlg("top"): str(status_y),
+        _dlg("width"): str(width - 2 * margin),
+        _dlg("height"): "12",
+        _dlg("value"): "",
+    })
 
 
 def generate_standalone_config_dialog(module):
@@ -206,7 +240,8 @@ def generate_standalone_config_dialog(module):
     module_name = module["name"]
     dialog_id = cfg_dialog.get("id") or ("WriterAgent_%sSettings" % module_name.replace(".", "_"))
     width = int(cfg_dialog.get("width") or 440)
-    height = int(cfg_dialog.get("height") or 480)
+    preview_height = int((cfg_dialog.get("preview") or {}).get("height") or 0)
+    height = int(cfg_dialog.get("height") or 480) + preview_height
     title = cfg_dialog.get("title") or module.get("title") or module_name.title()
 
     pages_in_use: list[str] = []
@@ -277,17 +312,20 @@ def generate_standalone_config_dialog(module):
         page_key = str(schema.get("page") or "general").strip().lower() or "general"
         pnum = page_num.get(page_key, 1)
         where = f"{module_name}.{field_name}"
-        page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum, width, where=where)
+        page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum, where=where)
 
     footer_y = height - _STANDALONE_FOOTER_MARGIN
+    if preview_height:
+        _add_preview_area(board, width, max(page_y.values()), footer_y)
     buttons = cfg_dialog.get("buttons") or ["apply", "ok", "close"]
-    
+
     btn_w = 70
     btn_gap = 10
-    visible_keys = [k for k in ["apply", "ok", "close"] if k in buttons]
+    visible_keys = [k for k in ("run", "preview", "apply", "ok", "close") if k in buttons]
     btn_specs = []
     for idx, key in enumerate(visible_keys):
-        label = "Apply" if key == "apply" else ("OK" if key == "ok" else "Close")
+        # When Apply is absent, closing discards unsaved edits, so label it Cancel.
+        label = _FOOTER_BUTTON_LABELS["cancel" if key == "close" and "apply" not in buttons else key]
         btn_id = f"btn_{key}"
         left = width - _STANDALONE_MARGIN - (len(visible_keys) - idx) * btn_w - (len(visible_keys) - 1 - idx) * btn_gap
         btn_specs.append((key, btn_id, label, footer_y, left))
@@ -303,7 +341,10 @@ def generate_standalone_config_dialog(module):
             _dlg("tabstop"): "true",
         }
         if key == "ok":
-            btn_attrs[_dlg("button-type")] = "ok"
+            # Modeless standalone dialogs use setVisible(), not execute().
+            # button-type="ok" makes VCL end/hide the dialog without
+            # actionPerformed, so OK would not save. Keep default so Enter
+            # still activates the wired listener.
             btn_attrs[_dlg("default")] = "true"
         elif key == "close":
             btn_attrs[_dlg("button-type")] = "cancel"

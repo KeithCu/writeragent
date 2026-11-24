@@ -359,11 +359,41 @@ def test_get_active_draw_page_writer_with_controller_uses_document_page():
 
 def test_list_graphic_objects_reads_writer_graphic_collection():
     graphic = FakePropertyObject({"Graphic": object()}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
-    doc = FakeWriterDoc({"Image 1": graphic})
+    doc = FakeWriterDoc({"Image 1": graphic}, draw_page=FakeDrawPage([]))
 
     assert visual_helpers.get_visual_doc_type(doc) == "writer"
     assert visual_helpers.list_graphic_objects(doc) == [("Image 1", graphic)]
     assert visual_helpers.get_graphic_object_by_name(doc, "Image 1") is graphic
+
+
+def test_list_graphic_objects_writer_adds_draw_page_pictures():
+    class FakeFlyGraphic(FakePropertyObject):
+        def __init__(self, name: str):
+            super().__init__({"Graphic": object()}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+            self._name = name
+
+        def getName(self) -> str:
+            return self._name
+
+    fly = FakeFlyGraphic("Image 1")
+    shape_dup = FakeGraphicShape("Image 1")
+    shape_other = FakeGraphicShape("Image 11")
+    doc = FakeWriterDoc({"Image 1": fly}, draw_page=FakeDrawPage([fly, shape_dup, shape_other]))
+
+    items = visual_helpers.list_graphic_objects(doc)
+    assert len(items) == 3
+    assert [(item[0], item.shape_index) for item in items] == [
+        ("Image 1", 0),
+        ("Image 1", 1),
+        ("Image 11", 2),
+    ]
+    assert visual_helpers.get_graphic_object_by_name(doc, "Image 11") is shape_other
+    with pytest.raises(visual_helpers.AmbiguousGraphicNameError) as exc_info:
+        visual_helpers.get_graphic_object_by_name(doc, "Image 1")
+    assert exc_info.value.shape_indices == [0, 1]
+    msg = str(exc_info.value)
+    assert "shape_upsert" in msg
+    assert "shape_delete" in msg
 
 
 def test_list_graphic_objects_reads_all_draw_pages():
@@ -900,3 +930,20 @@ def test_graphic_objects_in_selection_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
+
+
+def test_without_sheet_index_off_calc():
+    params = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "sheet_index": {"type": "integer"}},
+        "required": ["name"],
+    }
+    impress = visual_helpers.without_sheet_index_off_calc(params, "impress")
+    assert "sheet_index" not in impress["properties"]
+    assert "sheet_index" in params["properties"]
+
+    assert visual_helpers.without_sheet_index_off_calc(params, "calc") is params
+    assert visual_helpers.without_sheet_index_off_calc(params, None) is params
+
+    no_sheet = {"type": "object", "properties": {"name": {"type": "string"}}, "required": []}
+    assert visual_helpers.without_sheet_index_off_calc(no_sheet, "writer") is no_sheet

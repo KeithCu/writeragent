@@ -11,6 +11,8 @@ real total) and view-cursor restore; Draw/Impress page-not-found from getDrawPag
 (no silent empty image). The happy path (storeToURL / GraphicExportFilter + PNG bytes) is
 validated live."""
 import base64
+import copy
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +22,7 @@ class _DisposedException(Exception):
     pass
 
 
-from plugin.framework.tool import ToolContext, prepare_tool_call
+from plugin.framework.tool import ToolContext, prepare_tool_call, to_openai_schema
 from plugin.writer.get_image import GetImage, _is_draw_family, _render_page_png
 
 
@@ -333,7 +335,6 @@ def test_draw_page_filter_disposal_propagates():
         {"page": True},
         {"image": True},
         {"selection": "maybe"},
-        {"image": "Logo", "sheet_index": "one"},
     ],
 )
 def test_wrong_argument_types_are_rejected_before_execute(args):
@@ -342,6 +343,42 @@ def test_wrong_argument_types_are_rejected_before_execute(args):
     prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "image_get", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
+
+
+def test_calc_sheet_index_wrong_type_rejected():
+    prep = prepare_tool_call(
+        GetImage(),
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"image": "Logo", "sheet_index": "one"},
+    )
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+
+
+def test_sheet_index_only_reaches_calc():
+    tool = GetImage()
+    writer_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="writer"),
+        "image_get",
+        {"image": "Logo", "sheet_index": 1},
+    )
+    assert writer_prep.error is None
+    assert writer_prep.ignored == ["sheet_index"]
+    assert writer_prep.kwargs == {"image": "Logo"}
+
+    calc_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"image": "Logo", "sheet_index": 1},
+    )
+    assert calc_prep.error is None
+    assert calc_prep.ignored == []
+    assert calc_prep.kwargs == {"image": "Logo", "sheet_index": 1}
+
+    assert "sheet_index" in (GetImage.parameters or {})["properties"]
 
 
 def test_whole_float_page_is_coerced_to_int_before_execute():
@@ -397,12 +434,32 @@ def test_execute_named_image_with_selection_false_uses_named_path():
     assert res["source"] == "Logo"
 
 
-def test_execute_calc_page_errors_before_render():
-    with patch("plugin.writer.get_image._render_page_png") as render_mock:
-        res = GetImage().execute(_tctx(MagicMock(), doc_type="calc"), page=0)
-    assert res["status"] == "error"
-    assert "Writer, Draw, or Impress" in res["message"]
-    render_mock.assert_not_called()
+def test_page_only_reaches_off_calc():
+    tool = GetImage()
+    calc_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="calc"),
+        "image_get",
+        {"page": 0},
+    )
+    assert calc_prep.error is None
+    assert calc_prep.ignored == ["page"]
+    assert calc_prep.kwargs == {}
+
+    draw_prep = prepare_tool_call(
+        tool,
+        _tctx(FakeDrawDoc(), doc_type="draw"),
+        "image_get",
+        {"page": 0},
+    )
+    assert draw_prep.error is None
+    assert draw_prep.ignored == []
+    assert draw_prep.kwargs == {"page": 0}
+
+    calc_props = (tool.get_parameters("calc") or {})["properties"]
+    assert "page" not in calc_props
+    assert "sheet_index" in calc_props
+    assert "page" in to_openai_schema(tool, doc_type="writer")["function"]["parameters"]["properties"]
 
 
 def test_execute_ambiguous_graphic_name_returns_code():
@@ -425,3 +482,20 @@ def test_get_image_supports_calc_document():
         doc_type="calc",
         uno_services_supported=frozenset({CALC_DOCUMENT_SERVICE}),
     ) is True
+
+
+def test_draw_image_get_schema_names_only_draw_reads():
+    tool = GetImage()
+    before = copy.deepcopy(GetImage.parameters)
+    text = tool.get_description("draw") + json.dumps(tool.get_parameters("draw"))
+    for forbidden in ("get_content", "get_sheet_summary", "image_list", "Writer", "Calc", "slide", "sheet_index"):
+        assert forbidden not in text
+    assert "shape_get_tree" in text
+    assert GetImage.parameters == before
+
+
+def test_writer_image_get_schema_names_no_draw_or_calc_read():
+    tool = GetImage()
+    text = tool.get_description("writer") + json.dumps(tool.get_parameters("writer"))
+    for forbidden in ("shape_get_tree", "get_sheet_summary", "Draw", "Calc", "slide", "sheet_index"):
+        assert forbidden not in text

@@ -1096,7 +1096,7 @@ def _smol_research_completion(messages: list[Any], tool_names: set[str], config:
                     break
         return Completion(
             tool_name="visit_webpage",
-            tool_args={"url": _first_url(last_tool_text)},
+            tool_args={"urls": [_first_url(last_tool_text)]},
             finish_reason="tool_calls",
         )
     return Completion(

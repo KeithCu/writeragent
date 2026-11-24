@@ -83,8 +83,15 @@ def test_get_image_impress_page_png(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_get_image_calc_page_errors(ctx, doc):
-    page_res = _exec(doc, ctx, "calc", page=0)
+def test_get_image_calc_drops_page_param(ctx, doc):
+    from plugin.framework.tool import ToolContext, ToolRegistry
+    from plugin.writer.get_image import GetImage
+
+    reg = ToolRegistry(ctx)
+    reg.register(GetImage())
+    tctx = ToolContext(doc, ctx, "calc", {}, "test")
+    page_res = reg.execute("image_get", tctx, page=0)
     assert page_res.get("status") == "error"
-    assert "Writer, Draw, or Impress" in page_res.get("message", "")
+    assert "page" in (page_res.get("ignored_parameters") or [])
+    assert "No image selected" in page_res.get("message", "")
 

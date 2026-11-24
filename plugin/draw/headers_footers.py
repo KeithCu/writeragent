@@ -206,7 +206,7 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[
 
 def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, bool, Any]:
     page_index = int(kwargs["page"])
-    is_master_page = kwargs.get("is_master_page", False)
+    is_master_page = kwargs["is_master_page"]
     return page_index, is_master_page, _get_page(ctx, page_index, is_master_page)
 
 
@@ -219,7 +219,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).")},
-            "is_master_page": {"type": "boolean", "description": "If True, read the master page linked to the slide at page. Defaults to False."},
+            "is_master_page": {"type": "boolean", "default": False, "description": "If True, read the master page linked to the slide at page."},
         },
         "required": ["page"],
     }
@@ -254,7 +254,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
-            "is_master_page": {"type": "boolean", "description": "If True, update the master page linked to the slide at page. Defaults to False."},
+            "is_master_page": {"type": "boolean", "default": False, "description": "If True, update the master page linked to the slide at page."},
             "header": {"type": "string", "description": "Header text. Slide master only (written to the master's header shape); not available on a normal slide."},
             "footer": {"type": "string", "description": "The text for the footer. Setting it enables footer_visible unless footer_visible is passed."},
             "date_time": {"type": "string", "description": "The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed."},

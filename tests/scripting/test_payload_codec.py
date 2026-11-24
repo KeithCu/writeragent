@@ -294,13 +294,13 @@ def test_child_pack_plain_python_without_numpy() -> None:
 def test_materialize_inputs_plain_python_without_numpy() -> None:
     """Inbound lists materialize when NumPy is unavailable.
 
-    A numeric list stays a list: there is no ndarray to build. ``split_grid``
+    A numeric row stays a list: there is no ndarray to build. ``split_grid``
     still needs NumPy and is not covered here.
     """
     text = [["pays", "paid"]]
     with patch.dict(sys.modules, {"numpy": None}):
         assert materialize_inputs(text)[0].values == text
-        assert materialize_inputs([1.5, 2.5])[0].values == [[1.5, 2.5]]
+        assert materialize_inputs([[1.5, 2.5]])[0].values == [[1.5, 2.5]]
 
 
 def test_scalar_egress_stays_json():
@@ -1587,7 +1587,7 @@ def test_date_and_datetime_serialization_handling():
     d = datetime.date(2026, 6, 25)
     dt = datetime.datetime(2026, 6, 25, 14, 30, 0)
     
-    wire_list = host_pack_data([d, dt], force="never")
+    wire_list = host_pack_data([[d, dt]], force="never")
     (rng,) = materialize_inputs(wire_list)
     assert rng.values == [[d, dt]]
 

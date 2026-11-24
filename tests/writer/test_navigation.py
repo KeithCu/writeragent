@@ -26,13 +26,13 @@ def test_nav_heading_returns_raised_service_error():
 def test_nav_surroundings_ok_envelope():
     prox = MagicMock()
     prox.get_surroundings.return_value = {"center_para_index": 2}
-    result = NavSurroundings().execute(_ctx(prox=prox), locator="paragraph:2")
+    result = NavSurroundings().execute(_ctx(prox=prox), locator="paragraph:2", radius=10)
     assert result == {"status": "ok", "center_para_index": 2}
 
 
 def test_nav_heading_children_rejects_multiple_selectors():
     tree = MagicMock()
-    result = NavHeadingChildren().execute(_ctx(tree=tree), locator="heading:1", bookmark="_mcp_a")
+    result = NavHeadingChildren().execute(_ctx(tree=tree), locator="heading:1", bookmark="_mcp_a", strategy="first_lines", depth=1)
     assert result["status"] == "error"
     assert "only one of locator" in result["message"]
     tree.get_heading_children.assert_not_called()
@@ -41,6 +41,6 @@ def test_nav_heading_children_rejects_multiple_selectors():
 def test_nav_heading_children_passes_a_single_selector():
     tree = MagicMock()
     tree.get_heading_children.return_value = {"parent": {"text": "A"}, "children": []}
-    result = NavHeadingChildren().execute(_ctx(tree=tree), locator="heading:1")
+    result = NavHeadingChildren().execute(_ctx(tree=tree), locator="heading:1", strategy="first_lines", depth=1)
     assert result["status"] == "ok"
     assert tree.get_heading_children.call_args.kwargs["locator"] == "heading:1"

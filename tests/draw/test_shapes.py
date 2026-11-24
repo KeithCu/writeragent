@@ -81,11 +81,7 @@ def _invoke_set_property(obj, method, args):
 
 
 def test_shape_upsert_octagon_sets_geometry_before_page_add():
-    """CustomShape Type/engine must be set before page.add; never again after.
-
-    Post-add CustomShapeGeometry Type=octagon replaces the live SdrRectObj and
-    can abort soffice (SfxItemPool::unregisterNameOrIndex).
-    """
+    """CustomShape Type/engine are set before page.add, and Type is re-applied after add."""
     events: list = []
     shape = _RecordingShape(events)
 
@@ -154,78 +150,8 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     geom_props = geom_value if isinstance(geom_value, tuple) else (geom_value,)
     assert any(getattr(p, "Name", None) == "Type" and getattr(p, "Value", None) == "octagon" for p in geom_props), events
 
-    # Double-apply after add is the crashy swap; fill/line may still set after add.
-    assert not any(i > add_idx for i in engine_idxs), events
-    assert not any(i > add_idx for i in geom_idxs), events
-
-
-def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
-    """Calc SpreadsheetDocument: re-apply EnhancedCustomShapeGeometry after page.add.
-
-    Pre-add Type alone leaves geometry Type-only (no Path) so CustomShapes do not
-    paint on the sheet; Writer already re-applies for TextDocument.
-    """
-    events: list = []
-    shape = _RecordingShape(events)
-
-    page = MagicMock()
-    page_shapes: list = []
-
-    def page_add(added):
-        events.append(("page.add",))
-        page_shapes.append(added)
-
-    page.add.side_effect = page_add
-    page.getCount.side_effect = lambda: len(page_shapes)
-    page.getByIndex.side_effect = lambda i: page_shapes[i]
-
-    pages = MagicMock()
-    pages.getCount.return_value = 1
-    pages.getByIndex.return_value = page
-
-    doc = MagicMock()
-
-    def supports(svc: str) -> bool:
-        return svc == "com.sun.star.sheet.SpreadsheetDocument"
-
-    doc.supportsService.side_effect = supports
-    doc.createInstance.side_effect = lambda _type: shape
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.active_page_index = 0
-
-    with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("uno.invoke", side_effect=_invoke_set_property),
-        patch("uno.Any", side_effect=lambda _type, value: value),
-    ):
-        bridge = bridge_cls.return_value
-        bridge.get_pages.return_value = pages
-        bridge.resolve_page.return_value = (page, 0)
-        bridge.get_active_page_index.return_value = 0
-
-        result = UpsertShape().execute(
-            ctx,
-            action="create",
-            shape_type="star24",
-            x=2000,
-            y=5000,
-            width=4000,
-            height=4000,
-            fill_color="blue",
-        )
-
-    assert result["status"] == "ok"
-    assert result["geometry_applied"] is True
-
-    add_idx = next(i for i, ev in enumerate(events) if ev[0] == "page.add")
-    geom_idxs = [i for i, ev in enumerate(events) if ev[0] == "setPropertyValue" and ev[1] == "CustomShapeGeometry"]
-    engine_idxs = [i for i, ev in enumerate(events) if ev[0] == "setPropertyValue" and ev[1] == "CustomShapeEngine"]
-
-    assert any(i < add_idx for i in geom_idxs), events
+    # Post-add re-apply of CustomShapeGeometry expands preset geometry on Draw too.
     assert any(i > add_idx for i in geom_idxs), events
-    assert any(i < add_idx for i in engine_idxs), events
     assert any(i > add_idx for i in engine_idxs), events
 
 
@@ -259,24 +185,14 @@ def test_writer_invalidate_skips_non_writer_doc() -> None:
 
 def test_clamp_shape_text_autogrow_sets_autofit_by_default() -> None:
     """When setting text, AutoGrow stays off and TextFitToSize defaults to AUTOFIT."""
+    import uno
+
     shape = MagicMock()
-    fit = MagicMock()
-    fit.AUTOFIT = "AUTOFIT_SENTINEL"
-    drawing_mod = MagicMock()
-    drawing_mod.TextFitToSizeType = fit
-    with patch.dict(
-        "sys.modules",
-        {
-            "com.sun.star.drawing.TextFitToSizeType": fit,
-            "com.sun.star.drawing": drawing_mod,
-            "com.sun.star": MagicMock(drawing=drawing_mod),
-        },
-    ):
-        _clamp_shape_text_autogrow(shape)
+    _clamp_shape_text_autogrow(shape)
 
     shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
     shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
-    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+    shape.setPropertyValue.assert_any_call("TextFitToSize", uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT"))
 
 
 def test_clamp_shape_text_autogrow_skips_autofit_when_disabled() -> None:
@@ -287,26 +203,16 @@ def test_clamp_shape_text_autogrow_skips_autofit_when_disabled() -> None:
 
 
 def test_apply_shape_properties_text_defaults_to_autofit() -> None:
+    import uno
+
     shape = MagicMock()
     shape.setString = MagicMock()
-    fit = MagicMock()
-    fit.AUTOFIT = "AUTOFIT_SENTINEL"
-    drawing_mod = MagicMock()
-    drawing_mod.TextFitToSizeType = fit
-    with patch.dict(
-        "sys.modules",
-        {
-            "com.sun.star.drawing.TextFitToSizeType": fit,
-            "com.sun.star.drawing": drawing_mod,
-            "com.sun.star": MagicMock(drawing=drawing_mod),
-        },
-    ):
-        _apply_shape_properties(shape, {"text": "CEO"})
+    _apply_shape_properties(shape, {"text": "CEO"})
 
     shape.setString.assert_called_once_with("CEO")
     shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
     shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
-    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+    shape.setPropertyValue.assert_any_call("TextFitToSize", uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT"))
 
 
 def test_apply_shape_properties_font_size_skips_autofit() -> None:
@@ -406,13 +312,17 @@ def test_shape_upsert_line_allows_zero_width_or_height():
     assert created is shape
     page.add.assert_called_once_with(shape)
 
+    (created, _geom, _err), shape, page = _make("LineShape", -2890, 0)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+
     from plugin.draw.shapes import DrawError
 
     for shape_type, width, height in (
         ("LineShape", 0, 0),
-        ("LineShape", -1, 100),
         ("RectangleShape", 4000, 0),
         ("RectangleShape", 0, 2500),
+        ("RectangleShape", -100, 200),
         ("com.sun.star.drawing.ConnectorShape", 0, 100),
     ):
         try:
@@ -983,21 +893,6 @@ def test_apply_shape_properties_disposal_on_fill_color_propagates():
         _apply_shape_properties(shape, {"fill_color": "#FF0000"})
 
 
-def _drawing_sys_modules() -> dict[str, object]:
-    fill_style = MagicMock()
-    fill_style.NONE = "NONE"
-    fill_style.SOLID = "SOLID"
-    line_style = MagicMock()
-    line_style.SOLID = "SOLID"
-    drawing_mod = MagicMock()
-    drawing_mod.FillStyle = fill_style
-    drawing_mod.LineStyle = line_style
-    return {
-        "com.sun.star.drawing": drawing_mod,
-        "com.sun.star": MagicMock(drawing=drawing_mod),
-    }
-
-
 def _line_style_only_fail(name: str, _value: object) -> None:
     if name == "LineStyle":
         raise RuntimeError("line style fail")
@@ -1022,6 +917,10 @@ def _noop_shape(_shape: MagicMock) -> None:
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}), ["CharHeight"], id="char-false"),
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")), ["text_properties"], id="char-runtime"),
         pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")), DisposedException, id="char-disposed"),
+        pytest.param({"bold": True}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharWeight": False}), ["CharWeight"], id="bold-only-reaches-char-path"),
+        pytest.param({"corner_radius": 300}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("no CornerRadius")), None, ["corner_radius"], id="corner-radius-runtime"),
+        pytest.param({"h_align": "center"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("x")), None, ["h_align"], id="h-align-runtime"),
+        pytest.param({"wrap_text": True}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="wrap-disposed"),
     ],
 )
 def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch, expected) -> None:
@@ -1032,10 +931,45 @@ def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch,
 
     char_ctx = char_patch() if char_patch is not None else nullcontext()
     raise_ctx = pytest.raises(expected) if isinstance(expected, type) else nullcontext()
-    with patch.dict("sys.modules", _drawing_sys_modules()), char_ctx, raise_ctx:
+    with char_ctx, raise_ctx:
         failed = _apply_shape_properties(shape, props)
         if not isinstance(expected, type):
             assert failed == expected
+
+
+def test_apply_shape_properties_color_forces_solid_style():
+    def _make_shape():
+        shape = MagicMock()
+        shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+        shape.FillStyle = True
+        shape.LineStyle = True
+        return shape
+
+    with patch("plugin.draw.shapes._drawing_enum", side_effect=lambda enum_name, member: (enum_name, member)):
+        s1 = _make_shape()
+        assert _apply_shape_properties(s1, {"fill_color": "#FF0000"}) == []
+        assert ("FillColor", 0xFF0000) in [c.args for c in s1.setPropertyValue.call_args_list]
+        assert ("FillStyle", ("FillStyle", "SOLID")) in [c.args for c in s1.setPropertyValue.call_args_list]
+
+        s2 = _make_shape()
+        assert _apply_shape_properties(s2, {"fill_color": "#FF0000", "fill_style": "none"}) == []
+        fill_styles = [c.args[1] for c in s2.setPropertyValue.call_args_list if c.args[0] == "FillStyle"]
+        assert fill_styles == [("FillStyle", "NONE")]
+
+        s3 = _make_shape()
+        assert _apply_shape_properties(s3, {"fill_color": "not_a_color"}) == ["fill_color"]
+        assert not any(c.args[0] == "FillStyle" for c in s3.setPropertyValue.call_args_list)
+
+        s4 = _make_shape()
+        assert _apply_shape_properties(s4, {"line_color": "#0000FF"}) == []
+        assert ("LineColor", 0x0000FF) in [c.args for c in s4.setPropertyValue.call_args_list]
+        assert ("LineStyle", ("LineStyle", "SOLID")) in [c.args for c in s4.setPropertyValue.call_args_list]
+
+        s5 = _make_shape()
+        s5.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+        assert _apply_shape_properties(s5, {"fill_color": "#FF0000"}) == []
+        assert ("LineColor", 0xFF0000) in [c.args for c in s5.setPropertyValue.call_args_list]
+        assert not any(c.args[0] == "FillStyle" for c in s5.setPropertyValue.call_args_list)
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():
@@ -1328,3 +1262,184 @@ def test_shape_group_rejects_duplicate_indices():
         out = GroupShapes().execute(ctx, indices=[0, 0])
     assert out["status"] == "error"
     page.group.assert_not_called()
+
+
+def test_apply_shape_properties_sets_fill_and_line_style_via_uno_enum() -> None:
+    import uno
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.LineStyle = True
+    shape.LineWidth = True
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    failed = _apply_shape_properties(
+        shape,
+        {"fill_style": "solid", "line_color": "#0000FF", "line_width": 50},
+    )
+    assert failed == []
+    shape.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+    shape.setPropertyValue.assert_any_call("LineStyle", uno.Enum("com.sun.star.drawing.LineStyle", "SOLID"))
+
+    shape.setPropertyValue.reset_mock()
+    failed = _apply_shape_properties(shape, {"fill_style": "transparent"})
+    assert failed == []
+    shape.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+
+
+def test_shape_upsert_negative_size_create_and_edit() -> None:
+    from plugin.draw.shapes import UpsertShape
+
+    rect = MagicMock()
+    rect.Name = "Shape 1"
+    rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    rect.getPosition.return_value = MagicMock(X=1000, Y=2000)
+    rect.getSize.return_value = MagicMock(Width=500, Height=600)
+
+    line = MagicMock()
+    line.Name = "Shape 2"
+    line.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+    line.getPosition.return_value = MagicMock(X=1000, Y=2000)
+    line.getSize.return_value = MagicMock(Width=500, Height=0)
+
+    page = MagicMock()
+    page.getCount.return_value = 0
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.side_effect = [rect, line]
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        # Create rectangle with negative width and height: normalized to top-left + abs size.
+        res_rect = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="rectangle",
+            x=5000,
+            y=3000,
+            width=-2000,
+            height=-1000,
+        )
+        assert res_rect["status"] == "ok"
+        assert (rect.setPosition.call_args[0][0].X, rect.setPosition.call_args[0][0].Y) == (3000, 2000)
+        assert (rect.setSize.call_args[0][0].Width, rect.setSize.call_args[0][0].Height) == (2000, 1000)
+
+        # Create line with negative width: keeps start x=5000 and signed width=-2890 for direction.
+        res_line = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="line",
+            x=5000,
+            y=3000,
+            width=-2890,
+            height=0,
+        )
+        assert res_line["status"] == "ok"
+        assert (line.setPosition.call_args[0][0].X, line.setPosition.call_args[0][0].Y) == (5000, 3000)
+        assert (line.setSize.call_args[0][0].Width, line.setSize.call_args[0][0].Height) == (-2890, 0)
+
+        # Edit rectangle with only negative width (no x): shifts existing x=1000 by -400 -> 600.
+        page.getCount.return_value = 2
+        page.getByIndex.side_effect = lambda i: rect if i == 0 else line
+        rect.setPosition.reset_mock()
+        rect.setSize.reset_mock()
+        res_edit = UpsertShape().execute(ctx, action="edit", index=0, width=-400, text="hi")
+        assert res_edit["status"] == "ok"
+        assert (rect.setPosition.call_args[0][0].X, rect.setPosition.call_args[0][0].Y) == (600, 2000)
+        assert (rect.setSize.call_args[0][0].Width, rect.setSize.call_args[0][0].Height) == (400, 600)
+
+
+def test_shape_upsert_arrowheads_create_and_edit() -> None:
+    from plugin.draw.shapes import UpsertShape
+
+    ok, _err = UpsertShape().validate(
+        action="create",
+        shape_type="line",
+        x=100,
+        y=100,
+        width=2000,
+        height=0,
+        line_end="arrow",
+        line_start="none",
+    )
+    assert ok is True
+
+    bad_ok, bad_err = UpsertShape().validate(
+        action="create",
+        shape_type="line",
+        x=100,
+        y=100,
+        width=2000,
+        height=0,
+        line_end="invalid_marker",
+    )
+    assert bad_ok is False
+    assert bad_err is not None and "line_end" in bad_err
+
+    line = MagicMock()
+    line.Name = "Line 1"
+    line.getShapeType.return_value = "com.sun.star.drawing.LineShape"
+    line.getPosition.return_value = MagicMock(X=100, Y=100)
+    line.getSize.return_value = MagicMock(Width=2000, Height=0)
+
+    page = MagicMock()
+    page.getCount.return_value = 0
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = line
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        created = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="line",
+            x=100,
+            y=100,
+            width=2000,
+            height=0,
+            line_end="arrow",
+            line_start="none",
+        )
+        assert created["status"] == "ok"
+        set_calls = [(c.args[0], c.args[1]) for c in line.setPropertyValue.call_args_list]
+        assert ("LineStartName", "") in set_calls
+        assert ("LineEndName", "Arrow") in set_calls
+        assert any(prop == "LineEndWidth" and val >= 300 for prop, val in set_calls)
+        assert any(prop == "LineEnd" for prop, _val in set_calls)
+
+        page.getCount.return_value = 1
+        page.getByIndex.return_value = line
+        line.setPropertyValue.reset_mock()
+        line.getPropertyValue.return_value = 200
+
+        edited = UpsertShape().execute(
+            ctx,
+            action="edit",
+            index=0,
+            line_end="none",
+            line_start="arrow",
+        )
+        assert edited["status"] == "ok"
+        edit_calls = [(c.args[0], c.args[1]) for c in line.setPropertyValue.call_args_list]
+        assert ("LineStartName", "Arrow") in edit_calls
+        assert ("LineEndName", "") in edit_calls
+        assert ("LineStartWidth", 600) in edit_calls
+
+        no_line_props = MagicMock(spec=["Name", "getShapeType", "getPosition", "getSize", "setPosition", "setSize"])
+        no_line_props.Name = "NoLine"
+        no_line_props.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+        no_line_props.getPosition.return_value = MagicMock(X=100, Y=100)
+        no_line_props.getSize.return_value = MagicMock(Width=1000, Height=500)
+        page.getByIndex.return_value = no_line_props
+        warned = UpsertShape().execute(ctx, action="edit", index=0, line_end="arrow")
+        assert warned["status"] == "ok"
+        assert any("line_end" in w for w in warned.get("warnings", []))

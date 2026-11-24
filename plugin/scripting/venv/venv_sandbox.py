@@ -45,6 +45,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     InterpreterError,
     LocalPythonExecutor,
     SANDBOX_POLICY_CONTEXT,
+    USER_CODE_FILE,
     finalize_thread_pool_timeout,
     get_file_os_proxy,
     print_outputs_from_state,
@@ -69,7 +70,7 @@ from plugin.scripting.named_scripts import (
     bind_named_scripts_executor,
     reset_named_scripts_executor,
 )
-from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
+from plugin.scripting.venv.to_wire import plot_image_payload, to_wire
 from plugin.scripting.venv import optional_import
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
@@ -93,6 +94,7 @@ from plugin.scripting.sandbox import (
 install_alias_authorizer()
 
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
+_INIT_SCRIPT_FILE = "<init script>"
 
 
 @dataclass
@@ -181,6 +183,19 @@ class SessionStore:
             rec.init_script_hash = script_digest
             if key.kind is SessionKind.ISOLATED:
                 self._note_isolated_access_unlocked(key)
+
+    def drop_committed_init(self, init_session_id: str) -> None:
+        """Clear a committed init and its cell companion, as a changed init script does.
+
+        A caller that names *init_session_id* with no script says the document has no
+        init script now. A session that never committed an init keeps its cell executor
+        and DuckDB catalog.
+        """
+        with self._lock:
+            key = SessionKey.parse(init_session_id)
+            rec = self._records.get(key)
+            if rec is not None and rec.init_script_hash is not None:
+                self._clear_init_unlocked(key)
 
     def abort_init(self, init_session_id: str) -> None:
         with self._lock:
@@ -640,8 +655,24 @@ def serialize_result(
         raise
 
 
-def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] | None, str]:
-    """Return (image payload from open pyplot figures, optional stdout note)."""
+def _figure_is_blank(fig: Any) -> bool:
+    """True when nothing is drawn on *fig*: FigureBase.get_children() lists only its background patch."""
+    return len(fig.get_children()) == 1
+
+
+def _figures_payload(figs: list[Any]) -> dict[str, Any]:
+    """One image per figure, in order: a single image envelope, or a multi_data envelope of them."""
+    items = [plot_image_payload(fig) for fig in figs]
+    return items[0] if len(items) == 1 else pack_multi_data_envelope(items)
+
+
+def _capture_open_figures_payload() -> tuple[dict[str, Any] | None, str]:
+    """Return (image payload from open pyplot figures, optional stdout note).
+
+    A blank figure is left out while another open figure has a drawing. Without
+    this, Anaconda's ``fig = plt.figure()`` before ``sns.catplot(...)``, which
+    makes its own figure, adds an empty picture.
+    """
     # No figure can be open before something imported pyplot; importing it
     # here would cost the multi-second font cache load on non-plot cells.
     if "matplotlib.pyplot" not in sys.modules:
@@ -653,16 +684,11 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     if not fignums:
         return None, ""
 
-    note = ""
     try:
         figs = [plt_mod.figure(num) for num in fignums]
-        if len(figs) > 1:
-            items = [figure_to_image_payload(fig, fmt=fmt) for fig in figs]
-            payload = pack_multi_data_envelope(items)
-            note = f"Captured {len(figs)} open figures.\n"
-        else:
-            payload = figure_to_image_payload(figs[0], fmt=fmt)
-        return payload, note
+        figs = [fig for fig in figs if not _figure_is_blank(fig)] or figs
+        note = f"Captured {len(figs)} open figures.\n" if len(figs) > 1 else ""
+        return _figures_payload(figs), note
     finally:
         # Close even when rendering raises or figure(num) fails; a figure left
         # open would be what the next cell returns. A close failure must not
@@ -807,9 +833,7 @@ def _ensure_init_executed(
     policy: SandboxPolicy,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
-    script = (init_script or "").strip()
-    if not script:
-        return None
+    script = init_script.strip()
 
     script_digest = init_script_hash or ""
     if SESSIONS.init_is_current(init_session_id, script_digest, policy):
@@ -823,7 +847,7 @@ def _ensure_init_executed(
     if spent is not None:
         return spent
     inject_auto_imports(init_executor, script)
-    result = _run_on_executor(init_executor, script, result_optional=True)
+    result = _run_on_executor(init_executor, script, result_optional=True, filename=_INIT_SCRIPT_FILE)
     if result.get("status") != "ok":
         SESSIONS.abort_init(init_session_id)
         return result
@@ -945,14 +969,40 @@ def _is_non_value_result(obj: Any) -> bool:
     )
 
 
+def _returned_figures(obj: Any) -> list[Any]:
+    """The figures a cell returned by name, in its order, or [] when it named none.
+
+    A Figure with a drawing stands for itself, even after plt.close. A seaborn PairGrid,
+    FacetGrid, JointGrid or ClusterGrid is not a matplotlib artist and stands for its
+    ``.figure``. A list or tuple counts only when every item is one of those. An artist
+    (Line2D, Text, Axes) or a blank figure names no figure, so _is_mpl_artist_result then
+    captures every open figure.
+    """
+    fig_mod = sys.modules.get("matplotlib.figure")
+    if fig_mod is None:
+        return []
+    # matplotlib.figure imports matplotlib.artist.
+    artist = sys.modules["matplotlib.artist"].Artist
+    figs: list[Any] = []
+    for item in obj if isinstance(obj, (list, tuple)) else (obj,):
+        fig = item if isinstance(item, artist) else getattr(item, "figure", None)
+        if not isinstance(fig, fig_mod.Figure) or _figure_is_blank(fig):
+            return []
+        figs.append(fig)
+    return figs
+
+
 def _is_mpl_artist_result(obj: Any) -> bool:
-    """True for a pyplot artist or the list ``plt.plot`` returns."""
+    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns)."""
     artist_mod = sys.modules.get("matplotlib.artist")
     if artist_mod is None:
         return False
     artist = artist_mod.Artist
     if isinstance(obj, artist):
         return True
+    # matplotlib imports numpy, so numpy is loaded whenever matplotlib.artist is.
+    if isinstance(obj, sys.modules["numpy"].ndarray):
+        return obj.dtype == object and obj.size > 0 and all(isinstance(item, artist) for item in obj.flat)
     return isinstance(obj, (list, tuple)) and bool(obj) and all(isinstance(item, artist) for item in obj)
 
 
@@ -975,13 +1025,15 @@ def _serialize_cell_result(
     force: ForceBinary = "auto",
     log_failure: bool = True,
 ) -> tuple[Any, str]:
-    """Serialize *result*, swapping in open matplotlib figures when that is the output.
+    """Serialize *result*, swapping in matplotlib figures when that is the output.
 
-    A helper-only init script evaluates to the function, and plt.plot()
-    evaluates to Line2D artists. Capture open figures before the pickle
-    check rejects those objects, or the figures stay open and the next
-    script returns that SVG. A class statement is the same kind of
-    non-value as a function statement.
+    A helper-only init script evaluates to a function or class; those non-values are
+    nulled so they can cross the pickle boundary. A returned figure or seaborn grid, or a
+    list of them, becomes those images in that order, and every other open figure is closed
+    without being shown. An artist (plt.plot's lines, plt.title's Text, an Axes or an Axes
+    array) or a blank figure shows every open figure that has a drawing. Artists and
+    returned figures are handled before serialize_result, which would reject them, and every
+    open figure is closed afterwards; a figure left open would be what the next cell returns.
 
     A non-image value, including result = 42, is replaced when a figure is still open. That replacement stays.
     """
@@ -989,7 +1041,11 @@ def _serialize_cell_result(
         result = None
 
     extra_stdout = ""
-    if _is_mpl_artist_result(result):
+    figures = _returned_figures(result)
+    if figures:
+        serialized = _figures_payload(figures)
+        _close_open_figures()
+    elif _is_mpl_artist_result(result):
         captured, note = _capture_open_figures_payload()
         if captured is None:
             serialized = serialize_result(result, force=force, log_failure=log_failure)
@@ -1041,28 +1097,31 @@ def _blocked_import_hint(module: str) -> str:
     return "this module is blocked in the sandbox"
 
 
-def _with_fix_hint(message: str) -> str:
-    """Append an actionable fix hint when a sandbox error has a known remedy.
+def _with_fix_hint(message: str) -> tuple[str, str]:
+    """Return ``(hinted_message, hint_suffix)`` when a sandbox error has a known remedy.
 
     The model sees only this error message, so naming the fix or Settings
     toggle directly avoids repeated trial-and-error.
     """
-    if "wa.help(" in message:
-        return message
-    if (
-        "Forbidden access to dunder attribute: __doc__" in message
-        or "Forbidden function evaluation: 'dir' " in message
-        or "name 'dir' is not defined" in message
-    ):
-        return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
-    for needle, hint in _ERROR_FIX_HINTS:
-        if needle in message:
-            return f"{message.rstrip('.')} — {hint}."
-    match = _BLOCKED_IMPORT_RE.match(message)
-    if match:
-        hint = _blocked_import_hint(match.group(1))
-        return f"{message.rstrip('.')} — {hint}."
-    return message
+    hint = ""
+    if "wa.help(" not in message:
+        if (
+            "Forbidden function evaluation: 'dir' " in message
+            or "name 'dir' is not defined" in message
+        ):
+            hint = "use wa.help(name) instead (or wa.help() to list namespaces)."
+        else:
+            for needle, entry in _ERROR_FIX_HINTS:
+                if needle in message:
+                    hint = f"{entry}."
+                    break
+            else:
+                match = _BLOCKED_IMPORT_RE.match(message)
+                if match:
+                    hint = f"{_blocked_import_hint(match.group(1))}."
+    if not hint:
+        return message, ""
+    return f"{message.rstrip('.')} — {hint}", hint
 
 
 def _fail_cell(
@@ -1073,13 +1132,22 @@ def _fail_cell(
     code: str | None = None,
     stdout: str = "",
     include_traceback: bool = False,
+    user_traceback: str = "",
 ) -> dict[str, Any]:
-    """Restore the pre-cell ``result``, close figures, and return an error dict."""
+    """Restore the pre-cell ``result``, close figures, and return an error dict.
+
+    *user_traceback* holds only the user's frames, never a host path, so
+    ``compute_service`` may forward it; *include_traceback* is for local
+    diagnostics only.
+    """
     _restore_prior_result(executor, prior_result)
     _close_open_figures()
-    return error_result(
+    out = error_result(
         code, message, stdout=stdout, with_traceback=include_traceback
     )
+    if user_traceback:
+        out["user_traceback"] = user_traceback
+    return out
 
 
 def cell_rebound_result(code: str, prior: Any, current: Any) -> bool:
@@ -1098,6 +1166,7 @@ def _run_on_executor(
     *,
     force: ForceBinary = "auto",
     result_optional: bool = False,
+    filename: str = USER_CODE_FILE,
 ) -> dict[str, Any]:
     # Keep ``result`` in the namespace. Egress uses it when this cell stored
     # the name. Popping it after every cell would make ``result * 2`` in a
@@ -1112,7 +1181,7 @@ def _run_on_executor(
     try:
         token = bind_named_scripts_executor(executor)
         try:
-            code_output = executor(code)
+            code_output = executor(code, filename=filename)
         finally:
             # Reset with the token from bind. A leftover ContextVar is the
             # previous cell's executor on this thread.
@@ -1170,13 +1239,19 @@ def _run_on_executor(
             str(e),
             code="EXECUTION_TIMEOUT",
             stdout=print_outputs_from_state(executor.state),
+            user_traceback=e.user_traceback,
         )
     except InterpreterError as e:
+        hinted_message, hint = _with_fix_hint(str(e))
+        user_tb = e.user_traceback
+        if user_tb and hint:
+            user_tb = f"{user_tb}\nHint: {hint}"
         return _fail_cell(
             executor,
             prior_result,
-            _with_fix_hint(str(e)),
+            hinted_message,
             stdout=print_outputs_from_state(executor.state),
+            user_traceback=user_tb,
         )
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
@@ -1230,12 +1305,15 @@ def run_sandboxed_code(
     reuse one executor per id (shared kernel / workbook session).
 
     When ``req.init_script`` is set, it runs once in ``req.init_session_id``
-    (typically ``calc:…:init``). Isolated cell runs seed a fresh executor from a
-    copy of that snapshot; shared kernel seeds the workbook session executor once,
-    then reuses it for cell code. A missing ``req.init_script_hash`` is filled from
-    the stripped script text in this process. ``req.timeout_sec`` is already bounded
-    by the sender; ``req.data``, ``req.bindings``, and ``req.sandbox_policy`` supply
-    the cell payload, extra bindings, and sandbox import/capability flags.
+    (typically ``calc:…:init``). When ``req.init_session_id`` is set and
+    ``req.init_script`` is empty or whitespace, a committed init on that id is
+    dropped together with the shared session it seeded. Isolated cell runs seed a
+    fresh executor from a copy of that snapshot; shared kernel seeds the workbook
+    session executor once, then reuses it for cell code. A missing
+    ``req.init_script_hash`` is filled from the stripped script text in this
+    process. ``req.timeout_sec`` is already bounded by the sender; ``req.data``,
+    ``req.bindings``, and ``req.sandbox_policy`` supply the cell payload, extra
+    bindings, and sandbox import/capability flags.
     """
     deadline = time.monotonic() + float(req.timeout_sec)
 
@@ -1286,7 +1364,14 @@ def run_sandboxed_code(
         if req.session_id:
             SESSIONS.drop_if_policy_mismatch(req.session_id, policy)
 
-        if init_sid and (req.init_script or "").strip():
+        if init_sid and not (req.init_script or "").strip():
+            # The caller named an init session but sent no script: the document's init
+            # script was removed or blanked. Drop the old init namespace and the shared
+            # session it seeded, as a changed script does; nothing is seeded below.
+            SESSIONS.drop_committed_init(init_sid)
+            init_sid = None
+
+        if init_sid:
             init_err = _ensure_init_executed(
                 init_sid,
                 req.init_script or "",

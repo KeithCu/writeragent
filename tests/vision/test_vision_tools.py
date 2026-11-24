@@ -237,24 +237,6 @@ def test_delegate_draw_vision_passes_insert_false(mock_execute, _avail):
     assert mock_execute.call_args.kwargs["insert_into_document"] is False
 
 
-@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_vision_directive_draw_names_draw_gateway(_mock_avail):
-    from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE
-    from plugin.vision.vision_availability import get_vision_core_directive
-
-    doc = MagicMock()
-    doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
-    text = get_vision_core_directive(doc, MagicMock())
-    assert 'delegate_to_subagent(domain="vision"' in text
-
-
-@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
-def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
-    from plugin.vision.vision_availability import get_vision_core_directive
-
-    assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
-
-
 @patch("plugin.chatbot.smol_agent.run_inner_tool_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
@@ -297,14 +279,6 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
     gateway = DelegateToSubagent()
     assert gateway.requires_document_lock({"domain": "vision"}) is True
-
-
-@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
-    from plugin.vision.vision_availability import get_vision_core_directive
-
-    text = get_vision_core_directive(calc_doc, MagicMock())
-    assert 'delegate_to_subagent(domain="vision"' in text
 
 
 @patch("plugin.framework.queue_executor.main.call")

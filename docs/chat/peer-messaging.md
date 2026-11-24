@@ -61,7 +61,7 @@ A user (or an eval harness) has two or three windows open in the same LibreOffic
 | Draw sidebar | That Draw model (`com.sun.star.drawing.DrawingDocument`) | Draw **core** tools + `delegate_to_subagent` | A **third** `ChatSession` + `ToolCallingMixin` |
 | Impress sidebar | That Impress model (`com.sun.star.presentation.PresentationDocument`; also supports `DrawingDocument`) | Same Draw **core** tools + `delegate_to_subagent` | A **fourth** `ChatSession` + `ToolCallingMixin` |
 
-They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
+They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
 
 **What the user wants:** the Writer agent can send the Calc agent Calc work, or the Draw agent Draw work (and any reverse), in natural language. The other sidebar **shows the message and runs it**. A reply comes back later on the caller’s transcript as a **new user turn**. Writer never advertises `write_range` or `shape_upsert`; Calc never advertises `apply_content`.
 
@@ -132,7 +132,7 @@ That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until
 | MCP `tools/call` + `document_url` | External host can target any open doc | Loopback HTTP is not two sidebars chatting. v1 **does not** advertise or execute this tool for MCP. MCP already pops `document_url` as the *caller* doc — another reason not to share this name on that wire. |
 | MCP result toast | `_on_mcp_result` posts onto **a** sidebar | External call display, not a peer send. |
 | `EventBus` | Sync pub/sub | Process events, not a conversation. |
-| `history_db` / memory / skills | Shared disk | Persistence ≠ a turn. Mixing app tool traces in one session is the anti-pattern. |
+| `history_db` / memory | Shared disk | Persistence ≠ a turn. Mixing app tool traces in one session is the anti-pattern. |
 | udprops | Already stores `WriterAgentSessionID` | Identity, not a mailbox. |
 | Collabora / coolwsd | Kit IPC | Different product — [§6](#6-non-goals). |
 
@@ -537,3 +537,14 @@ Ordered preference (2026-09-20): Keith preferred **(1) single-tool auto-detect**
 - [GDPval GMP gold `58ac1cc5`](../eval/gdpval/58ac1cc5-5754-4580-8c9c-8c67e1a9d619/README.md) — untouched gold materials
 - [eval-2 GMP Change Control](../eval/eval-2/gmp-change-control-58ac1cc5/) — Writer + Draw pre-open port
 - [mock-llm-sidebar.md](../tests/mock-llm-sidebar.md) — Packets B–G soak + Packet P dual peer
+
+---
+
+## Open
+
+- `[eng M many]` Collapse `peer_send_work` / `peer_send_result` into one `send_peer_message` tool that infers work vs result from whether the target is the sender of the current Peer-work envelope, so a model cannot call the wrong one. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[eng S few]` Teach the fan-out second hop in prompts: after a child peer replies, the middle peer must still send its own result back to the original asker. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[eng S few]` Re-run headed Scenario 8 (Calc plus Impress KPI) as split asks with a File Save before disk checks, or score Impress as its own prove. (§ 5.1 Headed status and open issue (2026-09-20))
+- `[idea M many]` Waiting chrome that shows "Waiting for peer..." after the caller drain exits and auto-starts the follow-up turn when the reply arrives. (§ 3.1 Alternatives considered (kept))
+- `[idea L few]` Blocking `ask_peer` wrapper (A2) that waits for a compact peer result, offered only as an explicit escape hatch rather than a silent fallback. (§ A2. Demoted - optional later / documented escape hatch)
+- `[idea L few]` Multiplexed drain with mid-loop `PEER_REPLY` injection so a reply can land inside the caller's current turn. (§ 3.1 Alternatives considered (kept))

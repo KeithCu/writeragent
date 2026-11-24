@@ -299,3 +299,264 @@ def test_close_does_not_evict_different_registered_dialog():
     dialog_a.close()
     assert dialog_a._closed is True
     assert _active_dialogs.get("vision") is dialog_other
+
+
+def _make_preview_dialog(specs=None, raw_result=None, job=None, run_job=None):
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog
+
+    ctx = MagicMock()
+    dialog = ModuleConfigDialog(ctx, "vision", preview_job=job, run_job=run_job)
+    dialog._dlg = MagicMock()
+    dialog._pane = MagicMock()
+    dialog._specs = specs or []
+    dialog._extract_result = MagicMock(return_value=raw_result or {})
+    return dialog
+
+
+def test_run_passes_option_values_not_captions():
+    from plugin.chatbot.module_config_dialog import PreviewImage
+
+    specs = [
+        {
+            "name": "layout_model",
+            "config_key": "vision.layout_model",
+            "options": [{"value": "heron", "label": "Heron (default)"}],
+        },
+        {
+            "name": "insert_mode",
+            "config_key": "vision.insert_mode",
+            "options": [{"value": "structured", "label": "Structured (layout / cell grid)"}],
+        },
+    ]
+    seen_values = []
+    img = PreviewImage(MagicMock(), 1600, 2000, "Done: 10 characters.")
+
+    def job(ctx, values, cancel, report):
+        seen_values.append(values)
+        return img
+
+    dialog = _make_preview_dialog(
+        specs=specs,
+        raw_result={"layout_model": "Heron (default)", "insert_mode": "Structured (layout / cell grid)"},
+        job=job,
+    )
+    captured = []
+    with (
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: captured.append(fn)),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+        assert len(captured) == 1
+        captured[0]()
+
+    assert seen_values == [{"layout_model": "heron", "insert_mode": "structured"}]
+    dialog._pane.show.assert_called_once_with(img)
+
+
+def test_second_run_click_while_running_starts_no_job():
+    dialog = _make_preview_dialog(job=lambda ctx, values, cancel, report: None)
+    captured = []
+    with (
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: captured.append(fn)),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+        dialog._start_job(dialog._preview_job, "preview")
+    assert len(captured) == 1
+
+
+def test_close_during_run_cancels_and_drops_result():
+    from plugin.chatbot.module_config_dialog import PreviewImage
+    from plugin.framework.send_cancellation import is_cancelled
+
+    tokens = []
+    img = PreviewImage(MagicMock(), 1600, 2000, "Done: 5 characters.")
+
+    def job(ctx, values, cancel, report):
+        tokens.append(cancel)
+        return img
+
+    dialog = _make_preview_dialog(job=job)
+    pane = dialog._pane
+    captured = []
+    with (
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: captured.append(fn)),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+        token = dialog._run_cancel
+        dialog.close()
+        assert token is not None and is_cancelled(token) is True
+        captured[0]()
+
+    assert tokens == [token]
+    pane.show.assert_not_called()
+
+
+def test_run_error_sets_status_and_reenables_run():
+    from plugin.framework.errors import ToolExecutionError
+
+    def job(ctx, values, cancel, report):
+        raise ToolExecutionError("Select an image", code="NO_IMAGE_SELECTED")
+
+    dialog = _make_preview_dialog(job=job)
+    btn_run = MagicMock()
+    lbl_status = MagicMock()
+    with (
+        patch(
+            "plugin.chatbot.module_config_dialog.get_optional",
+            side_effect=lambda dlg, name: {"btn_run": btn_run, "lbl_preview_status": lbl_status}.get(name),
+        ),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+
+    assert btn_run.setEnable.call_args_list[-1].args == (True,)
+    assert lbl_status.setText.call_args_list[-1].args == ("Select an image",)
+
+
+def test_stale_status_after_finish_is_ignored():
+    from plugin.chatbot.module_config_dialog import PreviewImage
+
+    img = PreviewImage(MagicMock(), 1600, 2000, "Done: 1 characters.")
+    posted_report = []
+
+    def job(ctx, values, cancel, report):
+        posted_report.append((cancel, "Recognizing text…"))
+        return img
+
+    dialog = _make_preview_dialog(job=job)
+    lbl_status = MagicMock()
+    with (
+        patch(
+            "plugin.chatbot.module_config_dialog.get_optional",
+            side_effect=lambda dlg, name: {"lbl_preview_status": lbl_status}.get(name),
+        ),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._preview_job, "preview")
+
+    token, stale_text = posted_report[0]
+    dialog._on_run_status(token, stale_text)
+    assert lbl_status.setText.call_args_list[-1].args == ("Done: 1 characters.",)
+
+
+def test_dialog_without_apply_saves_on_ok_and_discards_on_cancel_after_run():
+    """When btn_apply is absent, OK saves and closes while Cancel discards edits even after Preview and Run."""
+    from plugin.chatbot.module_config_dialog import ModuleConfigDialog, PreviewImage, _active_dialogs
+
+    _active_dialogs.clear()
+    listeners: dict[str, list[MagicMock]] = {}
+    buttons: dict[str, MagicMock] = {}
+    for name in ("btn_run", "btn_preview", "btn_ok", "btn_close"):
+        btn = MagicMock()
+        listeners[name] = []
+        btn.addActionListener.side_effect = lambda lst, _n=name: listeners[_n].append(lst)
+        buttons[name] = btn
+
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: buttons.get(name)
+    field_ctrl = MagicMock()
+    field_ctrl.State = 1
+    buttons["delete_image_after_insert"] = field_ctrl
+
+    specs = [{"name": "delete_image_after_insert", "type": "boolean", "widget": "checkbox", "config_key": "vision.delete_image_after_insert", "default": False}]
+    preview_job = MagicMock(return_value=PreviewImage(MagicMock(), 100, 100, "Done."))
+    run_job = MagicMock(return_value="Inserted: 42 characters.")
+
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
+        patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=specs),
+        patch("plugin.chatbot.module_config_dialog.populate_settings_control"),
+        patch("plugin.chatbot.module_config_dialog.read_settings_control", return_value=True),
+        patch("plugin.chatbot.module_config_dialog.apply_field_specs_result") as mock_apply,
+        patch("plugin.chatbot.module_config_dialog._PreviewPane"),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog = ModuleConfigDialog.show(MagicMock(), "vision", preview_job=preview_job, run_job=run_job)
+        # Click Preview then Run, then Cancel (btn_close): must not persist settings.
+        listeners["btn_preview"][0].actionPerformed(MagicMock())
+        assert preview_job.call_count == 1
+        assert run_job.call_count == 0
+        listeners["btn_run"][0].actionPerformed(MagicMock())
+        assert run_job.call_count == 1
+        assert preview_job.call_count == 1
+        mock_apply.assert_not_called()
+        listeners["btn_close"][0].actionPerformed(MagicMock())
+        mock_apply.assert_not_called()
+        assert dialog._closed is True
+
+        # Re-open and click OK: must persist and close.
+        dialog2 = ModuleConfigDialog.show(MagicMock(), "vision", preview_job=preview_job, run_job=run_job)
+        listeners["btn_ok"][-1].actionPerformed(MagicMock())
+        mock_apply.assert_called_once_with({"delete_image_after_insert": True}, specs)
+        assert dialog2._closed is True
+
+
+def test_run_and_preview_are_mutually_exclusive_and_toggle_both_buttons():
+    from plugin.chatbot.module_config_dialog import PreviewImage
+
+    preview_job = MagicMock(return_value=PreviewImage(MagicMock(), 100, 100, "Done."))
+    run_job = MagicMock(return_value="Inserted: 10 characters.")
+    dialog = _make_preview_dialog(job=preview_job, run_job=run_job)
+    btn_run = MagicMock()
+    btn_preview = MagicMock()
+    lbl_status = MagicMock()
+    controls = {"btn_run": btn_run, "btn_preview": btn_preview, "lbl_preview_status": lbl_status}
+
+    captured = []
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_optional", side_effect=lambda dlg, name: controls.get(name)),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: captured.append(fn)),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._run_job, "run")
+        dialog._start_job(dialog._preview_job, "preview")
+        assert len(captured) == 1
+        assert btn_run.setEnable.call_args_list[-1].args == (False,)
+        assert btn_preview.setEnable.call_args_list[-1].args == (False,)
+        captured[0]()
+        assert btn_run.setEnable.call_args_list[-1].args == (True,)
+        assert btn_preview.setEnable.call_args_list[-1].args == (True,)
+        assert lbl_status.setText.call_args_list[-1].args == ("Inserted: 10 characters.",)
+        dialog._pane.show.assert_not_called()
+
+        # Now start Preview while idle; Run cannot start until Preview finishes.
+        dialog._start_job(dialog._preview_job, "preview")
+        dialog._start_job(dialog._run_job, "run")
+        assert len(captured) == 2
+        captured[1]()
+        assert btn_run.setEnable.call_args_list[-1].args == (True,)
+        assert btn_preview.setEnable.call_args_list[-1].args == (True,)
+        dialog._pane.show.assert_called_once()
+
+
+def test_close_during_run_job_cancels_and_drops_status():
+    from plugin.framework.send_cancellation import is_cancelled
+
+    tokens = []
+
+    def run_job(ctx, values, cancel, report):
+        tokens.append(cancel)
+        return "Inserted: 5 characters."
+
+    dialog = _make_preview_dialog(run_job=run_job)
+    lbl_status = MagicMock()
+    captured = []
+    with (
+        patch("plugin.chatbot.module_config_dialog.get_optional", side_effect=lambda dlg, name: {"lbl_preview_status": lbl_status}.get(name)),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: captured.append(fn)),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
+    ):
+        dialog._start_job(dialog._run_job, "run")
+        token = dialog._run_cancel
+        dialog.close()
+        assert token is not None and is_cancelled(token) is True
+        captured[0]()
+
+    assert tokens == [token]
+    assert lbl_status.setText.call_args_list[-1].args == ("Running…",)

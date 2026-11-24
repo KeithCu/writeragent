@@ -84,6 +84,8 @@ DESELECTED_K = (
     "test_shutdown_handshake_is_not_a_spawn_error",
     # --strip replaces thread_guard.py with a no-op stub (no _notify_thread_violation or active proxy).
     "test_grep_nearby_files_runs_uno_only_when_current",
+    # The stripped tree has no scripts/, so scripts.crosshair_stream will not import.
+    "test_crosshair_formula_edit_fqn_if_available",
 )
 
 

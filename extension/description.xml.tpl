@@ -18,7 +18,7 @@
     </display-name>
 
   <icon>
-  <default xlink:href="assets/logo.jpg"/>
+  <default xlink:href="assets/extension_icon.png"/>
   </icon>
 
   

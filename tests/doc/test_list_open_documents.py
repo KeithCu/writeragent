@@ -31,12 +31,14 @@ def test_list_open_documents_execute():
     mock_doc1.getController.return_value = None
     mock_doc1.RuntimeUID = "uid-saved-1"
     mock_doc1.isModified.return_value = True
+    mock_doc1.isReadonly.return_value = False
     mock_doc1.supportsService.return_value = True
     mock_doc2 = MagicMock()
     mock_doc2.getURL.return_value = ""  # Untitled document
     mock_doc2.getController.return_value = None
     mock_doc2.RuntimeUID = "uid-untitled-2"
     mock_doc2.isModified.return_value = False
+    mock_doc2.isReadonly.return_value = True
     mock_doc2.supportsService.return_value = True
 
     mock_components = [mock_doc1, mock_doc2]
@@ -77,9 +79,9 @@ def test_list_open_documents_execute():
         assert not docs[0]["is_active"]
         # The stable RuntimeUID is exposed so a caller can target the doc by uid.
         assert docs[0]["uid"] == "uid-saved-1"
-        # The modified flag surfaces unsaved changes (the agent tells the user to save; it never
-        # saves itself).
+        # modified surfaces unsaved changes so a caller knows an in-place document_save is pending.
         assert docs[0]["modified"] is True
+        assert docs[0]["read_only"] is False
 
         assert docs[1]["name"] == "Untitled"
         assert docs[1]["url"] == ""
@@ -87,6 +89,7 @@ def test_list_open_documents_execute():
         # An unsaved doc has no URL but still exposes a uid for targeting.
         assert docs[1]["uid"] == "uid-untitled-2"
         assert docs[1]["modified"] is False
+        assert docs[1]["read_only"] is True
 
 
 def test_get_open_documents_magicmock_enum_does_not_hang():

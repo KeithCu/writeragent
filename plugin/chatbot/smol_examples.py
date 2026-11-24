@@ -11,7 +11,7 @@
 - **brainstorming** — design exploration (`reply_to_user`, `brainstorming_save_design_spec`; leave with ``brainstorming_finished=true``).
 - **writing_plan** — document section drafting (`reply_to_user`, `writing_plan_write_section`).
 - **deep_research** — multi-step web research + `apply_content` (`reply_to_user`, `deep_research_search_web`).
-- **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
+- **web_research** — web sub-agent (`final_answer`; ``web_search``, ``visit_webpage``, ``read_page``, ``find_in_page``).
 - **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
 - **``*:python``** — outer python agent: venv demo (`python_run_script` + ``sp.prime``), footnotes via ``python_delegate_domains``, and a ring of shapes (``python_delegate_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
 - **``domain_tools:shapes``** — inner agent after that hop: one ``python_run_script`` with the for-loop, then ``workflow_finished``. Not the outer ``*:python`` block (that block calls ``python_delegate_domains``, which the inner list does not include).
@@ -23,8 +23,6 @@
 from __future__ import annotations
 
 import logging
-
-from plugin.contrib.smolagents.toolcalling_agent_prompts import WEB_RESEARCH_EXAMPLES_BLOCK
 
 log = logging.getLogger(__name__)
 
@@ -354,13 +352,86 @@ Observation: {"status": "ok"}
 """
 
 
+WEB_RESEARCH_EXAMPLES = """Task: "When was Python 3.13 released and what are its main highlights?"
+
+Action:
+{
+  "name": "web_search",
+  "arguments": {"query": "Python 3.13 release date highlights", "recency": "any"}
+}
+Observation: <h2>Search Results</h2><a href="https://docs.python.org/3/whatsnew/3.13.html">What's New In Python 3.13</a> <a href="https://www.python.org/downloads/">Download Python</a>
+
+Action:
+{
+  "name": "visit_webpage",
+  "arguments": {"urls": ["https://docs.python.org/3/whatsnew/3.13.html", "https://www.python.org/downloads/"]}
+}
+Observation: URL: https://docs.python.org/3/whatsnew/3.13.html
+Part 1 of 4 (21840 characters in total). read_page(url, part) returns another part; find_in_page(url, text) shows where a phrase appears.
+
+What's New In Python 3.13 ...
+
+URL: https://www.python.org/downloads/
+
+Active Python Releases ...
+
+Action:
+{
+  "name": "find_in_page",
+  "arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html", "text": "released on"}
+}
+Observation: 1 match(es) for "released on" in https://docs.python.org/3/whatsnew/3.13.html
+Part 1: …Python 3.13.0 was released on October 7, 2024…
+
+Action:
+{
+  "name": "final_answer",
+  "arguments": "Python 3.13 was released on October 7, 2024 (docs.python.org/3/whatsnew/3.13.html)."
+}
+"""
+
+
+WEB_RESEARCH_SINGLE_EXAMPLES = """Task: "When was Python 3.13 released and what are its main highlights?"
+
+Action:
+{
+  "name": "web_search",
+  "arguments": {"query": "Python 3.13 release date highlights", "recency": "any"}
+}
+Observation: <h2>Search Results</h2><a href="https://docs.python.org/3/whatsnew/3.13.html">What's New In Python 3.13</a> <a href="https://www.python.org/downloads/">Download Python</a>
+
+Action:
+{
+  "name": "visit_webpage",
+  "arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html"}
+}
+Observation: URL: https://docs.python.org/3/whatsnew/3.13.html
+Part 1 of 4 (21840 characters in total). read_page(url, part) returns another part; find_in_page(url, text) shows where a phrase appears.
+
+What's New In Python 3.13 ...
+
+Action:
+{
+  "name": "find_in_page",
+  "arguments": {"url": "https://docs.python.org/3/whatsnew/3.13.html", "text": "released on"}
+}
+Observation: 1 match(es) for "released on" in https://docs.python.org/3/whatsnew/3.13.html
+Part 1: …Python 3.13.0 was released on October 7, 2024…
+
+Action:
+{
+  "name": "final_answer",
+  "arguments": "Python 3.13 was released on October 7, 2024 (docs.python.org/3/whatsnew/3.13.html)."
+}
+"""
+
+
 _EXACT_EXAMPLES: dict[str, str] = {
     "librarian": LIBRARIAN_EXAMPLES,
     "brainstorming": BRAINSTORMING_EXAMPLES,
     "writing_plan": WRITING_PLAN_EXAMPLES,
     "deep_research": DEEP_RESEARCH_EXAMPLES,
     "ppt-master": PPT_MASTER_EXAMPLES,
-    "web_research": WEB_RESEARCH_EXAMPLES_BLOCK,
     "domain_tools:shapes": INNER_SHAPES_SCRIPT_EXAMPLES,
 }
 
@@ -375,6 +446,10 @@ def get_examples_block(key: str) -> str:
     ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``python_delegate_domains``).
     Keys ending in ``:images`` use ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
+    if key == "web_research":
+        from plugin.chatbot import web_pages
+
+        return WEB_RESEARCH_EXAMPLES if web_pages.PARALLEL_WEB_FETCH else WEB_RESEARCH_SINGLE_EXAMPLES
     if key in _EXACT_EXAMPLES:
         return _EXACT_EXAMPLES[key]
     if key.endswith(":python"):

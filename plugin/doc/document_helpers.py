@@ -35,7 +35,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
 from plugin.framework import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
@@ -70,6 +70,7 @@ UNKNOWN_DOC_KEY = "unknown"
 # One modify+unload pair per open document, keyed by doc_key (not id(doc)).
 # Module-level so extra DocumentService() objects in tests do not double-attach.
 _CACHE_LISTENERS: dict[str, "_CacheListenerPair"] = {}
+_OPEN_DOC_TYPES_LISTENER: Any = None
 _IGNORE_DEPTH = 0
 
 # Do not import uno_listeners here: that module imports unohelper at load,
@@ -130,7 +131,8 @@ def _writer_anchor_note(shape: Any) -> str:
         return ""
     if kind == "AT_PAGE":
         page_no = uno_read(lambda: int(shape.getPropertyValue("AnchorPageNo")), 0)
-        return " anchor: AT_PAGE page %d" % page_no if page_no > 0 else " anchor: AT_PAGE"
+        # 0 = unset/not laid out; LibreOffice pages are 1-based.
+        return " anchor: AT_PAGE page %d" % (page_no - 1) if page_no > 0 else " anchor: AT_PAGE"
 
     def read_excerpt() -> str:
         anchor = shape.getAnchor()
@@ -393,7 +395,7 @@ def _unresolved_locator(locator: str) -> ToolExecutionError:
     return ToolExecutionError(
         "Cannot resolve locator '%s'. Use type:value such as paragraph:N, "
         "heading:1.2, chapter_number:3.1, bookmark:NAME, heading_text:Title, "
-        "section:NAME, or page:N." % locator
+        "section:NAME, or page:N (0-based page)." % locator
     )
 
 
@@ -696,11 +698,44 @@ class DocumentService(ServiceBase):
                 continue
         return found
 
+    def open_doc_types(self) -> frozenset[str]:
+        """Set of open document family labels (``writer``, ``calc``, ``draw``). Main-thread only."""
+        return frozenset(self.open_documents_by_type())
+
+    def watch_open_doc_types(self, on_change: Callable[[frozenset[str]], object]) -> None:
+        """Call ``on_change(open_doc_types())`` now and after every document open or close.
+
+        Listens for ``OnNew``, ``OnLoad``, ``OnLoadFinished``, ``OnViewCreated``,
+        and ``OnUnload``. At ``OnUnload`` LibreOffice has already detached the
+        closing document's controller so it is absent from ``open_documents()``
+        and no exclusion is needed. Installs one process-wide
+        GlobalEventBroadcaster listener; later calls are no-ops. Creates a UNO
+        service, so call on the main thread.
+        """
+        global _OPEN_DOC_TYPES_LISTENER
+        if _OPEN_DOC_TYPES_LISTENER is not None:
+            return
+        # in-function import: uno_listeners imports unohelper at load, which breaks
+        # the isolated document_helpers import (see module header).
+        from plugin.framework.uno_listeners import install_view_doc_listener
+
+        def _report(_source: Any) -> None:
+            on_change(self.open_doc_types())
+
+        _OPEN_DOC_TYPES_LISTENER = install_view_doc_listener(
+            get_ctx(),
+            _report,
+            "open_doc_types",
+            on_unload=_report,
+        )
+        if _OPEN_DOC_TYPES_LISTENER is not None:
+            on_change(self.open_doc_types())
+
     def get_document_length(self, doc: Any) -> int:
         return _text_helpers.get_document_length(doc)
 
     def get_page_for_paragraph(self, model: Any, para_index: int) -> int:
-        """Return page number for a paragraph by index.
+        """Return LibreOffice's 1-based physical page of the paragraph (callers convert for the model).
 
         Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """

@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Process-wide MCP session management.
+"""Process-wide MCP session management and the process-wide tool-catalog generation.
 
 One session id for the whole soffice process, shared by every MCP client.
 Minted on first successful initialize; never rotated; never cleared on DELETE.
@@ -35,6 +35,8 @@ log = logging.getLogger(__name__)
 
 _mcp_session_id: str | None = None
 _mcp_session_lock = threading.Lock()
+_catalog_generation = 0
+_catalog_doc_types: frozenset[str] | None = None
 _SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
 
 
@@ -77,6 +79,40 @@ def mint_session_id_once() -> str:
         if _mcp_session_id is None:
             _mcp_session_id = str(uuid.uuid4())
         return _mcp_session_id
+
+
+def tool_catalog_generation() -> int:
+    """Counter that advances when the set of open document types changes; 0 until the first change."""
+    with _mcp_session_lock:
+        return _catalog_generation
+
+
+def record_open_doc_types(doc_types: frozenset[str]) -> bool:
+    """Remember the open document-type set.
+
+    The first record seeds; a later record that differs advances
+    tool_catalog_generation and returns True. Safe from any thread.
+    """
+    global _catalog_doc_types, _catalog_generation
+    with _mcp_session_lock:
+        if _catalog_doc_types is None:
+            # Seed without bumping so enabling MCP with documents already open
+            # does not announce a change nobody saw.
+            _catalog_doc_types = doc_types
+            return False
+        if doc_types == _catalog_doc_types:
+            return False
+        _catalog_doc_types = doc_types
+        _catalog_generation += 1
+        return True
+
+
+def reset_tool_catalog_for_tests() -> None:
+    """Reset the tool-catalog generation and seeded type set (tests only)."""
+    global _catalog_doc_types, _catalog_generation
+    with _mcp_session_lock:
+        _catalog_doc_types = None
+        _catalog_generation = 0
 
 
 def reject_stale_session(handler: Any, msg: Any = None) -> bool:

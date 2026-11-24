@@ -2,13 +2,13 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, NamedTuple, Sequence, cast
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     SHAPE_UNITS_RULE,
-    SPECIALIZED_DELEGATION_TEMPLATE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
 )
 from plugin.framework.tool import ToolBase, tool_supports_document
@@ -35,6 +35,13 @@ _CHARTS_NEUTRAL_HINT = (
     "`headers` and `rows` parameters."
 )
 
+_SHAPES_HINT = (
+    f"{SHAPE_UNITS_RULE} "
+    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert.'
+)
+
+_INDEXES_HINT = "For a read-only table-of-contents request, report each entry's text and level (links only when asked)."
+
 _LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
         None: _FOOTNOTES_DIRECT_HINT,
@@ -48,7 +55,8 @@ _LOOP_HINTS: dict[str, dict[str | None, str]] = {
         "Draw": _CHARTS_HEADERS_ROWS_HINT,
         None: _CHARTS_NEUTRAL_HINT,
     },
-    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), SHAPE_UNITS_RULE),
+    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), _SHAPES_HINT),
+    "indexes": dict.fromkeys((None, "Writer"), _INDEXES_HINT),
 }
 
 
@@ -60,7 +68,9 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
     Footnotes is one sentence for every app. Shapes is the coordinate-unit sentence for
-    every app. Unknown domain or label -> "".
+    every app. Indexes carries the TOC read-only reporting rule here (rather than in the
+    delegate catalog) because only the running sub-agent or MCP tool_find caller reports
+    index results. Unknown domain or label -> "".
     """
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 
@@ -75,8 +85,8 @@ def catalog_entries_from_base(
 ) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
-    This is the single "bound for this document" filter, used by both the prompt and the
-    delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
+    This is the single "bound for this document" filter, used by both the delegate description
+    and the delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
     support those services are omitted.
 
     ``for_discovery`` (MCP ``tool_find``) skips the exclusions that only shape a chat prompt
@@ -147,7 +157,8 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
         ):
             dom = entry["domain"]
             desc = entry["description"]
-            if dom not in seen or len(desc) > len(seen[dom]):
+            # labels iterates Writer, Calc, Draw; keep the first non-empty description so Writer wins cross-app merges regardless of length.
+            if dom not in seen or not seen[dom]:
                 seen[dom] = desc
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
@@ -167,19 +178,10 @@ def chat_tier_domains() -> frozenset[str]:
     return frozenset(found)
 
 
-def _get_specialized_domains_str(
-    *,
-    agent_label: str | None = None,
-    ctx: Any = None,
-    for_mcp: bool = False,
-    uno_services: frozenset[str] = frozenset(),
-) -> str:
-    """Build a compact domain list for delegation hints and MCP schemas."""
+def format_domain_catalog(entries: Sequence[dict[str, str]]) -> str:
+    """Format catalog entries as a sorted ``domain: description`` semicolon list."""
     parts = []
-    for entry in sorted(
-        catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=for_mcp, uno_services=uno_services),
-        key=lambda e: e["domain"],
-    ):
+    for entry in sorted(entries, key=lambda e: e["domain"]):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:
@@ -193,25 +195,14 @@ def format_specialized_domains_description(
     ctx: Any = None,
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
-    """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
+    """Domain enum help for MCP/OpenAPI (more compact than the sidebar delegate description's catalog)."""
+    entries = catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
+    domains = format_domain_catalog(entries)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema
     compact = domains.replace("; ", ", ")
     return f"domain one of: {compact}"
-
-
-def get_specialized_delegation_tool_hint(
-    agent_label: str,
-    *,
-    ctx: Any = None,
-    uno_services: frozenset[str] = frozenset(),
-) -> str:
-    """Full specialized-delegation guidance for the sidebar system prompt."""
-    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
-    label, app = {"Calc": ("CALC", "Calc"), "Draw": ("DRAW", "Draw/Impress")}.get(agent_label, ("WRITER", "Writer"))
-    return SPECIALIZED_DELEGATION_TEMPLATE.format(label=label, app=app, domains=domains_str)
 
 
 class InnerToolCall(NamedTuple):
@@ -245,18 +236,33 @@ def _err_text(err: Any) -> str:
     return str(err)
 
 
+def _tool_error_entry(call: InnerToolCall) -> dict[str, str]:
+    """Build a structured error entry keeping tool name, message, and optional code."""
+    entry: dict[str, str] = {"tool": call.name, "message": _err_text(call.result)}
+    if isinstance(call.result, dict):
+        code = call.result.get("code")
+        if code:
+            entry["code"] = str(code)
+    return entry
+
+
+def _is_error_result(result: Any) -> bool:
+    """Return True when a tool result dict has status 'error'."""
+    return isinstance(result, dict) and result.get("status") == "error"
+
+
 def partition_tool_errors(
     calls: Sequence[InnerToolCall],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Partition tool error dicts into unrecovered and recovered groups.
+) -> tuple[list[InnerToolCall], list[InnerToolCall]]:
+    """Partition tool error calls into unrecovered and recovered groups.
 
     An error call is considered recovered when a later call to the same tool name returned a
     non-error dict, including retries with corrected arguments.
     """
-    unrecovered: list[dict[str, Any]] = []
-    recovered: list[dict[str, Any]] = []
+    unrecovered: list[InnerToolCall] = []
+    recovered: list[InnerToolCall] = []
     for idx, call in enumerate(calls):
-        if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
+        if not _is_error_result(call.result):
             continue
         is_recovered = any(
             later.name == call.name
@@ -265,9 +271,9 @@ def partition_tool_errors(
             for later in calls[idx + 1 :]
         )
         if is_recovered:
-            recovered.append(call.result)
+            recovered.append(call)
         else:
-            unrecovered.append(call.result)
+            unrecovered.append(call)
     return unrecovered, recovered
 
 
@@ -278,26 +284,32 @@ def apply_inner_outcome(
     *,
     expect_edits: bool,
 ) -> dict[str, Any]:
-    """Set status/code/message/note on a sub-agent payload from the observed call log.
+    """Set status, code, message, note, edits, and tool_errors on a sub-agent payload.
 
     Mutates and returns payload so the main agent sees an accurate report of what tools
     ran, whether failures were recovered, and—on any exit (ok, incomplete, or error)—
-    whether any document-editing tool ran.
+    counts of successful editing-tool calls (`edits`) when `expect_edits` is true; on
+    error or incomplete, `edits` reports any edits that did land.
     """
     unrecovered, recovered = partition_tool_errors(calls)
-    # The note is true on every exit because mutating is the tool kind; if no editing
-    # tool ran at all, the document is unchanged whether the run finished, stopped
-    # early, or failed.
-    if expect_edits and not any(c.mutating for c in calls):
-        payload["note"] = NO_EDIT_TOOL_NOTE
+    if expect_edits:
+        payload["edits"] = dict(
+            Counter(c.name for c in calls if c.mutating and not _is_error_result(c.result))
+        )
+        # The note is true on every exit because mutating is the tool kind; if no editing
+        # tool ran at all, the document is unchanged whether the run finished, stopped
+        # early, or failed.
+        if not any(c.mutating for c in calls):
+            payload["note"] = NO_EDIT_TOOL_NOTE
     if unrecovered:
         # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
-        messages = [_err_text(err) for err in unrecovered]
+        messages = [_err_text(c.result) for c in unrecovered]
         text = "; ".join(messages) or "Specialized tool error."
         payload["status"] = "error"
         payload["code"] = "SPECIALIZED_TOOL_ERROR"
         payload["message"] = text
         payload["error"] = text
+        payload["tool_errors"] = [_tool_error_entry(c) for c in unrecovered]
         return payload
 
     finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
@@ -315,7 +327,7 @@ def apply_inner_outcome(
         return payload
 
     if recovered:
-        payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
+        payload["recovered_tool_errors"] = [_err_text(c.result) for c in recovered]
 
     return payload
 

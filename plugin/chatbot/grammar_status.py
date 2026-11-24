@@ -57,6 +57,8 @@ def format_grammar_status(data: dict[str, Any]) -> str:
         if result and result not in ("LLM request", "LLM batch request", "Detecting language"):
             return f"{prefix} {result}"
         return base
+    if phase == "ready":
+        return f"{prefix} {result}"
     if phase == "done":
         suffix = result or "done"
         if elapsed is not None:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "آخری ایجنٹ ترمیم کو کالعدم (undo) نہیں کیا 
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "آخری ایجنٹ ترمیم کو کالعدم کر دیا گیا ({0} مراحل)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "تصویر نہیں ملی۔"
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "تصویر حذف نہیں کی جا سکی: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -697,10 +706,10 @@ msgstr "پہلے ایک Calc اسپریڈ شیٹ کھولیں۔"
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco ایڈیٹر writeragent.json میں "
+"Python ایڈیٹر ونڈو writeragent.json میں "
 "\"scripting.force_internal_script_editor\" کی وجہ سے غیر فعال ہے۔"
 
 #: plugin/calc/python/init_script_editor.py
@@ -1222,6 +1231,10 @@ msgstr "یہ تبدیلی قبول کریں"
 msgid "Reject this change"
 msgstr "یہ تبدیلی مسترد کریں"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "پیش منظر (preview) کی تصویر کو ڈی کوڈ نہیں کیا جا سکا۔"
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1620,6 +1633,25 @@ msgstr "کیوں"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "آپ"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "چل رہا ہے…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "منسوخ کر دیا گیا۔"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "پیش منظر ناکام: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "چلانا ناکام: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2331,6 +2363,35 @@ msgstr "'%s' کو صرف پڑھنے کی رسائی کے لیے کھولا جا 
 msgid "Web research completed."
 msgstr "ویب تحقیق مکمل ہوئی۔"
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama نے num_ctx کی اطلاع نہیں دی، لہذا WriterAgent نے {0} ٹوکن فرض کیے، جو"
+" ویب ریسرچ کے لیے بہت کم ہیں (صرف ریسرچ پرامپٹ اور ٹولز تقریباً 2,000 ٹوکن "
+"استعمال کرتے ہیں، علاوہ آؤٹ پٹ ٹوکنز)۔ num_ctx کو کم از کم {1} تک بڑھائیں "
+"(ollama create کے ساتھ Modelfile میں PARAMETER num_ctx {2} یا اس سے زیادہ کے"
+" ذریعے)، پھر ترتیبات میں ٹیسٹ کنکشن استعمال کریں (یا LibreOffice کو دوبارہ "
+"شروع کریں) اور دوبارہ کوشش کریں۔"
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"کانٹیکسٹ ونڈو ({0} ٹوکن) ویب ریسرچ کے لیے بہت چھوٹی ہے (صرف ریسرچ پرامپٹ اور"
+" ٹولز تقریباً 2,000 ٹوکن استعمال کرتے ہیں، علاوہ آؤٹ پٹ ٹوکنز)۔ num_ctx کو "
+"کم از کم {1} تک بڑھائیں (یا بڑی کانٹیکسٹ ونڈو والے ماڈل پر سوئچ کریں) اور "
+"دوبارہ کوشش کریں۔"
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2608,10 +2669,6 @@ msgstr "نئی پائتھن اسکرپٹ"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "اسکرپٹ کا نام:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "چل رہا ہے…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2926,12 +2983,12 @@ msgstr "Venv کی جانچ ناکام ہو گئی"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"ترتیبات → Python میں Python venv کا راستہ سیٹ کریں (وہی venv جہاں آپ نے 'uv "
-"pip install pywebview rocher' چلایا تھا)۔ LibreOffice کا بلٹ ان Python "
-"ایڈیٹر کو نہیں چلا سکتا۔"
+"Python venv کا راستہ Settings → Python میں سیٹ کریں (وہی venv جہاں آپ نے 'uv"
+" pip install pywebview' چلایا تھا)۔ LibreOffice کا بلٹ ان Python ایڈیٹر نہیں"
+" چلا سکتا۔"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3019,12 +3076,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "آڈیو پروب ناکام (writeragent_debug.log ملاحظہ کریں)۔"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco پروب کا وقت ختم ہو گیا۔"
+msgid "UI / Editor probe timed out."
+msgstr "UI / ایڈیٹر پروب کا وقت ختم ہو گیا۔"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco پروب ناکام ہو گیا (writeragent_debug.log ملاحظہ کریں)۔"
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / ایڈیٹر پروب ناکام ہو گیا (writeragent_debug.log ملاحظہ کریں)۔"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3070,6 +3127,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB پروب ناکام ہو گیا (writeragent_debug.log ملاحظہ کریں)۔"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR اس venv میں شروع نہیں ہو سکتا:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "مائیکروفون کے کوئی ان پٹ آلات نہیں ملے۔"
 
@@ -3103,8 +3164,8 @@ msgid "Audio Recording & Speech"
 msgstr "آڈیو ریکارڈنگ اور تقریر"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco لائبریریاں: اسکرپٹ ورکر کے باہر جانچ ہو رہی ہے..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / ایڈیٹر لائبریریاں: اسکرپٹ ورکر کے باہر چیک کیا جا رہا ہے..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3476,7 +3537,7 @@ msgstr "Viz '{helper}' مکمل ہوا۔ {msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "ویژن ہیلپرز کے لیے Writer، Calc، Draw، یا Impress دستاویز درکار ہے۔"
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "ویژن ہیلپر ناکام ہو گیا۔"
 
@@ -3572,6 +3633,223 @@ msgstr ""
 "پائتھن اسکرپٹ چلانے (Run Python Script) کو کھولتے وقت ایک غیر متوقع خرابی "
 "پیش آئی۔"
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"اپنے LibreOffice صارف کنفیگریشن فولڈر میں writeragent_debug.log چیک کریں"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP سرور شروع ہونے میں ناکام"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "MCP سرور روکیں"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "MCP سرور شروع کریں"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP سرور نہیں چل رہا ہے"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP سرور چل رہا ہے"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "روٹس: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "مقامی URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "عوامی یو آر ایل: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "مقامی اینڈ پوائنٹ:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "عوامی ٹنل ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "حیثیت: فعال (مربوط)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "حیثیت: دوبارہ مربوط ہو رہا ہے — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "دوبارہ کوشش کی جا رہی ہے..."
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "حیثیت: ٹنل شروع ہو رہی ہے..."
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "حیثیت: ناکام — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "حیثیت: نہیں چل رہا (کیا {0} بائنری انسٹال ہے؟)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ کاپی ہو گیا!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "ٹیسٹ کیا جا رہا ہے…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "ٹیسٹ ٹنل"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP ٹنل ٹیسٹ"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} کے ذریعے عوامی ٹنل (کوئی تصدیق نہیں)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} کے ذریعے عوامی ٹنل: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "دوبارہ منسلک ہو رہا ہے…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} کے ذریعے عوامی ٹنل ناکام ہو گئی: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} کے ذریعے عوامی ٹنل شروع ہو رہی ہے…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "{0} کے ذریعے عوامی ٹنل نہیں چل رہی (کیا پرووائیڈر بائنری انسٹال ہے؟)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr ""
+"ٹنل ٹیسٹ موڈ: {0} فراہم کنندہ کامیابی کے ساتھ نقلی (simulated) کیا گیا۔"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "نامعلوم ٹنل فراہم کنندہ: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"PATH پر {1} کے لیے بائنری '{0}' نہیں ملی۔\n"
+"\n"
+"یہاں سے انسٹال کریں: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "{0} بائنری ({1}) کو چلانے میں ناکامی: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0} ٹنل چل رہی ہے اور جواب دے رہی ہے!\n"
+"\n"
+"عوامی اینڈ پوائنٹ:\n"
+"{1}\n"
+"\n"
+"ہیلتھ چیک: ٹھیک ہے (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} ٹنل فعال ہے!\n"
+"\n"
+"عوامی اینڈ پوائنٹ:\n"
+"{1}\n"
+"\n"
+"(عوامی URL فعال ٹنل سیشن سے حاصل کیا گیا ہے۔)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} بائنری '{1}' کی تصدیق ہو گئی ہے ({2})۔\n"
+"\n"
+"(نوٹ: ایک فعال {3} ٹنل فی الحال {4} پر چل رہی ہے۔)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} بائنری '{1}' انسٹال اور تصدیق شدہ ہے ({2})۔\n"
+"\n"
+"MCP سرور مقامی طور پر پورٹ {3} پر چل رہا ہے۔\n"
+"'عوامی ٹنل کے ذریعے ظاہر کریں' کو چیک کریں اور فعال کرنے کے لیے OK پر کلک کریں۔"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} بائنری '{1}' انسٹال اور تصدیق شدہ ہے ({2})۔\n"
+"\n"
+"نوٹ: MCP سرور فی الحال پورٹ {3} پر نہیں چل رہا ہے۔"
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP سرور کی حیثیت"
@@ -3592,16 +3870,73 @@ msgstr "سب قبول کریں"
 msgid "Reject all"
 msgstr "سب مسترد کریں"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "ماڈلز لوڈ ہو رہے ہیں…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "متن کی شناخت ہو رہی ہے…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "کوئی متن نہیں ملا۔"
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "پیش منظر (preview) تیار ہو رہا ہے…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "منتخب کردہ تصویر برآمد نہیں کی جا سکی: {error}"
+msgid "Done: {count} characters."
+msgstr "مکمل ہوا: {count} حروف۔"
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR اندراج کے لیے Writer یا Calc دستاویز درکار ہے؛ Draw/Impress کے "
+"لیے پیش منظر (Preview) استعمال کریں۔"
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "اندراج ہو رہا ہے…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "{count} تصاویر درج کی گئیں۔"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "درج شدہ: {count} حروف۔"
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"تصویر کو محفوظ رکھا گیا کیونکہ ایجنٹ ترمیم کا جائزہ تبدیلیوں کو ریکارڈ کر "
+"رہا ہے۔"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "پیش منظر (preview) کی دستاویز نہیں بنائی جا سکی۔"
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "پیش منظر کا صفحہ رینڈر نہیں کیا جا سکا۔"
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr ""
 "ایک ایمبیڈڈ تصویر (یا تصاویر پر مشتمل رینج) منتخب کریں، پھر دوبارہ چلائیں۔"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "منتخب کردہ تصویر برآمد نہیں کی جا سکی: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3681,225 +4016,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "OCR اندراج کی تیاری کے دوران تصویر ہٹا دی گئی تھی۔"
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "OCR اندراج کے بعد بغیر نام والی تصویر حذف نہیں کی جا سکتی۔"
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "OCR اندراج کے دوران تصویر ہٹا دی گئی تھی۔"
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"اپنے LibreOffice صارف کنفیگریشن فولڈر میں writeragent_debug.log چیک کریں"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP سرور شروع ہونے میں ناکام"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "MCP سرور روکیں"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "MCP سرور شروع کریں"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP سرور نہیں چل رہا ہے"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP سرور چل رہا ہے"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "روٹس: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "مقامی URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "عوامی یو آر ایل: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "مقامی اینڈ پوائنٹ:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "عوامی ٹنل ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "حیثیت: فعال (مربوط)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "حیثیت: دوبارہ مربوط ہو رہا ہے — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "دوبارہ کوشش کی جا رہی ہے..."
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "حیثیت: ٹنل شروع ہو رہی ہے..."
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "حیثیت: ناکام — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "حیثیت: نہیں چل رہا (کیا {0} بائنری انسٹال ہے؟)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ کاپی ہو گیا!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "ٹیسٹ کیا جا رہا ہے…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "ٹیسٹ ٹنل"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP ٹنل ٹیسٹ"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} کے ذریعے عوامی ٹنل (کوئی تصدیق نہیں)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} کے ذریعے عوامی ٹنل: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "دوبارہ منسلک ہو رہا ہے…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} کے ذریعے عوامی ٹنل ناکام ہو گئی: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} کے ذریعے عوامی ٹنل شروع ہو رہی ہے…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "{0} کے ذریعے عوامی ٹنل نہیں چل رہی (کیا پرووائیڈر بائنری انسٹال ہے؟)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr ""
-"ٹنل ٹیسٹ موڈ: {0} فراہم کنندہ کامیابی کے ساتھ نقلی (simulated) کیا گیا۔"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "نامعلوم ٹنل فراہم کنندہ: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"PATH پر {1} کے لیے بائنری '{0}' نہیں ملی۔\n"
-"\n"
-"یہاں سے انسٹال کریں: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "{0} بائنری ({1}) کو چلانے میں ناکامی: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} ٹنل چل رہی ہے اور جواب دے رہی ہے!\n"
-"\n"
-"عوامی اینڈ پوائنٹ:\n"
-"{1}\n"
-"\n"
-"ہیلتھ چیک: ٹھیک ہے (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} ٹنل فعال ہے!\n"
-"\n"
-"عوامی اینڈ پوائنٹ:\n"
-"{1}\n"
-"\n"
-"(عوامی URL فعال ٹنل سیشن سے حاصل کیا گیا ہے۔)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} بائنری '{1}' کی تصدیق ہو گئی ہے ({2})۔\n"
-"\n"
-"(نوٹ: ایک فعال {3} ٹنل فی الحال {4} پر چل رہی ہے۔)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} بائنری '{1}' انسٹال اور تصدیق شدہ ہے ({2})۔\n"
-"\n"
-"MCP سرور مقامی طور پر پورٹ {3} پر چل رہا ہے۔\n"
-"'عوامی ٹنل کے ذریعے ظاہر کریں' کو چیک کریں اور فعال کرنے کے لیے OK پر کلک کریں۔"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} بائنری '{1}' انسٹال اور تصدیق شدہ ہے ({2})۔\n"
-"\n"
-"نوٹ: MCP سرور فی الحال پورٹ {3} پر نہیں چل رہا ہے۔"
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: OCR درج کریں"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4604,18 +4730,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "ہیومنائزر مہارت (قدرتی نثر)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"جب فعال ہو، تو سسٹم پرامپٹ میں رہنمائی شامل کرتا ہے تاکہ ماڈل تیار کردہ یا "
-"نظر ثانی شدہ دستاویز کے متن کو زیادہ قدرتی اور انسانی آواز دے (AI کے غیر "
-"ضروری نمونوں کو ہٹاتا ہے)۔ اپنے LibreOffice پروفائل میں "
-"writeragent/skills/humanizer/SKILL.md کے تحت قواعد میں ترمیم کریں (یہ فائل "
-"پہلی بار استعمال پر خود بخود بن جاتی ہے)۔ مہارتوں کا ایک وقف ٹیب بعد میں "
-"شامل کیا جا سکتا ہے۔"
+"جب فعال ہو، تو یہ سسٹم پرامپٹ میں بلٹ ان رہنمائی شامل کرتا ہے تاکہ ماڈل کی "
+"تیار کردہ یا نظر ثانی شدہ دستاویز کی تحریر زیادہ قدرتی اور انسانی لگے (AI کے"
+" غیر معیاری نمونوں کو ہٹاتا ہے)۔"
 
 msgid "Silence before send (ms)"
 msgstr "بھیجنے سے پہلے خاموشی (ملی سیکنڈ)"
@@ -4808,6 +4929,70 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "بنیادی خدمات (کنفیگریشن، ایونٹس، لاگنگ)"
 
+msgid "Integrations"
+msgstr "انضمام"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "سائیڈ بار چیٹ کے لیے MCP سرورز"
+
+msgid "Server"
+msgstr "سرور"
+
+msgid "Add"
+msgstr "شامل کریں"
+
+msgid "Remove"
+msgstr "ہٹائیں"
+
+msgid "Use this MCP server in chat"
+msgstr "اس MCP سرور کو چیٹ میں استعمال کریں"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"صرف سائیڈ بار چیٹ (mcp ڈومین)؛ WriterAgent کے MCP سرور یا اسکرپٹس کے سامنے "
+"کبھی ظاہر نہیں کیا گیا۔"
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr ""
+"اس کے صرف پڑھنے کے قابل (read-only) ٹولز پر بھروسہ کریں (کوئی پرامپٹ نہیں)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"وہ ٹولز جنہیں سرور readOnlyHint کے طور پر نشان زد کرتا ہے وہ قبول / تبدیل / "
+"مسترد کیے بغیر چلتے ہیں؛ ہر دوسری کال اب بھی پوچھتی ہے"
+
+msgid "Name"
+msgstr "نام"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"اس سرور کے ٹول کے ناموں کے لیے سابقہ (مثال کے طور پر home -> "
+"mcp__home__tool)۔"
+
+msgid "Server URL"
+msgstr "سرور کا URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"اسٹریمیبل-HTTP MCP اینڈ پوائنٹ، مثال کے طور پر http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "ٹوکن"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"بیئرر ٹوکن۔ 'Settings OK' اسے سسٹم کیرنگ میں محفوظ کرتا ہے اگر وہ دستیاب ہو،"
+" بصورت دیگر writeragent.json میں۔"
+
+msgid "Status"
+msgstr "حیثیت"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4903,70 +5088,6 @@ msgstr "کلائنٹ کنفیگریشن (Claude / Hermes-Agent میں کاپی �
 
 msgid "Copy Config"
 msgstr "کنفیگریشن کاپی کریں"
-
-msgid "Integrations"
-msgstr "انضمام"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "سائیڈ بار چیٹ کے لیے MCP سرورز"
-
-msgid "Server"
-msgstr "سرور"
-
-msgid "Add"
-msgstr "شامل کریں"
-
-msgid "Remove"
-msgstr "ہٹائیں"
-
-msgid "Use this MCP server in chat"
-msgstr "اس MCP سرور کو چیٹ میں استعمال کریں"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"صرف سائیڈ بار چیٹ (mcp ڈومین)؛ WriterAgent کے MCP سرور یا اسکرپٹس کے سامنے "
-"کبھی ظاہر نہیں کیا گیا۔"
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr ""
-"اس کے صرف پڑھنے کے قابل (read-only) ٹولز پر بھروسہ کریں (کوئی پرامپٹ نہیں)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"وہ ٹولز جنہیں سرور readOnlyHint کے طور پر نشان زد کرتا ہے وہ قبول / تبدیل / "
-"مسترد کیے بغیر چلتے ہیں؛ ہر دوسری کال اب بھی پوچھتی ہے"
-
-msgid "Name"
-msgstr "نام"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"اس سرور کے ٹول کے ناموں کے لیے سابقہ (مثال کے طور پر home -> "
-"mcp__home__tool)۔"
-
-msgid "Server URL"
-msgstr "سرور کا URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr ""
-"اسٹریمیبل-HTTP MCP اینڈ پوائنٹ، مثال کے طور پر http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "ٹوکن"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"بیئرر ٹوکن۔ 'Settings OK' اسے سسٹم کیرنگ میں محفوظ کرتا ہے اگر وہ دستیاب ہو،"
-" بصورت دیگر writeragent.json میں۔"
-
-msgid "Status"
-msgstr "حیثیت"
 
 msgid "Notebook"
 msgstr "نوٹ بک"
@@ -5075,14 +5196,17 @@ msgstr "فائل تک رسائی کی اجازت دیں"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"جب منتخب ہو، تو پائتھن کہیں بھی فائلیں پڑھ اور لکھ سکتا ہے (اوپن، آئی او، "
-"پاتھ لب، شوٹل، ٹیمپ فائل، ایس کیو لائٹ 3، گلوب، اور او ایس فائل کالز جیسے "
-"لسٹ ڈائر اور سٹیٹ)۔ جب غیر منتخب ہو، تو وہ پڑھنا اور لکھنا بلاک ہو جاتا ہے۔ "
-"ان-میموری بفرز (آئی او ڈاٹ بائٹس آئی او، آئی او ڈاٹ سٹرنگ آئی او) دستیاب "
-"رہتے ہیں۔"
+"جب منتخب ہو، تو Python کہیں بھی فائلیں پڑھ اور لکھ سکتا ہے (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob، اور os فائل کالز جیسے listdir اور "
+"stat)۔ جب غیر منتخب ہو، تو یہ پڑھنا اور لکھنا مسدود ہو جاتا ہے؛ ان-میموری "
+"بفرز (io.BytesIO, io.StringIO) اور دستاویز فائل ہیلپرز (wa.document.open, "
+"wa.document.save, wa.document.export، جو MCP اور Python-اسکرپٹ کے ذریعے قابل"
+" رسائی ہیں، سائیڈ بار چیٹ ماڈل کو پیش نہیں کیے جاتے) دستیاب رہتے ہیں۔"
 
 msgid "Allow OS access"
 msgstr "OS تک رسائی کی اجازت دیں"
@@ -5119,11 +5243,11 @@ msgstr ""
 "Edit Python in Cell، Run Python Script، init اسکرپٹ اور LaTeX کے لیے ایڈیٹر "
 "ونڈو۔"
 
-msgid "Monaco (default)"
-msgstr "Monaco (طے شدہ)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "ویژن / OCR"
@@ -5135,33 +5259,98 @@ msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr ""
 "OCR/لے آؤٹ سے پہلے اپ اسکیل کریں۔ چھوٹے اسکرین شاٹس کے لیے 2.0 آزمائیں۔"
 
-msgid "Worker timeout (seconds)"
-msgstr "ورکر ٹائم آؤٹ (سیکنڈز)"
+msgid "Document timeout (s)"
+msgstr "دستاویز کا ٹائم آؤٹ (سیکنڈز)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "ویژن ہیلپرز کے لیے ہوسٹ سب پروسیس کی حد (پہلی ماڈل ڈاؤن لوڈ)۔"
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
+msgstr ""
+"یہ اتنے سیکنڈز کے بعد ایک دستاویز کی Docling پروسیسنگ روک دیتا ہے اور اب تک "
+"مکمل شدہ صفحات کو محفوظ رکھتا ہے۔ ماڈل ڈاؤن لوڈ اور لوڈنگ اس میں شمار نہیں "
+"ہوتے۔ 0 حد کو ختم کر دیتا ہے۔"
 
-msgid "Docling artifacts path"
-msgstr "Docling آرٹفیکٹس کا راستہ"
+msgid "OCR engine"
+msgstr "OCR انجن"
 
-msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "docling-tools ماڈلز ڈاؤن لوڈ کے لیے اختیاری فولڈر (آف لائن استعمال)۔"
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"وہ OCR انجن جو Docling استعمال کرتا ہے۔ RapidOCR (ONNX) کے علاوہ ہر انجن کو "
+"Python venv میں انسٹال ہونا چاہیے؛ ترتیبات → Python → ٹیسٹ انسٹال شدہ کی "
+"فہرست دکھاتا ہے۔"
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX، پہلے سے طے شدہ)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (کمانڈ لائن)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR زبان"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"زبان کے کوڈز جیسے en، de یا zh-TW، کوما سے الگ کیے گئے۔ Docling انجن ہر کوڈ "
+"کو پڑھتے ہیں؛ Paddle انجن صرف پہلا کوڈ پڑھتا ہے۔ خالی چھوڑنے پر تصویر یا "
+"LibreOffice کی زبان استعمال ہوگی۔"
+
+msgid "Device"
+msgstr "آلہ"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Docling کے ماڈلز کے لیے ہارڈویئر۔ Auto کا مطلب ہے کہ جب Docling کو GPU ملے "
+"گا تو وہ اسے استعمال کرے گا؛ CPU ہمیشہ کام کرتا ہے۔"
+
+msgid "Auto"
+msgstr "خودکار"
+
+msgid "CPU"
+msgstr "سی پی یو"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR اعتماد کی حد"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR کم از کم ٹیکسٹ اسکور۔ 0.0 ایک حقیقی حد ہے (ڈیفالٹ نہیں)۔ غیر ضروری "
-"ٹیکسٹ کو کم کرنے کے لیے اسے بڑھائیں۔"
-
-msgid "OCR entire image"
-msgstr "مکمل تصویر کی OCR کریں"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "LibreOffice سے برآمد کردہ ایمبیڈڈ گرافکس کے لیے تجویز کردہ۔"
+"تسلیم شدہ متن کے لیے کم از کم اعتماد (RapidOCR اور EasyOCR؛ دوسرے انجن اسے "
+"نظر انداز کرتے ہیں)۔ فضول متن کو ہٹانے کے لیے اسے بڑھائیں؛ 0.0 تمام متن کو "
+"برقرار رکھتا ہے۔"
 
 msgid "Table extraction mode"
 msgstr "ٹیبل نکالنے کا موڈ"
@@ -5201,6 +5390,13 @@ msgstr "معیاری HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "ساختہ (لے آؤٹ / سیل گرڈ)"
 
+msgid "Delete image after OCR"
+msgstr "OCR کے بعد تصویر حذف کریں"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "OCR کے ذریعے مواد داخل کرنے کے بعد دستاویز سے ماخذ تصویر کو ہٹا دیں۔"
+
 msgid "Layout model"
 msgstr "لے آؤٹ ماڈل"
 
@@ -5222,8 +5418,45 @@ msgstr "کوڈ بلاک کی افزودگی"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "کوڈ/ٹرمینل اسکرین شاٹس کے لیے خصوصی OCR۔"
 
-msgid "Docling document timeout (s)"
-msgstr "Docling دستاویز کا ٹائم آؤٹ (سیکنڈ)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR ماڈل کا سائز"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Docling کے اندر فی کنورژن ٹائم آؤٹ۔ 0 = کوئی حد نہیں۔"
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"PP-OCRv6 زبانوں کے لیے RapidOCR ماڈل کا سائز؛ دوسری زبانیں اسے نظر انداز "
+"کرتی ہیں۔ Tiny سب سے تیز ہے اور اس میں جاپانی ماڈل نہیں ہے؛ medium سب سے "
+"زیادہ درست ہے۔"
+
+msgid "Tiny"
+msgstr "چھوٹا (Tiny)"
+
+msgid "Small (default)"
+msgstr "معمولی (پہلے سے طے شدہ)"
+
+msgid "Medium"
+msgstr "درمیانہ"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "گھومے ہوئے متن کو درست کریں (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"جب کسی خطے کی نصف سے کم سطریں اعتماد کے ساتھ پڑھی جائیں تو اسے 90، 180 اور "
+"270 ڈگری پر دوبارہ پڑھیں۔ یہ پہلو سے اسکین شدہ دستاویزات کو درست کرتا ہے؛ اس"
+" میں وقت صرف تب لگتا ہے جب ریڈنگ ناقص ہو۔ یہ RapidOCR انجنوں پر لاگو ہوتا "
+"ہے۔"
+
+msgid "Apple Vision recognition"
+msgstr "ایپل ویژن شناخت"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"صرف ایپل ویژن (macOS)۔ 'تیز' (Fast) کا آپشن زیادہ تیز ہے لیکن کم درست ہے اور"
+" کم زبانیں پڑھتا ہے۔"

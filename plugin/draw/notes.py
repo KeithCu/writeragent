@@ -39,14 +39,14 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     description: str = "Set or replace speaker notes on an Impress slide."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"text": {"type": "string", "description": "Speaker notes text."}, "page": DRAW_PAGE_PROPERTY, "append": {"type": "boolean", "description": "Append to existing notes instead of replacing (default: false)."}},
+        "properties": {"text": {"type": "string", "description": "Speaker notes text."}, "page": DRAW_PAGE_PROPERTY, "append": {"type": "boolean", "default": False, "description": "Append to existing notes instead of replacing."}},
         "required": ["text"],
     }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         text = kwargs["text"]
-        append = kwargs.get("append", False)
+        append = kwargs["append"]
 
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)

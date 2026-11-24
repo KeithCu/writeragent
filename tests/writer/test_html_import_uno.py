@@ -1261,3 +1261,284 @@ def test_without_trailing_break_leaves_range_ending_after_table_uno(ctx: Any, do
     trimmed = _without_trailing_break(plain_rng)
     assert trimmed is not plain_rng
     assert trimmed.getString() == "Replace me"
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import replace_full_document
+
+    table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
+    content = f"<h1>H</h1><p>p</p>{table_html}"
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    text = doc.getText()
+
+    def _seed(body: str) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        if body:
+            text.insertString(cur, body, False)
+
+    # Untracked baseline
+    _seed("Old para")
+    replace_full_document(doc, ctx, content)
+    untracked = _body_structure_via_enum(text)
+    assert untracked == ["Paragraph:H", "Paragraph:p", "TextTable", "Paragraph:"]
+
+    # Review mode: trailing table survives and Accept All matches untracked
+    _seed("Old para")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        replace_full_document(doc, ctx, content)
+        assert doc.getTextTables().getCount() == 1
+        assert _body_structure_via_enum(text) == [
+            "Paragraph:H",
+            "Paragraph:p",
+            "TextTable",
+            "Paragraph:Old para",
+        ]
+        helper.executeDispatch(
+            doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ()
+        )
+        assert _body_structure_via_enum(text) == untracked
+
+        # Empty document + table-only under recording, then Reject All
+        _seed("")
+        doc.setPropertyValue("RecordChanges", True)
+        replace_full_document(doc, ctx, table_html)
+        assert doc.getTextTables().getCount() == 1
+        helper.executeDispatch(
+            doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
+        )
+        assert doc.getTextTables().getCount() == 0
+        assert text.getString() == ""
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed_three() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Intro", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 2")
+        text.insertString(cur, "Body", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Outro", False)
+
+    tbl = "<table><tr><td>A</td><td>B</td></tr></table>"
+    lead_tbl = f"<p>Lead</p>{tbl}"
+    trail_tbl = f"{tbl}<p>Trail</p>"
+
+    cases: list[tuple[str, dict[str, Any], str, list[str]]] = [
+        ("end+tbl", {"target": "end"}, tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "TextTable", "Paragraph:"]),
+        ("end+lead", {"target": "end"}, lead_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "Paragraph:Lead", "TextTable", "Paragraph:"]),
+        ("end+trail", {"target": "end"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro", "TextTable", "Paragraph:Trail", "Paragraph:"]),
+        ("beginning+tbl", {"target": "beginning"}, tbl, ["TextTable", "Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"]),
+        ("beginning+lead", {"target": "beginning"}, lead_tbl, ["Paragraph:Lead", "TextTable", "Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"]),
+        ("full+tbl", {"target": "full_document"}, tbl, ["TextTable", "Paragraph:"]),
+        ("full+lead", {"target": "full_document"}, lead_tbl, ["Paragraph:Lead", "TextTable", "Paragraph:"]),
+        ("full+trail", {"target": "full_document"}, trail_tbl, ["TextTable", "Paragraph:Trail", "Paragraph:"]),
+        ("after+tbl", {"target": "search", "old_content": "Body", "position": "after"}, tbl, ["Paragraph:Intro", "Paragraph:Body", "TextTable", "Paragraph:Outro"]),
+        ("after+lead", {"target": "search", "old_content": "Body", "position": "after"}, lead_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Lead", "TextTable", "Paragraph:Outro"]),
+        ("after+trail", {"target": "search", "old_content": "Body", "position": "after"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "TextTable", "Paragraph:Trail", "Paragraph:Outro"]),
+        ("before+tbl", {"target": "search", "old_content": "Body", "position": "before"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Body", "Paragraph:Outro"]),
+        ("replace+tbl", {"target": "search", "old_content": "Body"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Outro"]),
+        ("replace_first+tbl", {"target": "search", "old_content": "Intro"}, tbl, ["TextTable", "Paragraph:Body", "Paragraph:Outro"]),
+        ("anchors+tbl", {"target": "search", "start_anchor": "Bo", "end_anchor": "dy"}, tbl, ["Paragraph:Intro", "TextTable", "Paragraph:Outro"]),
+    ]
+
+    try:
+        for label, kwargs, html, expected in cases:
+            save({flag: "off"})
+            _seed_three()
+            res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
+            assert res.get("status") == "ok", (label, "off", res)
+            actual_off = _body_structure_via_enum(text)
+            assert actual_off == expected, (label, "off", actual_off, expected)
+
+            save({flag: "record"})
+            _seed_three()
+            res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
+            assert res.get("status") == "ok", (label, "record-accept", res)
+            helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+            actual_accept = _body_structure_via_enum(text)
+            # In record mode, replace_single_range_with_content keeps tracked-deleted old text
+            # in the import-start paragraph (so getString() != "" and before-table cleanup
+            # skips it) and sets drop_leftover=False; Accept then empties both paragraphs.
+            if label in ("replace+tbl", "anchors+tbl"):
+                expected_accept = ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:", "Paragraph:Outro"]
+            elif label == "replace_first+tbl":
+                expected_accept = ["Paragraph:", "TextTable", "Paragraph:", "Paragraph:Body", "Paragraph:Outro"]
+            else:
+                expected_accept = expected
+            assert actual_accept == expected_accept, (label, "record-accept", actual_accept, expected_accept)
+
+            _seed_three()
+            res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
+            assert res.get("status") == "ok", (label, "record-reject", res)
+            helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+            actual_reject = _body_structure_via_enum(text)
+            assert actual_reject == ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"], (
+                label,
+                "record-reject",
+                actual_reject,
+            )
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed(paras: list[str]) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        for idx, p in enumerate(paras):
+            if idx:
+                text.insertControlCharacter(cur, 0, False)
+            if p:
+                text.insertString(cur, p, False)
+
+    tbl = "<table><tr><td>A</td></tr></table>"
+    nested_tbl = "<table><tr><td><table><tr><td>In</td></tr></table></td></tr></table>"
+    two_tbls = "<table><tr><td>1</td></tr></table><table><tr><td>2</td></tr></table>"
+
+    try:
+        save({flag: "off"})
+
+        # Non-table content unchanged
+        _seed(["Intro", "Outro"])
+        res = ApplyDocumentContent().execute(tctx, content=["<p>One</p><p>Two</p>"], target="search", old_content="Intro", position="after")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:One", "Paragraph:Two", "Paragraph:Outro"]
+
+        _seed(["Intro", "Outro"])
+        res = ApplyDocumentContent().execute(tctx, content=["<ul><li>i1</li><li>i2</li></ul>"], target="end")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:Outro", "Paragraph:i1", "Paragraph:i2", "Paragraph:"], _body_structure_via_enum(text)
+
+        # Nested table and adjacent tables
+        _seed(["Intro", "Outro"])
+        res = ApplyDocumentContent().execute(tctx, content=[nested_tbl], target="search", old_content="Intro", position="after")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "TextTable", "Paragraph:Outro"]
+
+        _seed(["Intro", "Outro"])
+        res = ApplyDocumentContent().execute(tctx, content=[two_tbls], target="search", old_content="Intro", position="after")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "TextTable", "TextTable", "Paragraph:Outro"]
+
+        # Document already starting with a table: insert at beginning and before/after following para
+        _seed([""])
+        res = ApplyDocumentContent().execute(tctx, content=[f"{tbl}<p>After</p>"], target="full_document")
+        assert res.get("status") == "ok", res
+        res = ApplyDocumentContent().execute(tctx, content=[tbl], target="beginning")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["TextTable", "TextTable", "Paragraph:After", "Paragraph:"], _body_structure_via_enum(text)
+
+        # Empty document + table at end: on a 1-paragraph blank doc, SwHTMLParser opens an
+        # extra split node before the table; cleanup removes the split node and keeps the user's own.
+        _seed([""])
+        res = ApplyDocumentContent().execute(tctx, content=[tbl], target="end")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:"], _body_structure_via_enum(text)
+
+        # Replacing with <p></p> keeps the emptied paragraph
+        _seed(["Intro", "Body", "Outro"])
+        res = ApplyDocumentContent().execute(tctx, content=["<p></p>"], target="search", old_content="Body")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "Paragraph:", "Paragraph:Outro"], _body_structure_via_enum(text)
+
+        # Styled leading table + styled trailing paragraph
+        _seed(["Intro", "Outro"])
+        res = ApplyDocumentContent().execute(
+            tctx,
+            content=[f'{tbl}<p data-lo-style="Heading 1">Head</p>'],
+            target="search",
+            old_content="Intro",
+            position="after",
+        )
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:Intro", "TextTable", "Paragraph:Head", "Paragraph:Outro"], _body_structure_via_enum(text)
+
+        # Import-start paragraph with a bookmark or anchored graphic is not disposed.
+        # Call the private helper directly: public write paths put imported tables before
+        # existing paragraphs, so they cannot land a pre-existing object in the split node.
+        import uno
+        from pathlib import Path
+        from plugin.writer.html_import import _drop_empty_paragraph_before_table
+
+        logo_uri = (Path(__file__).resolve().parents[2] / "extension" / "assets" / "logo_32.png").as_uri()
+
+        _seed(["", "Outro"])
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        bm = doc.createInstance("com.sun.star.text.Bookmark")
+        bm.setName("kept_bm")
+        text.insertTextContent(cur, bm, False)
+        res = ApplyDocumentContent().execute(tctx, content=[tbl], target="search", old_content="Outro", position="before")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"]
+        _drop_empty_paragraph_before_table(text, text.getStart())
+        assert doc.getBookmarks().getCount() == 1
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
+
+        _seed(["", "Outro"])
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        graphic.setPropertyValue("AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER"))
+        graphic.setPropertyValue("GraphicURL", logo_uri)
+        text.insertTextContent(cur, graphic, False)
+        res = ApplyDocumentContent().execute(tctx, content=[tbl], target="search", old_content="Outro", position="before")
+        assert res.get("status") == "ok", res
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"]
+        _drop_empty_paragraph_before_table(text, text.getStart())
+        assert doc.getGraphicObjects().getCount() == 1
+        assert _body_structure_via_enum(text) == ["Paragraph:", "TextTable", "Paragraph:Outro"], _body_structure_via_enum(text)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

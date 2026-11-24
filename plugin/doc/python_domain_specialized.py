@@ -16,8 +16,7 @@ The inner agent gets ``python_run_script`` with ``python_tool_domain`` set
 to those domains plus ``core``, so one script can loop ``writeragent_api``
 (``wa.shape.upsert``, ``wa.document.list_open``, and the rest of the
 catalog). The inner instructions include that catalog (full proxy docstrings
-and Args). The venv sandbox blocks ``inspect`` / ``dir`` / ``__doc__``, so the
-model cannot read the signatures itself. Shapes mutators stay off the inner
+and Args). The venv sandbox blocks ``inspect`` and ``dir``. Shapes mutators stay off the inner
 LLM list (``shape_get_summary`` remains for a check). Other domains still pass
 their ``ToolBase`` tools. ``workflow_finished`` is always included.
 

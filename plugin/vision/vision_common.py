@@ -15,6 +15,9 @@ HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
 IMPLEMENTED_HELPERS = HELPER_NAMES
 
+# Loads the Docling models for a params set; not an OCR helper.
+LOAD_MODELS_HELPER = "load_models"
+
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})
 DEFAULT_OCR_BACKEND = "rapidocr"
@@ -30,7 +33,7 @@ VISION_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 _PDF_MAGIC = b"%PDF"
 
 # Config keys merged from Settings → vision.* before template param overrides.
-VISION_CONFIG_KEYS = ("images_scale", "text_score", "force_full_page_ocr", "table_mode", "do_cell_matching", "create_orphan_clusters", "layout_model", "do_formula_enrichment", "do_code_enrichment", "document_timeout", "artifacts_path", "insert_mode")
+VISION_CONFIG_KEYS = ("ocr_backend", "lang", "device", "images_scale", "text_score", "force_full_page_ocr", "table_mode", "do_cell_matching", "create_orphan_clusters", "layout_model", "do_formula_enrichment", "do_code_enrichment", "document_timeout", "artifacts_path", "insert_mode", "delete_image_after_insert", "rapidocr_model_size", "rapidocr_detect_orientation", "ocrmac_recognition")
 
 VISION_INSERT_MODES = frozenset({"html", "structured"})
 DEFAULT_VISION_INSERT_MODE = "html"
@@ -62,6 +65,14 @@ def resolve_vision_insert_mode(ctx: Any = None, template_params: dict[str, Any] 
     if mode in VISION_INSERT_MODES:
         return mode
     return DEFAULT_VISION_INSERT_MODE
+
+
+def resolve_delete_image_after_insert(ctx: Any = None, template_params: dict[str, Any] | None = None) -> bool:
+    """Return True when the source image should be removed after a successful OCR insert."""
+    merged = merge_vision_params(ctx, template_params)
+    if "delete_image_after_insert" not in merged:
+        return False
+    return vision_bool(merged["delete_image_after_insert"])
 
 
 def ok_result(helper: str, **payload: Any) -> dict[str, Any]:

@@ -211,7 +211,7 @@ def test_fizzbee_trace_initialize_and_session_handshake(writer_mcp_setup):
     from plugin.chatbot.agent_manual import list_topics
 
     prompts_list = _call_rpc(handler, {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"})
-    assert [p["name"] for p in prompts_list["result"]["prompts"]] == list_topics("writer")
+    assert [p["name"] for p in prompts_list["result"]["prompts"]] == list_topics("writer", include_mcp=True)
 
 
 def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup):
@@ -256,7 +256,7 @@ def test_mcp_prompts_list_no_document_url_returns_generic_topics(writer_mcp_setu
     )
     assert status == 200
     assert "error" not in body
-    assert [p["name"] for p in body["result"]["prompts"]] == list_topics(None)
+    assert [p["name"] for p in body["result"]["prompts"]] == list_topics(None, include_mcp=True)
 
 
 def test_mcp_prompts_list_get_resolution(writer_mcp_setup):
@@ -268,13 +268,13 @@ def test_mcp_prompts_list_get_resolution(writer_mcp_setup):
 
     doc_svc.get_active_document.return_value = None
     generic = _call_rpc(handler, {"jsonrpc": "2.0", "id": 50, "method": "prompts/list"})
-    assert [p["name"] for p in generic["result"]["prompts"]] == list_topics(None)
+    assert [p["name"] for p in generic["result"]["prompts"]] == list_topics(None, include_mcp=True)
 
     mock_doc = writer_mcp_setup["doc"]
     doc_svc.get_active_document.return_value = mock_doc
     doc_svc.detect_doc_type.return_value = "impress"
     draw_list = _call_rpc(handler, {"jsonrpc": "2.0", "id": 51, "method": "prompts/list"})
-    assert [p["name"] for p in draw_list["result"]["prompts"]] == list_topics("impress")
+    assert [p["name"] for p in draw_list["result"]["prompts"]] == list_topics("impress", include_mcp=True)
 
     calc_doc = MagicMock()
     doc_svc.resolve_document_by_url.return_value = (calc_doc, "calc")
@@ -285,7 +285,7 @@ def test_mcp_prompts_list_get_resolution(writer_mcp_setup):
     )
     assert calc_list is not None
     _status, calc_body = calc_list
-    assert [p["name"] for p in calc_body["result"]["prompts"]] == list_topics("calc")
+    assert [p["name"] for p in calc_body["result"]["prompts"]] == list_topics("calc", include_mcp=True)
     doc_svc.resolve_document_by_url.assert_called()
 
     doc_svc.detect_doc_type.return_value = "writer"

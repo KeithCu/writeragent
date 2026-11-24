@@ -146,8 +146,11 @@ def detect_vectorized_columns(
         if len(current_cells) >= 2 and current_key is not None:
             _col, code, ref_col, _row_offset = current_key
             # CalcRange has __array__ but no arithmetic operators (calc_range.py:242).
-            # The element-wise gate has already rejected string constants, so this only touches the name `data`.
-            vec_code = re.sub(r"(?<!np\.asarray\()\bdata\b", "np.asarray(data)", code)
+            # Multi-arg =PY() passes all arguments in data[], so index data[0] (the column range)
+            # by int(data[1]) (the 0-based row offset). The element-wise gate has already rejected
+            # string constants, so this only touches the name `data`.
+            vec_code = re.sub(r"(?<!np\.asarray\()\bdata\b", "np.asarray(data[0]).ravel()", code)
+            vec_code = f"({vec_code})[int(data[1])]"
             col_range = format_range(ref_col, first_ref_row, ref_col, first_ref_row + len(current_cells) - 1)
             runs.append(VectorRun(cells=list(current_cells), code=vec_code, column=col_range))
 

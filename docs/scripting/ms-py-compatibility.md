@@ -517,3 +517,10 @@ Registering a name is the easy 5%. Co-volatility, spill, and object cards are th
 ## 11. One-paragraph summary for a mail thread
 
 Microsoft’s `=PY` is not “Python in a cell.” Authors type `xl("…")` literals; the package stores `pythonScripts.xml` with `xl(%Pn%)` and `_xlws.PY(scriptIndex, returnType, …deps)` so **static Excel→PY edges are normal formula precedents**. The expensive half is **workbook-global co-volatility**, **Excel↔PY flip-flop**, **engine spill**, **object cards**, and a **cloud** runtime—not inventing deps for well-formed static bridges. LibreOffice does **not** need to parse Python for those static edges; a naive string-only Calc `=PY` *would* go stale without lifting ranges onto formula args. WriterAgent’s `=PY(code, data?)` keeps deps as real tokens and matches Collabora Online’s jail-safe compute shape. **Ship native `=PY`.** Excel Python **files** are a separate, shipped **high-fidelity formula-static** migration path ([§5.8](#58-ooxml--xlfnpy-import)): rewrite `xl(%Pn%)` onto formula args; do **not** make Excel’s PY↔PY scheduler the default Calc API. Defer runtime `PY_XL` / co-volatility.
+
+## Open
+
+- `[feature L few]` Python object cards: keep a live object such as a DataFrame in the shared kernel with a compact cell label, an inspect RPC and a preview dialog, so Excel `returnType=1` (Object) cells stop suppressing value egress. (§ 5.6 Python object cards / Value vs Object)
+- `[feature M few]` Use `XVolatileResult` with `#BUSY!` interim results in the `=PY()` add-in for long desktop runs. (§ 5.4 Async `#BUSY!` / `#CONNECT!` (medium—and already the right hook))
+- `[idea L few]` Optional `=PY_XL` compatibility function with a runtime `xl()` and dynamic dirty registration, quarantined from native `=PY`, if there is measured demand beyond file interchange. (§ 6. “Compatibility” options ranked)
+- `[idea L few]` Upstream LibreOffice core work: engine-owned dynamic array spill and a larger or removed `MAXSTRLEN` and curly-quote handling for long `=PY("…")` formula strings. (§ 5.9 Formula lexer hazards (corrected diagnosis; LO core deferred))

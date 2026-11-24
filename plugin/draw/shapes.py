@@ -23,8 +23,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.writer.specialized_base import ToolWriterShapeBase
+from plugin.writer.styles import para_adjust_to_uno
 from . import layout
 from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
 
@@ -300,6 +301,55 @@ def _is_line_shape_type(shape_type: str | None) -> bool:
     return name == "LineShape" or name == "line"
 
 
+def _normalize_negative_span(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
+    """Shift x/y by any negative width/height so position is top-left and size is non-negative."""
+    if width < 0:
+        x += width
+        width = -width
+    if height < 0:
+        y += height
+        height = -height
+    return x, y, width, height
+
+
+def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> None:
+    """Set a LineShape's start/end points via PolyPolygon, preserving app layer offset.
+
+    Once a LineShape is on the page, setSize with a negative span rescales/flips
+    relative to its existing bounding box (and Writer ignores negative direction),
+    so endpoints must be written through PolyPolygon instead.
+    """
+    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
+    import uno
+    from com.sun.star.awt import Point
+
+    # Writer's SwXShape::getPosition returns anchor-relative coords while PolyPolygon
+    # is in draw-layer page coords; add the current bbox-to-position delta so both
+    # Draw/Calc (delta 0) and Writer land at the caller's coordinates.
+    dx = dy = 0
+    poly = shape.getPropertyValue("PolyPolygon")
+    flat = [pt for seq in poly for pt in seq] if poly else []
+    if flat:
+        pos = shape.getPosition()
+        dx = min(pt.X for pt in flat) - pos.X
+        dy = min(pt.Y for pt in flat) - pos.Y
+
+    pts = ((Point(x + dx, y + dy), Point(x + width + dx, y + height + dy)),)
+    # Bare tuples raise IllegalArgumentException through pyuno's Any-typed setPropertyValue,
+    # and PyUNO rejects uno.Any outside uno.invoke; uno_mod: Any avoids stub errors
+    # where uno.Any is typed as taking str | Type.
+    uno_mod: Any = uno
+    uno_mod.invoke(shape, "setPropertyValue", ("PolyPolygon", uno_mod.Any("[][]com.sun.star.awt.Point", pts)))
+
+
+def _drawing_enum(enum_name: str, member: str) -> Any:
+    """Return a ``com.sun.star.drawing`` UNO enum value via ``uno.Enum``."""
+    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
+    import uno
+
+    return uno.Enum(f"com.sun.star.drawing.{enum_name}", member)
+
+
 class DrawShapes:
     def _is_valid_position(self, position: Any) -> bool:
         if not hasattr(position, "X") or not hasattr(position, "Y"):
@@ -309,26 +359,22 @@ class DrawShapes:
     def _is_valid_size(self, size: Any, shape_type: str | None = None) -> bool:
         """Reject a size LibreOffice will not use as a shape box.
 
-        ``Width <= 0`` or ``Height <= 0`` must not raise
-        ``DRAW_INVALID_SIZE`` for ``shape_type`` ``line``. A horizontal
-        or vertical line is a valid shape. Treating every shape like a
-        rectangle rejects it: a ``LineShape`` uses its bounding box, and
-        an axis-aligned line has a zero width (vertical) or a zero
-        height (horizontal). ``LineShape`` may have one zero side.
-        Other shapes still need both sides positive. A negative side,
-        or both sides zero, is still invalid.
+        A ``LineShape`` may have one zero side (horizontal or vertical) and
+        may have negative width or height (applied via ``PolyPolygon`` after
+        insertion so direction is preserved in all apps). Other shapes need
+        both sides positive. Both sides zero is always invalid.
         """
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
         width = size.Width
         height = size.Height
-        if width < 0 or height < 0:
-            return False
-        if width > 0 and height > 0:
-            return True
         if width == 0 and height == 0:
             return False
-        return _is_line_shape_type(shape_type)
+        if _is_line_shape_type(shape_type):
+            return True
+        if width <= 0 or height <= 0:
+            return False
+        return True
 
     def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
@@ -336,9 +382,14 @@ class DrawShapes:
         Shapes are created via the document's factory (``doc.createInstance``);
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
-        For CustomShape, ``EnhancedCustomShapeGeometry`` must be applied **before**
-        ``page.add`` to prevent an immediate abort on some LibreOffice versions. Writer
-        and Calc will require re-applying it after add to paint correctly.
+        For CustomShape, ``EnhancedCustomShapeGeometry`` is applied **before**
+        ``page.add`` so ``SvxShape::setPropertyValue`` buffers ``Type``
+        (``svx/source/unodraw/unoshape.cxx:566``) instead of swapping it on a
+        live default ``SdrRectObj`` (which can abort in
+        ``SfxItemPool::unregisterNameOrIndex``), and re-applied after add in
+        ``UpsertShape`` so ``SvxCustomShape::setPropertyValue`` runs
+        ``MergeDefaultAttributes()`` (``svx/source/unodraw/unoshap2.cxx:1733-1749``)
+        to expand ``ViewBox`` and ``Path``.
         """
         try:
             if doc is None:
@@ -413,13 +464,45 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     if not apply_autofit:
         return
     try:
-        from com.sun.star.drawing import TextFitToSizeType
-
-        shape.setPropertyValue("TextFitToSize", TextFitToSizeType.AUTOFIT)
+        shape.setPropertyValue("TextFitToSize", _drawing_enum("TextFitToSizeType", "AUTOFIT"))
     except Exception as ex:
         if is_disposal(ex):
             raise
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
+
+
+_DEFAULT_ARROWHEAD_WIDTH = 300
+
+
+def _arrow_coords() -> Any:
+    """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (svx/source/xoutdev/xtablend.cxx:62-67)."""
+    # Host boundary: uno/com.sun.star are only available inside LibreOffice or with UNO stubs.
+    import uno
+    from com.sun.star.awt import Point
+
+    normal = _drawing_enum("PolygonFlags", "NORMAL")
+    return uno.createUnoStruct(
+        "com.sun.star.drawing.PolyPolygonBezierCoords",
+        Coordinates=((Point(10, 0), Point(0, 30), Point(20, 30), Point(10, 0)),),
+        Flags=((normal, normal, normal, normal),),
+    )
+
+
+def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
+    """Apply or clear a line-end marker ('arrow' or 'none') on a shape."""
+    name_prop = f"{prefix}Name"
+    if marker.strip().lower() == "arrow":
+        shape.setPropertyValue(name_prop, "Arrow")
+        # Write the polygon explicitly too: when "Arrow" is missing from the model's XLineEndList,
+        # SetFillAttribute (svx/source/unodraw/unoshape.cxx:1345-1369) falls back to storing only the name.
+        shape.setPropertyValue(prefix, _arrow_coords())
+        # Scale width from the shape's current LineWidth so create and edit match (at least 300 = 3 mm).
+        line_w = uno_read(lambda: shape.getPropertyValue("LineWidth"), 0)
+        width = max(_DEFAULT_ARROWHEAD_WIDTH, line_w * 3) if isinstance(line_w, int) and not isinstance(line_w, bool) else _DEFAULT_ARROWHEAD_WIDTH
+        shape.setPropertyValue(f"{prefix}Width", width)
+    else:
+        # Empty name puts an empty polygon in svx/source/unodraw/unoshape.cxx:1404-1413.
+        shape.setPropertyValue(name_prop, "")
 
 
 def _try(failed: list[str], name: str, fn: Any) -> None:
@@ -450,15 +533,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
     # Background/Fill Color
+    fill_color_set = False
     if kwargs.get("fill_color"):
         color_str = kwargs.get("fill_color")
         color_str_l = (color_str or "").strip().lower()
         if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
 
             def _clear_fill_color() -> None:
-                from com.sun.star.drawing import FillStyle
-
-                shape.setPropertyValue("FillStyle", FillStyle.NONE)
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
 
             _try(failed_props, "fill_color", _clear_fill_color)
         else:
@@ -466,26 +548,27 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
+                is_line = "LineShape" in shape.getShapeType()
+                if not is_line:
+                    fill_color_set = True
                 _try(
                     failed_props,
                     "fill_color",
                     lambda: shape.setPropertyValue(
-                        "LineColor" if "LineShape" in shape.getShapeType() else "FillColor",
+                        "LineColor" if is_line else "FillColor",
                         color,
                     ),
                 )
 
-    # Fill Style (solid, transparent, etc)
-    if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
+    # Fill Style (solid, transparent, etc; ensure fill is visible when fill_color is set)
+    if (kwargs.get("fill_style") or fill_color_set) and hasattr(shape, "FillStyle"):
 
         def _apply_fill_style() -> None:
-            from com.sun.star.drawing import FillStyle
-
-            style_str = kwargs["fill_style"].lower()
-            if style_str == "none" or style_str == "transparent":
-                shape.setPropertyValue("FillStyle", FillStyle.NONE)
+            style_str = (kwargs.get("fill_style") or "solid").lower()
+            if style_str in ("none", "transparent"):
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
             elif style_str == "solid":
-                shape.setPropertyValue("FillStyle", FillStyle.SOLID)
+                shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "SOLID"))
 
         _try(failed_props, "fill_style", _apply_fill_style)
 
@@ -505,20 +588,35 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
 
         def _apply_line_style() -> None:
-            from com.sun.star.drawing import LineStyle
-
-            shape.setPropertyValue("LineStyle", LineStyle.SOLID)
+            shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
 
         _try(failed_props, "line_style", _apply_line_style)
 
-    # Text Properties (Font Size, Name, Color)
-    if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
+    # Line Start / End arrowheads
+    for param, prefix in (("line_start", "LineStart"), ("line_end", "LineEnd")):
+        marker = kwargs.get(param)
+        if marker is not None:
+            if not hasattr(shape, f"{prefix}Name"):
+                failed_props.append(param)
+            else:
+                _try(failed_props, param, lambda p=prefix, m=str(marker): _set_arrowhead(shape, p, m))
+
+    # Character properties (font, size, color, bold, italic)
+    if (
+        kwargs.get("text_color")
+        or kwargs.get("font_size")
+        or kwargs.get("font_name")
+        or kwargs.get("bold") is not None
+        or kwargs.get("italic") is not None
+    ):
 
         def _apply_text_properties() -> None:
             char_res = apply_character_properties(
                 shape,
                 font_name=kwargs.get("font_name"),
                 font_size_pt=kwargs.get("font_size"),
+                bold=kwargs.get("bold"),
+                italic=kwargs.get("italic"),
                 color=kwargs.get("text_color"),
             )
             for prop_name, ok in char_res.items():
@@ -526,6 +624,35 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                     failed_props.append(prop_name)
 
         _try(failed_props, "text_properties", _apply_text_properties)
+
+    if kwargs.get("h_align"):
+
+        def _apply_h_align() -> None:
+            # BLOCK makes the text area span the shape width so ParaAdjust aligns
+            # against the shape edges; RectangleShape and EllipseShape default to
+            # CENTER, which centres the text block and ignores left/right
+            # (svx/source/svdraw/svdotextdecomposition.cxx: SdrTextObj::impDecomposeBlockTextPrimitive).
+            shape.setPropertyValue("TextHorizontalAdjust", _drawing_enum("TextHorizontalAdjust", "BLOCK"))
+            shape.setPropertyValue("ParaAdjust", para_adjust_to_uno(kwargs["h_align"]))
+
+        _try(failed_props, "h_align", _apply_h_align)
+
+    if kwargs.get("v_align"):
+        _try(
+            failed_props,
+            "v_align",
+            lambda: shape.setPropertyValue("TextVerticalAdjust", _drawing_enum("TextVerticalAdjust", kwargs["v_align"].upper())),
+        )
+
+    if kwargs.get("wrap_text") is not None:
+        # Only custom shapes read this flag (svx/source/sdr/contact/viewcontactofsdrobjcustomshape.cxx);
+        # the rectangle and ellipse primitives pass bWordWrap=false.
+        _try(failed_props, "wrap_text", lambda: shape.setPropertyValue("TextWordWrap", bool(kwargs["wrap_text"])))
+
+    if kwargs.get("corner_radius") is not None:
+        # CustomShape has no CornerRadius (svx/source/unodraw/unoprov.cxx: ImplGetSvxCustomShapePropertyMap),
+        # so the set fails and is reported as a warning.
+        _try(failed_props, "corner_radius", lambda: shape.setPropertyValue("CornerRadius", int(kwargs["corner_radius"])))
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
@@ -592,16 +719,43 @@ class UpsertShape(_AnyDocumentShapeTool):
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
             "x": {"type": "integer", "description": "X position, 1/100 mm (required only for action='create')"},
             "y": {"type": "integer", "description": "Y position, 1/100 mm (required only for action='create')"},
-            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create')"},
-            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create')"},
+            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
+            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "text": {"type": "string", "description": "Text content"},
             "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
             "line_color": {"type": "string", "description": "Line border color"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
+            "line_start": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the start of a line or connector ('none' clears).",
+            },
+            "line_end": {
+                "type": "string",
+                "enum": ["none", "arrow"],
+                "description": "Arrowhead at the end of a line or connector ('none' clears).",
+            },
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
+            "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
+            "italic": {"type": "boolean", "description": "Italic text (false removes italic)."},
+            "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal text alignment inside the shape."},
+            "v_align": {
+                "type": "string",
+                "enum": ["top", "center", "bottom"],
+                "description": "Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center.",
+            },
+            "wrap_text": {
+                "type": "boolean",
+                "description": (
+                    "Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); "
+                    "on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. "
+                    "rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label."
+                ),
+            },
+            "corner_radius": {"type": "integer", "description": "Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners)."},
             "rotation_angle": {"type": "number", "description": "Rotation angle in degrees"},
         },
         "required": ["action"],
@@ -651,9 +805,6 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
-        position = Point(kwargs["x"], kwargs["y"])
-        size = Size(kwargs["width"], kwargs["height"])
-
         is_custom_shape = False
         custom_shape_type = ""
 
@@ -668,14 +819,22 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             is_custom_shape = True
             custom_shape_type = shape_type_raw
 
+        x, y, width, height = kwargs["x"], kwargs["y"], kwargs["width"], kwargs["height"]
+        # Non-line shapes normalize negative spans to top-left + positive size.
+        # LineShape keeps the signed size so LibreOffice preserves start->end direction.
+        if not _is_line_shape_type(uno_type):
+            x, y, width, height = _normalize_negative_span(x, y, width, height)
+
+        position = Point(x, y)
+        size = Size(width, height)
+
         log.debug("shape_upsert (create) branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r", shape_type_raw, uno_type, is_custom_shape, custom_shape_type if is_custom_shape else None)
 
         draw_shapes = DrawShapes()
 
         try:
-            # Apply EnhancedCustomShapeGeometry *inside* safe_create_shape (before
-            # page.add). Setting Type=octagon after add replaces the live SdrRectObj
-            # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
+            # Pre-add write sets Type before page.add so SdrObjCustomShape is created with
+            # that Type instead of swapping a live SdrRectObj (avoids SfxItemPool::unregisterNameOrIndex abort).
             shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
         except DrawError as e:
             # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
@@ -688,16 +847,17 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             _try_writer_at_page_shape_finalize(ctx.doc, shape, actual_idx)
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
 
-            # Re-apply EnhancedCustomShapeGeometry after add. While Draw works with the pre-add
-            # geometry, Writer (after AT_PAGE anchor) and Calc require re-applying it so
-            # CustomShapes actually paint correctly on the sheet/page.
-            if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
+            # Post-add write triggers SvxCustomShape::setPropertyValue -> MergeDefaultAttributes()
+            # (svx/source/unodraw/unoshap2.cxx:1733-1749) so ViewBox and Path are built and the shape paints.
+            if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
             failed_props = _apply_shape_properties(shape, kwargs)
             shape_name = _ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+            if _is_line_shape_type(uno_type) and (width < 0 or height < 0):
+                _set_line_endpoints(shape, x, y, width, height)
             _try_writer_invalidate_and_pump(ctx.doc)
         except Exception:
             # Remove the half-built shape; execute_safe reports the error (or disposal).
@@ -760,17 +920,34 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in _page_shape_names(page):
             return _name_taken_error(tool, new_name)
 
-        if "x" in kwargs or "y" in kwargs:
-            pos = shape.getPosition()
-            shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
-        if "width" in kwargs or "height" in kwargs:
-            size = shape.getSize()
-            shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
+        has_pos = "x" in kwargs or "y" in kwargs
+        has_size = "width" in kwargs or "height" in kwargs
+        is_line = _is_line_shape_type(shape.getShapeType())
+
+        cur_pos = shape.getPosition() if (has_pos or has_size) else None
+        cur_size = shape.getSize() if has_size else None
+        target_x = kwargs.get("x", cur_pos.X) if cur_pos is not None else 0
+        target_y = kwargs.get("y", cur_pos.Y) if cur_pos is not None else 0
+        target_w = kwargs.get("width", cur_size.Width) if cur_size is not None else 0
+        target_h = kwargs.get("height", cur_size.Height) if cur_size is not None else 0
+
+        if has_size:
+            if is_line:
+                _set_line_endpoints(shape, target_x, target_y, target_w, target_h)
+            else:
+                norm_x, norm_y, target_w, target_h = _normalize_negative_span(target_x, target_y, target_w, target_h)
+                if has_pos or norm_x != target_x or norm_y != target_y:
+                    shape.setPosition(Point(norm_x, norm_y))
+                shape.setSize(Size(target_w, target_h))
+        elif has_pos:
+            shape.setPosition(Point(target_x, target_y))
 
         failed_props = _apply_shape_properties(shape, kwargs)
-        if "text" in kwargs and ("width" in kwargs or "height" in kwargs):
-            size = shape.getSize()
-            shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
+        if "text" in kwargs and has_size:
+            if is_line:
+                _set_line_endpoints(shape, target_x, target_y, target_w, target_h)
+            else:
+                shape.setSize(Size(target_w, target_h))
 
         result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": shape.Name or ""}
         if failed_props:
@@ -1058,7 +1235,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
         "type": "object",
         "properties": {
             "page": DRAW_PAGE_PROPERTY,
-            "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "description": "How to place nodes (default: horizontal_flow)"},
+            "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "default": "horizontal_flow", "description": "How to place nodes"},
             "nodes": {
                 "type": "array",
                 "items": {
@@ -1104,7 +1281,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
             if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
 
-        layout_name = kwargs.get("layout") or "horizontal_flow"
+        layout_name = kwargs["layout"]
         from plugin.draw.bridge import page_size
 
         page_w, page_h = page_size(page) or (layout.DEFAULT_PAGE_WIDTH, layout.DEFAULT_PAGE_HEIGHT)

@@ -19,6 +19,7 @@ import plugin.calc.python.function as _function
 import plugin.calc.python.spill as _spill
 import plugin.calc.python.undo as _undo
 from plugin.calc.python.function import build_cell_context, finalize_python_return
+from plugin.scripting.calc_range import materialize_inputs
 from plugin.scripting.payload_codec import is_multi_data
 
 
@@ -870,7 +871,7 @@ def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: py
     calls: list[tuple] = []
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         lambda doc, *, state: calls.append((doc, state)),
@@ -890,7 +891,7 @@ def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytes
         raise RuntimeError("listener failed")
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         _boom,
@@ -1047,18 +1048,6 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
     ):
         val_fallback = _function.finalize_python_return(_cell(ctx, "code_fallback", doc), [10, 20, 30])
     assert val_fallback == 10
-
-
-def test_indexed_multi_data_ignores_my_data() -> None:
-    """_code_uses_indexed_multi_data('my_data[0]') is false; 'data[0]' and 'ranges[1]' and 'note = \"data[0]\"' are true."""
-    assert not _function._code_uses_indexed_multi_data("my_data[0]")
-    assert not _function._code_uses_indexed_multi_data("_data[0]")
-    assert not _function._code_uses_indexed_multi_data("obj.data[0]")
-    assert not _function._code_uses_indexed_multi_data("self.ranges[0]")
-    assert _function._code_uses_indexed_multi_data("data[0]")
-    assert _function._code_uses_indexed_multi_data("ranges[1]")
-    assert _function._code_uses_indexed_multi_data('note = "data[0]"')
-    assert _function._code_uses_indexed_multi_data("(data[0])")
 
 
 def test_matrix_sessions_expire() -> None:
@@ -1581,26 +1570,6 @@ def test_build_cell_context_diag_key_uses_owner(monkeypatch: pytest.MonkeyPatch)
     assert len(calls) == 1
 
 
-def test_split_trailing_index() -> None:
-    grid = ((1.0, 2.0), (3.0, 4.0))
-    grid_wire = [[1.0, 2.0], [3.0, 4.0]]
-
-    args, py_data, idx = _function._split_trailing_index("[data]*3", [grid, [[2.0]]], [grid_wire, [[2.0]]])
-    assert idx == 2.0
-    assert len(args) == 1
-    assert py_data == grid_wire
-
-    args_indexed, py_data_indexed, idx_indexed = _function._split_trailing_index("data[0]", [grid, [[2.0]]], [grid_wire, [[2.0]]])
-    assert idx_indexed is None
-    assert len(args_indexed) == 2
-    assert py_data_indexed == [grid_wire, [[2.0]]]
-
-    args_single, py_data_single, idx_single = _function._split_trailing_index("[data]*3", [grid], grid_wire)
-    assert idx_single is None
-    assert len(args_single) == 1
-    assert py_data_single == grid_wire
-
-
 def test_clear_workbook_matrix_cache_leaves_other_workbooks() -> None:
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -1700,3 +1669,56 @@ def test_execute_python_addin_two_single_cells_not_treated_as_index():
             assert len(wire["items"]) == 2
     finally:
         _function.clear_python_addin_cache()
+
+
+@pytest.mark.parametrize(
+    "varargs, online_json",
+    [
+        pytest.param((5.0, 6.0), [5, 6], id="two_scalars"),
+        pytest.param((((1.0,), (2.0,), (3.0,)), 2.0), [[[1], [2], [3]], 2], id="range_then_number"),
+    ],
+)
+def test_every_argument_is_an_input_like_online(varargs: tuple[Any, ...], online_json: list[Any]) -> None:
+    """A trailing single cell is an input, as on Online, not an index into the list result."""
+    ctx = SimpleNamespace()
+    try:
+        with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "ok", "result": [10, 20, 30, 40, 50, 60, 70]}
+            res = _function.execute_python_addin(ctx, "result = [10, 20, 30, 40, 50, 60, 70]", varargs)
+            assert res == 10.0
+            wire = mock_run.call_args.kwargs["data"]
+            assert [(r.shape, r.values) for r in materialize_inputs(wire)] == [
+                (r.shape, r.values) for r in materialize_inputs(online_json)
+            ]
+    finally:
+        _function.clear_python_addin_cache()
+
+
+def test_build_cell_context_marks_shared_session_for_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_shared_flag.ods")
+    seen_shared: list[bool] = []
+
+    def _stub(d: Any, *, shared_session: bool = False) -> dict[str, Any]:
+        seen_shared.append(shared_session)
+        return {}
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", _stub)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
+    build_cell_context(MagicMock(), doc, "x", on_main=True)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: None)
+    build_cell_context(MagicMock(), doc, "x", on_main=True)
+    assert seen_shared == [True, False]
+
+
+def test_failed_init_read_names_no_init_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_init_fail.ods")
+
+    def _boom(_doc: Any, *, shared_session: bool = False) -> dict[str, Any]:
+        raise RuntimeError("read failed")
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", _boom)
+    monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
+    cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
+    assert cell.init_kwargs == {}

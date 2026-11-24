@@ -30,11 +30,8 @@ from plugin.framework.prompts import (
     attach_sheets_create_completion_instruction,
     build_specialized_sub_agent_instructions,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
-    DELEGATION_PUBLIC_WEB_HINT,
-    DELEGATION_USER_FILE_DATA_HINT,
-    delegation_math_to_python_hint,
     images_specialized_sub_agent_hint,
-    python_orchestrator_routing_line,
+    PYTHON_ROUTING_HINT,
     python_specialized_sub_agent_hint,
     get_document_research_workflow_hint,
 )
@@ -51,6 +48,7 @@ from plugin.doc.specialized_catalog import (
     catalog_entries_from_base,
     chat_tier_domains,
     expects_edits,
+    format_domain_catalog,
     format_specialized_domains_description,
     loop_hint,
     start_inner_payload,
@@ -576,36 +574,33 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
     return out
 
 
-_WRITER_DELEGATE_DESCRIPTION = (
-    "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
-    "For document_research and web_research, describe what to research in task (topics, sections, depth). "
-    f"{delegation_math_to_python_hint(delegate_tool=DELEGATE_SUBAGENT_TOOL)} "
-    f"{python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}"
+# Delegate results report edits that landed even on error, so "status error means nothing changed" does not apply to this tool.
+_DELEGATE_RESULT_LINE = (
+    "The result carries status, answer, edits (successful editing-tool calls counted by tool name; {} means nothing was edited) "
+    "and, on error, tool_errors; status error or incomplete with non-empty edits means part of the task was applied."
 )
 
+_WRITER_DELEGATE_DESCRIPTION = (
+    "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
+    f"{_DELEGATE_RESULT_LINE} "
+    "For document_research and web_research, describe what to research in task (topics, sections, depth). "
+    f"{PYTHON_ROUTING_HINT}"
+)
+
+# Lead only; description_for_services appends the bound domain catalog for sidebar chat.
 _CALC_DELEGATE_DESCRIPTION = (
-    f"Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
-    f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
-    f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    f"in this spreadsheet and returns a summary. {_DELEGATE_RESULT_LINE}"
 )
 
 _DRAW_DELEGATE_LEAD = (
     "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "on this drawing or presentation and returns a summary. "
-    f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-)
-
-_DRAW_DELEGATE_DESCRIPTION = (
-    f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
-    "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
+    f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
 )
 
 _GENERIC_DELEGATE_DESCRIPTION = (
     "Starts a sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "in this document and returns a summary."
+    f"in this document and returns a summary. {_DELEGATE_RESULT_LINE}"
 )
 
 
@@ -671,7 +666,7 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         if doc_type == "calc":
             return _CALC_DELEGATE_DESCRIPTION
         if doc_type in ("draw", "impress"):
-            return _DRAW_DELEGATE_DESCRIPTION
+            return _DRAW_DELEGATE_LEAD.rstrip()
         if doc_type == "writer":
             return _WRITER_DELEGATE_DESCRIPTION
         return self.description
@@ -694,14 +689,24 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         return [d for d in self._domains if d in allowed and d in bound]
 
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
-        """Return the app-specific description narrowed to *uno_services*."""
+        """Return the app-specific description narrowed to *uno_services*.
+
+        For sidebar chat (``for_mcp=False``), appends the bound ``domain: description``
+        catalog matching the narrowed enum; for MCP, returns the compact lead (Draw
+        also lists the bound domain names).
+        """
         label = self.agent_label_for(uno_services=uno_services)
+        if not for_mcp:
+            # Sidebar chat reads the domain catalog only here: one "domain: purpose" entry per
+            # value of the narrowed enum, so the list cannot name a domain the enum rejects.
+            bound = set(self.domains_for_services(uno_services))
+            entries = [e for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services) if e["domain"] in bound]
+            return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
             domains = self.domains_for_services(uno_services)
-            if for_mcp:
-                hidden = chat_tier_domains()
-                domains = [d for d in domains if d not in hidden]
+            hidden = chat_tier_domains()
+            domains = [d for d in domains if d not in hidden]
             return _format_draw_delegate_description(domains)
         return _WRITER_DELEGATE_DESCRIPTION

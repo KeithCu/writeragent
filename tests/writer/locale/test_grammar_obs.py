@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -626,5 +626,141 @@ def test_status_bar_grammar_status_swallows_post_errors() -> None:
         patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")),
     ):
         sink.request("Some text.", result="Downloading harper-ls v2.7.0…")  # must not raise
+
+
+class _FakeIndicatorFactory:
+    """Status-indicator stack matching LibreOffice's StatusIndicatorFactory::start/end/impl_reschedule.
+
+    See ``framework/source/helper/statusindicatorfactory.cxx``: each ``start``, ``setText``,
+    and ``end`` calls ``impl_reschedule`` (one nested level via ``m_nInReschedule``), and
+    ``end`` reveals the next child still on ``m_aStack`` instead of hiding the bar.
+    """
+
+    def __init__(self) -> None:
+        self.stack: list[_FakeIndicator] = []
+        self.nested: list[Callable[[], None]] = []
+        self.indicators: list[_FakeIndicator] = []
+        self._in_reschedule = False
+
+    def create(self) -> _FakeIndicator:
+        ind = _FakeIndicator(self)
+        self.indicators.append(ind)
+        return ind
+
+    def shown(self) -> str | None:
+        return self.stack[-1].text if self.stack else None
+
+    def reschedule(self) -> None:
+        if self._in_reschedule or not self.nested:
+            return
+        self._in_reschedule = True
+        try:
+            while self.nested:
+                self.nested.pop(0)()
+        finally:
+            self._in_reschedule = False
+
+
+class _FakeIndicator:
+    def __init__(self, factory: _FakeIndicatorFactory) -> None:
+        self._factory = factory
+        self.text = ""
+        self.last_text = ""
+
+    def start(self, msg: str, _max_val: int) -> None:
+        self.text = msg
+        self.last_text = msg
+        self._factory.stack.append(self)
+        self._factory.reschedule()
+
+    def setText(self, msg: str) -> None:
+        self.text = msg
+        self.last_text = msg
+        self._factory.reschedule()
+
+    def setValue(self, _val: int) -> None:
+        pass
+
+    def end(self) -> None:
+        if self in self._factory.stack:
+            self._factory.stack.remove(self)
+        self._factory.reschedule()
+
+
+def test_status_bar_paint_nested_request_during_start_keeps_one_indicator() -> None:
+    sink = go.StatusBarGrammarStatus()
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    factory.nested.append(lambda: sink._paint("request", "Harper ready"))
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+    ):
+        sink._paint("request", "Starting Harper…")
+        sink._paint("done", "1 issue", routine=True)
+
+    assert mock_frame.createStatusIndicator.call_count == 1
+    assert factory.shown() is None
+    assert not sink.is_active()
+
+
+def test_status_bar_ready_ends_indicator_without_further_lint() -> None:
+    sink = go.StatusBarGrammarStatus()
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.request("Harper", result="Starting Harper…")
+        sink.ready("Harper", result="Harper ready")
+
+    assert factory.indicators[0].last_text == "LibreHarper: Harper ready"
+    assert factory.shown() is None
+    assert not sink.is_active()
+
+
+def test_status_bar_ready_without_indicator_creates_none() -> None:
+    sink = go.StatusBarGrammarStatus()
+    mock_frame = MagicMock()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+    ):
+        sink._paint("ready", "Harper ready")
+
+    mock_frame.createStatusIndicator.assert_not_called()
+
+
+def test_status_bar_paint_done_ends_indicator_when_frame_unresolvable() -> None:
+    sink = go.StatusBarGrammarStatus()
+    mock_indicator = MagicMock()
+    sink._indicator = mock_indicator
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=None),
+    ):
+        sink._paint("done", "")
+
+    mock_indicator.end.assert_called_once()
+    assert sink._indicator is None
+
+
+def test_writer_agent_ready_with_sidebar_ends_active_status_bar() -> None:
+    with _writer_agent_status_bar() as (sink, mock_bus, mock_indicator):
+        mock_bus.has_subscribers.return_value = False
+        sink.request("Harper", result="Starting Harper…")
+        mock_bus.has_subscribers.return_value = True
+        sink.ready("Harper", result="Harper ready")
+
+    mock_indicator.end.assert_called_once()
+    assert mock_indicator.setText.call_args.args[0] == "Grammar: Harper ready"
+    assert mock_bus.emit.call_args.kwargs["phase"] == "ready"
 
 

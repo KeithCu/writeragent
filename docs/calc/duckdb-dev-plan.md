@@ -58,7 +58,7 @@ The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.o
 - `data[0]` is the named range (`SalesData` / `MarketingData`) — the Calc form of `{named_range}`, not a frozen A1.
 - `data[1]` is the SQL cell or multi-row block (joined with newlines).
 - Editing the SQL cells dirties RESULTS through Calc's normal DAG.
-- `data[` in the payload is required so the trailing SQL cell is not peeled as a matrix index.
+- `data[0]`/`data[1]` are required because with two arguments `data` is the list of inputs.
 - Sheet-only RESULTS use injected `session_duckdb()` (Phase D shared-kernel catalog).
 - Scenario 3 (ZIP ⨝ `zip_income.csv`) is a live `=PY()` via injected `run_sql` + `scoped_dir` (the document folder). The sibling CSV is **not** a Calc argument — same catalog as `query_folder_sql`. Off-main recalc reuses the folder cached from a `calc:file:` session id (no `getURL()`). Bind `scoped_dir=None` only when no folder is known so the name exists (join then errors loud instead of `NameError`).
 - XLSX `SalesData` / `MarketingData` must be **absolute** (`Sheet!$A$4:$J$39`). Relative `Sheet!A4:J39` looks correct in UNO / Name Manager but `=PY()` evaluates the name from the SQL_DuckDB RESULTS cell and packs a shifted or empty `data[0]` (BinderException `Region` / `Channel`).
@@ -71,7 +71,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: honesty dict for `run_sql(sql)` and `run_sql(sql, con)`; DataFrame only when `preloaded` or `files` is passed. `scoped_dir` alone does not switch modes. The sandbox still passes the host folder on every call.
-- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (`{name: spec}`; a list is rejected by the schema), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
+- Tool: `sql_query_folder` (`python/sql` domain on `ToolCalcPythonSqlBase`, hidden from Calc chat via `CALC_HIDDEN_SPECIALIZED_DOMAINS`) accepts `sql`, `files` (`{name: spec}`; a list is rejected by the schema), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the calling document's folder on the UI thread. Off-main the doc is only passed through, so `scoped_dir` is `None` there. The helper captures that host path when it is injected; a cell assignment to `scoped_dir` or a `scoped_dir=` argument cannot point `run_sql` at another folder. That assignment is dropped at the start of the next execute, so a shared-kernel Run Python Script (which binds no folder) cannot inherit a cell-chosen path from an earlier `=PY()`. Inside a sandboxed execute, `session_duckdb(other_id)` cannot open another workbook's catalog. That guard still holds when the cell runs on the SIGALRM timeout-fallback thread (Windows, or any thread that cannot install the alarm): the sandbox copies its session context onto that thread.
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
@@ -119,7 +119,7 @@ CSV / Parquet / JSON remain **direct DuckDB file reads** in the venv (no UNO).
 | **In-memory only (session)** | Fast within one worker request / chat turn | Lost on restart; no cross-session reuse |
 | **Per-folder ODS cache on disk** | Amortizes LO conversion; opens native `.ods` on hit; matches embeddings cache mental model | Invalidation logic; disk use; must handle stale entries |
 
-**Proposed layout** (mirror [`writeragent_embeddings/`](../embeddings.md)):
+**Cache layout** (mirrors [`writeragent_embeddings/`](../embeddings.md)):
 
 ```text
 ~/project/
@@ -245,7 +245,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ## Phased implementation
 
-### Phase A — Folder SQL (MVP, lowest UNO risk)
+### Phase A — Folder SQL (MVP, lowest UNO risk) — **Landed**
 
 **User story:** “I have `actuals_2024.csv` and `actuals_2025.csv` beside my `.ods`. Run SQL to compare them.”
 
@@ -273,7 +273,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 ---
 
-### Phase B — Single Calc range as one table
+### Phase B — Single Calc range as one table — **Landed**
 
 **User story:** “SQL this sheet’s table in `A1:F500` — group by region, sum revenue.”
 
@@ -412,7 +412,7 @@ Authoring: pass upstream ranges as data so Calc dirties the cell that re-registe
 | **Analysis sub-agent** | A, B, C | `query_folder_sql` with `tables` / `files` / `data_range` |
 | **Chat / delegate** | B, C | “Join Sales range to costs.csv and ledger.parquet” |
 | **`=PY()` / `=PYTHON()`** | B+, D | `session_duckdb()` in shared kernel (guarded + 200-row honesty). Raw `import duckdb` is authorized but unguarded. Isolated stays per-eval. |
-| **MCP** | B+ | Optional later via existing tool registry |
+| **MCP** | B+ | **Shipped:** `sql_query_folder` (`QueryFolderSqlTool` in [`plugin/calc/duckdb_tools.py`](../../plugin/calc/duckdb_tools.py) on `ToolCalcPythonSqlBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py), domain `python/sql`) is exposed in MCP `direct_flat` (`MCP_DIRECT_FLAT_EXCLUDE_TIERS` in [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py)) and `direct_discovery` (`catalog_entries_from_base(..., for_discovery=True)` in [`plugin/doc/specialized_catalog.py`](../../plugin/doc/specialized_catalog.py)) |
 
 **PM note:** Phase A is releasable on its own — valuable for users who export CSV from Calc or receive data drops beside ODS files.
 
@@ -476,8 +476,8 @@ No cloud telemetry required. Suggested signals:
 
 | # | Question | Owner |
 |---|----------|-------|
-| 1 | Separate `sql` specialized domain vs helpers under `analysis`? | PM + API |
-| 2 | Allow LLM-authored SQL verbatim vs template-only (file list from host)? | Security |
+| 1 | ~~Separate `sql` specialized domain vs helpers under `analysis`?~~ | **Resolved:** separate `python/sql` domain. `sql_query_folder` is on `ToolCalcPythonSqlBase` (`plugin/calc/base.py`), and Calc chat hides it via `CALC_HIDDEN_SPECIALIZED_DOMAINS`. |
+| 2 | ~~Allow LLM-authored SQL verbatim vs template-only (file list from host)?~~ | **Resolved:** `query_folder_sql` accepts LLM-authored read-only SQL with host-validated tables/files and read-only SQL guards. |
 | 3 | ~~XLSX via DuckDB vs host~~ | **Resolved:** LO import + UNO read (this doc § Decision). |
 | 4 | ~~ODS cache on disk?~~ | **Resolved / shipped:** per-folder `writeragent_ods_cache/` with mtime+size invalidation (§ ODS cache directory). |
 | 5 | Auto-export sheet snapshot to temp Parquet for huge ranges (Phase C perf) | Eng, defer |
@@ -521,3 +521,11 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Pretty-demo polish: SQL_DuckDB teaches `{sheet}` / `{named_range}` / sibling `file#Sheet` (named ranges `SalesData` / `MarketingData` as the live `=PY()` data args). ZIP join is a live `=PY()` via `run_sql` + `scoped_dir` (same 15×5 spill gutter; SQL still only in cells). |
 | 2026-09-05 | XLSX `SalesData` / `MarketingData` are absolute (`$A$4:$J$39`) so `=PY()` from SQL_DuckDB RESULTS does not pack a shifted/empty `data[0]`. `scoped_dir` inject reuses the cached `calc:file:` folder off-main. |
 | 2026-10-14 | invalidate_session_tables drops materialized flat-file tables, not only unregister relations, and drops the stem view that reads that table. List-file stems are views over the basename table. Two files with the same stem log Skipping stem alias and keep the first alias. |
+
+
+## Open
+
+- `[feature S few]` Expose DuckDB SQL (`query_folder_sql`, `session_duckdb`) in the default chat and `=PY()` import-policy prompts once the path is product-ready. (§ Current Implementation (as of latest increment))
+- `[eng M few]` Auto-export a sheet snapshot to temporary Parquet for huge ranges so they do not go through the wire grid. (§ Open questions)
+- `[idea M few]` Zero-copy Arrow registration of split_grid arrays via pyarrow, and Parquet export from Calc. (§ Open questions)
+- `[eng S few]` Close the raw `import duckdb` bypass of the COPY/escape firewall in `=PY()`, and jail persistent sessions on DuckDB older than 1.3. (§ Security and sandbox)

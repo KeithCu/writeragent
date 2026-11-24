@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Az utolsó ügynökmódosítás nem vonható vissza."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Az utolsó ügynökmódosítás visszavonva ({0} lépés)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "A kép nem található."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "A kép törlése nem sikerült: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -707,10 +716,10 @@ msgstr "Először nyisson meg egy Calc-táblázatot."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"A Monaco szerkesztő le van tiltva a writeragent.json fájlban található "
+"A Python szerkesztőablak le van tiltva a writeragent.json fájlban található "
 "„scripting.force_internal_script_editor” beállítás miatt."
 
 #: plugin/calc/python/init_script_editor.py
@@ -1238,6 +1247,10 @@ msgstr "Módosítás elfogadása"
 msgid "Reject this change"
 msgstr "Módosítás elutasítása"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Az előnézeti kép dekódolása nem sikerült."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1638,6 +1651,25 @@ msgstr "miért"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "ön"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Futtatás…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Megszakítva."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Az előnézet sikertelen: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "A futtatás sikertelen: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2353,6 +2385,36 @@ msgstr "„%s” megnyitása csak olvasható módban."
 msgid "Web research completed."
 msgstr "Webes kutatás befejeződött."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Az Ollama nem jelentett num_ctx értéket, ezért a WriterAgent {0} tokennel "
+"számolt, ami túl kevés az internetes kutatáshoz (a kutatási prompt és az "
+"eszközök önmagukban kb. 2000 tokent igényelnek, plusz a kimeneti tokenek). "
+"Növelje a num_ctx értékét legalább {1}-re (a PARAMETER num_ctx {2} vagy "
+"magasabb értékkel egy Modelfile-ban az ollama create használatával), majd "
+"használja a Kapcsolat tesztelése gombot a Beállításokban (vagy indítsa újra "
+"a LibreOffice-t), és próbálja újra."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"A környezeti ablak ({0} token) túl kicsi az internetes kutatáshoz (a "
+"kutatási prompt és az eszközök önmagukban kb. 2000 tokent igényelnek, plusz "
+"a kimeneti tokenek). Növelje a num_ctx értékét legalább {1}-re (vagy váltson"
+" nagyobb környezeti ablakkal rendelkező modellre), és próbálja újra."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2638,10 +2700,6 @@ msgstr "Új Python-szkript"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Szkript neve:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Futtatás…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2960,13 +3018,12 @@ msgstr "A virtuális környezet ellenőrzése sikertelen"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Állítsa be a Python venv útvonalát a Beállítások → Python menüpontban "
-"(ugyanaz a venv, ahol az 'uv pip install pywebview rocher' parancsot "
-"futtatta). A LibreOffice beépített Pythonja nem tudja futtatni a "
-"szerkesztőt."
+"Állítsa be a Python venv útvonalat a Beállítások → Python menüpontban "
+"(ugyanaz a venv, ahol az 'uv pip install pywebview' parancsot futtatta). A "
+"LibreOffice beépített Pythonja nem tudja futtatni a szerkesztőt."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3055,12 +3112,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Az audio-ellenőrzés sikertelen (lásd: writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco vizsgálat időtúllépés miatt megszakadt."
+msgid "UI / Editor probe timed out."
+msgstr "UI / Szerkesztő vizsgálat időtúllépés."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco vizsgálat sikertelen (lásd: writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / Szerkesztő vizsgálat sikertelen (lásd: writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3106,6 +3163,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB vizsgálat sikertelen (lásd: writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "A Nemotron OCR nem indítható ebben a virtuális környezetben (venv):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nem található mikrofon bemeneti eszköz."
 
@@ -3138,8 +3199,9 @@ msgid "Audio Recording & Speech"
 msgstr "Hangfelvétel és beszéd"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco könyvtárak: ellenőrzés a szkript-munkavégzőn kívül..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr ""
+"UI / Szerkesztő könyvtárak: ellenőrzés a szkript-háttérfolyamaton kívül..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3522,7 +3584,7 @@ msgstr ""
 "A látássegítők használatához Writer, Calc, Draw vagy Impress dokumentum "
 "szükséges."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "A látássegítő (Vision helper) sikertelen."
 
@@ -3616,6 +3678,225 @@ msgstr "Nem sikerült megnyitni a beépített szkriptpárbeszédpanelt."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Váratlan hiba történt a Python-szkript futtatása megnyitásakor."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Ellenőrizze a writeragent_debug.log fájlt a LibreOffice felhasználói "
+"konfigurációs mappájában"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Az MCP-kiszolgáló indítása sikertelen"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "MCP-kiszolgáló leállítása"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "MCP-kiszolgáló indítása"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Az MCP-kiszolgáló nem fut"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Az MCP-kiszolgáló fut"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Útvonalak: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Helyi URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Nyilvános URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Helyi végpont:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Nyilvános alagút ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Állapot: Aktív (csatlakoztatva)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Állapot: Újracsatlakozás – {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "újrapróbálkozás…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Állapot: Alagút indítása…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Állapot: Sikertelen – {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Állapot: Nem fut (telepítve van a(z) {0} bináris fájl?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Másolva!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Tesztelés…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Alagút tesztelése"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP-alagút tesztje"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Nyilvános alagút a következőn keresztül: {0} (nincs hitelesítés)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Nyilvános alagút ezen keresztül: {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "újracsatlakozás…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "A nyilvános alagút a következőn keresztül: {0} sikertelen: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Nyilvános alagút a következőn keresztül: {0} indítása…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"A nyilvános alagút a következőn keresztül: {0} nem fut (telepítve van a "
+"szolgáltató bináris fájlja?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Alagút tesztmód: {0} szolgáltató sikeresen szimulálva."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Ismeretlen alagút-szolgáltató: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"A(z) '{0}' bináris fájl a(z) {1} számára nem található a PATH útvonalon.\n"
+"\n"
+"Telepítse innen: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Nem sikerült végrehajtani a(z) {0} bináris fájlt ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"A(z) {0} alagút fut és válaszol!\n"
+"\n"
+"Nyilvános végpont:\n"
+"{1}\n"
+"\n"
+"Állapotellenőrzés: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"A(z) {0} alagút aktív!\n"
+"\n"
+"Nyilvános végpont:\n"
+"{1}\n"
+"\n"
+"(A nyilvános URL az aktív alagút-munkamenetből származik.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"A(z) {0} bináris fájl ('{1}') ellenőrizve ({2}).\n"
+"\n"
+"(Megjegyzés: Egy aktív {3} alagút jelenleg fut ezen a címen: {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"A(z) {0} bináris fájl ('{1}') telepítve és ellenőrizve ({2}).\n"
+"\n"
+"Az MCP-kiszolgáló helyileg fut a(z) {3} porton.\n"
+"Jelölje be a „Közzététel nyilvános alagúton keresztül” lehetőséget, majd kattintson az OK gombra a nyilvános útválasztás aktiválásához."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"A(z) {0} bináris fájl ('{1}') telepítve és ellenőrizve ({2}).\n"
+"\n"
+"Megjegyzés: Az MCP-kiszolgáló jelenleg nem fut a(z) {3} porton."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP-kiszolgáló állapota"
@@ -3636,10 +3917,62 @@ msgstr "Összes elfogadása"
 msgid "Reject all"
 msgstr "Összes elutasítása"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Modellek betöltése…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Szöveg felismerése…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Nem található szöveg."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Előnézet megjelenítése…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Nem sikerült exportálni a kijelölt képet: {error}"
+msgid "Done: {count} characters."
+msgstr "Kész: {count} karakter."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"A Vision OCR beszúrásához Writer vagy Calc dokumentum szükséges; használja "
+"az Előnézetet Draw/Impress esetén."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Beszúrás…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "{count} kép beszúrva."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Beszúrva: {count} karakter."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"A kép megmaradt, mert az ügynök szerkesztési felülvizsgálata rögzíti a "
+"módosításokat."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Az előnézeti dokumentum létrehozása sikertelen."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Nem sikerült megjeleníteni az előnézeti oldalt."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3647,6 +3980,11 @@ msgid ""
 msgstr ""
 "Jelöljön ki egy beágyazott képet (vagy egy képeket tartalmazó tartományt), "
 "majd futtassa újra."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Nem sikerült exportálni a kijelölt képet: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3728,227 +4066,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "A kép el lett távolítva az OCR-beszúrás előkészítése közben."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nem törölhető névtelen kép az OCR-beillesztés után."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "A kép el lett távolítva az OCR-beszúrás során."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Ellenőrizze a writeragent_debug.log fájlt a LibreOffice felhasználói "
-"konfigurációs mappájában"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Az MCP-kiszolgáló indítása sikertelen"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "MCP-kiszolgáló leállítása"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "MCP-kiszolgáló indítása"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Az MCP-kiszolgáló nem fut"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Az MCP-kiszolgáló fut"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Útvonalak: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Helyi URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Nyilvános URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Helyi végpont:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Nyilvános alagút ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Állapot: Aktív (csatlakoztatva)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Állapot: Újracsatlakozás – {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "újrapróbálkozás…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Állapot: Alagút indítása…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Állapot: Sikertelen – {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Állapot: Nem fut (telepítve van a(z) {0} bináris fájl?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Másolva!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Tesztelés…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Alagút tesztelése"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP-alagút tesztje"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Nyilvános alagút a következőn keresztül: {0} (nincs hitelesítés)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Nyilvános alagút ezen keresztül: {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "újracsatlakozás…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "A nyilvános alagút a következőn keresztül: {0} sikertelen: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Nyilvános alagút a következőn keresztül: {0} indítása…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"A nyilvános alagút a következőn keresztül: {0} nem fut (telepítve van a "
-"szolgáltató bináris fájlja?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Alagút tesztmód: {0} szolgáltató sikeresen szimulálva."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Ismeretlen alagút-szolgáltató: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"A(z) '{0}' bináris fájl a(z) {1} számára nem található a PATH útvonalon.\n"
-"\n"
-"Telepítse innen: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Nem sikerült végrehajtani a(z) {0} bináris fájlt ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"A(z) {0} alagút fut és válaszol!\n"
-"\n"
-"Nyilvános végpont:\n"
-"{1}\n"
-"\n"
-"Állapotellenőrzés: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"A(z) {0} alagút aktív!\n"
-"\n"
-"Nyilvános végpont:\n"
-"{1}\n"
-"\n"
-"(A nyilvános URL az aktív alagút-munkamenetből származik.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"A(z) {0} bináris fájl ('{1}') ellenőrizve ({2}).\n"
-"\n"
-"(Megjegyzés: Egy aktív {3} alagút jelenleg fut ezen a címen: {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"A(z) {0} bináris fájl ('{1}') telepítve és ellenőrizve ({2}).\n"
-"\n"
-"Az MCP-kiszolgáló helyileg fut a(z) {3} porton.\n"
-"Jelölje be a „Közzététel nyilvános alagúton keresztül” lehetőséget, majd kattintson az OK gombra a nyilvános útválasztás aktiválásához."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"A(z) {0} bináris fájl ('{1}') telepítve és ellenőrizve ({2}).\n"
-"\n"
-"Megjegyzés: Az MCP-kiszolgáló jelenleg nem fut a(z) {3} porton."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: OCR beillesztése"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4654,18 +4781,14 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Humanizáló készség (természetes próza)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Ha engedélyezve van, útmutatást szúr be a rendszerszintű utasításba, hogy a "
-"modell által generált vagy módosított dokumentumszöveg természetesebb és "
-"emberibb hangzású legyen (eltávolítja az AI-ra jellemző sablonos mintákat). "
-"A szabályokat a LibreOffice-profiljában szerkesztheti a "
-"writeragent/skills/humanizer/SKILL.md fájlban (a fájl az első használatkor "
-"automatikusan létrejön). Egy külön Készségek lap később hozzáadható."
+"Ha engedélyezve van, beépített útmutatást szúr be a rendszerutasításba, így "
+"a modell által generált vagy módosított szöveg természetesebb és emberibb "
+"hangzású lesz (eltávolítja a mesterséges intelligenciára jellemző sablonos "
+"mintákat)."
 
 msgid "Silence before send (ms)"
 msgstr "Csend küldés előtt (ms)"
@@ -4862,6 +4985,67 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Alapszolgáltatások (konfiguráció, események, naplózás)"
 
+msgid "Integrations"
+msgstr "Integrációk"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-kiszolgálók az oldalsávos csevegéshez"
+
+msgid "Server"
+msgstr "Kiszolgáló"
+
+msgid "Add"
+msgstr "Hozzáadás"
+
+msgid "Remove"
+msgstr "Eltávolítás"
+
+msgid "Use this MCP server in chat"
+msgstr "MCP-kiszolgáló használata a csevegésben"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Csak oldalsávos csevegés (mcp tartomány); soha nem kerül a WriterAgent MCP-"
+"kiszolgálójához vagy parancsfájlokhoz."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Csak olvasható eszközök megbízhatósága (nincs rákérdezés)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"A kiszolgáló által csak olvashatónak (readOnlyHint) jelölt eszközök "
+"Elfogadás / Módosítás / Elutasítás nélkül futnak; minden egyéb hívásnál "
+"továbbra is rákérdez."
+
+msgid "Name"
+msgstr "Név"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr "A kiszolgáló eszközneveinek előtagja (pl. home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Kiszolgáló URL-je"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamelhető HTTP MCP-végpont, pl. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Jogkivonat"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer jogkivonat. A Beállítások OK gombja a rendszer kulcstartójában "
+"tárolja, ha elérhető, ellenkező esetben a writeragent.json fájlban."
+
+msgid "Status"
+msgstr "Állapot"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4961,67 +5145,6 @@ msgstr "Ügyfélkonfiguráció (másolja be a Claude / Hermes-Agent alkalmazásb
 
 msgid "Copy Config"
 msgstr "Konfiguráció másolása"
-
-msgid "Integrations"
-msgstr "Integrációk"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "MCP-kiszolgálók az oldalsávos csevegéshez"
-
-msgid "Server"
-msgstr "Kiszolgáló"
-
-msgid "Add"
-msgstr "Hozzáadás"
-
-msgid "Remove"
-msgstr "Eltávolítás"
-
-msgid "Use this MCP server in chat"
-msgstr "MCP-kiszolgáló használata a csevegésben"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Csak oldalsávos csevegés (mcp tartomány); soha nem kerül a WriterAgent MCP-"
-"kiszolgálójához vagy parancsfájlokhoz."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Csak olvasható eszközök megbízhatósága (nincs rákérdezés)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"A kiszolgáló által csak olvashatónak (readOnlyHint) jelölt eszközök "
-"Elfogadás / Módosítás / Elutasítás nélkül futnak; minden egyéb hívásnál "
-"továbbra is rákérdez."
-
-msgid "Name"
-msgstr "Név"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr "A kiszolgáló eszközneveinek előtagja (pl. home -> mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "Kiszolgáló URL-je"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Streamelhető HTTP MCP-végpont, pl. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Jogkivonat"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer jogkivonat. A Beállítások OK gombja a rendszer kulcstartójában "
-"tárolja, ha elérhető, ellenkező esetben a writeragent.json fájlban."
-
-msgid "Status"
-msgstr "Állapot"
 
 msgid "Notebook"
 msgstr "Jegyzetfüzet"
@@ -5133,13 +5256,18 @@ msgstr "Fájlhozzáférés engedélyezése"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
 "Ha be van jelölve, a Python bárhol olvashat és írhat fájlokat (open, io, "
-"pathlib, shutil, tempfile, sqlite3, glob és os fájlhívások, mint a listdir "
-"és stat). Ha nincs bejelölve, ezek az olvasási és írási műveletek blokkolva "
-"lesznek. A memóriabeli pufferek (io.BytesIO, io.StringIO) továbbra is "
+"pathlib, shutil, tempfile, sqlite3, glob, valamint fájlkezelő os hívások, "
+"mint a listdir és stat). Ha nincs bejelölve, ezek az olvasási és írási "
+"műveletek blokkolva lesznek; a memóriabeli pufferek (io.BytesIO, "
+"io.StringIO) és a dokumentumfájl-segédprogramok (wa.document.open, "
+"wa.document.save, wa.document.export, amelyek elérhetőek az MCP és a Python-"
+"szkriptek számára, de az oldalsávos csevegőmodell számára nem) továbbra is "
 "elérhetőek maradnak."
 
 msgid "Allow OS access"
@@ -5178,11 +5306,11 @@ msgstr ""
 "Szerkesztőablak a Python cellában való szerkesztéséhez, Python-szkriptek "
 "futtatásához, az init szkripthez és a LaTeX-hez."
 
-msgid "Monaco (default)"
-msgstr "Monaco (alapértelmezett)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Látásmód / OCR"
@@ -5195,34 +5323,98 @@ msgstr ""
 "Felskálázás OCR/elrendezés előtt. Próbálja meg a 2.0 értéket kis "
 "képernyőképeknél."
 
-msgid "Worker timeout (seconds)"
-msgstr "Háttérfolyamat időtúllépése (másodperc)"
+msgid "Document timeout (s)"
+msgstr "Dokumentum időtúllépése (mp)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Gazdagép alfolyamat-korlát a Vision segédekhez (első modellletöltés)."
-
-msgid "Docling artifacts path"
-msgstr "Docling-objektumok elérési útja"
-
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Opcionális mappa a docling-tools modellek letöltéséhez (offline használat)."
+"A Docling feldolgozását állítja le egy dokumentumnál ennyi másodperc után, "
+"és megtartja az addig elkészült oldalakat. A modell letöltése és betöltése "
+"nem számít bele. A 0 érték kikapcsolja a korlátozást."
+
+msgid "OCR engine"
+msgstr "OCR-motor"
+
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"A Docling által használt OCR-motor. A RapidOCR (ONNX) kivételével minden "
+"motort telepíteni kell a Python venv-be; a Beállítások → Python → Teszt "
+"menüpont felsorolja a telepítetteket."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, alapértelmezett)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (parancssor)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR-nyelv"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Nyelvkódok, például en, de vagy zh-TW, vesszővel elválasztva. A Docling "
+"motorok minden kódot elolvasnak; a Paddle motor az elsőt. Üresen hagyva a "
+"kép vagy a LibreOffice nyelvét használja."
+
+msgid "Device"
+msgstr "Eszköz"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Hardver a Docling modelljeihez. Az „Auto” GPU-t használ, ha a Docling talál "
+"ilyet; a CPU mindig működik."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR megbízhatósági küszöb"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR minimális szövegpontszám. A 0.0 egy valós küszöbérték (nem az "
-"alapértelmezett). Növelje a szemétszöveg csökkentése érdekében."
-
-msgid "OCR entire image"
-msgstr "Teljes kép OCR-ezése"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Ajánlott a LibreOffice-ból exportált beágyazott grafikákhoz."
+"Minimális megbízhatósági szint a felismert szöveghez (RapidOCR és EasyOCR; "
+"más motorok figyelmen kívül hagyják). Növelje a szemét szövegek "
+"kiszűréséhez; a 0.0 minden szöveget megtart."
 
 msgid "Table extraction mode"
 msgstr "Táblázatkinyerési mód"
@@ -5263,6 +5455,15 @@ msgstr "Szabványos HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Strukturált (elrendezés / cellarács)"
 
+msgid "Delete image after OCR"
+msgstr "Kép törlése OCR után"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"A forráskép eltávolítása a dokumentumból, miután az OCR beillesztette a "
+"tartalmát."
+
 msgid "Layout model"
 msgstr "Elrendezési modell"
 
@@ -5285,8 +5486,44 @@ msgstr "Kódblokk-kiegészítés"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Speciális OCR kód- vagy terminál-képernyőképekhez."
 
-msgid "Docling document timeout (s)"
-msgstr "Docling dokumentum-időtúllépés (mp)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR modellméret"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Konverziónkénti időtúllépés a Doclingben. 0 = nincs korlát."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"RapidOCR modellméret PP-OCRv6 nyelvekhez; más nyelvek figyelmen kívül "
+"hagyják. A „Tiny” a leggyorsabb és nem tartalmaz japán modellt; a „medium” a"
+" legpontosabb."
+
+msgid "Tiny"
+msgstr "Tiny (apró)"
+
+msgid "Small (default)"
+msgstr "Small (kicsi) (alapértelmezett)"
+
+msgid "Medium"
+msgstr "Közepes"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Elforgatott szöveg javítása (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Régió újraolvasása 90, 180 és 270 fokban, ha a sorok kevesebb mint fele "
+"olvasható megbízhatóan. Javítja az oldalra dőlt beolvasásokat; csak rossz "
+"olvasások esetén növeli az időigényt. A RapidOCR motorokra vonatkozik."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision felismerés"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Csak Apple Vision (macOS) esetén. A „Gyors” mód gyorsabb, de kevésbé pontos "
+"és kevesebb nyelvet ismer fel."

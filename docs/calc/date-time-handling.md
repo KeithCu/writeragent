@@ -126,7 +126,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.description` |
 | Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_wire.py`](../../tests/calc/test_datetime_wire.py), [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) |
 | Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate, P1 inherit); S29 batched restore, S18, and the 3000-cell timing print in [`tests/calc/test_manipulator_uno.py`](../../tests/calc/test_manipulator_uno.py); S30 message and the S29 one-write-per-key restore in [`tests/calc/test_cells.py`](../../tests/calc/test_cells.py). The `2026-02-30` case keeps its key because Calc never applies `@` to a string it cannot parse (see the M3 subsection "Why (LibreOffice source)"), so only the near-miss texts (`08/05/2026`) exercise the restore. |
-| Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, `=PY`, etc. |
+| Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, etc. |
 
 ---
 
@@ -179,7 +179,7 @@ Example string prepended to system instructions:
 
 The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_range`.
 
-**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`document_list_open`](../../plugin/doc/document_research_tools.py) and on no-topic [`manual_read()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
+**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`document_list_open`](../../plugin/doc/document_research_tools.py) and, for MCP callers (`ctx.caller == "mcp"`) only, on no-topic [`manual_read()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) (its only date source) and does not use the MCP initialize path.
 
 **Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The write-tool description and MCP Calc hint still tell the model not to re-append an offset or `Z` from other sources.
 
@@ -877,7 +877,7 @@ Dates detect as ISO everywhere, but `en-US` times detect as `HH:MM:SS AM/PM`. Pe
 
 The gate and M1/elapsed helpers are pure pytest. Conversion stays in UNO tests.
 
-**Landed:** gate accept/reject matrix (including unpadded / offsets / slash forms / `2026-13-45` / shape-ok `2026-02-30`), elapsed FormatString detection, duration PT gate/parse/emit, midnight serial helper, M1 preserve matrix (including duration→time), P1 template compatibility helper, S25/horizontal/vertical format-run coalesce helpers. Related non-Calc unit coverage: MCP `values` / `range` string\|array wire shape, `set_style` omits `number_format` for chat/MCP while scripting keeps it, `format_code` on temporal enrich only, `current_local_datetime` on list/guidance.
+**Landed:** gate accept/reject matrix (including unpadded / offsets / slash forms / `2026-13-45` / shape-ok `2026-02-30`), elapsed FormatString detection, duration PT gate/parse/emit, midnight serial helper, M1 preserve matrix (including duration→time), P1 template compatibility helper, S25/horizontal/vertical format-run coalesce helpers. Related non-Calc unit coverage: MCP `values` / `range` string\|array wire shape, `set_style` omits `number_format` for chat/MCP while scripting keeps it, `format_code` on temporal enrich only, `current_local_datetime` on `document_list_open` and MCP-only on no-topic `manual_read()`.
 
 **UNO edge cases (landed in §7.2):** post-gate `NotNumericException` for `2026-02-30` with S29 restore; apostrophe end-to-end.
 
@@ -1000,3 +1000,13 @@ Through the production `CellInspector.read_range(include_format_info=True)`:
 - [Eike Rathke on date acceptance patterns](https://erack.org/blog/archives/8-LibreOffice-date-acceptance-patterns.html) — ISO 8601 is accepted in every locale; note the interactive-input caveat in §8.1.
 - [ODF 1.3 schema](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part3-schema/OpenDocument-v1.3-os-part3-schema.html) — persisted date/time value types.
 - [Microsoft Excel 1900 leap-year behavior](https://learn.microsoft.com/en-us/troubleshoot/office/excel/wrongly-assumes-1900-is-leap-year) — raw-serial interoperability boundary.
+
+
+## Open
+
+- `[feature M many]` Accept locale-display date and time forms (such as `08/05/2026`) on write, which is ambiguous across locales today and is written as text. (§ 5.7 What to do next)
+- `[fidelity S many]` Widen the write grammar to unpadded dates (`2026-8-8`), fractional seconds, `24:00` and calendar durations (`P1D`, Y/M/W). (§ 5.7 What to do next)
+- `[idea M many]` Accept offset or `Z` datetimes on write and convert them using a stored document timezone, instead of leaving them as text. (§ 4.1 Connection-Time Clock Context)
+- `[idea S few]` Use the destination cell's number-format `Locale` (or the Options locale) instead of the document `CharLocale` when mixed-locale columns justify it. (§ M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`)
+- `[fidelity M few]` Spreadsheet-import epoch cleanup for dates, separate from `=PY()`. (§ 5.7 What to do next)
+- `[eng M few]` Strict transactional rollback of a `write_range` beyond the existing `WriterCompoundUndo`. (§ 5.7 What to do next)

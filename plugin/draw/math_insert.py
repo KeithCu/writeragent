@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, ClassVar
+from typing import Any
 
-from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
+from plugin.draw.base import ToolDrawMathBase
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
@@ -114,7 +114,7 @@ def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
     return n * 55, 800 + lines * 450
 
 
-class InsertMathDraw(ToolDrawSpecialBase):
+class InsertMathDraw(ToolDrawMathBase):
     name: str | None = "math_insert"
     description: str = "Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x and y. Size is derived from the formula when possible."
     parameters: dict[str, Any] | None = {
@@ -128,9 +128,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         },
         "required": ["formula_type", "formula", "page", "x", "y"],
     }
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
-    specialized_domain: ClassVar[str | None] = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
         from plugin.draw.bridge import DrawBridge

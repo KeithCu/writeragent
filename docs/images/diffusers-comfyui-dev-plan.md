@@ -42,7 +42,7 @@ It does **not** cover:
 - **ComfyUI** users (custom workflows, ControlNet, LoRAs, node graphs) — requires a dedicated client.
 - Full use of Settings **`image_steps`**, **`seed`**, **CFG** on every backend (partial today; ComfyUI would wire them explicitly).
 
-AI Horde was removed; `provider="aihorde"` still maps to `"endpoint"`.
+The `provider` tool parameter and its `aihorde` alias were removed; generation uses the configured Settings endpoint.
 
 **Goal:** Add pluggable **`ImageProvider`** for **ComfyUI** while keeping **`generate_image`**'s tool surface, document insertion, img2img flow, and async worker pattern unchanged. **Do not** add Diffusers-specific providers unless product requirements override the strategic decision above.
 
@@ -289,7 +289,7 @@ flowchart LR
 
 Add config key **`image_backend`**: `"endpoint"` | `"comfyui"` (default `"endpoint"`). Reserve `"diffusers_*"` strings only if backlog ships.
 
-Tool parameter `provider` already exists — extend allowed values (`comfyui`) and map legacy `"aihorde"` → `"endpoint"` (unchanged).
+Backend selection goes through the config key `image_backend` above rather than a tool parameter (tool-schema knobs were removed to keep the LLM-facing surface small).
 
 When `image_backend == "comfyui"`, **`image_model`** means checkpoint filename (`ckpt_name`) or workflow alias. When `"endpoint"`, behavior unchanged (`image_model` = remote/local model id on the configured URL, including Ollama flux models).
 
@@ -482,7 +482,7 @@ Run **`make test`** before merge each phase.
 3. **Bundled workflow target:** SD1.5 only vs. SDXL template (larger default graph)?
 4. **ComfyUI Cloud:** Same API with auth — support `comfyui_api_key` from day one?
 5. **Phase 0b vs nothing:** Ship OpenAI `url` fallback for endpoint, or wait for user reports?
-6. **Remove `aihorde` alias:** Deprecation notice in tool schema?
+6. **Remove `aihorde` alias:** **Done** — the alias is removed from the codebase.
 7. **Diffusers backlog:** Close permanently vs. keep design section — **current stance: keep as reference, do not schedule.**
 
 ---
@@ -511,3 +511,14 @@ Run **`make test`** before merge each phase.
 | 2026-06-18 | Initial plan from API research + codebase review (endpoint-only baseline; AI Horde removed) |
 | 2026-06-18 | Added **AutoPipeline** as recommended Diffusers venv loader (task-centric, good HF defaults) |
 | 2026-06-18 | **Strategic reprioritization:** ComfyUI = committed; Diffusers providers **deferred**; Ollama/existing `endpoint` documented as primary local path; optional Phase 0b (URL image fallback) |
+
+## Open
+
+- `[eng S few]` Plumbing for local backends: an `image_backend` config key, provider dispatch in `ImageService`, a shared temp-image writer and a multipart upload helper. (§ Phase 0 — Plumbing)
+- `[feature L few]` ComfyUI image backend: sync client, bundled SD1.5 txt2img and img2img workflows, Settings for URL and checkpoint, and a connection test. (§ Phase 1 — ComfyUI backend)
+- `[feature M few]` ComfyUI polish: WebSocket progress, user-supplied workflow paths with a node map, checkpoint validation via `/object_info`, and Stop calling `/interrupt`. (§ Phase 1b — ComfyUI polish)
+- `[feature S few]` Download `data[].url` images in the OpenAI image response parser when `b64_json` is absent, so stock Diffusers example servers work through `endpoint`. (§ Phase 0b — Endpoint image URL fallback)
+- `[feature M few]` Sidebar image-model combobox filled from ComfyUI checkpoints, plus a docs page for local images through Ollama. (§ Phase 4 — UX & catalog (later))
+- `[idea L few]` Diffusers HTTP backend with its own image endpoint config, only if several users need a Diffusers-only server on a separate URL. (§ Phase 2 — Diffusers HTTP backend)
+- `[idea L few]` In-extension Diffusers AutoPipeline venv worker, only on explicit demand. (§ Phase 3 — Diffusers venv worker)
+- `[idea S few]` Decide the plan's open questions: default backend detection, negative prompt, SD1.5 vs SDXL template, and a ComfyUI Cloud API key. (§ Open Questions (decide before Phase 1 coding))

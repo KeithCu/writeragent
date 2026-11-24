@@ -236,3 +236,9 @@ flowchart TB
 2. [`scripts/bench_serialization.py`](../../scripts/bench_serialization.py) — optional `native_vec` row when import succeeds.
 3. LO profile legs A–B on 100×100+ numeric ranges.
 4. Cold import cost in LO (extension startup) — compare to audio’s cffi load.
+
+## Open
+
+- `[eng M few]` Add Linux musl builds for the `writeragent_vec` host accelerator (`contrib/vec_pack/` already ships CPython 3.11–3.14 binaries for Windows `win_amd64`/`win_arm64`, macOS `darwin` universal2, and Linux glibc `x86_64`/`aarch64` via `.github/workflows/build-vec-wheels.yml` and `plugin/scripting/native_binaries.py`, while `musllinux_*` is skipped in `native/writeragent_vec/pyproject.toml`). (§ Status: Experimental (May 2026))
+- `[eng M few]` Add a second `writeragent_vec_search` Cython module for embeddings top-k over binary float32 sidecars. (§ Building Host Native Extensions (Cython))
+- `[eng S few]` Finish the pre-ship verification checklist for the accelerator (output parity tests are shipped in `tests/scripting/test_cython_parity.py` and `tests/scripting/test_payload_codec.py`; still missing: an optional `native_vec` row in `scripts/bench_serialization.py`, LO profile legs on large ranges, and cold-import cost). (§ Verification Before Shipping in OXT)

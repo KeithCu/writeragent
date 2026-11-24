@@ -23,3 +23,15 @@ def test_short_label_uses_short_name_or_id_tail_and_three_decimals() -> None:
     }
     assert plot_pareto._short_label(known_row) == f"{plot_pareto.SHORT_NAMES[known_id]} 0.821"
     assert plot_pareto._short_label(unknown_row) == "foo-bar 0.821"
+
+
+def test_pareto_svg_names_carry_the_date() -> None:
+    assert plot_pareto.pareto_svg_names("2026-11-22") == (
+        "pareto-fronts-2026-11-22.svg",
+        "pareto-distance-2026-11-22.svg",
+    )
+
+
+def test_board_size_counts_rows_and_max_examples() -> None:
+    rows = [{"n_examples": 19}, {"n_examples": 17}, {}]
+    assert plot_pareto._board_size(rows) == "3 models × 19 tasks"

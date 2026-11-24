@@ -251,7 +251,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 | MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
 | LaTeX dialog | [`plugin/writer/math/latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) |
 | HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) |
-| Chat / tool text for `apply_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only, no longer forbids `$`; `HTML_MATH_AND_LINK_EXAMPLES` holds the math and `|outline` examples served via `manual_read` `editing-html`, `full_manual`, and sub-agents; `content_needs_html_import` routes a complete `$…$` on tag-less content; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py) (`ApplyDocumentContent`) |
+| Chat / tool text for `apply_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only, no longer forbids `$`, and includes a prose-arithmetic cutoff allowing plain-number arithmetic in text; `HTML_MATH_AND_LINK_EXAMPLES` holds the math and `|outline` examples served via `manual_read` `editing-html`, `full_manual`, and sub-agents; `content_needs_html_import` routes a complete `$…$` on tag-less content; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py) (`ApplyDocumentContent`) |
 | Unit tests | `tests/writer/math/test_html_math_segment.py`, `tests/writer/math/test_math_mml_convert.py`, `tests/writer/math/test_math_mml_export.py`, `tests/writer/math/test_latex_dialog.py` |
 | UNO tests | `tests/writer/math/test_math_formula_insert_uno.py`, `tests/writer/math/test_math_mml_export_uno.py`, `tests/writer/math/test_latex_dialog_uno.py` |
 | Agent orientation | [`AGENTS.md`](../../AGENTS.md) |
@@ -962,3 +962,23 @@ See also: [Math extraction and edit loops](#math-extraction-and-edit-loops-roadm
 | 2026-04-29 | Extraction roadmap drafted (former `math-extraction-editing-dev-plan.md`). |
 | 2026-04 | HTML math Phases 0–2 shipped (former proposal + dev plan). |
 | 2026-05-20 | Consolidated into `math-tex.md`; source docs removed. |
+
+## Open
+
+- `[fidelity L many]` Phase 3 robustness: inline formula spacing and baseline, better matrix and aligned-expression support, clearer fallback messages, and broader real-world HTML coverage. (§ Phase 3: Robustness and quality)
+- `[eng S few]` Fill the minimum test matrix gaps: malformed MathML fixture, KaTeX-shaped HTML file fixture, table-with-math, plus an in-repo reviewer example document set. (§ Not done yet (still Phase 1 scope or immediate backlog))
+- `[fidelity S few]` Retry with the KaTeX/MathJax `<annotation encoding="application/x-tex">` text when MathML import fails, and detect KaTeX/MathJax DOM math that has no `<math>`. (§ Phase 2: TeX-aware fallback)
+- `[fidelity M few]` Policy for true multi-line and `mtable` math instead of globally collapsing StarMath `newline` tokens for Writer embeds. (§ Implementation notes (LibreOffice / Writer))
+- `[idea L few]` Upstream fix so LibreOffice Writer renders `newline` in embedded Math objects, removing the need for the collapse workaround. (§ Current status (read this first))
+- `[eng S few]` Optional `"".join` instead of `"\n".join` for list `content` in `apply_content`, and trim the DEBUG logging in the math import path. (§ Implementation notes (LibreOffice / Writer))
+- `[feature M few]` Dedicated `get_math_in_range` tool plus replace-in-place edit of an existing formula, targeted by index, bookmark or signature. (§ Math extraction and edit loops (roadmap))
+- `[feature M few]` Persist the original TeX on the inserted formula object so edit rounds do not have to guess TeX from StarMath. (§ TexMaths feature review (porting candidates))
+- `[feature S few]` Convert the current Writer text selection containing LaTeX into a native formula, as a menu action or MCP tool. (§ TexMaths feature review (porting candidates))
+- `[feature M few]` Read legacy TexMaths and OOoLatex images from existing documents and offer to convert them to native math. (§ TexMaths feature review (porting candidates))
+- `[feature M few]` Symbol palette tabs in the Insert LaTeX dialog. (§ TexMaths feature review (porting candidates))
+- `[feature S few]` Equation history list in the LaTeX dialog, stored as an LRU in config instead of the single `last_latex_input`. (§ TexMaths feature review (porting candidates))
+- `[feature M few]` Numbered display equations with automatic caption or sequence field. (§ TexMaths feature review (porting candidates))
+- `[feature S few]` Batch re-convert all formulas from stored TeX after a converter upgrade, once TeX provenance exists. (§ TexMaths feature review (porting candidates))
+- `[idea S few]` Per-document math hints and optional equation names stored in document properties for the model. (§ TexMaths feature review (porting candidates))
+- `[idea L few]` Optional external LaTeX to SVG/PNG image fallback when native conversion fails. (§ TexMaths feature review (porting candidates))
+- `[idea L few]` Bring HTML-in-chat document context back using a windowed export of a temporary copy that keeps Math objects and hides tracked deletions. (§ Chat `[DOCUMENT CONTENT]` does not inline Math OLE (on purpose))

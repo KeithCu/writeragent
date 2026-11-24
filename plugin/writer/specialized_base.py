@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawSpecialBase, ToolDrawTableBase
-from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
+from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, without_sheet_index_off_calc
 from plugin.framework.prompts import DELEGATION_MCP_HINT, DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import LADDER_CASE_SENSITIVE_DESCRIPTION
@@ -90,7 +90,10 @@ def _writer_core_tools(*extra: str) -> frozenset[str]:
 
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
-    specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Manage and edit paragraph, character, and list styles, and set or reset direct formatting "
+        "(font, size, weight, colour, alignment, spacing) on selected text, search matches, or the whole document."
+    )
     required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
@@ -134,6 +137,9 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
     # Writer + Draw/Impress graphic hosts; ignore keeps the shared constant assignable.
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
 
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        return without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+
 
 class ToolWriterVisionBase(ToolWriterSpecialBase):
     """Marker for Writer delegation prompt listing (domain=vision); see plugin/vision/vision_tools.py."""
@@ -172,11 +178,9 @@ class ToolWriterChartBase(ToolWriterSpecialBase):
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
-        "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
-        "Delegate every TOC job here as one task, including creating a new TOC (index_create kind=toc) "
-        "and editing rows; the indexes executor reads and edits rows in the document, so the main chat "
-        "must not rebuild a TOC with document-content edits or pass rows read from the document back in. "
-        "For a read-only request, report entry text and level."
+        "Tables of contents, alphabetical indexes, and native bibliography cites plus the reference table. "
+        "Delegate every TOC job here as one task, including creating a TOC and editing its rows; "
+        "the indexes sub-agent edits rows in place, so do not rebuild a TOC with document-content edits."
     )
 
 
@@ -188,7 +192,7 @@ class ToolWriterFieldBase(ToolWriterSpecialBase):
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
-    specialized_domain_description: ClassVar[str | None] = "View, add, and manage document comments and feedback."
+    specialized_domain_description: ClassVar[str | None] = "List, edit, resolve, and delete document comments, and run comment task workflows."
 
 
 class WriterAgentSpecialTracking(ToolWriterSpecialBase):
@@ -259,7 +263,10 @@ class ToolWriterWebResearchBase(ToolWriterSpecialBase):
 
 class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "document_research"
-    specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions"
+    specialized_domain_description: ClassVar[str | None] = (
+        f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions; "
+        "searches only the user's own files; answer public facts yourself or via web_research"
+    )
 
 
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):

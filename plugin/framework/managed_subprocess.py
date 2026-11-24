@@ -188,6 +188,10 @@ class ManagedSubprocess:
         self._lock = threading.Lock()
 
     @property
+    def label(self) -> str:
+        return self._label
+
+    @property
     def popen(self) -> subprocess.Popen[bytes] | None:
         """Return the underlying subprocess.Popen instance or None if not started."""
         return cast("subprocess.Popen[bytes] | None", self._proc)
@@ -514,7 +518,7 @@ class ManagedSubprocess:
             errors=self._raw_errors,
             env=self._env,
             cwd=self._cwd,
-            # TTS PowerShell (WMPlayer.OCX, SoundPlayer, SAPI) would otherwise flash a console.
+            # TTS PowerShell (MediaPlayer, SoundPlayer, SAPI) would otherwise flash a console.
             **get_subprocess_creationflags(),
         )
         self._proc = proc

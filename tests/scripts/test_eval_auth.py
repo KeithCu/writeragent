@@ -14,8 +14,10 @@ from eval_auth import (  # noqa: E402
     OPENROUTER_DEFAULT_JUDGE,
     build_eval_api_config,
     is_anthropic_model_id,
+    is_gemini_model_id,
     is_openrouter_endpoint,
     native_anthropic_model_id,
+    native_gemini_model_id,
     require_api_key,
     require_eval_keys,
     resolve_api_base,
@@ -25,9 +27,11 @@ from eval_auth import (  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _isolate_anthropic_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("EVAL_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 def test_resolve_api_key_cli_wins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -282,3 +286,155 @@ def test_require_api_key_anthropic_hint(capsys: pytest.CaptureFixture[str]) -> N
     err = capsys.readouterr().err
     assert "EVAL_ANTHROPIC_API_KEY" in err
     assert "ANTHROPIC_API_KEY" in err
+
+
+def test_is_gemini_model_id() -> None:
+    assert is_gemini_model_id("google/gemini-2.5-flash:free")
+    assert is_gemini_model_id("openrouter/google/gemini-2.5-pro:nitro")
+    assert is_gemini_model_id("gemini-2.5-flash:thinking")
+    assert not is_gemini_model_id("openai/gpt-oss-120b:nitro")
+    assert not is_gemini_model_id("google/gemma-3-27b-it")
+    assert not is_gemini_model_id("foo/gemini-2.5-flash")
+    assert not is_gemini_model_id("gemini")
+    assert not is_gemini_model_id("gemini-")
+    assert not is_gemini_model_id("google/")
+    assert not is_gemini_model_id("google/gemini-")
+    assert not is_gemini_model_id("")
+
+
+def test_native_gemini_model_id() -> None:
+    assert native_gemini_model_id("google/gemini-2.5-flash:free") == "gemini-2.5-flash"
+    assert native_gemini_model_id("gemini-2.5-flash:thinking") == "gemini-2.5-flash"
+    assert native_gemini_model_id("openrouter/google/gemini-2.5-pro:nitro") == "gemini-2.5-pro"
+    assert native_gemini_model_id("google/gemini-3.1-pro-preview:exacto") == "gemini-3.1-pro-preview"
+
+
+def test_build_eval_api_config_gemini_routes_to_google(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.client.auth import resolve_auth_for_config
+    from plugin.framework.client.google_shim import GoogleShim
+    from plugin.framework.client.openai_shim import get_provider_shim_class
+
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key-123")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert "generativelanguage.googleapis.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "gem-key-123"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "gemini-2.5-flash"
+
+    auth = resolve_auth_for_config(cfg)
+    assert auth["provider"] == "google"
+    assert get_provider_shim_class(auth["provider"]) is GoogleShim
+
+
+def test_build_eval_api_config_eval_gemini_api_key_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_GEMINI_API_KEY", "eval-gem-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "fallback-gem-key")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert "generativelanguage.googleapis.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "eval-gem-key"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "gemini-2.5-flash"
+
+
+def test_build_eval_api_config_gemini_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key-123")
+    cfg1 = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="gemini-2.5-flash:thinking",
+    )
+    assert cfg1["model"] == "gemini-2.5-flash"
+
+    cfg2 = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="openrouter/google/gemini-2.5-pro:free",
+    )
+    assert cfg2["model"] == "gemini-2.5-pro"
+
+
+def test_build_eval_api_config_gemini_env_deleted_stays_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert "openrouter.ai" in cfg["endpoint"]
+    assert cfg["api_key"] == "or-key"
+    assert cfg["model"] == "google/gemini-2.5-flash:free"
+    assert cfg["is_openrouter"] is True
+
+
+def test_build_eval_api_config_gemini_local_endpoint_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key-123")
+    cfg = build_eval_api_config(
+        endpoint="http://127.0.0.1:8080/v1",
+        api_key="loc-key",
+        model="gemini-2.5-flash",
+    )
+    assert cfg["endpoint"] == "http://127.0.0.1:8080"
+    assert cfg["api_key"] == "loc-key"
+    assert cfg["model"] == "gemini-2.5-flash"
+
+
+def test_build_eval_api_config_already_google_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    cfg1 = build_eval_api_config(
+        endpoint="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key="cli-key",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert cfg1["api_key"] == "cli-key"
+    assert cfg1["model"] == "gemini-2.5-flash"
+
+    cfg2 = build_eval_api_config(
+        endpoint="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key="",
+        model="google/gemini-2.5-flash:free",
+    )
+    assert cfg2["api_key"] == "env-key"
+    assert cfg2["model"] == "gemini-2.5-flash"
+
+
+def test_require_eval_keys_all_gemini_no_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    require_eval_keys(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="",
+        models=["google/gemini-2.5-flash"],
+    )
+
+    monkeypatch.delenv("GEMINI_API_KEY")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["google/gemini-2.5-flash"],
+        )
+
+
+def test_require_eval_keys_gemini_and_openrouter_judge_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["google/gemini-2.5-flash", "openai/gpt-oss-120b:nitro"],
+        )
+
+
+def test_require_api_key_google_hint(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        require_api_key("", "https://generativelanguage.googleapis.com/v1beta/openai")
+    err = capsys.readouterr().err
+    assert "EVAL_GEMINI_API_KEY" in err
+    assert "GEMINI_API_KEY" in err

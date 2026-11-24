@@ -58,7 +58,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     if domain == "footnotes":
         # Direct mode has no sub-agent executor, so the app-neutral sentence regardless of app.
         return loop_hint("footnotes", None)
-    if domain in ("charts", "shapes"):
+    if domain in ("charts", "shapes", "indexes"):
         return loop_hint(domain, agent_label)
     if domain == "images":
         return images_specialized_sub_agent_hint().strip()

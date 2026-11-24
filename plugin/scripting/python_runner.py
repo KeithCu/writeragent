@@ -21,7 +21,7 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 from dataclasses import dataclass
 import logging
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
@@ -43,6 +43,9 @@ from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import calc_selection_to_a1
 from plugin.calc.calc_addin_data import resolve_python_data
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 from plugin.calc.python.formula_edit import parse_data_binding_text
 from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 from plugin.calc.rich_html import insert_cell_html_rich
@@ -405,22 +408,16 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
     # Weight: only vision runs load plugin.vision (see _prepare_vision).
-    from plugin.vision.vision_egress import insert_vision_result
+    from plugin.vision.vision_egress import insert_vision_item
 
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
 
+    outcomes: list["VisionInsertOutcome"] = []
     if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])
-        for indiv_res in indiv_results:
-            # insert_vision_result requires the image_name to be set in params for correct insertion
-            # The background thread set it in the response context or we pass it
-            img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
-            insert_params = dict(prepared.params)
-            if img_name:
-                insert_params["image_name"] = img_name
-            insert_vision_result(prepared.ctx, prepared.doc, indiv_res, params=insert_params)
+        outcomes = [insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params) for indiv_res in indiv_results]
 
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
@@ -430,7 +427,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
     helper_name = prepared.helper_name
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
-    inserted = not is_draw(prepared.doc)
+    inserted = any(o != "empty" for o in outcomes)
     if count > 1:
         if inserted:
             status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(

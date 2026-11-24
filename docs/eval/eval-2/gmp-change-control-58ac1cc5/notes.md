@@ -74,3 +74,7 @@ do **not** change `prompt.writeragent.txt`):
 
 Harness pass/fail for this variant is [`rubric.eval2.md`](rubric.eval2.md),
 not a letter-shift of `rubric_pretty.txt`.
+
+## Open
+
+- `[eng S few]` Harness: open the Draw sidebar deck and register the form as a live peer without a human click before a headed trial. (§ Pre-open recipe (v1 cheat))

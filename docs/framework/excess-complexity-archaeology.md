@@ -1040,6 +1040,8 @@ sends no ready frame (it does) and two that name functions with no
 definition. Those are ordinary drift, not the sweep's doing, but they belong
 in the same comment-only PR.
 
+**Shipped:** PR #3351 (`Comment-only pass: spliced comments, incident stories and stale doc claims in scripting and compute`) fixed the spliced comments (including `plugin/scripting/venv_worker.py` `_execute_ipc` / `_read_turn`) and the stale doc claims (including `docs/scripting/worker-spawn-handshake-timeouts.md`).
+
 ### Refinements to existing kinds
 
 - **Kind 13 is wider than names.** The seam counts in earlier rounds looked
@@ -1070,8 +1072,7 @@ in the same comment-only PR.
   with one caller is a hop; this one is a round trip.
 - **Kind 5, in a chain.** Seven names between "route matched" and "body
   parsed" in the compute server, four of them forwarders that each add one
-  argument, plus a flag (`is_body_route`) that is `True` in every row of the
-  table (08-4).
+  argument (08-4; the `is_body_route` flag is no longer in the code).
 - **Kind 1, drifted.** The column-kind rule in the slow flatten path is
   written nine times beside its owner, and the copies already disagree with
   it for one input (03-2). A duplicate that has diverged is no longer a "no
@@ -1110,3 +1111,9 @@ in the same comment-only PR.
 - [uno-thread-safety.md](uno-thread-safety.md): why UNO disposal handling is not
   "excess."
 - `git log --grep=s55 --oneline`: the commits discussed here.
+
+## Open
+
+- `[eng S few]` Dispose the LibrePy sidebar controller when panel setup fails after `PythonSidebarController` is built, and restore the test removed with that cleanup. (§ New items for "Known risks" (verified in the diffs unless noted))
+- `[eng S few]` Restore unit coverage for hands-free restart (`sticky_restart` and `stop_during_take` matrices) and a `_prepare_mcp_execution` test with non-string, `None` and missing-key arguments. (§ Known risks of this process)
+- `[eng S few]` Put back the deleted bugfix rationale comments on `resolve_bibliographic_type` and `_BIB_FIELD_FOLDED` in `plugin/writer/specialized/indexes.py` (`uno_same` in `plugin/framework/uno_context.py` and `refuse_tracked_insert_or_delete` in `plugin/writer/edit_review.py` already carry their rationale docstrings). (§ New items for "Known risks" (verified in the diffs unless noted))

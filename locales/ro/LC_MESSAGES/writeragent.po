@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Nu s-a putut anula ultima modificare a agentului."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Ultima modificare a agentului a fost anulată ({0} pași)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Imaginea nu a fost găsită."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Nu s-a putut șterge imaginea: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -699,11 +708,11 @@ msgstr "Deschideți mai întâi o foaie de calcul Calc."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Editorul Monaco este dezactivat de „scripting.force_internal_script_editor” "
-"în writeragent.json."
+"Fereastra editorului Python este dezactivată de "
+"„scripting.force_internal_script_editor” în writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1232,6 +1241,10 @@ msgstr "Acceptă această modificare"
 msgid "Reject this change"
 msgstr "Respinge această modificare"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Nu s-a putut decoda imaginea de previzualizare."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1634,6 +1647,25 @@ msgstr "de ce"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "dumneavoastră"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Se execută…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Anulat."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Previzualizarea a eșuat: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Execuția a eșuat: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2354,6 +2386,36 @@ msgstr "Se deschide „%s” pentru acces doar în citire."
 msgid "Web research completed."
 msgstr "Cercetarea web a fost finalizată."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama nu a raportat num_ctx, așa că WriterAgent a presupus {0} tokenuri, "
+"ceea ce este prea puțin pentru cercetarea web (promptul de cercetare și "
+"instrumentele ocupă singure aproximativ 2.000 de tokenuri, plus tokenurile "
+"de ieșire). Creșteți num_ctx la cel puțin {1} (prin PARAMETER num_ctx {2} "
+"sau mai mare într-un fișier Modelfile cu ollama create), apoi utilizați Test"
+" Connection în Settings (sau reporniți LibreOffice) și încercați din nou."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Fereastra de context ({0} tokenuri) este prea mică pentru cercetarea web "
+"(promptul de cercetare și instrumentele ocupă singure aproximativ 2.000 de "
+"tokenuri, plus tokenurile de ieșire). Creșteți num_ctx la cel puțin {1} (sau"
+" treceți la un model cu o fereastră de context mai mare) și încercați din "
+"nou."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2637,10 +2699,6 @@ msgstr "Script Python nou"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Nume script:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Se execută…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2956,12 +3014,12 @@ msgstr "Verificarea Venv a eșuat"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Setați calea venv Python în Setări → Python (același venv unde ați rulat 'uv"
-" pip install pywebview rocher'). Python-ul încorporat în LibreOffice nu "
-"poate rula editorul."
+"Setați calea venv Python în Setări → Python (același venv unde ați rulat „uv"
+" pip install pywebview”). Python-ul integrat în LibreOffice nu poate rula "
+"editorul."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3048,12 +3106,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Sonda audio a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Sonda Monaco a expirat."
+msgid "UI / Editor probe timed out."
+msgstr "Sondarea UI / Editor a expirat."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Sonda Monaco a eșuat (consultați writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "Sondarea UI / Editor a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3100,6 +3158,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "Sonda DuckDB a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR nu poate porni în acest venv:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nu a fost detectat niciun dispozitiv de intrare microfon."
 
@@ -3132,8 +3194,8 @@ msgid "Audio Recording & Speech"
 msgstr "Înregistrare audio și vorbire"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Biblioteci Monaco: se verifică în afara worker-ului de script..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "Biblioteci UI / Editor: se verifică în afara worker-ului de script..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3510,7 +3572,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Asistenții vizuali necesită un document Writer, Calc, Draw sau Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Asistentul vizual a eșuat."
 
@@ -3605,6 +3667,224 @@ msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "A apărut o eroare neașteptată la deschiderea Executării scriptului Python."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Verificați writeragent_debug.log în folderul de configurare utilizator "
+"LibreOffice"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Pornirea serverului MCP a eșuat"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Oprire server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Pornire server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Serverul MCP nu rulează"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Serverul MCP rulează"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rute: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "URL local: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "URL public: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Endpoint local:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Tunel public ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Stare: Activ (conectat)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Stare: Reconectare — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "se reîncearcă…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Stare: Se pornește tunelul…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Stare: Eșuat — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Stare: Nu rulează (este instalat binarul {0}?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Copiat!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Se testează…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testare tunel"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Testare tunel MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Tunel public prin {0} (fără autentificare)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Tunel public prin {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "se reconectează…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Tunelul public prin {0} a eșuat: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Tunelul public prin {0} pornește…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Tunelul public prin {0} nu rulează (este instalat binarul furnizorului?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Mod test tunel: furnizorul {0} a fost simulat cu succes."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Furnizor de tunel necunoscut: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binarul „{0}” pentru {1} nu a fost găsit în PATH.\n"
+"\n"
+"Instalați de la: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Executarea binarului {0} a eșuat ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Tunelul {0} rulează și răspunde!\n"
+"\n"
+"Endpoint public:\n"
+"{1}\n"
+"\n"
+"Verificare stare: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Tunelul {0} este activ!\n"
+"\n"
+"Endpoint public:\n"
+"{1}\n"
+"\n"
+"(URL public obținut dintr-o sesiune de tunel activă.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Binarul {0} „{1}” este verificat ({2}).\n"
+"\n"
+"(Notă: Un tunel {3} activ rulează în prezent la {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Binarul {0} „{1}” este instalat și verificat ({2}).\n"
+"\n"
+"Serverul MCP rulează local pe portul {3}.\n"
+"Bifați „Expuneți prin tunel public” și faceți clic pe OK pentru a activa rutarea publică."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Binarul {0} „{1}” este instalat și verificat ({2}).\n"
+"\n"
+"Notă: Serverul MCP nu rulează în prezent pe portul {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Stare server MCP"
@@ -3625,10 +3905,62 @@ msgstr "Acceptă tot"
 msgid "Reject all"
 msgstr "Respinge tot"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Se încarcă modelele…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Se recunoaște textul…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Nu a fost detectat niciun text."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Se randează previzualizarea…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Nu s-a putut exporta imaginea selectată: {error}"
+msgid "Done: {count} characters."
+msgstr "Gata: {count} caractere."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Inserarea OCR Vision necesită un document Writer sau Calc; utilizați "
+"Previzualizare pentru Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Se inserează…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Au fost inserate {count} imagini."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Inserat: {count} caractere."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Imaginea a fost păstrată deoarece revizuirea editării Agentului "
+"înregistrează modificările."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Nu s-a putut crea documentul de previzualizare."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Nu s-a putut randa pagina de previzualizare."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3636,6 +3968,11 @@ msgid ""
 msgstr ""
 "Selectați o imagine încorporată (sau o zonă care conține imagini), apoi "
 "rulați din nou."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Nu s-a putut exporta imaginea selectată: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3716,226 +4053,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Imaginea a fost eliminată în timpul pregătirii inserării OCR."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nu se poate șterge o imagine fără nume după inserarea OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Imaginea a fost eliminată în timpul inserării OCR."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Verificați writeragent_debug.log în folderul de configurare utilizator "
-"LibreOffice"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Pornirea serverului MCP a eșuat"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Oprire server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Pornire server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Serverul MCP nu rulează"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Serverul MCP rulează"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Rute: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "URL local: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "URL public: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Endpoint local:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Tunel public ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Stare: Activ (conectat)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Stare: Reconectare — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "se reîncearcă…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Stare: Se pornește tunelul…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Stare: Eșuat — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Stare: Nu rulează (este instalat binarul {0}?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Copiat!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Se testează…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testare tunel"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Testare tunel MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Tunel public prin {0} (fără autentificare)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Tunel public prin {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "se reconectează…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Tunelul public prin {0} a eșuat: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Tunelul public prin {0} pornește…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Tunelul public prin {0} nu rulează (este instalat binarul furnizorului?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Mod test tunel: furnizorul {0} a fost simulat cu succes."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Furnizor de tunel necunoscut: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binarul „{0}” pentru {1} nu a fost găsit în PATH.\n"
-"\n"
-"Instalați de la: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Executarea binarului {0} a eșuat ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Tunelul {0} rulează și răspunde!\n"
-"\n"
-"Endpoint public:\n"
-"{1}\n"
-"\n"
-"Verificare stare: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Tunelul {0} este activ!\n"
-"\n"
-"Endpoint public:\n"
-"{1}\n"
-"\n"
-"(URL public obținut dintr-o sesiune de tunel activă.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Binarul {0} „{1}” este verificat ({2}).\n"
-"\n"
-"(Notă: Un tunel {3} activ rulează în prezent la {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Binarul {0} „{1}” este instalat și verificat ({2}).\n"
-"\n"
-"Serverul MCP rulează local pe portul {3}.\n"
-"Bifați „Expuneți prin tunel public” și faceți clic pe OK pentru a activa rutarea publică."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Binarul {0} „{1}” este instalat și verificat ({2}).\n"
-"\n"
-"Notă: Serverul MCP nu rulează în prezent pe portul {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Inserare OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4647,18 +4774,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Abilitate de umanizare (proză naturală)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Când este activată, introduce instrucțiuni în promptul de sistem astfel "
-"încât modelul să facă textul generat sau revizuit să sune mai natural și "
-"uman (elimină tiparele specifice AI). Editați regulile în profilul "
-"LibreOffice sub writeragent/skills/humanizer/SKILL.md (fișierul este creat "
-"automat la prima utilizare). O filă dedicată pentru Abilități poate fi "
-"adăugată ulterior."
+"Când este activat, injectează ghidarea integrată în promptul sistemului, "
+"astfel încât modelul să facă textul documentului generat sau revizuit să "
+"sune mai natural și uman (elimină tiparele de tip „AI slop”)."
 
 msgid "Silence before send (ms)"
 msgstr "Liniște înainte de trimitere (ms)"
@@ -4854,6 +4976,69 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Servicii de bază (configurare, evenimente, jurnalizare)"
 
+msgid "Integrations"
+msgstr "Integrări"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Servere MCP pentru chat-ul din bara laterală"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Adaugă"
+
+msgid "Remove"
+msgstr "Elimină"
+
+msgid "Use this MCP server in chat"
+msgstr "Utilizează acest server MCP în chat"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Doar chat-ul din bara laterală (domeniul mcp); nu este niciodată expus "
+"serverului MCP al WriterAgent sau scripturilor."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Încrede-te în instrumentele sale doar în citire (fără confirmare)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Instrumentele pe care serverul le marchează ca readOnlyHint rulează fără "
+"Acceptare / Modificare / Respingere; orice alt apel va solicita în "
+"continuare confirmarea"
+
+msgid "Name"
+msgstr "Nume"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Adaugă prefix numelor instrumentelor acestui server (de ex. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL server"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Endpoint MCP HTTP streamable, de ex. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Token Bearer. Setările OK îl stochează în brelocul de chei al sistemului "
+"când este disponibil, altfel în writeragent.json."
+
+msgid "Status"
+msgstr "Stare"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4952,69 +5137,6 @@ msgstr "Configurație client (copiați în Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Copiază configurația"
-
-msgid "Integrations"
-msgstr "Integrări"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Servere MCP pentru chat-ul din bara laterală"
-
-msgid "Server"
-msgstr "Server"
-
-msgid "Add"
-msgstr "Adaugă"
-
-msgid "Remove"
-msgstr "Elimină"
-
-msgid "Use this MCP server in chat"
-msgstr "Utilizează acest server MCP în chat"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Doar chat-ul din bara laterală (domeniul mcp); nu este niciodată expus "
-"serverului MCP al WriterAgent sau scripturilor."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Încrede-te în instrumentele sale doar în citire (fără confirmare)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Instrumentele pe care serverul le marchează ca readOnlyHint rulează fără "
-"Acceptare / Modificare / Respingere; orice alt apel va solicita în "
-"continuare confirmarea"
-
-msgid "Name"
-msgstr "Nume"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Adaugă prefix numelor instrumentelor acestui server (de ex. home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL server"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Endpoint MCP HTTP streamable, de ex. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Token Bearer. Setările OK îl stochează în brelocul de chei al sistemului "
-"când este disponibil, altfel în writeragent.json."
-
-msgid "Status"
-msgstr "Stare"
 
 msgid "Notebook"
 msgstr "Carnet"
@@ -5125,13 +5247,18 @@ msgstr "Permite accesul la fișiere"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Dacă este bifat, Python poate citi și scrie fișiere oriunde (open, io, "
-"pathlib, shutil, tempfile, sqlite3, glob și apeluri de fișiere os precum "
-"listdir și stat). Dacă este debifat, aceste citiri și scrieri sunt blocate. "
-"Memoria tampon (io.BytesIO, io.StringIO) rămâne disponibilă."
+"Când este bifat, Python poate citi și scrie fișiere oriunde (apeluri de "
+"fișiere open, io, pathlib, shutil, tempfile, sqlite3, glob și os, cum ar fi "
+"listdir și stat). Când este debifat, acele citiri și scrieri sunt blocate; "
+"bufferele în memorie (io.BytesIO, io.StringIO) și ajutoarele pentru "
+"fișierele document (wa.document.open, wa.document.save, wa.document.export, "
+"care sunt accesibile prin MCP și scripturi Python, nefiind oferite modelului"
+" de chat din bara laterală) rămân disponibile."
 
 msgid "Allow OS access"
 msgstr "Permite accesul la sistemul de operare"
@@ -5168,11 +5295,11 @@ msgstr ""
 "Fereastră editor pentru Editare Python în celulă, Executare script Python, "
 "scriptul de inițializare și LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (implicit)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Viziune / OCR"
@@ -5184,36 +5311,98 @@ msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr ""
 "Scalare înainte de OCR/layout. Încercați 2.0 pentru capturi de ecran mici."
 
-msgid "Worker timeout (seconds)"
-msgstr "Timp limită proces (secunde)"
+msgid "Document timeout (s)"
+msgstr "Timp limită document (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Limită subproces gazdă pentru Vision Helpers (prima descărcare a modelului)."
+"Oprește procesarea Docling a unui document după acest număr de secunde și "
+"păstrează paginile finalizate până în acel moment. Descărcarea și încărcarea"
+" modelului nu sunt luate în calcul. 0 dezactivează limita."
 
-msgid "Docling artifacts path"
-msgstr "Cale artefacte Docling"
+msgid "OCR engine"
+msgstr "Motor OCR"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Dosar opțional pentru descărcarea modelelor docling-tools (utilizare "
-"offline)."
+"Motorul OCR utilizat de Docling. Fiecare motor, cu excepția RapidOCR (ONNX),"
+" trebuie instalat în venv-ul Python; Setări → Python → Test listează "
+"motoarele instalate."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, implicit)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (linie de comandă)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Limbă OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Coduri de limbă precum en, de sau zh-TW, separate prin virgulă. Motoarele "
+"Docling citesc fiecare cod; motorul Paddle îl citește pe primul. Dacă este "
+"gol, se utilizează limba imaginii sau a LibreOffice."
+
+msgid "Device"
+msgstr "Dispozitiv"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Hardware pentru modelele Docling. „Auto” utilizează un GPU când Docling "
+"găsește unul; CPU funcționează întotdeauna."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Prag de încredere OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Scorul minim de text RapidOCR. 0.0 este un prag real (nu cel implicit). "
-"Creșteți valoarea pentru a reduce textul irelevant."
-
-msgid "OCR entire image"
-msgstr "OCR pentru întreaga imagine"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Recomandat pentru graficele încorporate exportate din LibreOffice."
+"Încredere minimă pentru textul recunoscut (RapidOCR și EasyOCR; alte motoare"
+" o ignoră). Creșteți valoarea pentru a elimina textul irelevant; 0.0 "
+"păstrează tot textul."
 
 msgid "Table extraction mode"
 msgstr "Mod de extragere a tabelelor"
@@ -5253,6 +5442,15 @@ msgstr "HTML standard"
 msgid "Structured (layout / cell grid)"
 msgstr "Structurat (aspect / grilă de celule)"
 
+msgid "Delete image after OCR"
+msgstr "Șterge imaginea după OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Elimină imaginea sursă din document după ce OCR inserează conținutul "
+"acesteia."
+
 msgid "Layout model"
 msgstr "Model de machetă"
 
@@ -5275,8 +5473,44 @@ msgstr "Îmbogățire bloc de cod"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "OCR specializat pentru capturi de ecran cu cod/terminal."
 
-msgid "Docling document timeout (s)"
-msgstr "Timp limită document Docling (s)"
+msgid "RapidOCR model size"
+msgstr "Dimensiune model RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Timp limită per conversie în Docling. 0 = fără limită."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Dimensiunea modelului RapidOCR pentru limbile PP-OCRv6; alte limbi o ignoră."
+" „Tiny” este cel mai rapid și nu are model pentru japoneză; „medium” este "
+"cel mai precis."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (implicit)"
+
+msgid "Medium"
+msgstr "Mediu"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Corectare text rotit (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Recitește o regiune la 90, 180 și 270 de grade când mai puțin de jumătate "
+"din liniile sale sunt citite cu încredere. Corectează scanările laterale; "
+"consumă timp doar la citirile slabe. Se aplică motoarelor RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Recunoaștere Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Doar Apple Vision (macOS). „Rapid” este mai rapid, dar mai puțin precis și "
+"citește mai puține limbi."

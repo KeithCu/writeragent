@@ -136,6 +136,7 @@ def test_delegate_status_inner_tool_error(
     assert result["message"] == "Failed to read page objects"
     assert result["error"] == "Failed to read page objects"
     assert result["answer"] == "Final attempted answer"
+    assert result["tool_errors"] == [{"tool": "failing_structural_tool", "message": "Failed to read page objects"}]
 
 
 def test_delegate_status_incomplete_no_finish_no_tool_error(
@@ -1046,6 +1047,8 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
     assert result["shapes_created"] == 1
+    assert result["edits"] == {"shape_upsert": 1}
+    assert result["tool_errors"] == [{"tool": "shape_connect", "message": "Target shape not found"}]
 
 
 def test_calc_gateway_enum_keeps_forms_on_spreadsheet() -> None:
@@ -1148,3 +1151,64 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
         chat_schemas = registry.get_schemas("openai", doc_type="writer", ctx=object())
         chat_delegate = next(s for s in chat_schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)
         assert "mcp" in chat_delegate["function"]["parameters"]["properties"]["domain"]["enum"]
+
+
+def test_first_bootstrap_delegate_enum_matches_prompt_catalog(tmp_path: Any) -> None:
+    """In a fresh interpreter, bind() must populate every domain that the prompt catalog lists.
+
+    Runs in a subprocess because earlier tests import plugin.draw tool modules, which would
+    populate subclasses before DelegateToSubagent.__init__ captures its enum and hide a
+    domain declared only on a late-imported tool module.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from plugin.framework.doc_type import (
+        CALC_DOCUMENT_SERVICE,
+        DRAW_DOCUMENT_SERVICE,
+        IMPRESS_DOCUMENT_SERVICE,
+        TEXT_DOCUMENT_SERVICE,
+    )
+
+    script = """
+import json, os, sys
+import tests.conftest
+from plugin.framework import config
+from plugin.app import get_tools
+from plugin.doc.specialized_catalog import catalog_entries_from_base
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
+from plugin.main import bind
+
+config._resolved_config_path = os.path.join(sys.argv[1], "writeragent.json")
+bind()
+gateway = get_tools().get(DELEGATE_SUBAGENT_TOOL)
+out = {}
+for svc in sys.argv[2:]:
+    svcs = frozenset([svc])
+    label = gateway.agent_label_for(uno_services=svcs)
+    enum_domains = gateway.domains_for_services(svcs)
+    listed = sorted({e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=svcs, for_discovery=False)})
+    out[svc] = [enum_domains, listed]
+print(json.dumps(out))
+"""
+    services = [
+        TEXT_DOCUMENT_SERVICE,
+        CALC_DOCUMENT_SERVICE,
+        DRAW_DOCUMENT_SERVICE,
+        IMPRESS_DOCUMENT_SERVICE,
+    ]
+    repo_root = Path(__file__).resolve().parents[2]
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), *services],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    for svc in services:
+        enum_domains, listed = data[svc]
+        assert enum_domains == listed, f"{svc}: enum={enum_domains} != listed={listed}"

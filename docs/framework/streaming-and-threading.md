@@ -177,8 +177,8 @@ Items below are **not bugs** in the current split; they are design tradeoffs to 
 1. **Reasoning round-trip on multi-turn tool loops** — **implemented (session only).**  
    [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) globals `PRESERVE_REASONING_IN_SESSION` (default true) and `PRESERVE_REASONING_MAX_CHARS` consolidate streaming thinking into **one block** per assistant turn on `session.messages` for the next API request — not per-SSE-chunk arrays. The `PRESERVE_REASONING_MAX_CHARS` cap applies only to `reasoning` and `reasoning_content` string replay; `reasoning_details` (including signed `reasoning.text`) is passed through whole so cryptographic signatures remain valid on replay. OpenRouter-style replay uses a merged `reasoning.text` entry plus any `reasoning.encrypted` blobs (merged by `index`; opaque `data` echoed as-is). Provider-specific filtering (e.g. drop stale Gemini encrypted on upstream switch) is **not** implemented yet — see `new_streaming_thinking_meta()` docstring in `stream_normalizer.py`. SQLite history remains text-only. Toggle or cap via those module globals (not Settings yet).
 
-2. **Think tags inside `content`**  
-   Some local providers stream `` only in `delta.content`, not in `reasoning_*`. Those tokens appear as normal reply text, not `[Thinking]`. A stateful splitter in `stream_normalizer` is listed as an optional follow-up in [../chat/llm-hacks.md](../chat/llm-hacks.md) §7.
+2. **Think tags inside `content`** — **implemented.**  
+   Some local providers stream `<think>...</think>` only in `delta.content`, not in `reasoning_*`. `ThinkTagStreamSplitter` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) splits inline `<think>...</think>` tags out of the content stream into thinking segments (see also [../chat/llm-hacks.md](../chat/llm-hacks.md) §7).
 
 3. **Interleaved thinking between tool calls**  
    Newer APIs describe “think → tool → think → tool” inside one assistant turn. Our FSM already supports multiple tool rounds; gap (1) matters if the model expects prior reasoning blocks when continuing after `tool` results.
@@ -593,3 +593,13 @@ Our solution is the `next_tool` dispatcher:
 The original [writeragent2](file:///home/keithcu/Desktop/Python/writeragent/writeragent2) attempted to dodge UI freezes by forcing the entire program state onto a background thread, which ironically caused deadlocks and crashes because LibreOffice does not allow cross-thread UI/Document manipulation.
 
 Our new architecture keeps the orchestration safely on the main thread while using threading purely for I/O and explicitly pumping LibreOffice events (`processEventsToIdle`). This guarantees a perfectly responsive sidebar without compromising application stability.
+
+## Open
+
+- `[eng M few]` Finish the producer-batching audit by routing every remaining raw `CHUNK` / `THINKING` put through a `BatchingStreamQueue` or an explicit flush before control items, starting with the ACP backend. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S many]` Flush the active send's batcher before the rich-text rerender or clear path in `panel.py` so un-emitted text is not lost. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S few]` Add a streaming test asserting that consumer-side `CHUNK` frequency stays near four to five per second with a batching producer. (§ What was deliberately left in the "global audit" bucket)
+- `[eng S few]` Make the batcher the default in the generic `run_*_async` helpers, with an opt-out for tests that need exact fragment timing. (§ What was deliberately left in the "global audit" bucket)
+- `[fidelity S few]` Add provider-specific filtering of replayed reasoning, such as dropping stale Gemini encrypted blocks after an upstream switch. (§ 3.4 Future considerations (notes))
+- `[eng S few]` Add a combined stream test fixture for `reasoning_details` plus `tool_calls`. (§ 3.4 Future considerations (notes))
+- `[eng S few]` Expose the reasoning-preservation toggle and cap in Settings instead of module globals. (§ 3.4 Future considerations (notes))

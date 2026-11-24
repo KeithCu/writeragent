@@ -6,7 +6,7 @@
 
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
-**Status (2026-08):** **Phase 2A + Phase 3 + 2E shipped; 2D debounce + missing-jedi hint shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click + **Ctrl+Alt+Shift+P**) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv when available. **Edit Python in Cell…** falls back to native [`PythonCellEditorDialog`](../../extension/Dialogs/PythonCellEditorDialog.xdl) (same Save / Cancel / **Save without =PY()** / **Data:** / status chrome; no venv). Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, **automatic LibreOffice theme sync**, and Excel-style **Ctrl+Alt+Shift+F9** reset are implemented. **Open:** Phase 2B syntax validate, 2C range picker, 2F Flatpak spawn, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python/editor.py`, and `plugin/framework/appearance.py`.
+**Status (2026-08):** **Phase 2A + Phase 3 + 2E + 2F shipped; 2D debounce + missing-jedi hint shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click + **Ctrl+Alt+Shift+P**) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv when available. **Edit Python in Cell…** falls back to native [`PythonCellEditorDialog`](../../extension/Dialogs/PythonCellEditorDialog.xdl) (same Save / Cancel / **Save without =PY()** / **Data:** / status chrome; no venv). Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, **automatic LibreOffice theme sync**, sandboxed command wrapping (`wrap_command_for_sandbox` in `plugin/scripting/editor_host.py`), and Excel-style **Ctrl+Alt+Shift+F9** reset are implemented. **Open:** Phase 2B syntax validate, 2C range picker, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python/editor.py`, and `plugin/framework/appearance.py`.
 
 **`=PY()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
@@ -130,7 +130,7 @@ The Monaco **shell** (toolbar, status line, script picker, `prompt()`/`confirm()
 | Syntax validation | Debounced `compile()` on LO main thread; squiggles in Monaco |
 | Range picker | `GlobalCalcRangeSelector` via pipe + main thread (**deferred**; editable textbox for data ranges shipped first) |
 | Theme sync | LO VCL → `vs` / `vs-dark` + toolbar chrome (shipped in 2E via appearance.py + editor.js) |
-| Flatpak/Snap spawn | `flatpak-spawn --host` |
+| Flatpak/Snap spawn | `flatpak-spawn --host` (shipped in 2F via `wrap_command_for_sandbox` in `sandbox.py`) |
 | Formula bar button | Optional |
 | Jedi completions | Persistent `jedi.Environment` in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py); JS debounce (~150ms); missing-`jedi` status hint |
 
@@ -554,15 +554,13 @@ This phase is intentionally after 2A (UX solid) and can be done in parallel with
 
 ---
 
-### Phase 2F — Sandboxed LO installs (Flatpak/Snap)
+### Phase 2F — Sandboxed LO installs (Flatpak/Snap) — **Shipped**
 
 **Goal:** `Popen` from inside Flatpak can reach the host venv.
 
-Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap invocation with `flatpak-spawn --host` or snap equivalent. Centralize in [`editor_launcher.py`](../../plugin/scripting/editor_host.py) beside existing `resolve_venv_python`.
+[`editor_host.py`](../../plugin/scripting/editor_host.py) wraps both the venv probe and the editor child launch (`ManagedSubprocess(..., command_wrapper=wrap_command_for_sandbox)`) with `wrap_command_for_sandbox` from [`sandbox.py`](../../plugin/scripting/sandbox.py).
 
 **Tests:** hard to automate; maintain a manual matrix in this doc (Flatpak LO + host venv path).
-
-**Priority:** bump up if user reports are mostly Flatpak; otherwise after 2A–2D.
 
 ---
 
@@ -609,7 +607,7 @@ Consider a top-level `seq: int` on all messages once 2B is in place so async val
 | **Unit** | `validate` compile helper; Jedi completion formatting (no LO); named-script picker in [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (`scripts_list.sample_code` removed in 0.8.64) |
 | **Integration** | subprocess test: spawn `editor_main.py`, write `ready`/`load`, read responses (headless skip if no display); optional probe test against a fixture venv with pywebview |
 | **UNO** | range picker happy path; optional “edit cell → save → recalc” one-shot |
-| **Manual** | checklist in §7 extended per phase; Flatpak row when 2F ships |
+| **Manual** | checklist in §7 extended per phase; manual Flatpak row (real-sandbox spawn cannot be automated; unit coverage is in [`test_sandbox.py`](../../tests/scripting/test_sandbox.py) / [`test_editor_host.py`](../../tests/scripting/test_editor_host.py)) |
 
 ---
 
@@ -662,7 +660,8 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 - **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PY()` and recalc; failures show full tracebacks.
 - **Phase 2A (done):** context menu, stderr drain, multi-cell reload, persistent child reuse.
 - **Phase 2E (done):** automatic theme (LO light/dark drives Monaco `vs`/`vs-dark` + full toolbar chrome via shared appearance detector).
-- **Later:** syntax squiggles (2B), range picker button (2C), Flatpak spawn (2F). **2D Jedi debounce + missing-jedi hint: done.** Extra windows when we want two buffers on screen ([§2](#2-ipc-protocol-pipe), [multiple views](#multiple-editor-views-windows-vs-tabs)).
+- **Phase 2F (done):** Flatpak/Snap sandbox spawn via `wrap_command_for_sandbox` in [`editor_host.py`](../../plugin/scripting/editor_host.py).
+- **Later:** syntax squiggles (2B), range picker button (2C). **2D Jedi debounce + missing-jedi hint: done.** Extra windows when we want two buffers on screen ([§2](#2-ipc-protocol-pipe), [multiple views](#multiple-editor-views-windows-vs-tabs)).
 - `make test` green; typecheck clean; no UNO calls off main thread in bridge code paths.
 
 ### Session 1 behavior reference
@@ -781,3 +780,14 @@ For a **minimal viable Writer-based editor** (no autocomplete, basic syntax high
 **Implementation:** [`document_scripts.py`](../../plugin/scripting/document_scripts.py) (`save_script_to_origin`, `delete_script_from_origin`), [`domain_registry.py`](../../plugin/scripting/domain_registry.py), [`editor_host.py`](../../plugin/scripting/editor_host.py) IPC, [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js). **Tests:** [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py), [`test_domain_registry.py`](../../tests/scripting/test_domain_registry.py), [`test_document_scripts_uno.py`](../../tests/scripting/test_document_scripts_uno.py).
 
 User workflow and feature context: [../enabling_numpy_in_libreoffice.md §3 Monaco](../enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script) and [§7 document-attached scripts](../enabling_numpy_in_libreoffice.md#run-python-script--document-attached-scripts).
+
+## Open
+
+- `[feature M few]` Real-time syntax validation: debounced `compile()` check on the LibreOffice side with red squiggles in Monaco and stale-response dropping. (§ Phase 2B — Real-time syntax validation (medium risk))
+- `[feature M few]` Calc range picker button in the editor that inserts a range such as `Sheet1.A1:B10` at the cursor using `GlobalCalcRangeSelector`. (§ Phase 2C — Calc range picker (medium risk, high value))
+- `[feature L few]` Show more than one editor buffer at once by routing extra sessions to extra pywebview windows in the same child process, capped at 2 or 3. (§ Multiple editor views (windows vs tabs))
+- `[feature L few]` Formula bar button or double-click-cell entry to open Edit Python in Cell, which needs research into Calc input line customization. (§ Phase 3 — Broader surfaces)
+- `[idea S few]` Optional setting to auto-close the editor on Save instead of staying open. (§ Open questions (decide before large work))
+- `[idea S few]` Send sheet and tab names from LibreOffice to the editor on load for sheet-name completion if Jedi alone is not enough. (§ Phase 2D — Jedi autocompletion (child-only, performance-sensitive))
+- `[fidelity S few]` Viz plot z-order polish (cell anchoring and replace-existing-chart slot reuse are shipped in `plugin/calc/python/image_egress.py`, and UNO end-to-end tests are shipped in `tests/calc/python/test_function_uno.py` and `tests/calc/python/test_image_egress_uno.py`; `ZOrder` handling is still missing). (§ Phase 3 — Broader surfaces)
+- `[idea L few]` Embedded-Writer Python editor as a lightweight quick-edit surface for Run Python Script if pywebview proves too fragile. (§ 9. Alternative: Embedded Writer as Python Editor (Research Notes))

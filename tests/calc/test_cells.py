@@ -1181,8 +1181,9 @@ def test_write_cell_range_tool_error_return():
 
     tool = _tool("write_range")
     with patch("plugin.calc.cells.CalcBridge", return_value=bridge):
-        res = tool.execute(ctx, range=["A1"], values="123")
+        res = tool.execute_safe(ctx, range=["A1"], values="123")
     assert res["status"] == "error"
+    assert res["code"] == "CALC_ERROR"
     assert "UNO write failure" in res["message"]
 
 
@@ -1847,7 +1848,7 @@ def test_delete_structure_runtime_exception_stays_tool_error():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.delete_structure.side_effect = RuntimeException("bad row")
         tool = _tool("delete_structure")
-        res = tool.execute(ctx, structure_type="rows", start=2, count=1)
+        res = tool.execute_safe(ctx, structure_type="rows", start=2, count=1)
         assert res["status"] == "error"
         assert "bad row" in res["message"]
         assert res.get("code") == "TOOL_EXECUTION_ERROR"
@@ -1976,18 +1977,20 @@ def test_sort_range_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
+        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1, ascending=True)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
         manipulator.range_sort.return_value = "Sorted"
-        res_ok = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True)
+        prep_ok = prepare_tool_call(_tool("sort_range"), SimpleNamespace(doc_type="calc"), "sort_range", {"range": ["A1:B2"], "has_header": True})
+        assert prep_ok.error is None
+        res_ok = _tool("sort_range").execute_safe(ctx, **prep_ok.kwargs)
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", [(0, True)], has_header=True)
 
         manipulator.range_sort.reset_mock()
-        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, then_by=[{"column": 0}])
+        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=0, ascending=True, then_by=[{"column": 0}])
         assert res_bad_then_by["status"] == "error"
         assert res_bad_then_by["code"] == "INVALID_PARAM"
         manipulator.range_sort.assert_not_called()
@@ -2006,7 +2009,7 @@ def test_sort_range_validation():
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
-        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True, sort_column=0, ascending=True)
         assert res_multi["status"] == "ok"
         assert res_multi["message"] == "A done. B done."
 
@@ -2068,8 +2071,11 @@ def test_insert_structure_validation_matches_delete():
             manipulator.insert_structure.assert_not_called()
 
 
-def test_delete_structure_sheet_prefix_passes_sheet():
-
+@pytest.mark.parametrize("tool_name,verb,extra_kwargs", [
+    ("insert_structure", "insert_structure", {}),
+    ("delete_structure", "delete_structure", {"confirm": False}),
+])
+def test_structure_sheet_param_passes_sheet(tool_name, verb, extra_kwargs):
     ctx = SimpleNamespace(doc=MagicMock())
     sheet = MagicMock()
     with (
@@ -2078,9 +2084,11 @@ def test_delete_structure_sheet_prefix_passes_sheet():
     ):
         bridge_cls.return_value.get_sheet.return_value = sheet
         manipulator = manipulator_cls.return_value
-        manipulator.delete_structure.return_value = {"message": "ok", "sheet": "Sheet2"}
-        _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Sheet2.5")
-        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet, confirm=False)
+        getattr(manipulator, verb).return_value = {"message": "ok", "sheet": "Sheet2"}
+        res = _tool(tool_name).execute_safe(ctx, structure_type="rows", start=5, sheet="Sheet2")
+        assert res["status"] == "ok"
+        bridge_cls.return_value.get_sheet.assert_called_once_with("Sheet2")
+        getattr(manipulator, verb).assert_called_once_with("rows", 5, count=1, sheet=sheet, **extra_kwargs)
 
 
 def test_delete_structure_forwards_confirm():
@@ -2109,12 +2117,11 @@ def test_delete_structure_refs_would_break_keeps_code_and_details():
         assert res["details"]["broken_cells"] == ["Sheet1.C1", "Other.A1"]
 
 
-def test_delete_structure_rejects_internal_sheet_prefix():
-
+def test_delete_structure_rejects_internal_sheet():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="_hidden.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, sheet="_hidden")
         assert res["status"] == "error"
         assert "internal" in res["message"]
         manipulator.delete_structure.assert_not_called()
@@ -2132,10 +2139,68 @@ def test_delete_structure_missing_sheet_is_uno_object_error():
             "No sheet named 'Missing'.",
             details={"available": ["Sheet1"]},
         )
-        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Missing.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, sheet="Missing")
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert res["details"]["available"] == ["Sheet1"]
+
+
+def test_mutate_ranges_preserves_writer_agent_exception_details_on_rollback():
+    from plugin.framework.errors import UnoObjectError
+
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.set_cell_style.side_effect = [
+            None,
+            UnoObjectError("No sheet named 'Nope'.", details={"available_sheets": ["Sheet1"]}),
+        ]
+        res = _tool("set_style").execute_safe(ctx, range=["A1", "Nope.B1"], bold=True)
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["details"]["available_sheets"] == ["Sheet1"]
+
+
+def test_mutate_ranges_promotes_suggested_call_from_exception_details():
+    from plugin.framework.errors import CalcError, suggest_call
+
+    doc = MagicMock()
+    doc.getUndoManager.return_value = FakeUndoManager()
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.plan_write.side_effect = CalcError(
+            "circular",
+            code="PY_CIRCULAR",
+            details={"data_range": "A1:A2", "suggested_call": suggest_call("write_range", range=["B1"], values="=PY()")},
+        )
+        res = _tool("write_range").execute_safe(ctx, range=["A1"], values="=PY()")
+
+    assert res["status"] == "error"
+    assert res["code"] == "PY_CIRCULAR"
+    assert res["suggested_call"]["arguments"]["range"] == ["B1"]
+    assert res["details"]["data_range"] == "A1:A2"
+    assert "suggested_call" not in res["details"]
+
+
+@pytest.mark.parametrize("tool_name,structure_type,start", [
+    ("delete_structure", "rows", "Sheet2.5"),
+    ("delete_structure", "columns", "Sheet2.C"),
+    ("insert_structure", "rows", "'My Sheet'.5"),
+])
+def test_structure_start_rejects_sheet_prefix(tool_name, structure_type, start):
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool(tool_name).execute_safe(ctx, structure_type=structure_type, start=start)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        manipulator.insert_structure.assert_not_called()
+        manipulator.delete_structure.assert_not_called()
 
 
 def test_delete_structure_rejects_cell_address_as_row_start():
@@ -2291,7 +2356,7 @@ def test_mutate_ranges_rolls_back_at_full_undo_stack():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = ["wrote", CalcError("occupied")]
 
-        res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
+        res = WriteCellRange().execute_safe(ctx, range=["A1", "B1"], values="1")
 
     assert res["status"] == "error"
     assert "Nothing was kept." in res["message"]
@@ -2309,7 +2374,7 @@ def test_mutate_ranges_empty_group_keeps_older_same_title():
 
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.commit_write.side_effect = CalcError("fail")
-        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+        res = WriteCellRange().execute_safe(ctx, range=["A1"], values="1")
 
     assert res["status"] == "error"
     assert "Nothing was kept." not in res["message"]
@@ -2385,3 +2450,46 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 2
     assert "Formulas use Calc syntax:" in res["warnings"][1]["message"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "base_kwargs"),
+    [
+        ("read_range", {"range": "A1"}),
+        ("merge_cells", {"range": "A1:B2"}),
+        ("delete_structure", {"structure_type": "rows", "start": 1}),
+        ("insert_structure", {"structure_type": "rows", "start": 1}),
+    ],
+)
+def test_core_calc_schema_defaults_match_runtime(tool_name, base_kwargs):
+    """Omitting a defaulted core Calc parameter must match passing its schema default."""
+    tool = _tool(tool_name)
+    defaults = {
+        k: spec["default"]
+        for k, spec in tool.parameters["properties"].items()
+        if "default" in spec
+    }
+    assert defaults, f"{tool_name} has no schema defaults"
+
+    def _run(extra_kwargs):
+        ctx = SimpleNamespace(doc=MagicMock())
+        with (
+            patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+            patch("plugin.calc.cells.CellInspector") as inspector_cls,
+            patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+        ):
+            inspector_cls.return_value.read_range.return_value = [[{"address": "A1", "value": 1}]]
+            manipulator = manipulator_cls.return_value
+            manipulator.merge_cells.return_value = SimpleNamespace(merged=True, hidden_count=0, hidden_cells=[])
+            manipulator.delete_structure.return_value = {"message": "deleted"}
+            manipulator.insert_structure.return_value = {"message": "inserted"}
+            res = tool.execute(ctx, **base_kwargs, **extra_kwargs)
+            return res, inspector_cls.return_value.mock_calls, manipulator.mock_calls
+
+    omitted_res, omitted_insp, omitted_manip = _run({})
+    explicit_res, explicit_insp, explicit_manip = _run(defaults)
+
+    assert omitted_res["status"] == "ok"
+    assert omitted_res == explicit_res
+    assert omitted_insp == explicit_insp
+    assert omitted_manip == explicit_manip

@@ -350,7 +350,11 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 
 
 
-def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
+@pytest.mark.parametrize(
+    ("content", "expected_merge"),
+    [("<p>x</p>", False), ("<table><tr><td>A</td></tr></table>", True)],
+)
+def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, expected_merge):
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""
 
@@ -360,17 +364,16 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     model.getPropertyValue.return_value = True  # RecordChanges
     text = model.getText.return_value
     leftover = text.createTextCursorByRange.return_value
-    leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import, "_deletion_author"):
+         patch.object(html_import, "_deletion_author"), \
+         patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
         imp.return_value = ["margin-left"]
-        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        dropped = html_import.replace_full_document(model, MagicMock(), content)
     assert dropped == ["margin-left"]
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
-    leftover.goLeft.assert_called_once_with(1, True)
-    leftover.setString.assert_called_once_with("")
+    drop_leftover.assert_called_once_with(leftover, merge_forward_after_table=expected_merge)
 
 
 def test_full_document_without_review_imports_in_place():
@@ -2145,84 +2148,6 @@ def test_insert_content_at_position_caret_routing(content, at_start, at_end, mat
         mock_import.assert_called_once()
         mock_inline.assert_not_called()
         mock_after.assert_not_called()
-
-
-def _mock_enum(items: list[Any]) -> MagicMock:
-    """An XEnumeration mock whose hasMoreElements returns a real bool (enum_has_more needs ``is True``)."""
-    seq = list(items)
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = lambda: len(seq) > 0
-    enum.nextElement.side_effect = lambda: seq.pop(0)
-    return enum
-
-
-def _mock_para(text: str) -> MagicMock:
-    el = MagicMock()
-    el.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    el.getString.return_value = text
-    el.createEnumeration.return_value = _mock_enum([])
-    return el
-
-
-def _mock_table() -> MagicMock:
-    el = MagicMock()
-    el.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
-    return el
-
-
-@pytest.mark.parametrize(
-    ("after_host", "deleted"),
-    [
-        ([_mock_para(""), _mock_table()], True),
-        # The paragraph before the table has text: not the import's leftover.
-        ([_mock_para("kept"), _mock_table()], False),
-        # No table follows the empty paragraph.
-        ([_mock_para(""), _mock_para("Second")], False),
-    ],
-)
-def test_insert_html_after_paragraph_cleans_empty_paras_around_table(after_host: list[Any], deleted: bool) -> None:
-    """A UNO cursor cannot step into a table, so the before-table cleanup walks the
-    text enumeration (host paragraph, empty paragraph, table) instead of probing."""
-    from plugin.writer.html_import import insert_html_after_paragraph
-    from plugin.writer.html_import_styles import WriteReport
-
-    para_start = MagicMock()
-
-    leftover = MagicMock()
-    # Empty paragraph after table: goLeft lands before the table (selection spans
-    # the table), goRight selects the "\n" into the next paragraph.
-    leftover.getString.side_effect = ["", "cell", "\n"]
-    leftover.goLeft.return_value = True
-    leftover.goRight.return_value = True
-
-    before_table = MagicMock()
-    before_table.goLeft.return_value = True
-    before_table.getString.return_value = "\n"
-
-    host = _mock_para("Alpha beta gamma.")
-    text_obj = MagicMock()
-    text_obj.createEnumeration.return_value = _mock_enum([_mock_para("Earlier"), host, *after_host])
-    text_obj.compareRegionStarts.side_effect = lambda a, b: 0 if b is host else 1
-    text_obj.createTextCursorByRange.side_effect = [para_start, leftover, before_table]
-    cursor = MagicMock()
-
-    with patch("plugin.writer.html_import.insert_html_at_cursor", return_value=WriteReport()):
-        insert_html_after_paragraph(
-            MagicMock(),
-            MagicMock(),
-            text_obj,
-            cursor,
-            "<table><tr><td>A</td></tr></table>",
-            clean_around_table=True,
-        )
-
-    leftover.setString.assert_called_once_with("")
-    if deleted:
-        text_obj.createTextCursorByRange.assert_any_call(after_host[0].getStart())
-        before_table.setString.assert_called_once_with("")
-    else:
-        assert text_obj.createTextCursorByRange.call_count == 2
-        before_table.setString.assert_not_called()
 
 
 def test_insert_content_at_position_explicit_selection_skips_live_read():

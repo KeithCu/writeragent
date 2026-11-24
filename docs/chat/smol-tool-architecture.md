@@ -124,7 +124,7 @@ The shared ReAct **system template** lives in [`toolcalling_agent_prompts.py`](.
 | Key | Block | Finish tool in example |
 |-----|--------|-------------------------|
 | `librarian` | `LIBRARIAN_EXAMPLES` in `smol_examples.py` | `reply_to_user` |
-| `web_research` | `WEB_RESEARCH_EXAMPLES_BLOCK` | `final_answer` |
+| `web_research` | `WEB_RESEARCH_EXAMPLES` in `smol_examples.py` | `final_answer` |
 | `ppt-master` | `PPT_MASTER_EXAMPLES` in `smol_examples.py` | `ppt_master_finished` |
 | `writer:python`, `calc:python`, `draw:python`, … | `PYTHON_SPECIALIZED_EXAMPLES` | **`workflow_finished`** (after `python_run_script`) |
 | `writer:images`, `calc:images`, `draw:images`, … | `IMAGES_SPECIALIZED_EXAMPLES` | **`workflow_finished`** (after `image_generate` with `source_image='selection'` for edits) |

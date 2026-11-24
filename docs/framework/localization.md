@@ -98,3 +98,13 @@ These are useful directions, not commitments:
 - **Coverage reporting**: Extend or reuse the logic in `translate_missing.py`’s status output to publish a simple per-language table in docs or CI logs.
 
 For day-to-day contributor steps (extract, merge, Poedit, compile), see [`locales/README.md`](../locales/README.md).
+
+## Open
+
+- `[feature M many]` Expose `ngettext` and `npgettext` from `i18n.py` so one-versus-many strings follow per-locale plural rules. (§ Future considerations)
+- `[fidelity S many]` Use `pgettext` message contexts where the same English word must translate differently, such as "Table" in Writer versus Calc. (§ Future considerations)
+- `[fidelity M few]` Test and adjust dialogs and the sidebar for right-to-left locales such as Arabic and Hebrew. (§ Future considerations)
+- `[eng S few]` Add a test or lint rule that flags unwrapped user-facing strings in high-traffic UI modules, and a CI check for accidental POT drift. (§ Future considerations)
+- `[eng S few]` Publish a per-language translation coverage table in docs or CI logs by reusing the status logic in `translate_missing.py`. (§ Future considerations)
+- `[idea M few]` Move translation to a hosted platform such as Weblate, Crowdin or Transifex, with `writeragent.pot` as the handoff, if the community grows. (§ Future considerations)
+- `[idea S few]` Freeze `msgid` churn before a translator-facing release to reduce merge noise. (§ Future considerations)

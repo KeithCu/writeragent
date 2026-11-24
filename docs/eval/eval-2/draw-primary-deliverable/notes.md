@@ -70,3 +70,7 @@ change `prompt.writeragent.txt`):
 
 Harness pass/fail for this variant is [`rubric.eval2.md`](rubric.eval2.md),
 not a letter-shift of `rubric_pretty.txt`.
+
+## Open
+
+- `[eng S few]` Harness: open the Draw WriterAgent sidebar deck automatically for a headed trial instead of a human click. (§ Pre-open recipe (v1 cheat))

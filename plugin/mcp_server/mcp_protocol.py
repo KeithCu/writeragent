@@ -44,7 +44,7 @@ from plugin.chatbot.agent_manual import (
     list_topic_entries,
     list_topics,
     normalize_topic,
-    writer_topic_list_text,
+    topic_list_text,
 )
 from plugin.framework.doc_type import uno_services_for_document
 from plugin.framework import uno_context
@@ -68,6 +68,14 @@ log = logging.getLogger(__name__)
 
 # Longest an SSE keepalive wait goes without checking HttpServer.stop's flag.
 _SSE_STOP_POLL_SEC = 0.5
+# event: message is what python-sdk _handle_sse_event reads. One process-wide
+# session means every connected stream gets the same notification (the spec's
+# "one stream per message" rule assumes one client per session).
+_TOOLS_LIST_CHANGED_EVENT = (
+    b"event: message\ndata: "
+    + json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}).encode("utf-8")
+    + b"\n\n"
+)
 
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({wire_types.MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
 
@@ -158,7 +166,7 @@ class _PreparedMcpCall:
 # constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
     " HOW TO USE THESE TOOLS: call manual_read(topic) for the manual — topics follow the open "
-    f"document's type (for Writer: {writer_topic_list_text()}); call manual_read() for the current list. "
+    f"document's type (for Writer: {topic_list_text('writer', include_mcp=True)}); call manual_read() for the current list. "
     "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
     "the user's to accept/reject, not yours."
 )
@@ -471,7 +479,7 @@ class MCPProtocolHandler:
         )
 
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15, stop_event: threading.Event | None = None) -> None:
-        """Keep an SSE stream alive until the client drops or the HTTP server stops.
+        """Keep an SSE stream alive and announce tool-catalog changes until disconnect or server stop.
 
         This loop runs on the ThreadingMixIn request thread until the socket
         errors. HttpServer.stop() only ends serve_forever(), so each toggle
@@ -488,6 +496,7 @@ class MCPProtocolHandler:
         if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
             return
+        seen_generation = mcp_session.tool_catalog_generation()
         try:
             while not stop_event.is_set():
                 try:
@@ -509,12 +518,20 @@ class MCPProtocolHandler:
                         if left <= 0:
                             break
                         readable, _unused, _unused2 = select.select([sock], [], [], min(left, _SSE_STOP_POLL_SEC))
-                        if readable:
+                        if readable or mcp_session.tool_catalog_generation() != seen_generation:
                             break
                 except (OSError, ValueError):
                     break
                 if stop_event.is_set():
                     break
+                current_generation = mcp_session.tool_catalog_generation()
+                if current_generation != seen_generation:
+                    seen_generation = current_generation
+                    try:
+                        handler.wfile.write(_TOOLS_LIST_CHANGED_EVENT)
+                        handler.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
                 if not readable:
                     continue
                 try:
@@ -772,7 +789,7 @@ class MCPProtocolHandler:
 
     def _mcp_prompts_list(self, params: Any, document_url: str | None = None) -> Any:
         doc_type = self._prompt_doc_type(document_url)
-        prompts = [{"name": topic_id, "description": summary} for topic_id, summary in list_topic_entries(doc_type)]
+        prompts = [{"name": topic_id, "description": summary} for topic_id, summary in list_topic_entries(doc_type, include_mcp=True)]
         return {"prompts": prompts}
 
     def _mcp_prompts_get(self, params: Any, document_url: str | None = None) -> Any:
@@ -782,12 +799,12 @@ class MCPProtocolHandler:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("prompts/get requires params.name")
         doc_type = self._prompt_doc_type(document_url)
-        text = get_section(name, doc_type)
+        text = get_section(name, doc_type, include_mcp=True)
         if text is None:
-            known = ", ".join(list_topics(doc_type))
+            known = ", ".join(list_topics(doc_type, include_mcp=True))
             raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
-        canonical = cast("str", normalize_topic(name, doc_type))
-        summary_by_id = dict(list_topic_entries(doc_type))
+        canonical = cast("str", normalize_topic(name, doc_type, include_mcp=True))
+        summary_by_id = dict(list_topic_entries(doc_type, include_mcp=True))
         return {
             "description": summary_by_id[canonical],
             "messages": [{"role": "user", "content": {"type": "text", "text": text}}],

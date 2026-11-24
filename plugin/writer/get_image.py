@@ -15,25 +15,22 @@ On Draw/Impress, page=N is the vision screenshot (0-based, same as slide_list / 
 from __future__ import annotations
 
 import base64
+import copy
 import logging
-import os
-import tempfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
-from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+from plugin.writer.page_png import render_writer_page_png, write_page_png
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
 log = logging.getLogger(__name__)
-
-_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def _is_draw_family(doc: Any) -> bool:
@@ -44,81 +41,6 @@ def _is_draw_family(doc: Any) -> bool:
 def _ok_image(source: str, raw: bytes) -> dict[str, Any]:
     b64 = base64.b64encode(raw).decode("utf-8")
     return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
-
-
-def _with_page_png(page: int, export: Any) -> tuple[bytes | None, str | None]:
-    tmp_path = None
-    try:
-        fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
-        os.close(fd)
-        export(tmp_path)
-        with open(tmp_path, "rb") as f:
-            png = f.read()
-        if png[:8] != _PNG_MAGIC:
-            return None, "could not render page %d: the PNG export produced no valid image." % page
-        return png, None
-    except Exception as e:
-        reraise_if_disposed(e)
-        return None, "could not render page %d: %s" % (page, e)
-    finally:
-        if tmp_path:
-            best_effort(lambda: os.remove(tmp_path), "page render: remove temp png failed")
-
-
-def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
-    """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
-
-    *page* is model-facing (first page = 0). jumpToPage is 1-based, so the only conversion is
-    ``lo_page = page + 1`` here — error text still quotes the 0-based index the model sent.
-
-    NATIVE LibreOffice path ONLY — the writer_png_Export graphic filter, targeted per page with the
-    view cursor (jumpToPage): cross-platform, no external binary, no PDF round-trip, and the filter
-    reuses LO's own page painting (headers, frames, shapes, images all faithful). XRenderable
-    is not used: on real multi-page documents its getRendererCount reports 1 page whatever
-    options are passed, and its getDIB() bitmaps are build-dependent. The view cursor is saved and
-    restored best-effort (the jump may briefly scroll the window). There is intentionally NO fallback — on
-    any failure this returns a clear reason (surfaced by the caller as a tool error), never a
-    silent failure or an empty image."""
-    try:
-        vc = doc.getCurrentController().getViewCursor()
-    except Exception as e:
-        # Disposal must reach execute_safe as DOCUMENT_DISPOSED, not a render reason.
-        reraise_if_disposed(e)
-        return None, "could not render page %d: no document view available (%s)" % (page, e)
-
-    # Save the view cursor so the page jump can be undone. clone_text_range
-    # copies it through the cursor's own XText; if that raises, the restore
-    # below is skipped.
-    saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
-
-    try:
-        # jumpToPage / getPage are 1-based Writer APIs; *page* is 0-based at the tool boundary.
-        lo_page = page + 1
-        vc.jumpToPage(lo_page)
-        actual = int(vc.getPage())
-        if actual != lo_page:
-            # jumpToPage clamps out-of-range targets; jump to the end to report the real total.
-            vc.jumpToLastPage()
-            total = int(vc.getPage())
-            return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
-        # UNO imports only here: nothing above needs them, so validation/error paths stay
-        # exception-free even where the uno module is unavailable (e.g. mocked test envs).
-        import uno
-        from com.sun.star.beans import PropertyValue
-
-        def export(tmp_path: str) -> None:
-            doc.storeToURL(
-                uno.systemPathToFileUrl(tmp_path),
-                (PropertyValue(Name="FilterName", Value="writer_png_Export"),),
-            )
-
-        return _with_page_png(page, export)
-    except Exception as e:
-        reraise_if_disposed(e)
-        return None, "could not render page %d: %s" % (page, e)
-    finally:
-        if saved is not None:
-            best_effort(lambda: vc.gotoRange(saved, False), "restore view cursor after page render")
 
 
 def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
@@ -170,14 +92,20 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
         if not ok:
             raise RuntimeError("GraphicExportFilter returned false.")
 
-    return _with_page_png(page, export)
+    return write_page_png(page, export)
 
 
 def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
     if _is_draw_family(doc):
         return _render_draw_page_png(ctx, doc, page)
-    return _render_writer_page_png(doc, page)
+    return render_writer_page_png(doc, page)
+
+
+# Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:
+# its schema keeps page (execute rejects it there with a clear error), so it keeps the all-app text.
+_IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree"}
+_ONE_MODE = "Pass at most one of image, selection, or page."
 
 
 class GetImage(ToolBase):
@@ -203,6 +131,36 @@ class GetImage(ToolBase):
         },
         "required": [],
     }
+
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Name only the reads and modes of *doc_type*; Calc (no page render) and unprobed callers get the all-app text."""
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if source is None:
+            return self.description
+        draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
+        return (
+            f"Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from {source}> "
+            "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
+            f"that whole page as an image.{draw_note} Returns the picture itself, not a description. "
+            f"b64 is stripped from normal reads, so use this when you actually need to look. {_ONE_MODE}"
+        )
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
+        source = _IMAGE_NAME_SOURCE.get(doc_type or "")
+        if doc_type != "calc" and source is None:
+            return params
+        out = copy.deepcopy(params)
+        if doc_type == "calc":
+            # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
+            # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
+            # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
+            del out["properties"]["page"]
+        if source is not None:
+            out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
+            out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
+        return out
+
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services: list[str] | None = [
         TEXT_DOCUMENT_SERVICE,
@@ -230,10 +188,6 @@ class GetImage(ToolBase):
                 return self._tool_error("page must be a non-negative integer (0-based).")
             if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
-            if ctx.doc_type == "calc":
-                return self._tool_error(
-                    "page render is for Writer, Draw, or Impress; on Calc pass image=<name> or selection=true."
-                )
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
@@ -250,11 +204,13 @@ class GetImage(ToolBase):
             try:
                 obj = visual_helpers.get_graphic_object_by_name(doc, name, **lookup_kwargs)
             except visual_helpers.AmbiguousGraphicNameError as exc:
+                extra: dict[str, Any] = {"image_name": name, "sheet_indices": exc.sheet_indices}
+                if exc.shape_indices:
+                    extra["shape_indices"] = exc.shape_indices
                 return self._tool_error(
                     str(exc),
                     code="AMBIGUOUS_NAME",
-                    image_name=name,
-                    sheet_indices=exc.sheet_indices,
+                    **extra,
                 )
             if obj is None:
                 return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")

@@ -226,7 +226,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
 
-**Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty. The fresh paragraph inherits direct `Para*` from the split, so the reset runs on that absorb paragraph only; the deleted paragraph is not cleared. Without Track Changes, the same reset runs on the one paragraph `setString("")` leaves.
+**Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty; after a trailing table the leftover is merged forward into the first deleted paragraph because stepping left would span the table (`SwCursor::IsSelOvr`). The fresh paragraph inherits direct `Para*` from the split, so the reset runs on that absorb paragraph only; the deleted paragraph is not cleared. Without Track Changes, the same reset runs on the one paragraph `setString("")` leaves.
 
 **Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`), as well as whole-paragraph `selection` and `search` (`replace_single_range_with_content`) replacements when Track Changes is not recording. A failed paragraph break at `end` raises; the import does not continue into the neighbor paragraph. Partial matches (not starting and ending on paragraph boundaries) or replaces while Track Changes is recording skip style application and warn with `apply_style(target='search', old_content=...)`.
 
@@ -398,3 +398,11 @@ Do not implement symmetric XHTML write and sidecar as parallel full solutions in
 | D — `Heading 1` + bold | Pass | `Heading1` token; char `text-T*` inlined to span `style` |
 
 Run locally: `pytest tests/writer/test_xhtml_style_postprocess.py` and UNO tests in [`tests/writer/test_content_style_model_uno.py`](../../tests/writer/test_content_style_model_uno.py) via `make test`.
+
+## Open
+
+- `[eng M many]` Cached UNO paragraph-style index (one enumeration per document revision) to fill `data-lo-style` on range reads and replace the second full Flat ODF export on large documents. (§ Phase 4: Long-term — UNO style index (post-v1))
+- `[eng S few]` Drop or gate the Flat ODF parent-map export to fallback-only once the UNO style index passes round-trip tests. (§ Long-term (post-v1 — large documents))
+- `[feature S few]` Dedicated `get_paragraph_styles` tool or `ParaStyleName` on heading nodes in the tree enumeration. (§ Long-term (post-v1 — large documents))
+- `[fidelity M many]` Table cell paragraph styles through a table-aware style index or cell-level tokens, since `data-lo-style` is stripped inside tables today. (§ v1 limitations (shipped))
+- `[fidelity S few]` Per-document disambiguation when two UNO paragraph style names compact to the same token. (§ v1 limitations (shipped))

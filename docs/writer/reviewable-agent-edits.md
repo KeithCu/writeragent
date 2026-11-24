@@ -35,6 +35,7 @@ What is implemented today (not every Writer mutation tool):
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
 | `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
+| `style_format_text` | Yes for `properties` (Format redlines; `Char*` restore on reject, `Para*` do not; `reset` is not tracked and reports `style_unreviewed`) | No | No |
 | Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`; `page_insert_break` is not in this set) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
 
@@ -113,9 +114,14 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. In `full_document` replace, any synthetic leftover paragraph break opened
-  before the import is deleted untracked (`RecordChanges` temporarily off) so the paragraph break
-  is not a tracked delete, keeping separate paragraphs intact without word concatenation.
+  stranded mid-import. In `full_document` replace, any synthetic leftover paragraph opened before
+  the import is dropped untracked (`RecordChanges` temporarily off) via `_drop_leftover_paragraph`
+  — merging forward after a trailing table — so the paragraph break is not a tracked delete,
+  keeping separate paragraphs intact without word concatenation. Before a leading table,
+  `_insert_mixed_or_plain_html` is the single owner that disposes the empty split-node paragraph
+  untracked via `_drop_empty_paragraph_before_table` across all body write paths, while
+  `insert_html_after_paragraph` owns only the trailing leftover. `TABLE_INSERT_FAILED` checks run
+  inside the edit's undo group, so a failed table insert rolls the edit back.
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

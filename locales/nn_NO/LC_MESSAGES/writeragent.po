@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Klarte ikkje å angra førre agent-endring."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Angra førre agent-endring ({0} steg)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Biletet vart ikkje funne."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Kunne ikkje sletta biletet: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -694,10 +703,10 @@ msgstr "Opne eit Calc-rekneark først."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco-redigeringsprogrammet er deaktivert av "
+"Python-redigeringsvindauget er deaktivert av "
 "«scripting.force_internal_script_editor» i writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
@@ -1220,6 +1229,10 @@ msgstr "Godta denne endringa"
 msgid "Reject this change"
 msgstr "Avvis denne endringa"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Kunne ikkje dekoda førehandsvisingsbiletet."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1623,6 +1636,25 @@ msgstr "kvifor"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "du"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Køyrer…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Avbrote."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Førehandsvising mislukkast: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Køyring mislukkast: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2335,6 +2367,35 @@ msgstr "Opnar «%s» for skrivebeskytta tilgang."
 msgid "Web research completed."
 msgstr "Nettforsking fullført."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama rapporterte ikkje num_ctx, så WriterAgent føreset {0} teikn, noko som"
+" er for lite for nettsøk (sjølve søkeførespurnaden og verktøya åleine brukar"
+" om lag 2 000 teikn, pluss utdatatilgang). Auk num_ctx til minst {1} (via "
+"PARAMETER num_ctx {2} eller høgare i ei Modelfile med ollama create), bruk "
+"deretter Test tilkopling i Innstillingar (eller start LibreOffice på nytt) "
+"og prøv igjen."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Kontekstvindauget ({0} teikn) er for lite for nettsøk (sjølve "
+"søkeførespurnaden og verktøya åleine brukar om lag 2 000 teikn, pluss "
+"utdatatilgang). Auk num_ctx til minst {1} (eller byt til ein modell med eit "
+"større kontekstvindauge) og prøv igjen."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2612,10 +2673,6 @@ msgstr "Nytt Python-skript"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Skriptnamn:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Køyrer…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2928,12 +2985,12 @@ msgstr "Venv-sjekk feila"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
-"Set stien til Python venv i Innstillingar → Python (same venv som du køyrde "
-"'uv pip install pywebview rocher' i). LibreOffice sin innebygde Python kan "
-"ikkje køyre redigeringsprogrammet."
+"Set stien til Python-venv i Innstillingar → Python (same venv som du køyrde "
+"«uv pip install pywebview» i). LibreOffice sin innebygde Python kan ikkje "
+"køyre redigeringsprogrammet."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3022,12 +3079,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Lydsjekk feila (sjå writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco-sjekk fekk tidsavbrot."
+msgid "UI / Editor probe timed out."
+msgstr "Tidsavbrot for UI / redigerings-probe."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco-sjekk feila (sjå writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "UI / redigerings-probe feila (sjå writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3073,6 +3130,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB-sjekk feila (sjå writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR kan ikkje starta i dette venv-miljøet:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Ingen mikrofonar funne."
 
@@ -3105,8 +3166,8 @@ msgid "Audio Recording & Speech"
 msgstr "Lydopptak og tale"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Monaco-bibliotek: kontrollerer utanfor skript-arbeidaren..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "UI / redigeringsbibliotek: sjekkar utanfor skript-arbeidaren..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3477,7 +3538,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Synshjelpemiddel krev eit dokument i Writer, Calc, Draw eller Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Synshjelparen feila."
 
@@ -3570,6 +3631,223 @@ msgstr "Kunne ikkje opne det innebygde skriptdialogvindauget."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Ein uventa feil oppstod under opning av Køyr Python-skript."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr "Sjekk writeragent_debug.log i LibreOffice-brukarmappa di"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Klarte ikkje starta MCP-tenar"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Stopp MCP-tenar"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Start MCP-tenar"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-tenar køyrer ikkje"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP-tenar køyrer"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Ruter: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Lokal URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Offentleg URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Lokalt endepunkt:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Offentleg tunnel ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Status: Aktiv (tilkopla)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Status: Koplar til på nytt — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "prøver på nytt…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Status: Startar tunnel…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Status: Mislukka — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Status: Køyrer ikkje (er {0}-binærfila installert?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopiert!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Testar…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Test tunnel"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP-tunneltest"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Offentleg tunnel via {0} (ingen autentisering)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Offentleg tunnel via {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "koplar til på nytt…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Offentleg tunnel via {0} feila: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Offentleg tunnel via {0} startar…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Offentleg tunnel via {0} køyrer ikkje (er leverandøren sin binærfil "
+"installert?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tunnel-testmodus: {0}-tilbydar simulert med hell."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Ukjend tunnel-leverandør: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binærfil '{0}' for {1} vart ikkje funnen i PATH.\n"
+"\n"
+"Installer frå: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Klarte ikkje å køyre {0}-binærfil ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0}-tunnelen køyrer og svarar!\n"
+"\n"
+"Offentleg endepunkt:\n"
+"{1}\n"
+"\n"
+"Helsetest: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0}-tunnelen er aktiv!\n"
+"\n"
+"Offentleg endepunkt:\n"
+"{1}\n"
+"\n"
+"(Offentleg URL henta frå aktiv tunnelsesjon.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0}-binærfil '{1}' er verifisert ({2}).\n"
+"\n"
+"(Merk: Ein aktiv {3}-tunnel køyrer for tida på {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0}-binærfil '{1}' er installert og verifisert ({2}).\n"
+"\n"
+"MCP-tenar køyrer lokalt på port {3}.\n"
+"Kryss av for 'Eksponer via offentleg tunnel' og klikk OK for å aktivere offentleg ruting."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0}-binærfil '{1}' er installert og verifisert ({2}).\n"
+"\n"
+"Merk: MCP-tenar køyrer ikkje for tida på port {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Status for MCP-tenar"
@@ -3590,10 +3868,61 @@ msgstr "Godta alle"
 msgid "Reject all"
 msgstr "Avvis alle"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Lastar inn modellar…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Gjenkjenner tekst…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Ingen tekst funnen."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Genererer førehandsvising…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Kunne ikkje eksportere det valde biletet: {error}"
+msgid "Done: {count} characters."
+msgstr "Ferdig: {count} teikn."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR-innsetjing krev eit Writer- eller Calc-dokument; bruk "
+"førehandsvising for Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Set inn…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Sette inn {count} bilete."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Sette inn: {count} teikn."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Biletet vart behalde fordi Agent-redigeringskontroll tek opp endringar."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Klarte ikkje å opprette førehandsvisingsdokumentet."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Klarte ikkje å gjere førehandsvisingssida."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3601,6 +3930,11 @@ msgid ""
 msgstr ""
 "Vel eit innebygd bilete (eller eit område som inneheld bilete), og køyr på "
 "nytt."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Kunne ikkje eksportere det valde biletet: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3680,225 +4014,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Biletet vart fjerna under førebuing av OCR-innsetjing."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Kan ikkje slette eit namlaust bilete etter OCR-innsetjing."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Biletet vart fjerna under OCR-innsetjing."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "Sjekk writeragent_debug.log i LibreOffice-brukarmappa di"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Klarte ikkje starta MCP-tenar"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Stopp MCP-tenar"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Start MCP-tenar"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP-tenar køyrer ikkje"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP-tenar køyrer"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Ruter: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Lokal URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Offentleg URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Lokalt endepunkt:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Offentleg tunnel ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Status: Aktiv (tilkopla)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Status: Koplar til på nytt — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "prøver på nytt…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Status: Startar tunnel…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Status: Mislukka — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Status: Køyrer ikkje (er {0}-binærfila installert?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopiert!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testar…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Test tunnel"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP-tunneltest"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Offentleg tunnel via {0} (ingen autentisering)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Offentleg tunnel via {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "koplar til på nytt…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Offentleg tunnel via {0} feila: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Offentleg tunnel via {0} startar…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Offentleg tunnel via {0} køyrer ikkje (er leverandøren sin binærfil "
-"installert?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tunnel-testmodus: {0}-tilbydar simulert med hell."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Ukjend tunnel-leverandør: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binærfil '{0}' for {1} vart ikkje funnen i PATH.\n"
-"\n"
-"Installer frå: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Klarte ikkje å køyre {0}-binærfil ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0}-tunnelen køyrer og svarar!\n"
-"\n"
-"Offentleg endepunkt:\n"
-"{1}\n"
-"\n"
-"Helsetest: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0}-tunnelen er aktiv!\n"
-"\n"
-"Offentleg endepunkt:\n"
-"{1}\n"
-"\n"
-"(Offentleg URL henta frå aktiv tunnelsesjon.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0}-binærfil '{1}' er verifisert ({2}).\n"
-"\n"
-"(Merk: Ein aktiv {3}-tunnel køyrer for tida på {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0}-binærfil '{1}' er installert og verifisert ({2}).\n"
-"\n"
-"MCP-tenar køyrer lokalt på port {3}.\n"
-"Kryss av for 'Eksponer via offentleg tunnel' og klikk OK for å aktivere offentleg ruting."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0}-binærfil '{1}' er installert og verifisert ({2}).\n"
-"\n"
-"Merk: MCP-tenar køyrer ikkje for tida på port {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Set inn OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4599,18 +4724,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Humaniseringsferdigheit (naturleg prosa)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Når aktivert, vert rettleiing lagd inn i systemmeldingane slik at modellen "
-"får generert eller revidert dokumenttekst til å høyrast meir naturleg og "
-"menneskeleg ut (fjernar typiske AI-mønster). Rediger reglane i LibreOffice-"
-"profilen din under writeragent/skills/humanizer/SKILL.md (fila vert "
-"automatisk oppretta ved første bruk). Ei eiga fane for ferdigheiter kan "
-"leggjast til seinare."
+"Når aktivert, vert innebygd rettleiing injisert i system-ledeteksten slik at"
+" modellen får generert eller revidert dokumenttekst til å høyrast meir "
+"naturleg og menneskeleg ut (fjernar AI-slurv)."
 
 msgid "Silence before send (ms)"
 msgstr "Stille før sending (ms)"
@@ -4804,6 +4924,68 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Kjernetenester (konfigurasjon, hendingar, loggføring)"
 
+msgid "Integrations"
+msgstr "Integrasjonar"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-tenarar for chat i sidepanelet"
+
+msgid "Server"
+msgstr "Tenar"
+
+msgid "Add"
+msgstr "Legg til"
+
+msgid "Remove"
+msgstr "Fjern"
+
+msgid "Use this MCP server in chat"
+msgstr "Bruk denne MCP-tenaren i chat"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Berre chat i sidepanelet (mcp-domene); vert aldri eksponert for WriterAgent "
+"sin MCP-tenar eller skript."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Stol på skriveverktøya (ingen førespurnad)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Verktøy som tenaren merkar som readOnlyHint køyrer utan Godta / Endre / "
+"Avslå; alle andre kall spør framleis"
+
+msgid "Name"
+msgstr "Namn"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Legg til prefiks for denne tenaren sine verktøynamn (t.d. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Tenar-URL"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP-endepunkt, t.d. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-token. «OK» lagrar det i systemet sin nøkkelring viss tilgjengeleg, "
+"elles i writeragent.json."
+
+msgid "Status"
+msgstr "Status"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4900,68 +5082,6 @@ msgstr "Klientkonfigurasjon (kopier inn i Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Kopier konfigurasjon"
-
-msgid "Integrations"
-msgstr "Integrasjonar"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "MCP-tenarar for chat i sidepanelet"
-
-msgid "Server"
-msgstr "Tenar"
-
-msgid "Add"
-msgstr "Legg til"
-
-msgid "Remove"
-msgstr "Fjern"
-
-msgid "Use this MCP server in chat"
-msgstr "Bruk denne MCP-tenaren i chat"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Berre chat i sidepanelet (mcp-domene); vert aldri eksponert for WriterAgent "
-"sin MCP-tenar eller skript."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Stol på skriveverktøya (ingen førespurnad)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Verktøy som tenaren merkar som readOnlyHint køyrer utan Godta / Endre / "
-"Avslå; alle andre kall spør framleis"
-
-msgid "Name"
-msgstr "Namn"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Legg til prefiks for denne tenaren sine verktøynamn (t.d. home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "Tenar-URL"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Streamable-HTTP MCP-endepunkt, t.d. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer-token. «OK» lagrar det i systemet sin nøkkelring viss tilgjengeleg, "
-"elles i writeragent.json."
-
-msgid "Status"
-msgstr "Status"
 
 msgid "Notebook"
 msgstr "Notatblokk"
@@ -5071,13 +5191,18 @@ msgstr "Tillat filtilgang"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Når merka, kan Python lesa og skriva filer kvar som helst (open, io, "
-"pathlib, shutil, tempfile, sqlite3, glob og os-filkall som listdir og stat)."
-" Når umerka, vert slik lesing og skriving blokkert. Minnebaserte bufferar "
-"(io.BytesIO, io.StringIO) er framleis tilgjengelege."
+"Når avkryssa, kan Python lese og skrive filer kvar som helst (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob, og os-filkall som listdir og "
+"stat). Når ikkje avkryssa, vert desse lesingane og skrivingane blokkerte; "
+"minnebaserte bufferar (io.BytesIO, io.StringIO) og dokumentfil-hjelparar "
+"(wa.document.open, wa.document.save, wa.document.export, som er "
+"tilgjengelege for MCP og Python-skript, men ikkje tilbodne til chat-modellen"
+" i sidepanelet) er framleis tilgjengelege."
 
 msgid "Allow OS access"
 msgstr "Tillat OS-tilgang"
@@ -5113,11 +5238,11 @@ msgstr ""
 "Redigeringsvindu for «Rediger Python i celle», «Køyr Python-skript», init-"
 "skriptet og LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (standard)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Visjon / OCR"
@@ -5128,35 +5253,98 @@ msgstr "Bilet-skalering"
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
 msgstr "Oppskaler før OCR/layout. Prøv 2.0 for små skjermbilete."
 
-msgid "Worker timeout (seconds)"
-msgstr "Tidsavbrot for arbeidar (sekund)"
+msgid "Document timeout (s)"
+msgstr "Tidsavbrot for dokument (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Grense for vert-underprosessar for Vision Helpers (første modellnedlasting)."
+"Stoppar Docling-behandling av eit dokument etter så mange sekund og beheld "
+"sidene som er ferdige så langt. Nedlasting og lasting av modell tel ikkje. 0"
+" slår av grensa."
 
-msgid "Docling artifacts path"
-msgstr "Sti for Docling-artefaktar"
+msgid "OCR engine"
+msgstr "OCR-motor"
 
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
 msgstr ""
-"Valfri mappe for nedlasting av docling-verktøymodellar (for bruk utan nett)."
+"OCR-motoren som Docling brukar. Alle motorar utanom RapidOCR (ONNX) må vere "
+"installerte i Python-venv; Innstillingar → Python → Test listar opp dei som "
+"er installerte."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, standard)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (kommandolinje)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR-språk"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Språkkodar som en, de eller zh-TW, skilde med komma. Docling-motorar les "
+"kvar kode; Paddle-motoren les den første. Tomt felt brukar språket til "
+"biletet eller LibreOffice."
+
+msgid "Device"
+msgstr "Eining"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Maskinvare for Docling-modellar. Auto brukar GPU når Docling finn ein; CPU "
+"fungerer alltid."
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Terskelverdi for OCR-konfidens"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Minimum tekstskåre for RapidOCR. 0,0 er ein reell terskel (ikkje "
-"standardverdien). Auk verdien for å redusere søppeltekst."
-
-msgid "OCR entire image"
-msgstr "OCR heile biletet"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Tilrådd for innebygd grafikk eksportert frå LibreOffice."
+"Minimum konfidens for att gjenkjend tekst (RapidOCR og EasyOCR; andre "
+"motorar ignorerer dette). Auk verdien for å fjerna uønskt tekst; 0.0 beheld "
+"all tekst."
 
 msgid "Table extraction mode"
 msgstr "Modus for tabelluthenting"
@@ -5195,6 +5383,14 @@ msgstr "Standard HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Strukturert (oppsett / cellerutenett)"
 
+msgid "Delete image after OCR"
+msgstr "Slett bilete etter OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Fjern kjeldebiletet frå dokumentet etter at OCR har sett inn innhaldet."
+
 msgid "Layout model"
 msgstr "Oppsettsmodell"
 
@@ -5217,8 +5413,44 @@ msgstr "Utviding av kodeblokker"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Spesialisert OCR for skjermbilete av kode/terminal."
 
-msgid "Docling document timeout (s)"
-msgstr "Tidsavbrot for Docling-dokument (s)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR-modellstorleik"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Tidsavbrot per konvertering i Docling. 0 = inga grense."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"RapidOCR-modellstorleik for PP-OCRv6-språk; andre språk ignorerer dette. "
+"«Tiny» er raskast og har ikkje japansk modell; «medium» er mest nøyaktig."
+
+msgid "Tiny"
+msgstr "Lita (Tiny)"
+
+msgid "Small (default)"
+msgstr "Lita (standard)"
+
+msgid "Medium"
+msgstr "Middels"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Fiks rotert tekst (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Les inn eit område på nytt ved 90, 180 og 270 grader når færre enn "
+"halvparten av linjene vert lesne med tryggleik. Fiksar skanna dokument som "
+"ligg på sida; tek berre tid ved dårlege lesingar. Gjelder for RapidOCR-"
+"motorane."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision-gjenkjenning"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Berre Apple Vision (macOS). «Rask» er hurtigare, men mindre nøyaktig og les "
+"færre språk."

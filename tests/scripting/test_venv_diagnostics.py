@@ -25,7 +25,10 @@ from plugin.scripting.venv_diagnostics import (
     _AUDIO_PACKAGE_KEYS,
     _AUDIO_PROBE_SCRIPT,
     _DUCKDB_PROBE_SCRIPT,
+    _NEMOTRON_RUNTIME_ERROR_KEY,
     _NLP_PROBE_SCRIPT,
+    _OCR_ENGINE_KEYS,
+    _OCR_ENGINE_PROBE_BODY,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
     _VECTOR_SEARCH_PROBE_SCRIPT,
@@ -229,13 +232,13 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
         ),
         pytest.param(
             True,
-            {"numpy": None, "scipy": None, "docling": None, "rapidocr": None, "css_inline": None},
+            {"numpy": None, "scipy": None, "docling": None, "rapidocr": None, "onnxruntime": None, "css_inline": None},
             [
                 ("sci", "Scientific Libraries", ("numpy", "scipy"), ()),
-                ("vision", "Vision Libraries", ("docling", "rapidocr", "css_inline", "numpy"), ()),
+                ("vision", "Vision Libraries", ("docling", "rapidocr", "onnxruntime", "css_inline", "numpy"), ()),
             ],
             True,
-            ("numpy", "scipy", "docling", "rapidocr-paddle", "css-inline", "onnxruntime"),
+            ("numpy", "scipy", '"docling>=2.145"', "rapidocr", "css-inline", "onnxruntime"),
             (),
             id="multiple_groups_single_deduplicated_footer",
         ),
@@ -282,31 +285,52 @@ def test_probe_report_install_footer_structure(
     ("packages", "expect_ready_engine", "expect_footer", "expected_in_footer"),
     [
         pytest.param(
-            {"docling": "present", "rapidocr": "present", "css_inline": "present"},
+            {"docling": "present", "rapidocr": "present", "onnxruntime": "present", "css_inline": "present"},
             "Docling",
             False,
             (),
             id="docling_ready",
         ),
         pytest.param(
-            {"docling": "present", "rapidocr": None, "css_inline": "present", "paddleocr": "present", "paddle": "present"},
+            {"docling": None, "rapidocr": None, "css_inline": "present", "paddleocr": "present", "paddle": "present"},
             "Paddle",
             False,
             (),
             id="paddle_ready_fallback",
         ),
         pytest.param(
-            {"docling": "present", "rapidocr": None, "css_inline": "present"},
+            {"docling": "present", "rapidocr": None, "onnxruntime": None, "css_inline": "present"},
             None,
             True,
-            ("rapidocr-paddle", "onnxruntime"),
+            ("rapidocr", "onnxruntime"),
             id="docling_without_rapidocr_not_ready",
+        ),
+        pytest.param(
+            {"docling": "present", "rapidocr": "present", "onnxruntime": None, "css_inline": "present"},
+            None,
+            True,
+            ("onnxruntime",),
+            id="docling_without_onnxruntime_not_ready",
+        ),
+        pytest.param(
+            {
+                "docling": "present",
+                "rapidocr": "present",
+                "onnxruntime": None,
+                "css_inline": "present",
+                "paddleocr": "present",
+                "paddle": "present",
+            },
+            None,
+            True,
+            ("onnxruntime",),
+            id="docling_paddle_without_onnxruntime_not_ready",
         ),
         pytest.param(
             {},
             None,
             True,
-            ("docling", "rapidocr-paddle", "css-inline", "onnxruntime"),
+            ("docling", "rapidocr", "css-inline", "onnxruntime"),
             id="all_ocr_missing_not_ready",
         ),
     ],
@@ -343,6 +367,34 @@ def test_probe_report_vision_ocr_structure(
             assert pkg in uv_lines[0]
         for opt in ("paddleocr", "ultralytics", "skimage"):
             assert opt not in uv_lines[0]
+
+
+def test_vision_optional_ocr_engines_listed_never_missing():
+    report = ProbeReport(
+        version="3.12.0",
+        packages={
+            "docling": "present",
+            "rapidocr": "present",
+            "onnxruntime": "present",
+            "css_inline": "present",
+            "tesseract": "present",
+        },
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    assert report.collect_missing_keys() == []
+    msg = report.render(include_install_footer=True)
+    vision_line = next(line for line in msg.splitlines() if line.startswith("Vision Libraries:"))
+    assert "tesseract" in vision_line
+    assert "easyocr" not in msg
+    assert "ocrmac" not in msg
+    assert "uv pip install " not in msg
 
 
 @pytest.mark.parametrize(
@@ -712,6 +764,17 @@ def test_probe_scripts_compile_and_ui_probe_round_trips():
     assert parsed is not None
     assert set(_UI_PACKAGE_KEYS) <= set(parsed)
 
+    vision_proc = subprocess.run(
+        [sys.executable, "-c", _VISION_PROBE_SCRIPT],
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert vision_proc.returncode == 0, vision_proc.stderr
+    vision_parsed = _parse_probe_stdout(vision_proc.stdout)
+    assert vision_parsed is not None
+    assert set(_OCR_ENGINE_KEYS) <= set(vision_parsed)
+
 
 def test_run_json_probe_keeps_payload_on_nonzero_exit():
     completed = subprocess.CompletedProcess(
@@ -822,3 +885,85 @@ def test_named_probe_uses_group_specific_timeout(name, expected_timeout_attr):
     ):
         diag._run_named_json_probe("/x/python", name)
     assert mock_probe.call_args.args[2] == sentinel
+
+
+def test_ocr_engine_probe_lists_tesseract_in_default_install_folder():
+    ns: dict[str, Any] = {"out": {}}
+    with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+    assert ns["out"]["tesseract"] == "present"
+
+
+def test_docling_pip_token_matches_vision_docling_floor():
+    """Host diagnostics cannot import vision_docling at runtime, so pin the shared floor in tests."""
+    from plugin.scripting.venv_diagnostics import _PROBE_KEY_TO_PIP
+    from plugin.vision.venv.vision_docling import _DOCLING_MIN_VERSION
+
+    assert _PROBE_KEY_TO_PIP["docling"] == '"docling>=%d.%d"' % _DOCLING_MIN_VERSION
+
+
+@pytest.mark.parametrize(
+    ("raises", "expected"),
+    [
+        (RuntimeError("Nemotron OCR requires Python 3.12."), "Nemotron OCR requires Python 3.12."),
+        (None, None),
+    ],
+)
+def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, expected):
+    import types
+
+    class _FakeNemotronOcrModel:
+        @classmethod
+        def validate_runtime(cls, _accelerator_options):
+            if raises is not None:
+                raise raises
+
+    accel_mod = types.ModuleType("docling.datamodel.accelerator_options")
+    accel_mod.AcceleratorOptions = lambda: None  # type: ignore[attr-defined]
+    nemotron_mod = types.ModuleType("docling.models.stages.ocr.nemotron_ocr_model")
+    nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
+
+    ns: dict[str, Any] = {"out": {}}
+    with (
+        patch("importlib.util.find_spec", side_effect=lambda name: object() if name == "nemotron_ocr" else None),
+        patch("shutil.which", return_value=None),
+        patch.dict(
+            sys.modules,
+            {
+                "docling.datamodel.accelerator_options": accel_mod,
+                "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
+            },
+        ),
+    ):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+
+    assert ns["out"]["nemotron_ocr"] == "present"
+    assert ns["out"].get(_NEMOTRON_RUNTIME_ERROR_KEY) == expected
+
+
+def test_vision_nemotron_runtime_error_shown_not_missing():
+    report = ProbeReport(
+        version="3.13.0",
+        packages={
+            "docling": "present",
+            "rapidocr": "present",
+            "onnxruntime": "present",
+            "css_inline": "present",
+            "nemotron_ocr": "present",
+            _NEMOTRON_RUNTIME_ERROR_KEY: "Nemotron OCR requires CUDA 13.x, but the current PyTorch runtime reports CUDA '12.8'.",
+        },
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    assert report.collect_missing_keys() == []
+    msg = report.render(include_install_footer=True)
+    vision_line = next(line for line in msg.splitlines() if line.startswith("Vision Libraries:"))
+    assert "nemotron_ocr" in vision_line
+    assert "Nemotron OCR cannot start in this venv: Nemotron OCR requires CUDA 13.x" in msg
+    assert "uv pip install " not in msg

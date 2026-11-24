@@ -29,3 +29,11 @@ For LibrePy (`make manifest-core`), a slim manifest is produced containing only 
 
 Settings tabs and saved fields come from `iter_settings_tab_modules` / `iter_settings_field_modules`. Exclusions are `core`, `main`, `ai`, `launcher`, `config_inline` children, `settings_tab: false`, and `config_dialog`. Field specs are the tab modules plus inline children of those tabs. Standalone dialogs do not use this list.
 
+## Dialog Field Layout and Tooltips
+
+Both SettingsDialog (`scripts/manifest_registry.py`) and standalone `config_dialog` XDLs (`scripts/manifest_xdl.py`) share the same positioning keys (`inline`, `x`, `width`, `label_x`, `label_width`) and the helper-to-tooltip rule (`field_hover_text` in `scripts/manifest_common.py`: an explicit `tooltip` string wins, otherwise `helper` becomes `dlg:help-text` on both the control and its label).
+
+### Standalone `config_dialog` Preview Area
+
+A standalone `config_dialog` can declare `preview: {height: <int>}` paired with `preview` in `buttons` (`validate_modules` enforces that both appear together and `height` is a positive integer). `generate_standalone_config_dialog` adds `preview.height` to the window height and emits page-0 controls (`preview_area`, `sb_preview`, `lbl_preview_status`, and `btn_preview`). It also supports `run` in `buttons` (`btn_run`) independently of `preview`. At runtime, callers pass `preview_job` and/or `run_job` to `ModuleConfigDialog.show(..., preview_job=..., run_job=...)` to handle Preview/Run clicks, status updates, and resize-aware scrolling.
+

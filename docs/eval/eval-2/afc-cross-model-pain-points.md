@@ -156,19 +156,19 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 **Hits:** C1 + C2 (≥8 models).
 
 **DO:**
-- Keep / sharpen `sheet_create` description + ok payload (“sheet created; **no cells copied**”) — already present in `plugin/calc/sheets.py`; verify the ok string stays visible in tool results models actually see.
+- **Shipped:** `sheet_create` description + ok payload (“sheet created; **no cells copied**”) in `plugin/calc/sheets.py` and `SHEETS_CREATED_NOT_POPULATED_INSTRUCTION` in `plugin/framework/prompts.py`.
 - Colocate on `copy_range` / `write_formula_range` (source+dest): one line — “empty tab is not the deliverable; copy or write the data block onto the new sheet.”
 - Keep `CALC_WORKFLOW` create≠populate one-liner; don’t restack a grab-bag essay.
 
 **Why:** Empty Sample with tabs present is still one of the most common Ready-looking fails. Teaching at call time beats restating step 4 in the task prompt alone.
 
-### L2 — Exact sheet-title contract on `sheet_create`
+### L2 — Exact sheet-title contract on `sheet_create` (shipped)
 
 **Hits:** C5 now; reduces C1 false “I created SSC” when titles drift.
 
 **DO:**
-- On `sheet_create` `sheet` parameter description: “Use the **exact** title the user asked for (preserve spaces; do not snake_case or invent aliases).”
-- Optional: ok payload echoes the created name so a rename mistake is visible in the next turn.
+- **Shipped** in `plugin/calc/sheets.py` on the `sheet_create` `sheet` parameter description (“Exact new sheet title from the request; preserve spaces…”).
+- **Shipped:** the ok payload echoes the name (`sheet=` and the message) in `plugin/calc/sheets.py`.
 
 **Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. MiniMax `Analysis` and oss-120b `SampleTest`/`Sample_old` are the same family. Exact-title hygiene is general Calc hygiene, not an AFC cheat.
 
@@ -250,7 +250,7 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 
 ## 4. Suggested cut order (for a later product PR — not this doc)
 
-1. **L1 + L2** — create/populate + exact titles (C1/C2/C5).  
+1. **L1 + L2** — create/populate + exact titles (C1/C2/C5; L2 and `sheet_create` "no cells copied" shipped).  
 2. **L3 + L4** — labeled R + literal K flags (C3 bulk).  
 3. **L5** — anti-husk / ordinary formulas on SSC (C4).  
 4. **L6** — soft confirmation habit.  
@@ -275,3 +275,13 @@ Retest bar: re-run a **slice** of C1–C3 models (e.g. Grok empty-Sample, Luna R
 | C8 stall | DS-V4.1, GLM, Granite, Laguna S |
 | C9 infra | Solar Pro 4 BLOCKED |
 | HAPPY | Gemini 3.8 Flash (gate), Mercury 2.5 Preview (catalog) |
+
+## Open
+
+- `[eng S many]` Colocate a one-line "an empty tab is not the deliverable; copy or write the data block onto the new sheet" tip on the range copy/write tools, and keep the create-then-populate line in `CALC_WORKFLOW` (the `sheet_create` description already says it). (§ L1 — Make "create → populate" unavoidable at action time)
+- `[eng S few]` Teach labeled final answers for "required sample size": a label like `Sample size` or `Required sample size` in one cell and the integer in the next, not paraphrases such as "rounded up" or `Sample Size: 68`. (§ L3 — Teach labeled final answers for "required sample size / R")
+- `[eng S few]` Teach that the Sample flag column K holds the literal `1`, and that a copy must cover columns J and K. (§ L4 — Flag column = literal `1` (selection marks))
+- `[eng S many]` Prefer ordinary formulas or plain value writes over `=PY` for small sample-size arithmetic, keeping `=PY` for reductions into one cell outside the data. (§ L5 — Prefer ordinary formulas / value writes over `=PY` for small SSC arithmetic)
+- `[eng S many]` Soft pre-finish habit: name the deliverable sheets and whether they hold data before saying done, without gating Ready. (§ L6 — Soft pre-finish checklist (prompt, not Ready FSM))
+- `[eng M many]` Stall and large-read recovery: small-peek steering on `read_range` is shipped (`ReadCellRange.description` and `ReadCellRange._read_one` in [`plugin/calc/cells.py`](../../../plugin/calc/cells.py)), and headed eval snapshots `writeragent_debug.log` via `snapshot_debug_log` in [`scripts/eval_2_headed.py`](../../../scripts/eval_2_headed.py); product-side API timeout visibility and automatic debug-log preservation on API timeout remain open. (§ L7 — Stall / large-read recovery (plumbing))
+- `[eng S few]` Light tip that once a required sample size R is known, flagged Sample rows must reach R before finishing. (§ L8 — S≥R once R is known (selection size))

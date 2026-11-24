@@ -163,7 +163,7 @@ This is the highest-value work because it directly reduces user-facing breakage.
 
 ### Target behaviors
 
-- When full document-context extraction fails, fall back to a smaller or safer context.
+- When full document-context extraction fails, fall back to a smaller or safer context (shipped for Writer chat context in `get_document_context_for_chat` in [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py), which falls back to selection text and then `"[Document content unavailable]"`).
 - When a disposed or stale UNO object is detected, try to reacquire what is cheap and safe to reacquire.
 - When a feature cannot continue safely, fail with a clear, localized message instead of cascading errors.
 - When history or config persistence fails, continue with a safe degraded path if one already exists.
@@ -501,3 +501,12 @@ This roadmap therefore prioritizes:
 6. aggressive testing, including fuzzing where it gives confidence without increasing production complexity
 
 That should make the extension more reliable without making it more esoteric.
+
+## Open
+
+- `[eng M many]` Fall back to selection or plain text when full document XHTML export fails in chat and tool paths beyond the existing document-context fallback. (§ Phase 2: User-Visible Resilience)
+- `[eng M many]` Reacquire the active document model after disposal in sidebar chat where reacquisition is safe. (§ Phase 2: User-Visible Resilience)
+- `[eng M many]` Add lightweight health diagnostics such as session failure counters and guided recovery hints in the sidebar. (§ Phase 2: User-Visible Resilience)
+- `[eng M few]` Run a continuous automated fuzzing job in CI for streaming decoders and JSON parsers; only the manual-trigger CrossHair workflow `crosshair-deep.yml` was confirmed. (§ Phase 3: Adversarial Verification)
+- `[eng S few]` Add bounded retries around transient OS file locks for config and history writes, only if real locking failures are observed. (§ 3.2 Priority 2: Bounded Retries for Real I/O)
+- `[idea L few]` Revisit deferred mechanisms (UNO circuit breaker, checkpointing) only after measuring a concrete repeated failure, and write a design note first. (§ Phase 4: Revisit Only If Needed)

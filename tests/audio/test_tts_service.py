@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for TTS service playback, process management, and sentence pipeline."""
 
+import io
 import os
 import subprocess
 import threading
@@ -917,11 +918,31 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
         _play_audio_file(mp3, cancel)
     mp3_cmd = mock_popen.call_args.args[0]
     assert mp3 not in " ".join(mp3_cmd)
-    assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
-    assert mp3_cmd[-1] == tts_service._WIN_WMP_PLAYER
-    assert '"' not in mp3_cmd[-1]
+    assert mp3_cmd[:4] == ["powershell", "-NoProfile", "-STA", "-Command"]
+    script = mp3_cmd[-1]
+    assert script == tts_service._WIN_MEDIA_PLAYER
+    assert '"' not in script
+    assert mp3 not in script
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_RATE"] == "1"
+
+
+def test_play_audio_file_logs_stderr_on_nonzero_exit(caplog: pytest.LogCaptureFixture) -> None:
+    from plugin.audio.tts_service import _play_audio_file
+
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = 1
+    mock_proc.stderr = io.StringIO("playback did not start\n")
+    cancel = SendCancellation()
+
+    with patch("sys.platform", "win32"), \
+         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen, \
+         caplog.at_level("WARNING", logger="plugin.audio.tts_service"):
+        assert _play_audio_file("C:\\clip.mp3", cancel) is False
+
+    assert mock_popen.call_args.kwargs["stderr"] == subprocess.PIPE
+    messages = [r.getMessage() for r in caplog.records if r.name == "plugin.audio.tts_service"]
+    assert any("code 1" in m and "playback did not start" in m for m in messages)
 
 
 def test_windows_player_nonzero_exit_triggers_os_fallback():
@@ -1922,7 +1943,8 @@ def test_player_candidates_apply_playback_rate():
 
     with patch("sys.platform", "win32"):
         _name, cmd_fast, env_fast = tts._get_player_candidates("C:\\clip.wav", 1.25)[0]
-        assert cmd_fast[-1] == tts._WIN_WMP_PLAYER
+        assert cmd_fast[:4] == ["powershell", "-NoProfile", "-STA", "-Command"]
+        assert cmd_fast[-1] == tts._WIN_MEDIA_PLAYER
         assert env_fast is not None
         assert env_fast["WA_AUDIO_RATE"] == "1.25"
 

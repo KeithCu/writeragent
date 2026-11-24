@@ -193,7 +193,7 @@ An earlier draft put a short string in the cell (`ISERROR` false). That is rejec
 | No emitter, pending timeout, superseded | `#N/A` | yes | none |
 | coolwsd infra: timeout / network / empty URL / allowlist | `#N/A` | yes | the wsd reason; classify known `replyError` prefixes (today many of these still collapse to `#VALUE!`) |
 | `"Python compute is disabled"` | `#DISABLED` | no | none. Kept as a string on purpose: it should not happen on a configured system, and it says the system is off, which the author cannot fix in Python |
-| Service `status=error` with a message (Python exception text, etc.) | `#VALUE!` | yes | the message; later the trimmed traceback and stdout |
+| Service `status=error` with a message (Python exception text, etc.) | `#VALUE!` | yes | the message, trimmed `traceback`, and `stdout` |
 | Bad JSON / missing `result` / empty error | `#VALUE!` | yes | none (no useful message) |
 | Empty `code` | `Err:502` | yes | already `IllegalArgumentException` |
 
@@ -378,7 +378,7 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
 **Today:**
 
 - Service [`execute_code`](../../compute_service/formula_worker.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
-- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated. A second shared execute or reset waits at most its own clock on the pool session gate (execute: remaining deadline; reset: `timeout_sec`) and returns `WORKER_POOL_BUSY` on a miss; the in-flight cell keeps the gate entry.
+- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated. A second shared execute or reset waits at most its own clock on the pool session gate (both spend the remaining admission deadline; the reset's budget is `max_timeout_sec`) and returns `WORKER_POOL_BUSY` on a miss; the in-flight cell keeps the gate entry.
 - Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
@@ -427,7 +427,7 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
    - The status bar text for the cursor cell is requested in `sc/source/ui/view/cellsh.cxx` (`SID_TABLE_CELL`) and built from `GetLongErrorString` in `tabvwsha.cxx`. Same lookup at the call site, so Classic shows it too.
 
    No new protocol message and no browser change for this step.
-5. **Later.** When the service sends a trimmed `traceback` and `stdout`, they go in the same entry, and the diagnostics sidebar lists the store by cell address. That listing is the only new protocol surface, and it is a separate patch.
+5. **Diagnostics sidebar.** The service sends the trimmed `traceback` and `stdout`, and step 1 stores them in the same entry; the diagnostics sidebar listing the store by cell address is a separate patch.
 
 **Other rows of the matrix:**
 
@@ -605,7 +605,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 
 | Step | What | Why / done when |
 |---|---|---|
-| **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. |
+| **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. Done: [Collabora admin setup](../../compute_service/README.md#production--collabora-online) and the smoke step in `compute-image.yml`. |
 | **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
 | **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
 | **1a** | Python error detail in a per-cell look-aside; the cell stays `#VALUE!` (`ISERROR` true). Online's error help and the status bar show the message for the selected cell ([F6](#f6--python-error-detail-look-aside)). | Most visible gap. After plot insert, because it reuses that interpreter hook. |
@@ -614,3 +614,23 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | **1d** | Shared kernel per document, wsd-owned `session_id`. | Last: it brings back state and lifetime risk (see [Bug classes fixed](#bug-classes-fixed-and-how-we-prevent-them)). |
 
 Phases 2–5 each get a one-page plan when they come up.
+
+## Open
+
+- `[feature M few]` Python error detail look-aside so a failing `=PY()` stays `#VALUE!` with `ISERROR` true while the selected cell's error help and status bar show the Python message (Collabora Core and AddIn work). (§ F6 — Python error detail (look-aside))
+- `[eng M few]` Land the plot-images (F3) and single-cell auto-spill (F7) branches on Gerrit, which are implemented but not yet submitted. (§ Ordered slices)
+- `[feature M few]` Shared workbook kernel for Online: coolwsd sets a server-derived `session_id` and mode, and calls `/v1/session/reset` on broker destroy, since only the service side exists. (§ F5 — Shared workbook kernel)
+- `[eng S few]` Manual or scripted scalar NumPy smoke path showing `import numpy` runs only in the compute service process. (§ F2 — Scalar NumPy smoke)
+- `[eng S few]` Switch the kit to the multipart POST and retire the single-JSON peel ingress in the compute service. (§ HTTP ingress: peel vs multipart)
+- `[eng S few]` Ops-level compute container isolation: cgroup memory and CPU limits and a private bridge network. (§ G5 — Service isolation)
+- `[eng S few]` Close remaining Online test gaps: allowlist reject, corrupt upward-frame injection, and disconnect mid-flight. (§ G8 — Test coverage gaps)
+- `[eng S few]` Reviewer nits: a release-note sentence on the `PY` display name versus Excel semantics, en-US-only AddIn help, C-ABI-only exports for `anyjson` test helpers, and `IwyuFilter_scaddins.yaml`. (§ Still open before Gerrit)
+- `[eng M few]` Prepare the series split (generic Calc fixes, Core AddIn, Online kit/wsd, feature branches) for upload when requested. (§ G9 — Series, naming, and hygiene)
+- `[fidelity S few]` Core alias so Collabora Online can open LibrePy-written `=PY()` files, which currently show `#NAME?` in that direction. (§ File interop with LibrePy / WriterAgent (desktop))
+- `[eng S few]` Classic `RemoteComputeBackend` that posts to the compute service so the service can be debugged without an Online rebuild. (§ Classic remote testing (optional))
+- `[eng S few]` Gather real latency and payload-size numbers from early users before touching any limit. (§ Baby steps, 0c)
+- `[idea S few]` AddIn-emitted `timeout_ms`, deferred because wsd defaults and service clamping suffice. (§ Explicitly deferred)
+- `[feature L few]` Browser Monaco / Run Script / diagnostics authoring UX for Online, not pywebview in the jail. (§ Next steps (roadmap), Phase 2)
+- `[feature M few]` Excel `.xlsx` Python support on Online by calling the OOXML rewriter on open and save. (§ Next steps (roadmap), Phase 3)
+- `[feature M few]` Expose LibrePy-style local OCR on Online with a config settings UI. (§ Next steps (roadmap), Phase 4)
+- `[feature L few]` Admin-baked science helper stacks in the compute image, exposing analysis helper tools without the calc facade. (§ Next steps (roadmap), Phase 5)

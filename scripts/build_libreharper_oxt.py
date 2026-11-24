@@ -57,7 +57,7 @@ LIBREHARPER_EXTENSION_INCLUDES = [
     "extension-harper/description.xml",
     "extension-harper/META-INF/",
     "extension-harper/registry/",
-    "extension/assets/logo.jpg",
+    "extension/assets/extension_icon.png",
 ]
 
 REQUIRED_LIBREHARPER_ARCHIVE_PATHS: tuple[str, ...] = (
@@ -68,7 +68,7 @@ REQUIRED_LIBREHARPER_ARCHIVE_PATHS: tuple[str, ...] = (
     "plugin/_manifest.py",
     "plugin/__init__.py",
     "plugin/lib/json_repair/__init__.py",
-    "assets/logo.jpg",
+    "assets/extension_icon.png",
     "plugin/framework/module_base.py",
     "plugin/writer/__init__.py",
     "plugin/doc/__init__.py",

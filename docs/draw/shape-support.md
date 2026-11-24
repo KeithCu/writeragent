@@ -21,7 +21,7 @@ To create one of these specific shapes:
 1. Instantiate `com.sun.star.drawing.CustomShape`.
 2. Set `CustomShapeEngine` to `com.sun.star.drawing.EnhancedCustomShapeEngine` and configure `CustomShapeGeometry` **before** `page.add`. This property accepts a sequence of `com.sun.star.beans.PropertyValue`.
 3. Set a `PropertyValue` with `Name="Type"` and `Value="<shape_name>"`.
-4. Add the shape to the drawing page. On Draw and Impress, do **not** set `CustomShapeGeometry` again after add — swapping Type on a live inserted shape (default CustomShape is an `SdrRectObj`) can abort LibreOffice in `SfxItemPool::unregisterNameOrIndex`. Writer and Calc set the type again after add: pre-add `Type` alone stays Type-only (no Path/ViewBox) and the shape does not paint. That second write is intentional for `TextDocument` and `SpreadsheetDocument` only.
+4. Add the shape to the drawing page, then set `CustomShapeGeometry` (`Type`) again after `page.add`. The pre-add write (`SvxShape::setPropertyValue` buffers `Type` in `maUrsAnys`, `svx/source/unodraw/unoshape.cxx:566`) ensures the inserted `SdrObjCustomShape` already has that `Type` instead of swapping a live default `SdrRectObj` (which can abort in `SfxItemPool::unregisterNameOrIndex`); the post-add write (`SvxCustomShape::setPropertyValue` → `MergeDefaultAttributes()`, `svx/source/unodraw/unoshap2.cxx:1733-1749`) expands the preset geometry (`ViewBox`, `Path`, `Equations`, `Handles`) so the shape paints across Writer, Calc, Draw, and Impress.
 
 Writer-only: set `AnchorType=AT_PAGE` before add (already inside `safe_create_shape`). Fill/line properties stay after add.
 
@@ -59,6 +59,16 @@ When the user requests a `shape_type`:
 The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.
 
 New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, `shape_group`, `table_insert` (Draw/Impress), and `math_insert` always carry a page-unique `Name` (`Shape<n>` when omitted on Draw, Impress, and Calc; Writer's `SwXDrawPage::add` already assigns one) and return it as `name`. Explicit duplicate `name` values on create or index-addressed rename are rejected (`INVALID_PARAM`). When `shape_upsert` (edit by `name`), `shape_delete`, `shape_connect`, `shape_group`, `shape_align`, or `shape_distribute` gets a Name that is not on the page or sheet, the error carries `details.available` (up to 40 shape Names on that page, group children included), `hint`, and `similar`.
+
+### Text styling and box options
+
+`shape_upsert` exposes six optional text and box parameters:
+
+- `bold` / `italic`: forwarded to `apply_character_properties` (`CharWeight` 150.0 / 100.0 and `CharPosture` `FontSlant.ITALIC` / `NONE`).
+- `h_align` (`left`, `center`, `right`, `justify`): sets `TextHorizontalAdjust=BLOCK` and then `ParaAdjust` via `para_adjust_to_uno`. Setting `BLOCK` is required so the text area spans the shape width and `ParaAdjust` aligns against the shape edges; `RectangleShape` and `EllipseShape` default to `TextHorizontalAdjust=CENTER`, which centres the text block at its own width and ignores left/right `ParaAdjust`.
+- `v_align` (`top`, `center`, `bottom`): sets `TextVerticalAdjust` (`TOP`, `CENTER`, `BOTTOM`). Custom shapes and `TextShape` default to top-left (`TextHorizontalAdjust=BLOCK`, `TextVerticalAdjust=TOP`), whereas `RectangleShape` and `EllipseShape` default to centred (`CENTER`/`CENTER`).
+- `wrap_text`: sets `TextWordWrap`. Custom shapes wrap by default in Draw and Impress (`sd/source/core/drawdoc4.cxx:270`) but not in Writer and Calc; `TextShape` always wraps; `RectangleShape` and `EllipseShape` never wrap at a fixed `font_size` (they only wrap under the default `TextFitToSize=AUTOFIT`).
+- `corner_radius`: sets `CornerRadius` in `1/100 mm`. Only `RectangleShape` (plus text, circle, connector, and caption maps) supports `CornerRadius`; on a `CustomShape` (such as `round-rectangle`) it fails and is reported as a `corner_radius` warning.
 
 ## Grouping
 

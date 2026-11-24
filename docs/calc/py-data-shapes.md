@@ -139,6 +139,10 @@ Rebuild after IDL changes: `scripts/rebuild_xprompt_rdb.sh` → [`extension/XPyt
 | --- | --- | --- |
 | `=PY("…"; A1:A5)` | `CalcRange` for `A1:A5` | `[data]` |
 | `=PY("…"; A1:A5; C1:C5)` | same list as `ranges` | `[range0, range1]` |
+| `=PY("…"; 5; A1:B1)` | same list as `ranges` | `[1x1 CalcRange (5), CalcRange A1:B1]` |
+| `=PY("…"; 5; 6)` | same list as `ranges` | `[1x1 CalcRange (5), 1x1 CalcRange (6)]` |
+
+On Collabora Online the AddIn sends one argument as `data` itself and several as a JSON array. A range is always a nested grid `[[…]]` and a single cell or literal is a bare value. So each array item becomes its own input, a list of flat rows is one range, and desktop (`multi_data` envelopes) gives the same `ranges`. Every argument is an input on both products; to pick one element of a list result, index in code, e.g. `result = vals[int(data[1])]`. Desktop's single-argument `ROW()-n` matrix-formula form is described in [Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 **Example — weighted average across regions** (multi-arg: index with `data[i]` or loop `ranges`):
 
@@ -326,3 +330,12 @@ Not planned unless a real product need appears. **Do not treat the list below as
 - Formula parameters: 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; per-formula `timeout_sec`.
 - Range alignment helper for mismatched multi-range shapes before `np.corrcoef` / element-wise math — see [Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog).
 - `per-workbook `WorkbookState.matrix`` keys use `repr(worker_data)` (`WorkerResultSession` in [`function.py`](../../plugin/calc/python/function.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.
+
+
+## Open
+
+- `[idea M few]` Blank side-channel on `split_grid` with masked-array ingress so pass-through blanks stay empty and `np.mean` ignores Calc blanks. (§ Deferred upgrades)
+- `[feature M few]` Extra `=PY()` formula parameters: a third `extras` argument for recalc dependencies, a `collapse` option on conversion, and a per-formula `timeout_sec`. (§ Deferred upgrades)
+- `[feature S few]` Range alignment helper for mismatched multi-range shapes before `np.corrcoef` or element-wise math. (§ Deferred upgrades)
+- `[feature M few]` Import LibrePythonista `lp("A1:B10")` calls by rewriting them to `data.to_pandas(header_row=None)`. (§ Why CalcRange, not DataFrame by default)
+- `[eng S few]` Key the per-workbook `WorkbookState.matrix` by a packed-payload digest and cell count instead of `repr(worker_data)`. (§ Deferred upgrades)

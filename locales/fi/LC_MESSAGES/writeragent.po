@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Viimeisintä agentti-muokkausta ei voitu kumota."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Viimeisin agentti-muokkaus kumottu ({0} vaihetta)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Kuvaa ei löytynyt."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Kuvan poistaminen epäonnistui: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -702,11 +711,11 @@ msgstr "Avaa ensin Calc-laskentataulukko."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Monaco-muokkain on poistettu käytöstä tiedoston writeragent.json asetuksella"
-" \"scripting.force_internal_script_editor\"."
+"Python-editori-ikkuna on poistettu käytöstä writeragent.json-tiedoston "
+"asetuksella \"scripting.force_internal_script_editor\"."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1234,6 +1243,10 @@ msgstr "Hyväksy tämä muutos"
 msgid "Reject this change"
 msgstr "Hylkää tämä muutos"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Esikatselukuvan purkaminen epäonnistui."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1634,6 +1647,25 @@ msgstr "miksi"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "sinä"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Suoritetaan…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Peruutettu."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Esikatselu epäonnistui: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Suoritus epäonnistui: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2349,6 +2381,36 @@ msgstr "Avataan '%s' vain luku -tilassa."
 msgid "Web research completed."
 msgstr "Verkkotutkimus valmis."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama ei ilmoittanut num_ctx-arvoa, joten WriterAgent oletti arvoksi {0} "
+"tokenia, mikä on liian vähän verkkohakua varten (pelkkä hakuohje ja työkalut"
+" vievät noin 2 000 tokenia, lisäksi tulevat tulostetokenit). Nosta num_ctx "
+"vähintään arvoon {1} (käyttämällä PARAMETER num_ctx {2} tai suurempaa arvoa "
+"Modelfile-tiedostossa ollama create -komennolla), käytä sitten Testaa yhteys"
+" -toimintoa asetuksissa (tai käynnistä LibreOffice uudelleen) ja yritä "
+"uudelleen."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Konteksti-ikkuna ({0} tokenia) on liian pieni verkkohakua varten (pelkkä "
+"hakuohje ja työkalut vievät noin 2 000 tokenia, lisäksi tulevat "
+"tulostetokenit). Nosta num_ctx vähintään arvoon {1} (tai vaihda malliin, "
+"jossa on suurempi konteksti-ikkuna) ja yritä uudelleen."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2627,10 +2689,6 @@ msgstr "Uusi Python-skripti"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Skriptin nimi:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Suoritetaan…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2943,12 +3001,12 @@ msgstr "Venv-tarkistus epäonnistui"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
 "Aseta Python venv -polku kohdassa Asetukset → Python (sama venv, jossa ajoit"
-" 'uv pip install pywebview rocher'). Libreofficen sisäänrakennettu Python ei"
-" voi suorittaa muokkainta."
+" 'uv pip install pywebview'). LibreOfficen sisäänrakennettu Python ei voi "
+"suorittaa editoria."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3036,12 +3094,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Äänitesti epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco -testin aikakatkaisu."
+msgid "UI / Editor probe timed out."
+msgstr "Käyttöliittymän / editorin tunnistus aikakatkaistiin."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco -testi epäonnistui (katso writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr ""
+"Käyttöliittymän / editorin tunnistus epäonnistui (katso "
+"writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3087,6 +3147,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "DuckDB-testi epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR ei voi käynnistyä tässä virtuaaliympäristössä:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Mikrofonin syöttölaitteita ei löytynyt."
 
@@ -3119,9 +3183,10 @@ msgid "Audio Recording & Speech"
 msgstr "Äänitys ja puhe"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
 msgstr ""
-"UI / Monaco -kirjastot: tarkistetaan skriptityöntekijän ulkopuolelta..."
+"Käyttöliittymän / editorin kirjastot: tarkistetaan skriptin työntekijän "
+"ulkopuolelta..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3491,7 +3556,7 @@ msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr ""
 "Vision-aputoiminnot vaativat Writer-, Calc-, Draw- tai Impress-asiakirjan."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Vision-apuohjelma epäonnistui."
 
@@ -3585,6 +3650,223 @@ msgstr "Sisäänrakennettua skriptivalintaikkunaa ei voitu avata."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Odottamaton virhe avattaessa Python-skriptin suoritusta."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr "Tarkista writeragent_debug.log LibreOffice-käyttäjäasetuskansiostasi"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP-palvelimen käynnistys epäonnistui"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Pysäytä MCP-palvelin"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Käynnistä MCP-palvelin"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-palvelin ei ole käynnissä"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP-palvelin on käynnissä"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Reitit: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Paikallinen URL: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Julkinen URL: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Paikallinen päätepiste:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Julkinen tunneli ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Tila: Aktiivinen (yhdistetty)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Tila: Yhdistetään uudelleen — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "yritetään uudelleen…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Tila: Käynnistetään tunnelia…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Tila: Epäonnistui — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Tila: Ei käynnissä (onko {0}-binääri asennettu?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopioitu!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Testataan…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testitunneli"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP-tunnelitesti"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Julkinen tunneli {0}:n kautta (ei todennusta)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Julkinen tunneli palvelun {0} kautta: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "yhdistetään uudelleen…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Julkinen tunneli {0}:n kautta epäonnistui: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Julkinen tunneli {0}:n kautta käynnistyy…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Julkinen tunneli {0}:n kautta ei ole käynnissä (onko palveluntarjoajan "
+"binaari asennettu?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tunnelin testitila: {0}-palveluntarjoaja simuloitu onnistuneesti."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Tuntematon tunnelin tarjoaja: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binääriä '{0}' kohteelle {1} ei löytynyt PATH-ympäristömuuttujasta.\n"
+"\n"
+"Asenna osoitteesta: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Binäärin {0} suorittaminen epäonnistui ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"{0}-tunneli on käynnissä ja vastaa!\n"
+"\n"
+"Julkinen päätepiste:\n"
+"{1}\n"
+"\n"
+"Terveystarkistus: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0}-tunneli on aktiivinen!\n"
+"\n"
+"Julkinen päätepiste:\n"
+"{1}\n"
+"\n"
+"(Julkinen URL saatu aktiivisesta tunneliyhteydestä.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0}-binääri '{1}' on vahvistettu ({2}).\n"
+"\n"
+"(Huomautus: Aktiivinen {3}-tunneli on parhaillaan käynnissä osoitteessa {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0}-binääri '{1}' on asennettu ja vahvistettu ({2}).\n"
+"\n"
+"MCP-palvelin on käynnissä paikallisesti portissa {3}.\n"
+"Valitse 'Expose via public tunnel' ja napsauta OK aktivoidaksesi julkisen reitityksen."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0}-binääri '{1}' on asennettu ja vahvistettu ({2}).\n"
+"\n"
+"Huomautus: MCP-palvelin ei ole tällä hetkellä käynnissä portissa {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "MCP-palvelimen tila"
@@ -3605,16 +3887,72 @@ msgstr "Hyväksy kaikki"
 msgid "Reject all"
 msgstr "Hylkää kaikki"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Ladataan malleja…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Tunnistetaan tekstiä…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Tekstiä ei tunnistettu."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Muodostetaan esikatselua…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Valitun kuvan vienti epäonnistui: {error}"
+msgid "Done: {count} characters."
+msgstr "Valmis: {count} merkkiä."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Vision OCR -lisäys vaatii Writer- tai Calc-asiakirjan; käytä esikatselua "
+"Draw- tai Impress-ohjelmissa."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Lisätään…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Lisätty {count} kuvaa."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Lisätty: {count} merkkiä."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Kuva säilytettiin, koska Agent-muokkausten tarkistus tallentaa muutoksia."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Esikatseluasiakirjan luominen epäonnistui."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Esikatselusivun hahmonnus epäonnistui."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr ""
 "Valitse upotettu kuva (tai alue, joka sisältää kuvia) ja suorita uudelleen."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Valitun kuvan vienti epäonnistui: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3695,225 +4033,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Kuva poistettiin OCR-lisäyksen valmistelun aikana."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Nimetöntä kuvaa ei voi poistaa OCR-lisäyksen jälkeen."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Kuva poistettiin OCR-lisäyksen aikana."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "Tarkista writeragent_debug.log LibreOffice-käyttäjäasetuskansiostasi"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP-palvelimen käynnistys epäonnistui"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Pysäytä MCP-palvelin"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Käynnistä MCP-palvelin"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP-palvelin ei ole käynnissä"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP-palvelin on käynnissä"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Reitit: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Paikallinen URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Julkinen URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Paikallinen päätepiste:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Julkinen tunneli ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Tila: Aktiivinen (yhdistetty)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Tila: Yhdistetään uudelleen — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "yritetään uudelleen…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Tila: Käynnistetään tunnelia…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Tila: Epäonnistui — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Tila: Ei käynnissä (onko {0}-binääri asennettu?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopioitu!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testataan…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testitunneli"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP-tunnelitesti"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Julkinen tunneli {0}:n kautta (ei todennusta)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Julkinen tunneli palvelun {0} kautta: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "yhdistetään uudelleen…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Julkinen tunneli {0}:n kautta epäonnistui: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Julkinen tunneli {0}:n kautta käynnistyy…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Julkinen tunneli {0}:n kautta ei ole käynnissä (onko palveluntarjoajan "
-"binaari asennettu?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tunnelin testitila: {0}-palveluntarjoaja simuloitu onnistuneesti."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Tuntematon tunnelin tarjoaja: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binääriä '{0}' kohteelle {1} ei löytynyt PATH-ympäristömuuttujasta.\n"
-"\n"
-"Asenna osoitteesta: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Binäärin {0} suorittaminen epäonnistui ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0}-tunneli on käynnissä ja vastaa!\n"
-"\n"
-"Julkinen päätepiste:\n"
-"{1}\n"
-"\n"
-"Terveystarkistus: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0}-tunneli on aktiivinen!\n"
-"\n"
-"Julkinen päätepiste:\n"
-"{1}\n"
-"\n"
-"(Julkinen URL saatu aktiivisesta tunneliyhteydestä.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0}-binääri '{1}' on vahvistettu ({2}).\n"
-"\n"
-"(Huomautus: Aktiivinen {3}-tunneli on parhaillaan käynnissä osoitteessa {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0}-binääri '{1}' on asennettu ja vahvistettu ({2}).\n"
-"\n"
-"MCP-palvelin on käynnissä paikallisesti portissa {3}.\n"
-"Valitse 'Expose via public tunnel' ja napsauta OK aktivoidaksesi julkisen reitityksen."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0}-binääri '{1}' on asennettu ja vahvistettu ({2}).\n"
-"\n"
-"Huomautus: MCP-palvelin ei ole tällä hetkellä käynnissä portissa {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Lisää OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4618,18 +4747,14 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Humanisointitaito (luonnollinen proosa)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Kun käytössä, lisää ohjeistuksen järjestelmäkehotteeseen, jotta malli "
-"tuottaa tai muokkaa asiakirjatekstiä luonnollisemman ja inhimillisemmän "
-"kuuloiseksi (poistaa tekoälylle tyypillisiä maneereja). Muokkaa sääntöjä "
-"LibreOffice-profiilissasi kohdassa writeragent/skills/humanizer/SKILL.md "
-"(tiedosto luodaan automaattisesti ensimmäisellä käyttökerralla). Erillinen "
-"Taitojen välilehti voidaan lisätä myöhemmin."
+"Kun tämä on käytössä, järjestelmäkehotteeseen lisätään sisäänrakennettu "
+"ohjeistus, jotta mallin tuottama tai muokkaama tekstisisältö kuulostaa "
+"luonnollisemmalta ja inhimillisemmältä (poistaa tekoälylle tyypillisiä "
+"toistuvia kaavoja)."
 
 msgid "Silence before send (ms)"
 msgstr "Hiljaisuus ennen lähetystä (ms)"
@@ -4824,6 +4949,69 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Ydinkomponentit (asetukset, tapahtumat, lokitus)"
 
+msgid "Integrations"
+msgstr "Integraatiot"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "MCP-palvelimet sivupalkin keskustelulle"
+
+msgid "Server"
+msgstr "Palvelin"
+
+msgid "Add"
+msgstr "Lisää"
+
+msgid "Remove"
+msgstr "Poista"
+
+msgid "Use this MCP server in chat"
+msgstr "Käytä tätä MCP-palvelinta keskustelussa"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Vain sivupalkin keskustelu (mcp-toimialue); ei koskaan paljasteta "
+"WriterAgentin MCP-palvelimelle tai skripteille."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Luota sen vain luku -työkaluihin (ei kehotetta)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Palvelimen readOnlyHint-merkityt työkalut suoritetaan ilman Hyväksy / Muuta "
+"/ Hylkää -valintaa; kaikki muut kutsut vaativat edelleen vahvistuksen"
+
+msgid "Name"
+msgstr "Nimi"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Lisää etuliitteen tämän palvelimen työkalujen nimiin (esim. home -> "
+"mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "Palvelimen URL-osoite"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr "Streamable-HTTP MCP -päätepiste, esim. http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Tunniste"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Bearer-tunniste. Asetusten OK-painike tallentaa sen järjestelmän "
+"avainnippuun, jos sellainen on käytettävissä, muussa tapauksessa tiedostoon "
+"writeragent.json."
+
+msgid "Status"
+msgstr "Tila"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4922,69 +5110,6 @@ msgstr "Asiakaskonfiguraatio (kopioi Claude / Hermes-Agentiin):"
 
 msgid "Copy Config"
 msgstr "Kopioi asetukset"
-
-msgid "Integrations"
-msgstr "Integraatiot"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "MCP-palvelimet sivupalkin keskustelulle"
-
-msgid "Server"
-msgstr "Palvelin"
-
-msgid "Add"
-msgstr "Lisää"
-
-msgid "Remove"
-msgstr "Poista"
-
-msgid "Use this MCP server in chat"
-msgstr "Käytä tätä MCP-palvelinta keskustelussa"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Vain sivupalkin keskustelu (mcp-toimialue); ei koskaan paljasteta "
-"WriterAgentin MCP-palvelimelle tai skripteille."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Luota sen vain luku -työkaluihin (ei kehotetta)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Palvelimen readOnlyHint-merkityt työkalut suoritetaan ilman Hyväksy / Muuta "
-"/ Hylkää -valintaa; kaikki muut kutsut vaativat edelleen vahvistuksen"
-
-msgid "Name"
-msgstr "Nimi"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Lisää etuliitteen tämän palvelimen työkalujen nimiin (esim. home -> "
-"mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "Palvelimen URL-osoite"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr "Streamable-HTTP MCP -päätepiste, esim. http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Tunniste"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Bearer-tunniste. Asetusten OK-painike tallentaa sen järjestelmän "
-"avainnippuun, jos sellainen on käytettävissä, muussa tapauksessa tiedostoon "
-"writeragent.json."
-
-msgid "Status"
-msgstr "Tila"
 
 msgid "Notebook"
 msgstr "Muistikirja"
@@ -5096,13 +5221,19 @@ msgstr "Salli tiedostojen käyttö"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Kun valittu, Python voi lukea ja kirjoittaa tiedostoja missä tahansa (open, "
-"io, pathlib, shutil, tempfile, sqlite3, glob ja os-tiedostokutsut kuten "
-"listdir ja stat). Kun valinta on poistettu, nämä luku- ja kirjoitustoiminnot"
-" on estetty. Välimuistit (io.BytesIO, io.StringIO) pysyvät käytettävissä."
+"Kun tämä on valittuna, Python voi lukea ja kirjoittaa tiedostoja missä "
+"tahansa (open, io, pathlib, shutil, tempfile, sqlite3, glob ja os-"
+"tiedostokutsut kuten listdir ja stat). Kun tämä ei ole valittuna, kyseiset "
+"luku- ja kirjoitustoiminnot on estetty; muistipuskurit (io.BytesIO, "
+"io.StringIO) ja asiakirjatiedostojen apuohjelmat (wa.document.open, "
+"wa.document.save, wa.document.export, jotka ovat MCP- ja Python-skriptien "
+"käytettävissä, mutta eivät sivupalkin keskustelumallin käytettävissä) "
+"pysyvät käytettävissä."
 
 msgid "Allow OS access"
 msgstr "Salli käyttöjärjestelmän käyttö"
@@ -5139,11 +5270,11 @@ msgstr ""
 "Editori-ikkuna Python-koodin muokkaamiseen soluissa, Python-skriptien "
 "suorittamiseen, alustusskriptille ja LaTeXille."
 
-msgid "Monaco (default)"
-msgstr "Monaco (oletus)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -5156,34 +5287,98 @@ msgstr ""
 "Skaalaa ennen OCR-tunnistusta/asettelua. Kokeile arvoa 2.0 pienille "
 "kuvakaappauksille."
 
-msgid "Worker timeout (seconds)"
-msgstr "Työprosessin aikakatkaisu (sekuntia)"
+msgid "Document timeout (s)"
+msgstr "Asiakirjan aikakatkaisu (s)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Vision Helper -aliprosessien isäntäraja (ensimmäinen mallin lataus)."
-
-msgid "Docling artifacts path"
-msgstr "Docling-artefaktien polku"
-
-msgid "Optional folder from docling-tools models download (offline use)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
+"Pysäyttää Docling-käsittelyn tietyn sekuntimäärän jälkeen ja säilyttää tähän"
+" mennessä valmistuneet sivut. Mallin lataus ei vaikuta tähän. 0 poistaa "
+"rajoituksen käytöstä."
+
+msgid "OCR engine"
+msgstr "OCR-moottori"
+
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Doclingin käyttämä OCR-moottori. Kaikki muut moottorit paitsi RapidOCR "
+"(ONNX) on asennettava Python-virtuaaliympäristöön; Asetukset → Python → "
+"Testaa listaa asennetut moottorit."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, oletus)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (komentorivi)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "OCR-kieli"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Kielikoodit, kuten en, de tai zh-TW, pilkuilla erotettuna. Docling-moottorit"
+" lukevat jokaisen koodin; Paddle-moottori lukee ensimmäisen. Tyhjä käyttää "
+"kuvan tai LibreOfficen kieltä."
+
+msgid "Device"
+msgstr "Laite"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Laitteisto Docling-malleille. Auto käyttää GPU:ta, kun Docling löytää "
+"sellaisen; CPU toimii aina."
+
+msgid "Auto"
+msgstr "Automaattinen"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "OCR-luottamusraja"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"RapidOCR-tekstin vähimmäispistemäärä. 0.0 on todellinen kynnysarvo (ei "
-"oletus). Nosta arvoa vähentääksesi turhaa tekstiä."
-
-msgid "OCR entire image"
-msgstr "OCR koko kuvalle"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Suositellaan LibreOfficesta viedyille upotetuille grafiikoille."
+"Tunnistetun tekstin vähimmäisluottamus (RapidOCR ja EasyOCR; muut moottorit "
+"ohittavat tämän). Nosta arvoa vähentääksesi turhaa tekstiä; 0.0 säilyttää "
+"kaiken tekstin."
 
 msgid "Table extraction mode"
 msgstr "Taulukon erotustila"
@@ -5223,6 +5418,15 @@ msgstr "Standardi HTML"
 msgid "Structured (layout / cell grid)"
 msgstr "Strukturoitu (asettelu / soluruudukko)"
 
+msgid "Delete image after OCR"
+msgstr "Poista kuva tekstintunnistuksen jälkeen"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr ""
+"Poista lähdekuva asiakirjasta sen jälkeen, kun tekstintunnistuksen sisältö "
+"on lisätty."
+
 msgid "Layout model"
 msgstr "Asettelumalli"
 
@@ -5246,8 +5450,43 @@ msgstr "Koodilohkojen rikastus"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "Erikoistunut tekstintunnistus (OCR) koodi- ja päätekuvakaappauksille."
 
-msgid "Docling document timeout (s)"
-msgstr "Docling-asiakirjan aikakatkaisu (s)"
+msgid "RapidOCR model size"
+msgstr "RapidOCR-mallin koko"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Muunnoskohtainen aikakatkaisu Doclingissa. 0 = ei rajoitusta."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"RapidOCR-mallin koko PP-OCRv6-kielille; muut kielet ohittavat tämän. Tiny on"
+" nopein eikä sisällä japanin kielen mallia; medium on tarkin."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (oletus)"
+
+msgid "Medium"
+msgstr "Keskikokoinen"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Korjaa kääntynyt teksti (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Lue alue uudelleen 90, 180 ja 270 asteen kulmissa, jos alle puolet riveistä "
+"luetaan luotettavasti. Korjaa sivuttain skannatut tekstit; vie aikaa vain "
+"heikoissa luvuissa. Koskee RapidOCR-moottoreita."
+
+msgid "Apple Vision recognition"
+msgstr "Apple Vision -tunnistus"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Vain Apple Vision (macOS). \"Nopea\" on nopeampi, mutta vähemmän tarkka ja "
+"tukee vähemmän kieliä."

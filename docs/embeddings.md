@@ -1133,3 +1133,25 @@ Install into **`scripting.python_venv_path`**, not system Python or LibreOffice 
 python.org macOS CPython (including GitHub `macos-latest` 3.13) is built without loadable SQLite extensions, so `Connection.enable_load_extension` is missing. `connect_corpus_db` then uses `pysqlite3`, which bundles SQLite with extension loading — the fallback sqlite-vec documents. `pysqlite3` is on `EMBEDDINGS_VENV_PIP_INSTALL`. Homebrew Python already exposes the method and stays on stdlib `sqlite3`. A LibreOffice host Python without `pysqlite3` can still open the corpus for metadata; vec0 loading reports the install line.
 
 **Do not** vendor sqlite-vec into the OXT.
+
+---
+
+## Open
+
+- `[fidelity M many]` Index PDF files for cross-file search (currently not indexed). (§ What gets indexed)
+- `[fidelity M many]` Rich metadata on ingest (doc kind, heading level, title, recency) with query-time metadata filters; only a `doc_url` filter exists today. (§ LlamaIndex roadmap, Tier A2)
+- `[fidelity M many]` Heading and section level parent retrieval, extending the shipped paragraph-level parent merge. (§ Retrieval quality)
+- `[feature L many]` Sub-question decomposed retrieval so a multi-part prompt is split into queries, retrieved per part and fused. (§ LlamaIndex roadmap, Tier A3)
+- `[idea M few]` Contextual chunk prepends, selectable chunk strategies and configurable chunk size. (§ Future work)
+- `[eng S few]` Re-evaluate chunking and retrieval on a labeled non-English query suite over multilingual corpora. (§ Future chunking work)
+- `[feature M many]` Folder QA query engine that returns a synthesized brief with cited `doc_url`s instead of raw snippet lists. (§ LlamaIndex roadmap, Tier B1)
+- `[idea M many]` Router retrieval that uses different mixes for Writer prose, Calc tables and Impress slides. (§ LlamaIndex roadmap, Tier B2)
+- `[eng M few]` Ingestion transform cache keyed by chunk hash for faster incremental folder refresh. (§ LlamaIndex roadmap, Tier C1)
+- `[idea M few]` Adapter boundary (`WriterAgentVectorStore`, `WriterAgentFTSRetriever`) so outside tools can reuse the SQLite storage. (§ LlamaIndex roadmap, Tier C3)
+- `[idea L few]` Decide whether LlamaIndex or Zvec replaces the custom hybrid backend as default, based on labeled A/B data. (§ LlamaIndex roadmap, Tier D1)
+- `[feature M few]` Multi-folder or scoped collections, such as a project subfolder or siblings of the active file only. (§ LlamaIndex roadmap, Tier D2)
+- `[eng L few]` Zvec phase 2: true incremental maintain, engine primitives (`optimize`, HNSW, sparse legs), metadata filters, and a dated three-way results table. (§ Zvec roadmap)
+- `[idea M many]` Inject extra retrieved chunks beside `[DOCUMENT CONTENT]` on send when the excerpt misses a distant section of a huge active document. (§ Within-document retrieval (secondary))
+- `[feature M few]` HTTP embedding providers (OpenRouter, Together, Ollama) for the folder index; only local sentence-transformers is implemented. (§ Cloud embedding APIs (tier two))
+- `[idea M few]` Main chat passes locators into the delegate task, plus thematic clustering and gap analysis between drafts. (§ Future work)
+- `[eng S few]` Optional host Cython `top_k_dot` and a slimmer snippet-only cache, only if profiling on large corpora shows a need. (§ Host Cython `top_k_dot`)

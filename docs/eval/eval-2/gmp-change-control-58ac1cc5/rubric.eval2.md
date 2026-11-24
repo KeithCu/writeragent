@@ -51,3 +51,7 @@ vs `.odg`.
 
 CLI: `scripts/eval_2_gmp_oracle.py` or
 `scripts/eval_2_headed.py --task gmp-change-control --score`.
+
+## Open
+
+- `[eng S few]` Extend the GMP oracle with the deferred checks: exact Form-920 layout, gold PDF strings, Change Control IDs, email subject microcopy and owner names. (§ Soft / later (not v1))

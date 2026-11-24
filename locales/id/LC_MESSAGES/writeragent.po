@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 21:02-0500\n"
+"POT-Creation-Date: 2026-11-23 15:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -33,6 +33,15 @@ msgstr "Tidak dapat membatalkan suntingan agen terakhir."
 #, python-brace-format
 msgid "Undid the last agent edit ({0} steps)"
 msgstr "Membatalkan suntingan agen terakhir ({0} langkah)"
+
+#: plugin/doc/visual_helpers.py
+msgid "Image not found."
+msgstr "Gambar tidak ditemukan."
+
+#: plugin/doc/visual_helpers.py
+#, python-format
+msgid "Could not delete the image: %s"
+msgstr "Tidak dapat menghapus gambar: %s"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -698,11 +707,11 @@ msgstr "Buka lembar kerja Calc terlebih dahulu."
 
 #: plugin/calc/python/init_script_editor.py
 msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"The Python editor window is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json."
 msgstr ""
-"Editor Monaco dinonaktifkan oleh \"scripting.force_internal_script_editor\" "
-"di writeragent.json."
+"Jendela editor Python dinonaktifkan oleh "
+"\"scripting.force_internal_script_editor\" di writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -1224,6 +1233,10 @@ msgstr "Terima perubahan ini"
 msgid "Reject this change"
 msgstr "Tolak perubahan ini"
 
+#: plugin/writer/images/image_tools.py
+msgid "Could not decode the preview image."
+msgstr "Tidak dapat mendekode gambar pratinjau."
+
 #: plugin/writer/edit_review.py
 msgid ""
 "This selection contains tracked insertions or deletions. Accept or reject "
@@ -1624,6 +1637,25 @@ msgstr "mengapa"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "Anda"
+
+#: plugin/chatbot/module_config_dialog.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Menjalankan…"
+
+#: plugin/chatbot/module_config_dialog.py
+msgid "Cancelled."
+msgstr "Dibatalkan."
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Preview failed: {error}"
+msgstr "Pratinjau gagal: {error}"
+
+#: plugin/chatbot/module_config_dialog.py
+#, python-brace-format
+msgid "Run failed: {error}"
+msgstr "Eksekusi gagal: {error}"
 
 #: plugin/chatbot/quick_setup.py
 msgid "Endpoint URL cannot be empty."
@@ -2340,6 +2372,35 @@ msgstr "Membuka '%s' untuk akses baca-saja."
 msgid "Web research completed."
 msgstr "Riset web selesai."
 
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is "
+"too small for web research (the research prompt and tools alone use about "
+"2,000 tokens, plus output tokens). Raise num_ctx to at least {1} (via "
+"PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), then use"
+" Test Connection in Settings (or restart LibreOffice) and try again."
+msgstr ""
+"Ollama tidak melaporkan num_ctx, sehingga WriterAgent mengasumsikan {0} "
+"token, yang terlalu kecil untuk riset web (prompt riset dan alat saja "
+"menggunakan sekitar 2.000 token, ditambah token output). Tingkatkan num_ctx "
+"menjadi setidaknya {1} (melalui PARAMETER num_ctx {2} atau lebih tinggi "
+"dalam Modelfile dengan ollama create), lalu gunakan Uji Koneksi di "
+"Pengaturan (atau mulai ulang LibreOffice) dan coba lagi."
+
+#: plugin/chatbot/web_research.py
+#, python-brace-format
+msgid ""
+"Context window ({0} tokens) is too small for web research (the research "
+"prompt and tools alone use about 2,000 tokens, plus output tokens). Raise "
+"num_ctx to at least {1} (or switch to a model with a larger context window) "
+"and try again."
+msgstr ""
+"Jendela konteks ({0} token) terlalu kecil untuk riset web (prompt riset dan "
+"alat saja menggunakan sekitar 2.000 token, ditambah token output). "
+"Tingkatkan num_ctx menjadi setidaknya {1} (atau beralih ke model dengan "
+"jendela konteks yang lebih besar) dan coba lagi."
+
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -2617,10 +2678,6 @@ msgstr "Skrip Python Baru"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Nama skrip:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Menjalankan…"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Editor loader missing."
@@ -2931,12 +2988,12 @@ msgstr "Pemeriksaan Venv gagal"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" editor."
+"pip install pywebview'). LibreOffice's built-in Python cannot run the "
+"editor."
 msgstr ""
 "Atur jalur venv Python di Pengaturan → Python (venv yang sama tempat Anda "
-"menjalankan 'uv pip install pywebview rocher'). Python bawaan LibreOffice "
-"tidak dapat menjalankan editor."
+"menjalankan 'uv pip install pywebview'). Python bawaan LibreOffice tidak "
+"dapat menjalankan editor."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -3023,12 +3080,12 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Pemeriksaan audio gagal (lihat writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Pemeriksaan Monaco kehabisan waktu."
+msgid "UI / Editor probe timed out."
+msgstr "Probe UI / Editor kehabisan waktu."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Pemeriksaan Monaco gagal (lihat writeragent_debug.log)."
+msgid "UI / Editor probe failed (see writeragent_debug.log)."
+msgstr "Probe UI / Editor gagal (lihat writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
@@ -3074,6 +3131,10 @@ msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr "Pemeriksaan DuckDB gagal (lihat writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Nemotron OCR cannot start in this venv:"
+msgstr "Nemotron OCR tidak dapat dimulai di venv ini:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Tidak ada perangkat input mikrofon yang terdeteksi."
 
@@ -3106,8 +3167,8 @@ msgid "Audio Recording & Speech"
 msgstr "Rekaman Audio & Ucapan"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries: checking outside the script worker..."
-msgstr "UI / Pustaka Monaco: memeriksa di luar pekerja skrip..."
+msgid "UI / Editor Libraries: checking outside the script worker..."
+msgstr "Pustaka UI / Editor: memeriksa di luar pekerja skrip..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -3480,7 +3541,7 @@ msgstr "Viz '{helper}' selesai. {msg}"
 msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
 msgstr "Pembantu visi memerlukan dokumen Writer, Calc, Draw, atau Impress."
 
-#: plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner.py plugin/vision/vision_preview.py
 msgid "Vision helper failed."
 msgstr "Pembantu visi gagal."
 
@@ -3573,6 +3634,225 @@ msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "Terjadi kesalahan yang tidak terduga saat membuka Jalankan Skrip Python."
 
+#: plugin/mcp_server/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice "
+"Anda"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server failed to start"
+msgstr "Server MCP gagal dijalankan"
+
+#: plugin/mcp_server/__init__.py
+msgid "Stop MCP Server"
+msgstr "Hentikan Server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "Start MCP Server"
+msgstr "Jalankan Server MCP"
+
+#: plugin/mcp_server/__init__.py
+msgid "MCP server is not running"
+msgstr "Server MCP tidak berjalan"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Server MCP berjalan"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rute: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "URL Lokal: {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "URL Publik: {0}"
+
+#: plugin/mcp_server/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Titik Akhir Lokal:"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Terowongan Publik ({0}):"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Status: Aktif (terhubung)"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Status: Menyambungkan kembali — {0}"
+
+#: plugin/mcp_server/__init__.py
+msgid "retrying…"
+msgstr "mencoba lagi…"
+
+#: plugin/mcp_server/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Status: Memulai terowongan…"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Status: Gagal — {0}"
+
+#: plugin/mcp_server/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Status: Tidak berjalan (apakah biner {0} terinstal?)"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Disalin!"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Testing…"
+msgstr "Menguji…"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Uji Terowongan"
+
+#: plugin/mcp_server/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Uji Terowongan MCP"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Terowongan publik melalui {0}: {1}"
+
+#: plugin/mcp_server/tunnel.py
+msgid "reconnecting…"
+msgstr "menghubungkan kembali…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Terowongan publik melalui {0} gagal: {1}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Terowongan publik melalui {0} sedang dimulai…"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
+"terinstal?)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Mode uji terowongan: penyedia {0} berhasil disimulasikan."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Penyedia tunnel tidak dikenal: {0}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+"Binary '{0}' untuk {1} tidak ditemukan pada PATH.\n"
+"\n"
+"Instal dari: {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Gagal mengeksekusi binary {0} ({1}): {2}"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+"Tunnel {0} sedang berjalan dan responsif!\n"
+"\n"
+"Endpoint publik:\n"
+"{1}\n"
+"\n"
+"Cek kesehatan: OK (200)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"Tunnel {0} aktif!\n"
+"\n"
+"Endpoint publik:\n"
+"{1}\n"
+"\n"
+"(URL publik diperoleh dari sesi tunnel yang aktif.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"Binary {0} '{1}' telah diverifikasi ({2}).\n"
+"\n"
+"(Catatan: Tunnel {3} yang aktif saat ini sedang berjalan di {4}.)"
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
+"\n"
+"Server MCP sedang berjalan secara lokal pada port {3}.\n"
+"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean publik."
+
+#: plugin/mcp_server/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
+"\n"
+"Catatan: Server MCP saat ini tidak berjalan pada port {3}."
+
 #: plugin/_manifest.py plugin/xdl_strings.py
 msgid "MCP Server Status"
 msgstr "Status Server MCP"
@@ -3593,10 +3873,61 @@ msgstr "Terima semua"
 msgid "Reject all"
 msgstr "Tolak semua"
 
-#: plugin/vision/vision_runner.py
+#: plugin/vision/vision_preview.py
+msgid "Loading models…"
+msgstr "Memuat model…"
+
+#: plugin/vision/vision_preview.py
+msgid "Recognizing text…"
+msgstr "Mengenali teks…"
+
+#: plugin/vision/vision_preview.py
+msgid "No text detected."
+msgstr "Tidak ada teks yang terdeteksi."
+
+#: plugin/vision/vision_preview.py
+msgid "Rendering preview…"
+msgstr "Merender pratinjau…"
+
+#: plugin/vision/vision_preview.py
 #, python-brace-format
-msgid "Could not export the selected image: {error}"
-msgstr "Tidak dapat mengekspor gambar yang dipilih: {error}"
+msgid "Done: {count} characters."
+msgstr "Selesai: {count} karakter."
+
+#: plugin/vision/vision_preview.py
+msgid ""
+"Vision OCR insert requires a Writer or Calc document; use Preview for "
+"Draw/Impress."
+msgstr ""
+"Penyisipan OCR Visi memerlukan dokumen Writer atau Calc; gunakan Pratinjau "
+"untuk Draw/Impress."
+
+#: plugin/vision/vision_preview.py
+msgid "Inserting…"
+msgstr "Menyisipkan…"
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted {count} images."
+msgstr "Menyisipkan {count} gambar."
+
+#: plugin/vision/vision_preview.py
+#, python-brace-format
+msgid "Inserted: {count} characters."
+msgstr "Disisipkan: {count} karakter."
+
+#: plugin/vision/vision_preview.py
+msgid "Image kept because Agent edit review is recording changes."
+msgstr ""
+"Gambar dipertahankan karena tinjauan edit Agen sedang merekam perubahan."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not create the preview document."
+msgstr "Tidak dapat membuat dokumen pratinjau."
+
+#: plugin/vision/vision_preview.py
+msgid "Could not render the preview page."
+msgstr "Tidak dapat merender halaman pratinjau."
 
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
@@ -3604,6 +3935,11 @@ msgid ""
 msgstr ""
 "Pilih gambar yang disematkan (atau rentang yang berisi gambar), lalu "
 "Jalankan lagi."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Could not export the selected image: {error}"
+msgstr "Tidak dapat mengekspor gambar yang dipilih: {error}"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3683,227 +4019,16 @@ msgid "The image was removed while preparing OCR insert."
 msgstr "Gambar dihapus saat menyiapkan penyisipan OCR."
 
 #: plugin/vision/vision_egress.py
+msgid "Cannot delete an unnamed image after OCR insert."
+msgstr "Tidak dapat menghapus gambar tanpa nama setelah penyisipan OCR."
+
+#: plugin/vision/vision_egress.py
 msgid "The image was removed during OCR insert."
 msgstr "Gambar dihapus selama penyisipan OCR."
 
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice "
-"Anda"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Server MCP gagal dijalankan"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Hentikan Server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Jalankan Server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Server MCP tidak berjalan"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Server MCP berjalan"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Rute: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "URL Lokal: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "URL Publik: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Titik Akhir Lokal:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Terowongan Publik ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Status: Aktif (terhubung)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Status: Menyambungkan kembali — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "mencoba lagi…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Status: Memulai terowongan…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Status: Gagal — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Status: Tidak berjalan (apakah biner {0} terinstal?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Disalin!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Menguji…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Uji Terowongan"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Uji Terowongan MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Terowongan publik melalui {0}: {1}"
-
-#: plugin/mcp/tunnel.py
-msgid "reconnecting…"
-msgstr "menghubungkan kembali…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Terowongan publik melalui {0} gagal: {1}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Terowongan publik melalui {0} sedang dimulai…"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
-"terinstal?)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Mode uji terowongan: penyedia {0} berhasil disimulasikan."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Penyedia tunnel tidak dikenal: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binary '{0}' untuk {1} tidak ditemukan pada PATH.\n"
-"\n"
-"Instal dari: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Gagal mengeksekusi binary {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Tunnel {0} sedang berjalan dan responsif!\n"
-"\n"
-"Endpoint publik:\n"
-"{1}\n"
-"\n"
-"Cek kesehatan: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Tunnel {0} aktif!\n"
-"\n"
-"Endpoint publik:\n"
-"{1}\n"
-"\n"
-"(URL publik diperoleh dari sesi tunnel yang aktif.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Binary {0} '{1}' telah diverifikasi ({2}).\n"
-"\n"
-"(Catatan: Tunnel {3} yang aktif saat ini sedang berjalan di {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
-"\n"
-"Server MCP sedang berjalan secara lokal pada port {3}.\n"
-"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean publik."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
-"\n"
-"Catatan: Server MCP saat ini tidak berjalan pada port {3}."
+#: plugin/vision/vision_egress.py
+msgid "WriterAgent: Insert OCR"
+msgstr "WriterAgent: Sisipkan OCR"
 
 #: plugin/main.py
 #, python-brace-format
@@ -4608,17 +4733,13 @@ msgid "Humanizer skill (natural prose)"
 msgstr "Keahlian Humanizer (prosa alami)"
 
 msgid ""
-"When enabled, injects guidance into the system prompt so the model makes "
-"generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"When enabled, injects built-in guidance into the system prompt so the model "
+"makes generated or revised document text sound more natural and human "
+"(removes AI slop patterns)."
 msgstr ""
-"Saat diaktifkan, menyuntikkan panduan ke dalam prompt sistem agar model "
-"membuat teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan"
-" manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
-"Anda di bawah writeragent/skills/humanizer/SKILL.md (file dibuat otomatis "
-"saat penggunaan pertama). Tab Keahlian khusus dapat ditambahkan nanti."
+"Saat diaktifkan, menyuntikkan panduan bawaan ke dalam prompt sistem agar "
+"teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan "
+"manusiawi (menghapus pola AI slop)."
 
 msgid "Silence before send (ms)"
 msgstr "Hening sebelum kirim (ms)"
@@ -4812,6 +4933,68 @@ msgstr "BAAI/bge-reranker-v2-m3"
 msgid "Core services (config, events, logging)"
 msgstr "Layanan inti (konfigurasi, peristiwa, pencatatan)"
 
+msgid "Integrations"
+msgstr "Integrasi"
+
+msgid "MCP servers for the sidebar chat"
+msgstr "Server MCP untuk obrolan bilah samping"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Add"
+msgstr "Tambah"
+
+msgid "Remove"
+msgstr "Hapus"
+
+msgid "Use this MCP server in chat"
+msgstr "Gunakan server MCP ini dalam obrolan"
+
+msgid ""
+"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
+" to scripts."
+msgstr ""
+"Hanya obrolan bilah samping (domain mcp); tidak pernah diekspos ke server "
+"MCP WriterAgent atau ke skrip."
+
+msgid "Trust its read-only tools (no prompt)"
+msgstr "Percayai alat baca-saja miliknya (tanpa prompt)"
+
+msgid ""
+"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
+"every other call still asks"
+msgstr ""
+"Alat yang ditandai readOnlyHint oleh server dijalankan tanpa Terima / Ubah /"
+" Tolak; setiap panggilan lainnya tetap akan meminta konfirmasi"
+
+msgid "Name"
+msgstr "Nama"
+
+msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
+msgstr ""
+"Memberi awalan pada nama alat server ini (contoh: home -> mcp__home__tool)."
+
+msgid "Server URL"
+msgstr "URL Server"
+
+msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
+msgstr ""
+"Titik akhir MCP HTTP yang dapat dialirkan, contoh: http://localhost:8000/mcp"
+
+msgid "Token"
+msgstr "Token"
+
+msgid ""
+"Bearer token. Settings OK stores it in the system keyring when one is "
+"available, otherwise in writeragent.json."
+msgstr ""
+"Token Bearer. Pengaturan OK akan menyimpannya di keyring sistem jika "
+"tersedia, jika tidak, akan disimpan di writeragent.json."
+
+msgid "Status"
+msgstr "Status"
+
 msgid "MCP"
 msgstr "MCP"
 
@@ -4909,68 +5092,6 @@ msgstr "Konfigurasi klien (salin ke Claude / Hermes-Agent):"
 
 msgid "Copy Config"
 msgstr "Salin Konfigurasi"
-
-msgid "Integrations"
-msgstr "Integrasi"
-
-msgid "MCP servers for the sidebar chat"
-msgstr "Server MCP untuk obrolan bilah samping"
-
-msgid "Server"
-msgstr "Server"
-
-msgid "Add"
-msgstr "Tambah"
-
-msgid "Remove"
-msgstr "Hapus"
-
-msgid "Use this MCP server in chat"
-msgstr "Gunakan server MCP ini dalam obrolan"
-
-msgid ""
-"Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or"
-" to scripts."
-msgstr ""
-"Hanya obrolan bilah samping (domain mcp); tidak pernah diekspos ke server "
-"MCP WriterAgent atau ke skrip."
-
-msgid "Trust its read-only tools (no prompt)"
-msgstr "Percayai alat baca-saja miliknya (tanpa prompt)"
-
-msgid ""
-"Tools the server marks readOnlyHint run without Accept / Change / Reject; "
-"every other call still asks"
-msgstr ""
-"Alat yang ditandai readOnlyHint oleh server dijalankan tanpa Terima / Ubah /"
-" Tolak; setiap panggilan lainnya tetap akan meminta konfirmasi"
-
-msgid "Name"
-msgstr "Nama"
-
-msgid "Prefixes this server's tool names (e.g. home -> mcp__home__tool)."
-msgstr ""
-"Memberi awalan pada nama alat server ini (contoh: home -> mcp__home__tool)."
-
-msgid "Server URL"
-msgstr "URL Server"
-
-msgid "Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp"
-msgstr ""
-"Titik akhir MCP HTTP yang dapat dialirkan, contoh: http://localhost:8000/mcp"
-
-msgid "Token"
-msgstr "Token"
-
-msgid ""
-"Bearer token. Settings OK stores it in the system keyring when one is "
-"available, otherwise in writeragent.json."
-msgstr ""
-"Token Bearer. Pengaturan OK akan menyimpannya di keyring sistem jika "
-"tersedia, jika tidak, akan disimpan di writeragent.json."
-
-msgid "Status"
-msgstr "Status"
 
 msgid "Notebook"
 msgstr "Buku Catatan"
@@ -5081,13 +5202,18 @@ msgstr "Izinkan akses berkas"
 msgid ""
 "When checked, Python may read and write files anywhere (open, io, pathlib, "
 "shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
-"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
-" (io.BytesIO, io.StringIO) stay available."
+"stat). When unchecked, those reads and writes are blocked; in-memory buffers"
+" (io.BytesIO, io.StringIO) and the document file helpers (wa.document.open, "
+"wa.document.save, wa.document.export, which are MCP and Python-script "
+"reachable, not offered to the sidebar chat model) stay available."
 msgstr ""
-"Jika dicentang, Python dapat membaca dan menulis file di mana saja (open, "
-"io, pathlib, shutil, tempfile, sqlite3, glob, dan panggilan file os seperti "
-"listdir dan stat). Jika tidak dicentang, pembacaan dan penulisan tersebut "
-"diblokir. Buffer dalam memori (io.BytesIO, io.StringIO) tetap tersedia."
+"Saat dicentang, Python dapat membaca dan menulis file di mana saja "
+"(panggilan file open, io, pathlib, shutil, tempfile, sqlite3, glob, dan os "
+"seperti listdir dan stat). Saat tidak dicentang, pembacaan dan penulisan "
+"tersebut diblokir; buffer dalam memori (io.BytesIO, io.StringIO) dan "
+"pembantu file dokumen (wa.document.open, wa.document.save, "
+"wa.document.export, yang dapat diakses oleh MCP dan skrip Python, tidak "
+"ditawarkan ke model obrolan bilah sisi) tetap tersedia."
 
 msgid "Allow OS access"
 msgstr "Izinkan akses OS"
@@ -5124,11 +5250,11 @@ msgstr ""
 "Jendela penyunting untuk Edit Python di Sel, Jalankan Skrip Python, skrip "
 "init, dan LaTeX."
 
-msgid "Monaco (default)"
-msgstr "Monaco (bawaan)"
-
 msgid "CodeMirror"
 msgstr "CodeMirror"
+
+msgid "Monaco"
+msgstr "Monaco"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -5141,35 +5267,98 @@ msgstr ""
 "Tingkatkan skala sebelum OCR/tata letak. Coba 2.0 untuk tangkapan layar "
 "kecil."
 
-msgid "Worker timeout (seconds)"
-msgstr "Batas waktu pekerja (detik)"
+msgid "Document timeout (s)"
+msgstr "Batas waktu dokumen (detik)"
 
-msgid "Host subprocess limit for Vision Helpers (first model download)."
+msgid ""
+"Stops Docling processing of one document after this many seconds and keeps "
+"the pages finished so far. Model download and loading do not count. 0 turns "
+"the limit off."
 msgstr ""
-"Batas subproses host untuk Vision Helpers (pengunduhan model pertama)."
+"Menghentikan pemrosesan Docling pada satu dokumen setelah sekian detik dan "
+"menyimpan halaman yang telah selesai sejauh ini. Pengunduhan dan pemuatan "
+"model tidak dihitung. 0 menonaktifkan batas."
 
-msgid "Docling artifacts path"
-msgstr "Jalur artefak Docling"
+msgid "OCR engine"
+msgstr "Mesin OCR"
 
-msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "Folder opsional dari unduhan model docling-tools (penggunaan luring)."
+msgid ""
+"OCR engine Docling uses. Every engine except RapidOCR (ONNX) must be "
+"installed in the Python venv; Settings → Python → Test lists the installed "
+"ones."
+msgstr ""
+"Mesin OCR yang digunakan Docling. Setiap mesin kecuali RapidOCR (ONNX) harus"
+" diinstal di venv Python; Pengaturan → Python → Uji mencantumkan mesin yang "
+"terinstal."
+
+msgid "RapidOCR (ONNX, default)"
+msgstr "RapidOCR (ONNX, default)"
+
+msgid "RapidOCR (OpenVINO)"
+msgstr "RapidOCR (OpenVINO)"
+
+msgid "RapidOCR (PaddlePaddle)"
+msgstr "RapidOCR (PaddlePaddle)"
+
+msgid "RapidOCR (PyTorch)"
+msgstr "RapidOCR (PyTorch)"
+
+msgid "EasyOCR"
+msgstr "EasyOCR"
+
+msgid "Tesseract (command line)"
+msgstr "Tesseract (baris perintah)"
+
+msgid "Apple Vision (macOS)"
+msgstr "Apple Vision (macOS)"
+
+msgid "NVIDIA Nemotron OCR (Linux, CUDA)"
+msgstr "NVIDIA Nemotron OCR (Linux, CUDA)"
+
+msgid "OCR language"
+msgstr "Bahasa OCR"
+
+msgid ""
+"Language codes such as en, de or zh-TW, comma separated. Docling engines "
+"read every code; the Paddle engine reads the first. Empty uses the language "
+"of the image or of LibreOffice."
+msgstr ""
+"Kode bahasa seperti en, de, atau zh-TW, dipisahkan dengan koma. Mesin "
+"Docling membaca setiap kode; mesin Paddle membaca yang pertama. Dibiarkan "
+"kosong akan menggunakan bahasa gambar atau bahasa LibreOffice."
+
+msgid "Device"
+msgstr "Perangkat"
+
+msgid ""
+"Hardware for Docling's models. Auto uses a GPU when Docling finds one; CPU "
+"always works."
+msgstr ""
+"Perangkat keras untuk model Docling. Auto menggunakan GPU jika Docling "
+"menemukannya; CPU selalu berfungsi."
+
+msgid "Auto"
+msgstr "Otomatis"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CUDA"
+msgstr "CUDA"
+
+msgid "MPS"
+msgstr "MPS"
 
 msgid "OCR confidence threshold"
 msgstr "Ambang batas kepercayaan OCR"
 
 msgid ""
-"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
-"Raise to reduce garbage text."
+"Minimum confidence for recognized text (RapidOCR and EasyOCR; other engines "
+"ignore it). Raise it to drop garbage text; 0.0 keeps all text."
 msgstr ""
-"Skor teks minimum RapidOCR. 0.0 adalah ambang batas nyata (bukan standar). "
-"Tingkatkan untuk mengurangi teks sampah."
-
-msgid "OCR entire image"
-msgstr "OCR seluruh gambar"
-
-msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr ""
-"Direkomendasikan untuk grafik tertanam yang diekspor dari LibreOffice."
+"Keyakinan minimum untuk teks yang dikenali (RapidOCR dan EasyOCR; mesin lain"
+" mengabaikannya). Tingkatkan untuk membuang teks sampah; 0.0 menyimpan semua"
+" teks."
 
 msgid "Table extraction mode"
 msgstr "Mode ekstraksi tabel"
@@ -5211,6 +5400,13 @@ msgstr "HTML Standar"
 msgid "Structured (layout / cell grid)"
 msgstr "Terstruktur (tata letak / kisi sel)"
 
+msgid "Delete image after OCR"
+msgstr "Hapus gambar setelah OCR"
+
+msgid ""
+"Remove the source image from the document after OCR inserts its content."
+msgstr "Hapus gambar sumber dari dokumen setelah OCR menyisipkan kontennya."
+
 msgid "Layout model"
 msgstr "Model tata letak"
 
@@ -5234,8 +5430,44 @@ msgstr "Pengayaan blok kode"
 msgid "Specialized OCR for code/terminal screenshots."
 msgstr "OCR khusus untuk tangkapan layar kode/terminal."
 
-msgid "Docling document timeout (s)"
-msgstr "Batas waktu dokumen Docling (detik)"
+msgid "RapidOCR model size"
+msgstr "Ukuran model RapidOCR"
 
-msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr "Batas waktu per konversi di dalam Docling. 0 = tanpa batas."
+msgid ""
+"RapidOCR model size for PP-OCRv6 languages; other languages ignore it. Tiny "
+"is fastest and has no Japanese model; medium is the most accurate."
+msgstr ""
+"Ukuran model RapidOCR untuk bahasa PP-OCRv6; bahasa lain mengabaikannya. "
+"Tiny adalah yang tercepat dan tidak memiliki model bahasa Jepang; medium "
+"adalah yang paling akurat."
+
+msgid "Tiny"
+msgstr "Tiny"
+
+msgid "Small (default)"
+msgstr "Small (bawaan)"
+
+msgid "Medium"
+msgstr "Sedang"
+
+msgid "Fix rotated text (RapidOCR)"
+msgstr "Perbaiki teks yang diputar (RapidOCR)"
+
+msgid ""
+"Re-read a region at 90, 180 and 270 degrees when fewer than half its lines "
+"read confidently. Fixes sideways scans; costs time only on poor reads. "
+"Applies to the RapidOCR engines."
+msgstr ""
+"Baca ulang wilayah pada sudut 90, 180, dan 270 derajat ketika kurang dari "
+"setengah barisnya terbaca dengan yakin. Memperbaiki hasil pindai miring; "
+"hanya memakan waktu pada pembacaan yang buruk. Berlaku untuk mesin RapidOCR."
+
+msgid "Apple Vision recognition"
+msgstr "Pengenalan Apple Vision"
+
+msgid ""
+"Apple Vision (macOS) only. Fast is quicker but less accurate and reads fewer"
+" languages."
+msgstr ""
+"Hanya Apple Vision (macOS). Cepat lebih singkat tetapi kurang akurat dan "
+"membaca lebih sedikit bahasa."

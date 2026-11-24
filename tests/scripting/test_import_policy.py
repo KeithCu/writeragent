@@ -44,11 +44,16 @@ def test_network_blocked_unless_enabled():
 def test_venv_policy_auto_imports_match_constants():
     compact = format_venv_import_policy_for_prompt(compact=True)
     full = format_venv_import_policy_for_prompt(compact=False)
+    aliases: list[str] = []
     for module_name, import_stmt in AUTO_IMPORTS.items():
         marker = " as "
         alias = import_stmt.rsplit(marker, 1)[-1].strip() if marker in import_stmt else module_name
+        aliases.append(alias)
         for policy in (compact, full):
             assert alias in policy
+    expected_list = f"{', '.join(aliases)}."
+    assert expected_list in compact
+    assert expected_list in full
 
 
 def test_matplotlib_plot_hint_impress_matches_draw():

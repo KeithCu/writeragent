@@ -30,7 +30,6 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.writer.edit_review import (
     EditReviewSession,
     annotate_review_status,
@@ -273,16 +272,19 @@ def _doc_table_count(doc: Any) -> int | None:
     return count if isinstance(count, int) else None
 
 
-def _table_insert_failed(doc: Any, before: int | None) -> bool:
-    """True when an HTML import that carries a <table> produced none.
+def _verify_table_insert(doc: Any, before: int | None) -> None:
+    """Raise TABLE_INSERT_FAILED when an import that carries a <table> produced none.
 
-    *before* is the table count captured before the mutation. None means the
-    whole document was replaced first, so any surviving table came from the import.
+    *before* is the table count captured before the import, 0 when the whole document
+    was cleared first; None means the content has no table, or the count was unreadable;
+    nothing is checked. Call it inside the edit's undo group: commit_or_rollback then
+    undoes the partial import and its review redlines before the error reaches the caller.
     """
+    if before is None:
+        return
     after = _doc_table_count(doc)
-    if after is None:
-        return False
-    return after == 0 if before is None else after <= before
+    if after is not None and after <= before:
+        raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
 
 def build_search_replace_response(
@@ -518,34 +520,33 @@ class ApplyDocumentContent(ToolBase):
     name: str | None = "apply_content"
     description: str = (
         "Insert or replace content. "
-        f"IMPORTANT: {APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT} "
         "To replace the ENTIRE document use target='full_document' with content only — "
         "do NOT pass the whole document as old_content. "
         "Use target='beginning', 'end', or 'selection' to insert. "
         "Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. "
-        "An empty replacement that removes the last text in a table deletes that table. "
-        "Clearing one cell while another cell still has text leaves the table in place."
+        "An empty replacement that removes the last text in a table deletes that table."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.")},
+            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("HTML or plain-text fragments: prefer a list with one block per item; one string is also accepted and is read the same way (a list is joined with newlines). Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty search replacement deletes the match.")},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
-            "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
-            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup."},
+            "old_content": {"type": "string", "description": ("Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead.")},
+            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup."},
             "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
-            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor)."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
+            "all_matches": {"type": "boolean", "default": False, "description": "Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content."},
+            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.")},
             "position": enum_param(
                 ["replace", "before", "after"],
                 (
-                    "For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
+                    "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
                 ),
+                default="replace",
             ),
-            "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor."},
-            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes."},
+            "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
+            "regex": {"type": "boolean", "default": False, "description": "For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes."},
             "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
+            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace' when the match overlaps one heading link (an outline hyperlink, #Heading|outline): the exact URL to set on that link. Omitted, the link's URL follows the new text when the matched text appears once in it. content may equal old_content when only the URL is stale.")},
         },
         "required": ["content"],
     }
@@ -568,11 +569,6 @@ class ApplyDocumentContent(ToolBase):
 
     def _invalid_regex(self, rex_err: str) -> dict[str, Any]:
         return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
-
-    def _table_insert_error(self, doc: Any, has_table: bool, before: int | None) -> dict[str, Any] | None:
-        if has_table and _table_insert_failed(doc, before):
-            return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
-        return None
 
     @staticmethod
     def _parse_occurrence(kwargs: Any, target: str) -> tuple[int | None, str | None]:
@@ -684,6 +680,8 @@ class ApplyDocumentContent(ToolBase):
         if outcome.mutate_error is not None:
             mutate_err = outcome.mutate_error
             reraise_if_disposed(mutate_err)
+            if isinstance(mutate_err, ToolExecutionError) and mutate_err.code == "TABLE_INSERT_FAILED":
+                raise mutate_err
             log.exception("apply_content: outline hyperlink update failed")
             if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
@@ -769,12 +767,14 @@ class ApplyDocumentContent(ToolBase):
                        override: str | None, batch: bool,
                        plain: str,
                        report: html_import_styles.WriteReport,
-                       fix_outline: bool = True) -> list[dict[str, Any]]:
+                       fix_outline: bool = True,
+                       tables_before: int | None = None) -> list[dict[str, Any]]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
-        match opens one when a URL write is needed. Returns the hyperlink reports; failures
-        raise ToolExecutionError with the code the caller publishes.
+        match opens one when a URL write is needed. *tables_before* makes a single HTML
+        replace verify its table inside the undo group. Returns the hyperlink reports;
+        failures raise ToolExecutionError with the code the caller publishes.
         """
         # An anchor span's text never equals one link title, so outline fixup has nothing to match.
         anchor = None
@@ -811,6 +811,7 @@ class ApplyDocumentContent(ToolBase):
                 def replace_single() -> None:
                     report.extend(html_import.replace_single_range_with_content(
                         doc, found, content, ctx.ctx))
+                    _verify_table_insert(doc, tables_before)
 
                 record_html_atomically(
                     session, doc,
@@ -1382,16 +1383,15 @@ class ApplyDocumentContent(ToolBase):
         plain = params.plain
         has_table = params.has_table
         with session:
-            # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
+            # Delete-then-import inside one undo group: a failed import or a missing
+            # table rolls the cleared document back.
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.replace_full_document(ctx.doc, ctx.ctx, content)
+                _verify_table_insert(ctx.doc, 0 if has_table else None)
+                return rep
+
             report = record_html_atomically(
-                session, ctx.doc,
-                lambda: html_import.replace_full_document(
-                    ctx.doc, ctx.ctx, content
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, None)
-        if err:
-            return err
+                session, ctx.doc, mutate, proposed_preview=plain)
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {
             "status": "ok",
@@ -1412,14 +1412,15 @@ class ApplyDocumentContent(ToolBase):
         # The insert can land at the end of a selection at the document edge; Writer
         # stretches the view selection over text inserted at its end, so put it back.
         with KeepViewSelection(uno_read(lambda: ctx.doc.getCurrentController(), None)), session:
-            report = session.record_mutation(
-                lambda: html_import.insert_content_at_position(
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, tables_before)
-        if err:
-            return err
+                )
+                _verify_table_insert(ctx.doc, tables_before)
+                return rep
+
+            report = record_html_atomically(
+                session, ctx.doc, mutate, proposed_preview=plain)
         if target == "end":
             msg = "Inserted content at end."
             anchor = collapsed_anchor(ctx.doc.getText().getEnd())
@@ -1443,15 +1444,15 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            report = record_html_atomically(
-                session, ctx.doc,
-                lambda: html_import.insert_content_at_position(
+            def mutate() -> html_import_styles.WriteReport:
+                rep = html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, "selection", selection=rng
-                ),
-                proposed_preview=plain)
-        err = self._table_insert_error(ctx.doc, has_table, tables_before)
-        if err:
-            return err
+                )
+                _verify_table_insert(ctx.doc, tables_before)
+                return rep
+
+            report = record_html_atomically(
+                session, ctx.doc, mutate, proposed_preview=plain)
         res: dict[str, Any] = {"status": "ok", "message": "Inserted content at selection."}
         if report.snapped_to_paragraph:
             res["message"] = (
@@ -1731,8 +1732,7 @@ class ApplyDocumentContent(ToolBase):
                         doc, ctx.ctx, text_obj, insert_cursor, content, apply_styles=True
                     )
                 )
-            if self._table_insert_error(doc, has_table, tables_before):
-                raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
+            _verify_table_insert(doc, tables_before)
 
         anchor = collapsed_anchor(found)
         # The insert lands at the end of a match the user often has selected; Writer
@@ -1788,7 +1788,8 @@ class ApplyDocumentContent(ToolBase):
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
             plain=params.plain, report=report,
-            fix_outline=params.anchor is None)
+            fix_outline=params.anchor is None,
+            tables_before=tables_before)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,
@@ -1799,9 +1800,6 @@ class ApplyDocumentContent(ToolBase):
             resp = build_search_replace_response(1, use_preserve=params.use_preserve)
         if params.occurrence is not None:
             resp["occurrence"] = params.occurrence
-        err = self._table_insert_error(doc, params.has_table, tables_before)
-        if err:
-            return err
         html_import_styles.attach_write_report(
             resp, report, total_matches=1,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))

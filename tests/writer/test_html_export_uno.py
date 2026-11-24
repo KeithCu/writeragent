@@ -268,7 +268,7 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
     text.insertControlCharacter(text.getEnd(), 0, False)
     text.insertString(text.getEnd(), "BODY_SENTENCE_UNIQUE", False)
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
 
     entry = None

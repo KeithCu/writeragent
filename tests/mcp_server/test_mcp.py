@@ -62,6 +62,7 @@ def test_health_endpoint(mcp_server):
         assert "server" in data
         assert data["server"] == "WriterAgent"
         assert "version" in data
+        assert isinstance(data["tool_catalog_generation"], int)
 
 
 def test_mcp_tools(mcp_server):

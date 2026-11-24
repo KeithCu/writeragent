@@ -209,8 +209,11 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
     'conditional_formatting': [   'conditional_formatting_add',
                                   'conditional_formatting_list',
                                   'conditional_formatting_remove'],
-    'core': [   'document_list_open',
+    'core': [   'document_export',
+                'document_list_open',
+                'document_open',
                 'document_redo',
+                'document_save',
                 'document_undo',
                 'image_get',
                 'manual_read',
@@ -338,7 +341,13 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
     'slide_transitions': ['slide_get_transition', 'slide_set_transition'],
     'speaker_notes': ['slide_get_notes', 'slide_set_notes'],
     'structural': ['nav_get_heading', 'nav_get_surroundings', 'nav_goto_page', 'nav_list_heading_children'],
-    'styles': ['style_clone', 'style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
+    'styles': [   'style_clone',
+                  'style_create',
+                  'style_format_text',
+                  'style_get_info',
+                  'style_import',
+                  'style_list',
+                  'style_update'],
     'tables': [   'table_delete',
                   'table_get_cells',
                   'table_insert',
@@ -391,9 +400,12 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'design_apply': ('design', 'apply'),
     'design_list': ('design', 'list'),
     'detect_errors': ('calc', 'detect_errors'),
+    'document_export': ('document', 'export'),
     'document_get_properties': ('document', 'get_properties'),
     'document_list_open': ('document', 'list_open'),
+    'document_open': ('document', 'open'),
     'document_redo': ('document', 'redo'),
+    'document_save': ('document', 'save'),
     'document_set_properties': ('document', 'set_properties'),
     'document_undo': ('document', 'undo'),
     'embedded_insert': ('embedded', 'insert'),
@@ -551,6 +563,7 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'sql_query_folder': ('sql', 'query_folder'),
     'style_clone': ('style', 'clone'),
     'style_create': ('style', 'create'),
+    'style_format_text': ('style', 'format_text'),
     'style_get_info': ('style', 'get_info'),
     'style_import': ('style', 'import_'),
     'style_list': ('style', 'list'),
@@ -690,31 +703,32 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None) -> _Item:
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int = 1, confirm: bool = False, sheet: str | None = None) -> _Item:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
-            count (optional): Number to delete (default 1).
-            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
+            count (optional): Number to delete.
+            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. When false, such a delete is refused and nothing changes.
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm))
+        return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm, sheet=sheet))
 
     def detect_errors(self, *, range_name: list[str] | None = None) -> _Item:
         """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
 
         Args:
-            range_name (optional): Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (optional): Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("detect_errors", range=range_name))
 
-    def evaluate_formula(self, formula: str, *, cell: str | None = None) -> _Item:
+    def evaluate_formula(self, formula: str, *, cell: str = 'A1') -> _Item:
         """Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets.
 
         Args:
             formula (required): The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'.
-            cell (optional): Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5' (defaults to 'A1'). A sheet prefix is ignored. A defined name is rejected.
+            cell (optional): Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5'. A sheet prefix is ignored. A defined name is rejected.
         """
         return _result(call_host_tool("evaluate_formula", formula=formula, cell=cell))
 
@@ -735,15 +749,16 @@ class _CalcProxy:
         """
         return _result(call_host_tool("insert_html", cell=cell, html=html))
 
-    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> _Item:
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int = 1, sheet: str | None = None) -> _Item:
         """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
-            count (optional): Number to insert (default 1).
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
+            count (optional): Number to insert.
+            sheet (optional): Sheet name (active sheet if omitted).
         """
-        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count))
+        return _result(call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count, sheet=sheet))
 
     def list_functions(self, *, filter: str | None = None) -> _Item:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
@@ -753,13 +768,13 @@ class _CalcProxy:
         """
         return _result(call_host_tool("list_functions", filter=filter))
 
-    def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> _Item:
+    def merge_cells(self, range_name: list[str], *, center: bool = True, unmerge: bool = False) -> _Item:
         """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge.
 
         Args:
-            range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            center (optional): Center content (default: true).
-            unmerge (optional): Split merged cells instead of merging (default: false).
+            range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            center (optional): Center content.
+            unmerge (optional): Split merged cells instead of merging.
         """
         return _result(call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge))
 
@@ -767,42 +782,42 @@ class _CalcProxy:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
 
         Args:
-            range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
+            range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            format (optional): rows: 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
 
-    def replace_cells(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def replace_cells(self, search: str, replace: str, *, regex: bool = False, case_sensitive: bool = False, sheet: str | None = None, all_sheets: bool = False) -> _Item:
         """Find and replace text or values in a Calc spreadsheet. Returns count of replacements made.
 
         Args:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
-            regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            regex (optional): Use regular expression (ICU syntax).
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
-            all_sheets (optional): Replace across all sheets (default: false).
+            all_sheets (optional): Replace across all sheets.
         """
         return _result(call_host_tool("replace_cells", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets))
 
-    def search_cells(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> _Item:
+    def search_cells(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, sheet: str | None = None, all_sheets: bool = False) -> _Item:
         """Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
+            regex (optional): Use regular expression (ICU syntax).
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
-            all_sheets (optional): Search all sheets (default: false).
+            all_sheets (optional): Search all sheets.
         """
         return _result(call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets))
 
     def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
-        """Applies style and formatting to the specified cell(s) or range(s).
+        """Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html.
 
         Args:
-            range_name (required): Target cell(s) or range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Target cell(s) or range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             bold (optional): Bold font.
             italic (optional): Italic font.
             font_size (optional): Font size (points).
@@ -811,8 +826,8 @@ class _CalcProxy:
             h_align (optional): Horizontal alignment. One of: left, center, right, justify.
             v_align (optional): Vertical alignment. One of: top, center, bottom.
             wrap_text (optional): Wrap text.
-            border_color (optional): Border line color (hex or name). Used by border_mode; black when border_mode is given without a color.
-            border_mode (optional): all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders. One of: all, outline, inner, none.
+            border_color (optional): Border line color (hex or name).
+            border_mode (optional): all = every cell boxed; outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders. With only border_color, the mode is all; with only border_mode, lines are black. One of: all, outline, inner, none.
             number_format (optional): Preset "currency" (the document currency), "percent", or "general" (clear), or an Excel-style en-US format code such as "#,##0.00", "0.0%" or "YYYY-MM-DD" (converted to the document locale). Date/time writes already get a format; set one only when the user asks for a different look.
             column_width_mm (optional): Width of every column the range touches, in millimetres (> 0).
             row_height_mm (optional): Height of every row the range touches, in millimetres (> 0).
@@ -820,14 +835,14 @@ class _CalcProxy:
         """
         return _result(call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit))
 
-    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None, then_by: list[Any] | None = None) -> _Item:
+    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int = 0, ascending: bool = True, then_by: list[Any] | None = None) -> _Item:
         """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
-            range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
-            sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
-            ascending (optional): true = smallest first (default); false = largest/highest first.
+            sort_column (optional): 0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.
+            ascending (optional): true = smallest first; false = largest/highest first.
             then_by (optional): Optional tie-break keys, applied in order when the keys before them are equal (sort_column/ascending is always the first key). Each item: {"column": 0-based index inside the range, "ascending": true|false}. Omit for a one-key sort.
         """
         return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, then_by=then_by, has_header=has_header))
@@ -836,10 +851,10 @@ class _CalcProxy:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
-            range_name (required): Target range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
-            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not mix them in one formula. 2-D array: one inner array per row; must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
+            range_name (required): Target range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
+            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Example on C2:C4: values "=B2*0.1" writes =B2*0.1, =B3*0.1, =B4*0.1; an array repeating "=B2*0.1" on every row writes =B2*0.1 in all three cells. Formulas use Calc syntax only (=SUM(A1;B1), Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
             array (optional): Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).
-            source (optional): Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
+            source (optional): Optional source block to copy (A1 or Sheet.A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
         """
         return _result(call_host_tool("write_range", range=range_name, values=values, array=array, source=source))
 
@@ -853,7 +868,7 @@ class _CellCommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.
 
         Args:
-            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             text (required): Comment text.
             sheet (optional): Sheet name (active sheet if omitted).
         """
@@ -863,7 +878,7 @@ class _CellCommentProxy:
         """Delete the comment (annotation) from a specific cell.
 
         Args:
-            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("cell_comment_delete", cell=cell, sheet=sheet))
@@ -944,15 +959,15 @@ chart = _ChartProxy()
 class _CommentProxy:
     """Proxy for comment tools."""
 
-    def add(self, content: str, *, search: str | None = None, case_sensitive: bool | None = None, occurrence: int | None = None, author: str | None = None, parent_name: str | None = None) -> _Item:
+    def add(self, content: str, *, search: str | None = None, case_sensitive: bool | None = None, occurrence: int = 0, author: str = 'WriterAgent', parent_name: str | None = None) -> _Item:
         """Add a comment/annotation. For a new root comment, pass search (and optional occurrence) so the comment SPANS the matched passage. To reply without resolving, pass parent_name (the 'name' from a prior comment_add success, or from comment_list); search is not required. Replies nest under that immediate parent (including other replies) and do not mark it resolved — use comment_resolve for reply-and-resolve. Use author to sign the comment.
 
         Args:
             content (required): The comment text.
             search (optional): Anchor a new root comment to text matching this string. Not required when parent_name is set.
             case_sensitive (optional): For search: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            occurrence (optional): 0-based match to comment on when search repeats (default 0). Ignored when parent_name is set.
-            author (optional): Comment author (default 'WriterAgent').
+            occurrence (optional): 0-based match to comment on when search repeats. Ignored when parent_name is set.
+            author (optional): Comment author.
             parent_name (optional): Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped.
         """
         return _result(call_host_tool("comment_add", content=content, search=search, case_sensitive=case_sensitive, occurrence=occurrence, author=author, parent_name=parent_name))
@@ -983,33 +998,33 @@ class _CommentProxy:
         """Read the MCP-WORKFLOW dashboard comment (key: value lines)."""
         return _result(call_host_tool("comment_get_workflow"))
 
-    def list(self, *, author_filter: str | None = None, start_index: int | None = None, max_comments: int | None = None) -> _Item:
+    def list(self, *, author_filter: str | None = None, start_index: int = 0, max_comments: int = 100) -> _Item:
         """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most max_comments rows (default 100); page through the rest with start_index when has_more is true.
 
         Args:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
-            start_index (optional): Zero-based row to start this page at (default 0).
-            max_comments (optional): Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.
+            start_index (optional): Zero-based row to start this page at.
+            max_comments (optional): Maximum rows to return. Values below 1 are treated as 1, like tracking_list.
 
         Iterator form: ``for item in wa.comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.comment)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.comment)``. It passes no optional arguments (author_filter, max_comments); filter the items in Python.
         """
         return _result(call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments))
 
-    def resolve(self, name: str, *, resolution: str | None = None, author: str | None = None) -> _Item:
+    def resolve(self, name: str, *, resolution: str | None = None, author: str = 'AI') -> _Item:
         """Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved.
 
         Args:
             name (required): The 'name' field returned by comment_list.
             resolution (optional): Optional resolution text added as a reply.
-            author (optional): Author name for the resolution reply. Default: AI.
+            author (optional): Author name for the resolution reply.
         """
         return _result(call_host_tool("comment_resolve", name=name, resolution=resolution, author=author))
 
-    def scan_tasks(self, *, unresolved_only: bool | None = None, prefix_filter: str | None = None) -> _Item:
+    def scan_tasks(self, *, unresolved_only: bool = True, prefix_filter: str | None = None) -> _Item:
         """Find workflow tasks in comments (TODO-AI, FIX, QUESTION, VALIDATION, NOTE prefixes).
 
         Args:
-            unresolved_only (optional): Only unresolved tasks (default true).
+            unresolved_only (optional): Only unresolved tasks.
             prefix_filter (optional): Filter by task prefix. One of: TODO-AI, FIX, QUESTION, VALIDATION, NOTE.
         """
         return _result(call_host_tool("comment_scan_tasks", unresolved_only=unresolved_only, prefix_filter=prefix_filter))
@@ -1036,9 +1051,9 @@ class _ConditionalFormattingProxy:
         """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
-            range_name (required): Cell range to apply the rule to (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Cell range to apply the rule to (A1:D10 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             operator (required): Condition operator. One of: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE.
-            formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
+            formula1 (optional): First formula/value. For FORMULA, the condition in Calc syntax (e.g. 'A1>100' or 'AND($A1>1;$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
             style (optional): Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.
             bg_color (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
@@ -1051,7 +1066,7 @@ class _ConditionalFormattingProxy:
         """List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present.
 
         Args:
-            range_name (optional): Cell range (A1:D10 or a named range); omit to scan the used area. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (optional): Cell range (A1:D10 or a named range); omit to scan the used area. A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("conditional_formatting_list", range=range_name))
 
@@ -1059,7 +1074,7 @@ class _ConditionalFormattingProxy:
         """Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices.
 
         Args:
-            range_name (required): Cell range (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Cell range (A1:D10 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             rule_index (optional): 0-based index of the rule to remove. If omitted, all rules are cleared.
         """
         return _result(call_host_tool("conditional_formatting_remove", range=range_name, rule_index=rule_index))
@@ -1088,13 +1103,30 @@ design = _DesignProxy()
 class _DocumentProxy:
     """Proxy for document tools."""
 
+    def export(self, path: str) -> _Item:
+        """Write a copy of the target document to path (absolute or file:// URL) in the format the extension picks: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html, .pdf; Calc .ods, .ots, .xlsx, .xls, .csv, .html, .pdf; Impress .odp, .otp, .pptx, .ppt, .pdf; Draw .odg, .otg, .pdf, .png, .svg. The open document keeps its current file and format. An existing file is overwritten.
+
+        Args:
+            path (required): Target absolute file path or file:// URL.
+        """
+        return _result(call_host_tool("document_export", path=path))
+
     def get_properties(self) -> _Item:
         """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
         return _result(call_host_tool("document_get_properties"))
 
     def list_open(self) -> _Item:
-        """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. You cannot save documents yourself; when modified is true and the work is done, tell the user to save. Also returns current_local_datetime with the host's wall clock."""
+        """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. Entries also report read_only. Use document_save to write a document to disk and document_open to open another file. Also returns current_local_datetime with the host's wall clock."""
         return _result(call_host_tool("document_list_open"))
+
+    def open(self, path: str, *, as_template: bool = False) -> _Item:
+        """Open a document file in LibreOffice from an absolute path or file:// URL. If that file is already open, returns that open document without reloading it. With as_template=true, creates a new untitled document from a copy of the file and leaves the file untouched (template files such as .ott/.ots/.otp always open this way). Returns the document's url and uid; pass one of them as document_url on later tool calls to keep working on it.
+
+        Args:
+            path (required): Absolute file path or file:// URL to open.
+            as_template (optional): Open as an untitled copy without modifying the source file.
+        """
+        return _result(call_host_tool("document_open", path=path, as_template=as_template))
 
     def redo(self, *, steps: int | None = None) -> _Item:
         """Redo the last undone change(s) in the document (all document types). Same caution as document_undo: the stack is shared with the user's edits — redo only what you yourself just undid, and tell the user.
@@ -1103,6 +1135,14 @@ class _DocumentProxy:
             steps (optional): Number of steps to redo (default: 1).
         """
         return _result(call_host_tool("document_redo", steps=steps))
+
+    def save(self, *, path: str | None = None) -> _Item:
+        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. An existing file is overwritten. PDF and images are export-only: use document_export.
+
+        Args:
+            path (optional): Optional target absolute file path or file:// URL. Omit to save in place.
+        """
+        return _result(call_host_tool("document_save", path=path))
 
     def set_properties(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: list[str] | None = None) -> _Item:
         """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
@@ -1142,12 +1182,12 @@ draw = _DrawProxy()
 class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
-    def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert(self, object_type: str, *, data: list[Any] = [], name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
         """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
             object_type (required): Embedded object type (Calc spreadsheet only). One of: spreadsheet.
-            data (optional): Optional rows of cell values (string, number, or null). Default empty sheet.
+            data (optional): Optional rows of cell values (string, number, or null).
             name (optional): Optional container name in getEmbeddedObjects().
             width (optional): Frame width, 1/100 mm (requires height).
             height (optional): Frame height, 1/100 mm (requires width).
@@ -1226,7 +1266,7 @@ class _FootnoteProxy:
         """
         return _result(call_host_tool("footnote_get_settings", note=note))
 
-    def insert(self, note: str, text: str, *, label: str | None = None, insert_after: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert(self, note: str, text: str, *, label: str | None = None, insert_after: str | None = None, occurrence: int = 0, case_sensitive: bool | None = None) -> _Item:
         """Inserts a new footnote or endnote. Without insert_after, uses the current view cursor. When the insert position must be specific (e.g. delegated sub-agent work), pass insert_after: document text to find; the footnote anchor is inserted immediately after the first occurrence (or after the occurrence-th match when occurrence is set). Match the document verbatim. Note text appears at the foot of the page (footnote) or end of document (endnote). Optional custom label/mark; otherwise auto-numbered.
 
         Args:
@@ -1234,7 +1274,7 @@ class _FootnoteProxy:
             text (required): The content of the footnote or endnote.
             label (optional): Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering.
             insert_after (optional): If non-empty, find this substring in the document and insert the footnote/endnote anchor immediately after that match instead of using the view cursor. Use the exact text from the document (or from the delegating task). Required when position matters and the tool is run outside normal user cursor control.
-            occurrence (optional): 0-based index when insert_after matches multiple times (default 0 = first match).
+            occurrence (optional): 0-based index when insert_after matches multiple times (0 = first match).
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
         """
         return _result(call_host_tool("footnote_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive))
@@ -1339,7 +1379,7 @@ form = _FormProxy()
 class _FrameProxy:
     """Proxy for frame tools."""
 
-    def insert(self, *, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> _Item:
+    def insert(self, *, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, name: str | None = None, text: str | None = None, width_mm: float = 80.0, height_mm: float = 30.0, anchor_type: int = 0) -> _Item:
         """Insert a new text frame with optional initial text and size (millimetres).
 
         Args:
@@ -1348,9 +1388,9 @@ class _FrameProxy:
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             name (optional): Optional frame name (from frame_list when set).
             text (optional): Initial text placed inside the frame.
-            width_mm (optional): Frame width in millimetres (default 80).
-            height_mm (optional): Frame height in millimetres (default 30).
-            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH (default), 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
+            width_mm (optional): Frame width in millimetres.
+            height_mm (optional): Frame height in millimetres.
+            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
         """
         return _result(call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type))
 
@@ -1368,7 +1408,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient))
 
     def __iter__(self) -> Iterator[_Item]:
-        """List all text frames in the document.
+        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box).
 
         Collection form: ``for item in wa.frame`` (also ``len(wa.frame)``, ``name in wa.frame``, and ``wa.frame[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
@@ -1394,7 +1434,7 @@ class _FrameProxy:
         return _get_item(call_host_tool("frame_get_info", name=name), name, lambda: call_host_tool("frame_list"))
 
     def __delitem__(self, name: str) -> None:
-        """Delete a text frame by name (see frame_list).
+        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -1410,21 +1450,21 @@ frame = _FrameProxy()
 class _ImageProxy:
     """Proxy for image tools."""
 
-    def crop_and_highlight(self, name: str, *, crop_box: builtins.list[Any] | None = None, highlights: builtins.list[Any] | None = None, units: str | None = None, width_mm: float | None = None, sheet_index: int | None = None) -> _Item:
+    def crop_and_highlight(self, name: str, *, crop_box: builtins.list[Any] | None = None, highlights: builtins.list[Any] | None = None, units: str = 'px', width_mm: float | None = None, sheet_index: int | None = None) -> _Item:
         """Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, inside width_px x height_px from image_get_info. If you only see a scaled copy, pass units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use the same frame: the picture as it is now. The result is baked into the picture: the cut-away part is removed from the file and marks cannot drift. Afterwards the picture IS the region (new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the new shape. Check the result with image_get.
 
         Args:
             name (required): Name of the image (from image_list).
             crop_box (optional): Region to keep, [x, y, width, height]. Omit to keep the picture as shown (an existing crop stays).
             highlights (optional): Marks to draw.
-            units (optional): Units of every box (default px). One of: px, percent.
+            units (optional): Units of every box. One of: px, percent.
             width_mm (optional): Display width in millimetres (default: keep the current width).
             sheet_index (optional): Optional 0-based sheet index on Calc.
         """
         return _result(call_host_tool("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm, sheet_index=sheet_index))
 
     def delete(self, name: str, *, sheet_index: int | None = None) -> _Item:
-        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object.
+        """Delete an image from the document. Removes the graphic object; any frame created by image_insert_frame is a separate object. When several objects share the name, the error lists their draw-page indexes; rename one with shape_upsert(action='edit', index=N, name=...) or delete one with shape_delete(index=N).
 
         Args:
             name (required): Name of the image to delete (from image_list).
@@ -1432,12 +1472,12 @@ class _ImageProxy:
         """
         return _result(call_host_tool("image_delete", name=name, sheet_index=sheet_index))
 
-    def download(self, url: str, *, force: bool | None = None) -> _Item:
+    def download(self, url: str, *, force: bool = False) -> _Item:
         """Download an image from URL to local cache. Returns local path for image_insert/image_replace.
 
         Args:
             url (required): URL of the image to download.
-            force (optional): Force re-download even if cached (default: false).
+            force (optional): Force re-download even if cached.
         """
         return _result(call_host_tool("image_download", url=url, force=force))
 
@@ -1451,14 +1491,14 @@ class _ImageProxy:
         """
         return _result(call_host_tool("image_extract_structure", image_name=image_name, insert_into_document=insert_into_document, params=params))
 
-    def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> _Item:
+    def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str | None = None, base_size: int | None = None, width: int | None = None, height: int | None = None, image_model: str | None = None) -> _Item:
         """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
 
         Args:
             prompt (required): Descriptive prompt for image generation or editing.
             source_image (optional): Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit while a graphic is selected to edit in place; omit with no selection to create a new image.
-            aspect_ratio (optional): One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
-            base_size (optional): Generate resolution in pixels (> 0, default 1024). On-page display is capped independently (~135mm longer edge).
+            aspect_ratio (optional): Omit to use the aspect ratio set in Settings. One of: square, landscape_16_9, portrait_9_16, landscape_3_2, portrait_2_3, 1:1, 4:3, 3:4, 16:9, 9:16.
+            base_size (optional): Generate resolution in pixels (> 0). Omit to use the size set in Settings. On-page display is capped independently (~135mm longer edge).
             width (optional): Optional width in pixels (> 0). Overrides base_size / aspect_ratio resolution.
             height (optional): Optional height in pixels (> 0). Overrides base_size / aspect_ratio resolution.
             image_model (optional): Override Settings image model for this request (endpoint / OpenRouter).
@@ -1485,7 +1525,7 @@ class _ImageProxy:
         """
         return _result(call_host_tool("image_get_info", name=name, sheet_index=sheet_index))
 
-    def insert(self, path: str, *, locator: str | None = None, paragraph: int | None = None, page: int | None = None, x_mm: float | None = None, y_mm: float | None = None, width_mm: float | None = None, height_mm: float | None = None, target: str | None = None, style: str | None = None, auto_height: bool | None = None) -> _Item:
+    def insert(self, path: str, *, locator: str | None = None, paragraph: int | None = None, page: int | None = None, x_mm: float | None = None, y_mm: float | None = None, width_mm: float | None = None, height_mm: float | None = None, target: str = 'body', style: str = 'Standard', auto_height: bool = True) -> _Item:
         """Insert an image from local path or URL into the document. URLs are auto-downloaded first. Omitted dimensions preserve aspect ratio with the longer edge sized to 80 mm; specifying one dimension scales the other proportionally; specifying both sets both. For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert into the page header/footer with auto-height so the logo does not overlap the body. A different-first-page letterhead logo needs first_is_shared=false on the page style (page_set_style_properties) so HeaderTextFirst is its own text object, then target='header_first' (or footer_first) — otherwise the image lands in the shared header and repeats on every page. On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. On Calc, page is a 0-based sheet index; the image is anchored to the top-left cell of the selection (A1 of another sheet) and moves with that cell; x_mm and y_mm are ignored. Sizes and positions are millimetres (not 1/100 mm).
 
         Args:
@@ -1497,14 +1537,14 @@ class _ImageProxy:
             y_mm (optional): Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc.
             width_mm (optional): Width in millimetres (must be positive; omitted derives from aspect ratio).
             height_mm (optional): Height in millimetres (must be positive; omitted derives from aspect ratio).
-            target (optional): Writer insertion target (default: body). header/footer write the shared page-style region. header_first/footer_first write the first-page letterhead (set first_is_shared=false first, or the first page still shares HeaderText). One of: body, header, footer, header_first, footer_first.
-            style (optional): Page style for header/footer target (default: Standard).
-            auto_height (optional): When target is a header/footer region, grow the region with the image (default: true) so a taller logo does not overlap the body. Set false to keep a fixed header/footer height.
+            target (optional): Writer insertion target. header/footer write the shared page-style region. header_first/footer_first write the first-page letterhead (set first_is_shared=false first, or the first page still shares HeaderText). One of: body, header, footer, header_first, footer_first.
+            style (optional): Page style for header/footer target.
+            auto_height (optional): When target is a header/footer region, grow the region with the image so a taller logo does not overlap the body. Set false to keep a fixed header/footer height.
         """
         return _result(call_host_tool("image_insert", path=path, locator=locator, paragraph=paragraph, page=page, x_mm=x_mm, y_mm=y_mm, width_mm=width_mm, height_mm=height_mm, target=target, style=style, auto_height=auto_height))
 
     def list(self) -> _Item:
-        """List all images/graphic objects in the document with name, dimensions, title, and description."""
+        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
         return _result(call_host_tool("image_list"))
 
     def list_nearby_files(self, *, filter: str | None = None) -> _Item:
@@ -1574,13 +1614,13 @@ class _IndexProxy:
         """
         return _result(call_host_tool("index_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
-    def create(self, kind: str, *, title: str | None = None, create_from_outline: bool | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
+    def create(self, kind: str, *, title: str | None = None, create_from_outline: bool = True, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
         """Create a document index (toc, alphabetical, user, illustration, table, object, bibliography). kind=bibliography inserts the reference table (com.sun.star.text.Bibliography); cites must already exist or be added with index_add_mark kind=bibliography, then index_update_all. Use target='beginning', 'end', or 'selection'. Use target='search' with old_content to find and replace text.
 
         Args:
             kind (required): The type of index to create. One of: toc, alphabetical, user, illustration, table, object, bibliography.
             title (optional): The title for the index (e.g., 'Table of Contents').
-            create_from_outline (optional): Whether to create the index from the document outline (mainly for toc). Default true.
+            create_from_outline (optional): Whether to create the index from the document outline (mainly for toc).
             target (optional): Where to insert the index. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
@@ -1599,14 +1639,14 @@ class _IndexProxy:
         """
         return _result(call_host_tool("index_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
-    def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str | None = None, old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> _Item:
+    def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str = 'end', old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> _Item:
         """Insert one new row into an existing table of contents. Does not call index update(), and does not modify neighboring entries. Clones the sibling row's Contents N paragraph style, direct character formatting, and tab stops. Set hyperlink_url to an outline target (#…|outline) or a text-table target (#Name|table). Page numbers follow the sibling row: plain text after a tab (generated TOC rows store digits in the entry, not a page field). Pass page to set that text when the new row is not on the sibling's page; omit it to copy the sibling's page text. position is before, after (both need old_content), or end (after the last TOC entry). index_update_all is the full rebuild and drops customized TOC formatting. The agent decides what is missing; this tool does not sync the outline.
 
         Args:
             content (required): Plain text of the new entry title. May be the full line (Title followed by a tab and the page) when page is omitted.
             page (optional): Plain page text written after a tab. Omit to copy the sibling row's page text. Not a page-number field.
             hyperlink_url (optional): Outline target (#…|outline) or text-table target (#Name|table) for the new row only. Omit to leave the new row unlinked.
-            position (optional): Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end. One of: before, after, end.
+            position (optional): Where to insert the one row. before/after need old_content. end appends after the last TOC entry. One of: before, after, end.
             old_content (optional): Plain text of the existing TOC entry to insert before or after. Not used when position is end.
             level (optional): Contents N paragraph style (1-10). Omit to clone the sibling entry's style.
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
@@ -1629,7 +1669,7 @@ class _IndexProxy:
 
         Args:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
-            include_links (optional): Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.
+            include_links (optional): Include internal hyperlink URLs on each row. Outline links are preserved automatically during renames.
         """
         return _result(call_host_tool("index_list_toc_entries", index=index, include_links=include_links))
 
@@ -1662,7 +1702,7 @@ class _MailMergeProxy:
 
         Args:
             column_name (required): Name of the column/field to merge (e.g., 'FirstName', 'Company', 'Address').
-            data_source_name (optional): Name of the registered data source. Defaults to '' or active data source.
+            data_source_name (optional): Name of the registered data source. Empty means the active data source.
             table_name (optional): Name of the table or sheet (e.g., 'Sheet1', 'Contacts').
             command_type (optional): Data command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
@@ -1701,10 +1741,10 @@ class _MailMergeProxy:
             data_source_name (required): Name of the registered data source to merge from.
             table_name (required): Name of the table, query, or sheet in the data source.
             command_type (optional): Command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
-            output_type (optional): Destination for merge results: 'file' (default) or 'printer'. One of: file, printer.
+            output_type (optional): Destination for merge results: 'file' or 'printer'. One of: file, printer.
             output_path (optional): Directory path to save output files when output_type='file'.
             save_as_single_file (optional): If True, merges all records into a single multi-page document. If False, creates separate files per record.
-            file_format (optional): Output file format: 'odt' or 'pdf'. Default 'odt'. One of: odt, pdf.
+            file_format (optional): Output file format: 'odt' or 'pdf'. One of: odt, pdf.
             file_name_prefix (optional): Base filename prefix for output files, or column name when file_name_from_column=True.
             file_name_from_column (optional): If True, uses values from the column specified in file_name_prefix to name individual files.
             filter (optional): Optional SQL WHERE filter clause to select specific records (e.g. "City = 'London'").
@@ -1719,7 +1759,7 @@ class _ManualProxy:
     """Proxy for manual tools."""
 
     def read(self, *, topic: str | None = None) -> _Item:
-        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
+        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images). Calc: workflow, formula-syntax, directives. Draw and Impress: directives, get-image. Use this when unsure how an edit, the review modes, search, or image ops work.
 
         Args:
             topic (optional): Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list.
@@ -1776,25 +1816,25 @@ memory = _MemoryProxy()
 class _NamedRangeProxy:
     """Proxy for named_range tools."""
 
-    def add(self, name: str, content: str, *, scope: str | None = None, base_cell: str | None = None, flags: builtins.list[str] | None = None) -> _Item:
+    def add(self, name: str, content: str, *, scope: str = 'global', base_cell: str = 'A1', flags: builtins.list[str] | None = None) -> _Item:
         """Defines a new named range or formula expression in the workbook (global) or specific sheet. Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria').
 
         Args:
             name (required): Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.
-            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too).
-            scope (optional): Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').
-            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error.
+            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').
+            scope (optional): Scope of the name: 'global' or a specific sheet name (e.g. 'Sheet1').
+            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Without a sheet prefix it is on the scope sheet (the first sheet for global scope). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
         """
         return _result(call_host_tool("named_range_add", name=name, content=content, scope=scope, base_cell=base_cell, flags=flags))
 
-    def create_from_titles(self, range_name: builtins.list[str], *, border: str | None = None, scope: str | None = None) -> _Item:
+    def create_from_titles(self, range_name: builtins.list[str], *, border: str = 'top', scope: str = 'global') -> _Item:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
-            range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
-            scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
+            range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            border (optional): Which edge contains the title labels: 'top', 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
+            scope (optional): Container scope for creating the names: 'global' or specific sheet name.
         """
         return _result(call_host_tool("named_range_create_from_titles", range=range_name, border=border, scope=scope))
 
@@ -1813,7 +1853,7 @@ class _NamedRangeProxy:
         Args:
             name (required): Current name of the range to edit.
             new_name (optional): New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces.
-            content (optional): New formula or range address content (Sheet1!A1:B5 is accepted too).
+            content (optional): New formula or range address content.
             scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
             base_cell (optional): New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
@@ -1829,11 +1869,11 @@ class _NamedRangeProxy:
         """
         return _result(call_host_tool("named_range_get_info", name=name, scope=scope))
 
-    def list(self, *, scope: str | None = None) -> _Item:
+    def list(self, *, scope: str = 'global') -> _Item:
         """Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name).
 
         Args:
-            scope (optional): Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name.
+            scope (optional): Scope to list: 'global', 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name.
         """
         return _result(call_host_tool("named_range_list", scope=scope))
 
@@ -1844,7 +1884,7 @@ class _NavProxy:
     """Proxy for nav tools."""
 
     def get_heading(self, locator: str, direction: str) -> _Item:
-        """Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+        """Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing.
 
         Args:
             locator (required): Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction').
@@ -1852,33 +1892,33 @@ class _NavProxy:
         """
         return _result(call_host_tool("nav_get_heading", locator=locator, direction=direction))
 
-    def get_surroundings(self, locator: str, *, radius: int | None = None, include: list[str] | None = None) -> _Item:
-        """Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+    def get_surroundings(self, locator: str, *, radius: int = 10, include: list[str] | None = None) -> _Item:
+        """Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments.
 
         Args:
             locator (required): Center position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42').
-            radius (optional): Number of paragraphs in each direction (default: 10, max: 50).
+            radius (optional): Number of paragraphs in each direction (max: 50).
             include (optional): Object types to include: paragraphs, images, tables, frames, comments, headings (default: all).
         """
         return _result(call_host_tool("nav_get_surroundings", locator=locator, radius=radius, include=include))
 
     def goto_page(self, page: int) -> _Item:
-        """Navigate the view cursor to a specific page.
+        """Navigate the view cursor to the start of a page. page is 0-based (first page = 0).
 
         Args:
-            page (required): Page number to navigate to.
+            page (required): 0-based page index (first page = 0).
         """
         return _result(call_host_tool("nav_goto_page", page=page))
 
-    def list_heading_children(self, *, locator: str | None = None, para_index: int | None = None, bookmark: str | None = None, strategy: str | None = None, depth: int | None = None) -> _Item:
-        """Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+    def list_heading_children(self, *, locator: str | None = None, para_index: int | None = None, bookmark: str | None = None, strategy: str = 'first_lines', depth: int = 1) -> _Item:
+        """Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number.
 
         Args:
             locator (optional): Locator string (e.g. 'bookmark:_mcp_xxx', ordinal 'heading:1.2', or 'chapter_number:3.1' when Chapter Numbering is on).
             para_index (optional): Paragraph index of the heading.
             bookmark (optional): Bookmark name of the heading.
-            strategy (optional): Content strategy (default: first_lines). One of: heading_only, first_lines, full.
-            depth (optional): Max sub-heading depth (default: 1).
+            strategy (optional): Content strategy. One of: heading_only, first_lines, full.
+            depth (optional): Max sub-heading depth.
         """
         return _result(call_host_tool("nav_list_heading_children", locator=locator, para_index=para_index, bookmark=bookmark, strategy=strategy, depth=depth))
 
@@ -1888,39 +1928,39 @@ nav = _NavProxy()
 class _PageProxy:
     """Proxy for page tools."""
 
-    def get_columns(self, *, style: str | None = None) -> _Item:
+    def get_columns(self, *, style: str = 'Standard') -> _Item:
         """Get the column layout for a page style. Column widths are relative weights, not millimetres. Margins are millimetres.
 
         Args:
-            style (optional): The name of the page style. Defaults to 'Standard'.
+            style (optional): The name of the page style.
         """
         return _result(call_host_tool("page_get_columns", style=style))
 
-    def get_header_footer_text(self, region: str, *, style: str | None = None, include_images: bool | None = None) -> _Item:
+    def get_header_footer_text(self, region: str, *, style: str = 'Standard', include_images: bool = True) -> _Item:
         """Get this page-style header or footer as HTML so you can edit structure (fields, tables, logos) and send it back to page_set_header_footer_text. Uses the same XHTML export as get_content, pointed at the region's XText. Also lists images, fields, and paragraph_count so structure is visible without parsing the HTML. Use header_first / footer_first when first_is_shared is false.
 
         Args:
             region (required): Which region to read. 'header'/'footer' are the shared ones. Use the '_first' variants for a 'different first page' letterhead and the '_left' variants when left/right pages differ (see first_is_shared / header_is_shared in page_get_style_properties). One of: header, footer, header_first, footer_first, header_left, footer_left.
-            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.
-            include_images (optional): Include embedded logo/image bytes in the HTML (default true). Headers are small; omitting images would hide the letterhead the caller is about to edit.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
+            include_images (optional): Include embedded logo/image bytes in the HTML. Headers are small; omitting images would hide the letterhead the caller is about to edit.
         """
         return _result(call_host_tool("page_get_header_footer_text", style=style, region=region, include_images=include_images))
 
     def get_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> _Item:
-        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above). para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
 
         Args:
-            page (optional): 1-based page number to analyze.
+            page (optional): 0-based page index (first page = 0).
             locator (optional): Locator to determine page.
             paragraph (optional): Paragraph index to determine page.
         """
         return _result(call_host_tool("page_get_objects", page=page, locator=locator, paragraph=paragraph))
 
-    def get_style_properties(self, *, style: str | None = None) -> _Item:
+    def get_style_properties(self, *, style: str = 'Standard') -> _Item:
         """Get dimensions, margins, and header/footer states of a page style.
 
         Args:
-            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
         """
         return _result(call_host_tool("page_get_style_properties", style=style))
 
@@ -1928,59 +1968,59 @@ class _PageProxy:
         """Read the document's text watermark (text, font, angle, transparency, color) and report whether a Word picture watermark exists."""
         return _result(call_host_tool("page_get_watermark"))
 
-    def insert_break(self, *, before_text: str | None = None, after_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, page_style: str | None = None, restart_page_number: int | None = None) -> _Item:
+    def insert_break(self, *, before_text: str | None = None, after_text: str | None = None, occurrence: int = 0, case_sensitive: bool | None = None, page_style: str | None = None, restart_page_number: int | None = None) -> _Item:
         """Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). Pass before_text or after_text to break the page at a specific passage instead, so a headless client can place it deterministically (e.g. before_text of the signature block). Pass page_style to apply an existing page style from that new page onward (often the name returned by style_clone of the current page, for an annex). Pass restart_page_number (integer >= 1) only together with page_style to restart page numbering at that value. An unknown page_style is an error and changes nothing.
 
         Args:
             before_text (optional): Break so this passage starts a new page (page break on the match's paragraph).
             after_text (optional): Break the page right after this passage's paragraph.
-            occurrence (optional): 0-based match to use when the anchor text repeats (default 0).
+            occurrence (optional): 0-based match to use when the anchor text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             page_style (optional): Name of an existing page style to apply from this break onward (paragraph property PageDescName). Often a style_clone of the current page. Unknown names error and change nothing. Omit to keep the current page style.
             restart_page_number (optional): Page number to start at on the new page (integer >= 1, paragraph property PageNumberOffset). Requires page_style. Omit to continue the current sequence. 0 is not a restart.
         """
         return _result(call_host_tool("page_insert_break", before_text=before_text, after_text=after_text, occurrence=occurrence, case_sensitive=case_sensitive, page_style=page_style, restart_page_number=restart_page_number))
 
-    def replace_header_footer_text(self, region: str, old_content: str, content: str, *, style: str | None = None, case_sensitive: bool | None = None, occurrence: int | None = None, all_matches: bool | None = None) -> _Item:
+    def replace_header_footer_text(self, region: str, old_content: str, content: str, *, style: str = 'Standard', case_sensitive: bool | None = None, occurrence: int | None = None, all_matches: bool = False) -> _Item:
         """Replace one substring in this page-style header or footer. Leaves page-number fields and floating graphics in place. One old_content/content pair per call — call again for a second change, the same way apply_content search-replace does. Does not turn the region on and does not rewrite it; use page_set_header_footer_text for a full HTML replacement. A region that only mirrors the shared header or footer is skipped. Refuses when an image is anchored to a character inside the match.
 
         Args:
             region (required): Which region to edit. 'header'/'footer' are the shared ones. '_first' and '_left' are skipped when they only mirror the shared region. One of: header, footer, header_first, footer_first, header_left, footer_left.
             old_content (required): Exact substring to find in the region's text. Does not match inside a field.
             content (required): Text to write in place of old_content. Empty deletes the match.
-            style (optional): Page style name. Defaults to 'Standard'.
+            style (optional): Page style name.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             occurrence (optional): 0-based match to replace (default 0). Cannot be combined with all_matches=true.
-            all_matches (optional): Replace every match (default false). Cannot be combined with occurrence.
+            all_matches (optional): Replace every match. Cannot be combined with occurrence.
         """
         return _result(call_host_tool("page_replace_header_footer_text", style=style, region=region, old_content=old_content, content=content, case_sensitive=case_sensitive, occurrence=occurrence, all_matches=all_matches))
 
-    def set_columns(self, column_count: int, *, style: str | None = None, spacing_mm: float | None = None) -> _Item:
+    def set_columns(self, column_count: int, *, style: str = 'Standard', spacing_mm: float = 0) -> _Item:
         """Set the number of columns and spacing for a page style.
 
         Args:
             column_count (required): Number of columns (1-99).
-            style (optional): The name of the page style. Defaults to 'Standard'.
-            spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
+            style (optional): The name of the page style.
+            spacing_mm (optional): Spacing between columns in mm.
         """
         return _result(call_host_tool("page_set_columns", style=style, column_count=column_count, spacing_mm=spacing_mm))
 
-    def set_header_footer_text(self, region: str, content: str, *, style: str | None = None, auto_height: bool | None = None) -> _Item:
+    def set_header_footer_text(self, region: str, content: str, *, style: str = 'Standard', auto_height: bool | None = None) -> _Item:
         """Replace this page-style header or footer with HTML so logos, tables, and page-number fields survive — the same StarWriter import as apply_content, pointed at the region's XText. Call page_get_header_footer_text first and edit that HTML. Enables the region if it is off. Pass auto_height=true so a taller letterhead grows instead of overlapping the body. data-lo-style and data-lo-para from the read are applied as in a full_document write; properties that were not applied come back in warnings. Plain text is wrapped as a paragraph and still goes through import. A _first or _left region that only mirrors the shared header or footer is skipped; edit header/footer or turn sharing off. To change one substring and leave fields and floating graphics alone, use page_replace_header_footer_text.
 
         Args:
             region (required): Which region to set. 'header'/'footer' are the shared ones; '_first' targets a 'different first page' letterhead and '_left' the left-hand pages. One of: header, footer, header_first, footer_first, header_left, footer_left.
             content (required): HTML (or plain text) to put in the region. Prefer the HTML returned by page_get_header_footer_text so fields are <span title="page-number"/> and images are <img> — those round-trip.
-            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
             auto_height (optional): Let the region grow with its content so taller content is not clipped and does not overlap the body. Left unchanged when omitted.
         """
         return _result(call_host_tool("page_set_header_footer_text", style=style, region=region, content=content, auto_height=auto_height))
 
-    def set_style_properties(self, *, style: str | None = None, width_mm: float | None = None, height_mm: float | None = None, is_landscape: bool | None = None, left_margin_mm: float | None = None, right_margin_mm: float | None = None, top_margin_mm: float | None = None, bottom_margin_mm: float | None = None, gutter_margin_mm: float | None = None, header_is_on: bool | None = None, footer_is_on: bool | None = None, header_is_shared: bool | None = None, footer_is_shared: bool | None = None, first_is_shared: bool | None = None, header_height_mm: float | None = None, footer_height_mm: float | None = None, header_body_distance_mm: float | None = None, footer_body_distance_mm: float | None = None, back_color: int | None = None, back_transparent: bool | None = None, numbering_type: int | None = None, footnote_height_mm: float | None = None, register_paragraph_style: str | None = None, page_style_layout: int | None = None) -> _Item:
+    def set_style_properties(self, *, style: str = 'Standard', width_mm: float | None = None, height_mm: float | None = None, is_landscape: bool | None = None, left_margin_mm: float | None = None, right_margin_mm: float | None = None, top_margin_mm: float | None = None, bottom_margin_mm: float | None = None, gutter_margin_mm: float | None = None, header_is_on: bool | None = None, footer_is_on: bool | None = None, header_is_shared: bool | None = None, footer_is_shared: bool | None = None, first_is_shared: bool | None = None, header_height_mm: float | None = None, footer_height_mm: float | None = None, header_body_distance_mm: float | None = None, footer_body_distance_mm: float | None = None, back_color: int | None = None, back_transparent: bool | None = None, numbering_type: int | None = None, footnote_height_mm: float | None = None, register_paragraph_style: str | None = None, page_style_layout: int | None = None) -> _Item:
         """Modify dimensions, margins, and header/footer toggles of a page style. header_is_on=false / footer_is_on=false refuse if that region still has text, fields, images, or tables — clear with page_set_header_footer_text first, then disable. Enabling (true) is always allowed. No force-off.
 
         Args:
-            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
             width_mm (optional): New width in mm.
             height_mm (optional): New height in mm.
             is_landscape (optional): Sets the IsLandscape flag only. Does not change Width or Height unless width_mm and height_mm are also passed. Landscape A4 is width_mm 297 and height_mm 210.
@@ -2044,12 +2084,12 @@ class _PageCommentProxy:
         """
         return _result(call_host_tool("page_comment_delete", index=index, page=page))
 
-    def list(self, *, page: int | None = None, offset: int | None = None) -> _Item:
+    def list(self, *, page: int | None = None, offset: int = 0) -> _Item:
         """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
 
         Args:
             page (optional): 0-based page index (all pages if omitted).
-            offset (optional): Skip this many comments in deck order (default 0).
+            offset (optional): Skip this many comments in deck order.
 
         Iterator form: ``for item in wa.page_comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.page_comment)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.page_comment)``. It passes no optional arguments (page); filter the items in Python.
         """
@@ -2196,13 +2236,13 @@ class _SectionProxy:
         """
         return _result(call_host_tool("section_rename", name=name, new_name=new_name))
 
-    def set_columns(self, name: str, column_count: int, *, spacing_mm: float | None = None) -> _Item:
+    def set_columns(self, name: str, column_count: int, *, spacing_mm: float = 0) -> _Item:
         """Set the number of columns and column spacing (in mm) for a text section.
 
         Args:
             name (required): Name of the section.
             column_count (required): Number of columns (1-99).
-            spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
+            spacing_mm (optional): Spacing between columns in mm.
         """
         return _result(call_host_tool("section_set_columns", name=name, column_count=column_count, spacing_mm=spacing_mm))
 
@@ -2310,13 +2350,13 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width))
 
-    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> _Item:
+    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str = 'horizontal_flow', connections: list[Any] | None = None) -> _Item:
         """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
 
         Args:
             nodes (required):
             page (optional): 0-based page (slide) index; the active page if omitted.
-            layout (optional): How to place nodes (default: horizontal_flow). One of: horizontal_flow, vertical_flow, grid, custom.
+            layout (optional): How to place nodes. One of: horizontal_flow, vertical_flow, grid, custom.
             connections (optional):
         """
         return _result(call_host_tool("shape_create_diagram", page=page, layout=layout, nodes=nodes, connections=connections))
@@ -2359,7 +2399,7 @@ class _ShapeProxy:
         return _result(call_host_tool("shape_get_summary", page=page))
 
     def get_tree(self, *, page: int | None = None) -> _Item:
-        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
+        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. CustomShapes with custom_geometry_empty=true have no Path/ViewBox and will not paint (recreate them; edit does not re-apply geometry). Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
             page (optional): 0-based page (slide) index; the active page if omitted.
@@ -2375,7 +2415,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
@@ -2386,19 +2426,27 @@ class _ShapeProxy:
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position, 1/100 mm (required only for action='create').
             y (optional): Y position, 1/100 mm (required only for action='create').
-            width (optional): Width, 1/100 mm (required only for action='create').
-            height (optional): Height, 1/100 mm (required only for action='create').
+            width (optional): Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point).
+            height (optional): Height, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point).
             text (optional): Text content.
             fill_color (optional): Fill color. Hex (#FF0000) or name (red).
             fill_style (optional): Fill style. One of: solid, transparent, none.
             line_color (optional): Line border color.
             line_width (optional): Line width, 1/100 mm.
+            line_start (optional): Arrowhead at the start of a line or connector ('none' clears). One of: none, arrow.
+            line_end (optional): Arrowhead at the end of a line or connector ('none' clears). One of: none, arrow.
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
+            bold (optional): Bold text (false removes bold).
+            italic (optional): Italic text (false removes italic).
+            h_align (optional): Horizontal text alignment inside the shape. One of: left, center, right, justify.
+            v_align (optional): Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center. One of: top, center, bottom.
+            wrap_text (optional): Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label.
+            corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
             rotation_angle (optional): Rotation angle in degrees.
         """
-        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, text_color=text_color, font_size=font_size, font_name=font_name, rotation_angle=rotation_angle))
+        return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, line_start=line_start, line_end=line_end, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))
 
 shape = _ShapeProxy()
 
@@ -2406,22 +2454,22 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
-    def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool | None = None) -> _Item:
+    def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool = True) -> _Item:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
-            has_header (optional): First row is headers only (default true).
+            has_header (optional): First row is headers only.
         """
         return _result(call_host_tool("sheet_apply_filter", range=range_name, has_header=has_header, criteria=criteria))
 
-    def clear_filter(self, range_name: list[str], *, has_header: bool | None = None) -> _Item:
+    def clear_filter(self, range_name: list[str], *, has_header: bool = True) -> _Item:
         """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
-            has_header (optional): First row is headers only (default true).
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            has_header (optional): First row is headers only.
         """
         return _result(call_host_tool("sheet_clear_filter", range=range_name, has_header=has_header))
 
@@ -2448,16 +2496,16 @@ class _SheetProxy:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("sheet_get_filter", range=range_name))
 
-    def hide(self, sheet: str, *, visible: bool | None = None) -> _Item:
+    def hide(self, sheet: str, *, visible: bool = False) -> _Item:
         """Hides or shows a sheet tab (visible=false hides; default hides).
 
         Args:
             sheet (required): Name of the sheet.
-            visible (optional): True to show the tab; false to hide (default: false).
+            visible (optional): True to show the tab; false to hide.
         """
         return _result(call_host_tool("sheet_hide", sheet=sheet, visible=visible))
 
@@ -2470,12 +2518,12 @@ class _SheetProxy:
         """
         return _result(call_host_tool("sheet_move", sheet=sheet, position=position))
 
-    def protect(self, *, sheet: str | None = None, protect: bool | None = None) -> _Item:
+    def protect(self, *, sheet: str | None = None, protect: bool = True) -> _Item:
         """Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
-            protect (optional): True to protect, False to unprotect (default: True).
+            protect (optional): True to protect, False to unprotect.
         """
         return _result(call_host_tool("sheet_protect", sheet=sheet, protect=protect))
 
@@ -2538,13 +2586,13 @@ sheet = _SheetProxy()
 class _SlideProxy:
     """Proxy for slide tools."""
 
-    def add(self, *, page: int | None = None, activate: bool | None = None, layout: str | None = None) -> _Item:
+    def add(self, *, page: int | None = None, activate: bool = True, layout: str = 'text') -> _Item:
         """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master.
 
         Args:
             page (optional): 0-based index where to insert the new slide (defaults to appending at the end if omitted).
-            activate (optional): Whether to switch the view to the new slide (default: true).
-            layout (optional): Impress layout name (default: 'text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
+            activate (optional): Whether to switch the view to the new slide.
+            layout (optional): Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
         """
         return _result(call_host_tool("slide_add", page=page, activate=activate, layout=layout))
 
@@ -2556,21 +2604,21 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_delete", page=page))
 
-    def duplicate(self, page: int, *, activate: bool | None = None) -> _Item:
+    def duplicate(self, page: int, *, activate: bool = True) -> _Item:
         """Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide.
 
         Args:
             page (required): 0-based index of the slide to duplicate.
-            activate (optional): Whether to switch the view to the new slide (default: true).
+            activate (optional): Whether to switch the view to the new slide.
         """
         return _result(call_host_tool("slide_duplicate", page=page, activate=activate))
 
-    def get_header_footer(self, page: int, *, is_master_page: bool | None = None) -> _Item:
+    def get_header_footer(self, page: int, *, is_master_page: bool = False) -> _Item:
         """Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
             page (required): 0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).
-            is_master_page (optional): If True, read the master page linked to the slide at page. Defaults to False.
+            is_master_page (optional): If True, read the master page linked to the slide at page.
         """
         return _result(call_host_tool("slide_get_header_footer", page=page, is_master_page=is_master_page))
 
@@ -2640,14 +2688,14 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_rename", page=page, name=name))
 
-    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None) -> _Item:
+    def search(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20) -> _Item:
         """Search text in slide shapes (including grouped descendants and table cells) and speaker notes. Each match reports the page, shape name, matched text, and shape index when available.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
+            regex (optional): Use regular expression.
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
         """
         return _result(call_host_tool("slide_search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results))
 
@@ -2659,12 +2707,12 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_set_active", page=page))
 
-    def set_header_footer(self, page: int, *, is_master_page: bool | None = None, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> _Item:
+    def set_header_footer(self, page: int, *, is_master_page: bool = False, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> _Item:
         """Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
             page (required): 0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
-            is_master_page (optional): If True, update the master page linked to the slide at page. Defaults to False.
+            is_master_page (optional): If True, update the master page linked to the slide at page.
             header (optional): Header text. Slide master only (written to the master's header shape); not available on a normal slide.
             footer (optional): The text for the footer. Setting it enables footer_visible unless footer_visible is passed.
             date_time (optional): The fixed date/time text. On a slide, setting it enables date_time_visible and date_time_fixed unless those are passed.
@@ -2694,13 +2742,13 @@ class _SlideProxy:
         """
         return _result(call_host_tool("slide_set_master", page=page, master=master))
 
-    def set_notes(self, text: str, *, page: int | None = None, append: bool | None = None) -> _Item:
+    def set_notes(self, text: str, *, page: int | None = None, append: bool = False) -> _Item:
         """Set or replace speaker notes on an Impress slide.
 
         Args:
             text (required): Speaker notes text.
             page (optional): 0-based page (slide) index; the active page if omitted.
-            append (optional): Append to existing notes instead of replacing (default: false).
+            append (optional): Append to existing notes instead of replacing.
         """
         return _result(call_host_tool("slide_set_notes", text=text, page=page, append=append))
 
@@ -2723,14 +2771,14 @@ slide = _SlideProxy()
 class _SqlProxy:
     """Proxy for sql tools."""
 
-    def query_folder(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> _Item:
+    def query_folder(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool = True, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> _Item:
         """Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) or {named_range: "SalesData"} (Calc named/database range). Absolute range: {range: "Sales.A1:F500"} stays frozen A1. Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. Optional tables file="budget.xlsx" reads that sibling instead of the active doc. Host prepares all UNO data + validates. Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION.
 
         Args:
             sql (required): Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.
             files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table).
             data_range (optional): Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity.
-            headers (optional): First row of data_range (or preloaded) contains column headers (default true).
+            headers (optional): First row of data_range (or preloaded) contains column headers.
             tables (optional): Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.
             task_hint (optional): Optional hint for logging/context.
         """
@@ -2742,34 +2790,48 @@ sql = _SqlProxy()
 class _StyleProxy:
     """Proxy for style tools."""
 
-    def clone(self, style: str, new_style: str, *, family: str | None = None) -> _Item:
+    def clone(self, style: str, new_style: str, *, family: str = 'ParagraphStyles') -> _Item:
         """Clone a paragraph, character, or page style into a new name. Paragraph and character clones share the source parent and copy direct property overrides; paragraph clones also copy FollowStyle. family=PageStyles copies direct page properties, in-flow header/footer content (including fields), and floating graphics anchored in those regions. The new style is not assigned to any page.
 
         Args:
             style (required): Name of the style to copy.
             new_style (required): Name of the new style. Must not already exist.
-            family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, PageStyles, CharacterStyles.
+            family (optional): Style family. One of: ParagraphStyles, PageStyles, CharacterStyles.
         """
         return _result(call_host_tool("style_clone", style=style, new_style=new_style, family=family))
 
-    def create(self, style: str, *, family: str | None = None, parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: builtins.list[Any] | None = None) -> _Item:
+    def create(self, style: str, *, family: str = 'ParagraphStyles', parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: builtins.list[Any] | None = None) -> _Item:
         """Create a new paragraph or character style with optional inheritance and property settings. For paragraph styles, you can also define conditional rules mapping contexts (like Table or Header) to other styles.
 
         Args:
             style (required): Name of the new style.
-            family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
+            family (optional): Style family. One of: ParagraphStyles, CharacterStyles.
             parent_style (optional): Name of the style to inherit from (e.g. 'Standard', 'Default Paragraph Style').
             property_updates (optional): Initial properties to set on the style.
             conditional_rules (optional): Optional conditional rules (ParagraphStyles only).
         """
         return _result(call_host_tool("style_create", style=style, family=family, parent_style=parent_style, property_updates=property_updates, conditional_rules=conditional_rules))
 
-    def get_info(self, style: str, *, family: str | None = None) -> _Item:
+    def format_text(self, *, properties: dict[str, Any] | None = None, reset: builtins.list[str] | None = None, target: str = 'selection', old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None) -> _Item:
+        """Set or reset direct formatting on text, keeping everything else. properties uses UNO names and the same value forms as style_update: CharWeight (150 bold, 100 normal), CharHeight (points), CharPosture (2 italic), CharFontName/CharFontNameAsian/CharFontNameComplex, CharColor/CharBackColor (hex), ParaAdjust (left/center/right/justify), ParaLineSpacing object, Para*Margin (1/100 mm); any property of a Writer text range is accepted. reset lists names whose hand-set value is dropped so the style shows. Paragraph-level properties (Para*, NumberingStyleName, PageDescName, BreakType) change every paragraph the target touches. target='full_document' covers body text and tables (not headers, footers, frames or footnotes).
+
+        Args:
+            properties (optional): UNO property name to value to set as direct formatting.
+            reset (optional): UNO property names whose direct formatting is removed so the style shows.
+            target (optional): Text to change. One of: selection, full_document, search.
+            old_content (optional): Text to find and change if target = 'search'.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
+            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
+            occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
+        """
+        return _result(call_host_tool("style_format_text", properties=properties, reset=reset, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence))
+
+    def get_info(self, style: str, *, family: str = 'ParagraphStyles') -> _Item:
         """Get detailed properties of a named style (font, size, paragraph margins). For family=PageStyles, return the same page-style margins/header/footer payload as page_get_style_properties so the caller does not need a second tool hop.
 
         Args:
             style (required): Name of the style to inspect.
-            family (optional): Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties.
+            family (optional): Style family. PageStyles returns the same page-style payload as page_get_style_properties.
         """
         return _result(call_host_tool("style_get_info", style=style, family=family))
 
@@ -2794,12 +2856,12 @@ class _StyleProxy:
         """
         return _result(call_host_tool("style_list", family=family))
 
-    def update(self, style: str, *, family: str | None = None, parent_style: str | None = None, property_updates: dict[str, Any] | None = None) -> _Item:
+    def update(self, style: str, *, family: str = 'ParagraphStyles', parent_style: str | None = None, property_updates: dict[str, Any] | None = None) -> _Item:
         """Update the properties of an existing style. Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and 'property_updates': a dictionary of UNO property names to values (e.g. {'CharColor': '#FF0000', 'CharWeight': 150, 'ParaAdjust': 'center'}). ParaAdjust is left/center/right/justify, not 0/1/2/3. Colors can be provided as hex strings or integers. Struct properties take an object of fields: ParaLineSpacing {'Mode': 'prop'|'minimum'|'leading'|'fix', 'Height': N} (Height is a percent for prop -- 150 is 1.5 lines -- and 1/100 mm for the others); the border properties (Left/Right/Top/BottomBorder, and the Char* ones) take a BorderLine2 object; ParaTabStops takes a list of TabStop objects. You can also update the 'parent_style' separately.
 
         Args:
             style (required): Name of the style to modify (e.g., 'Heading 1', 'Source Text').
-            family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
+            family (optional): Style family. One of: ParagraphStyles, CharacterStyles.
             parent_style (optional): Name of the style to inherit from.
             property_updates (optional): Dictionary of UNO property names to values (keys are listed in the schema).
         """
@@ -2918,12 +2980,12 @@ tool = _ToolProxy()
 class _TrackingProxy:
     """Proxy for tracking tools."""
 
-    def list(self, *, start_index: int | None = None, max_changes: int | None = None) -> _Item:
+    def list(self, *, start_index: int = 0, max_changes: int = 100) -> _Item:
         """List all tracked changes (redlines) in the document, including type, author, date, text and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; 'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in record/wait your edits become redlines even while recording is false. Returns at most max_changes rows (default 100); page through the rest with start_index when has_more is true.
 
         Args:
-            start_index (optional): Zero-based row to start this page at (default 0).
-            max_changes (optional): Maximum rows to return (default 100).
+            start_index (optional): Zero-based row to start this page at.
+            max_changes (optional): Maximum rows to return.
 
         Iterator form: ``for item in wa.tracking`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.tracking)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.tracking)``. It passes no optional arguments (max_changes); filter the items in Python.
         """
@@ -2979,82 +3041,82 @@ web = _WebProxy()
 class _WriterProxy:
     """Proxy for writer tools."""
 
-    def apply_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> _Item:
-        """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place.
+    def apply_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool = False, occurrence: int | None = None, position: str = 'replace', dry_run: bool | None = None, regex: bool = False, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> _Item:
+        """Insert or replace content. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table.
 
         Args:
-            content (required): List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.
+            content (required): HTML or plain-text fragments: prefer a list with one block per item; one string is also accepted and is read the same way (a list is joined with newlines). Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty search replacement deletes the match.
             target (optional): Where to apply the content. One of: beginning, end, selection, full_document, search.
-            old_content (optional): Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.
-            start_anchor (optional): Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup.
+            old_content (optional): Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead.
+            start_anchor (optional): Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup.
             end_anchor (optional): Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied.
-            all_matches (optional): Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor).
-            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.
-            position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
-            dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor.
-            regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
+            all_matches (optional): Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content.
+            occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.
+            position (optional): For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
+            dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing.
+            regex (optional): For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            hyperlink_url (optional): For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.
+            hyperlink_url (optional): For target='search' with position='replace' when the match overlaps one heading link (an outline hyperlink, #Heading|outline): the exact URL to set on that link. Omitted, the link's URL follows the new text when the matched text appears once in it. content may equal old_content when only the URL is stale.
         """
         return _result(call_host_tool("apply_content", content=content, target=target, old_content=old_content, start_anchor=start_anchor, end_anchor=end_anchor, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url))
 
-    def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> _Item:
+    def apply_style(self, style: str, *, family: str = 'ParagraphStyles', target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None, clear_direct: str = 'style_props') -> _Item:
         """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
 
         Args:
             style (required): Style name (e.g. Heading 1, Source Text).
-            family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
+            family (optional): Style family. One of: ParagraphStyles, CharacterStyles.
             target (optional): Where to apply the style. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and apply style to if target = 'search'.
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (default false = first only).
+            all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            clear_direct (optional): What to do with direct (hand-set) formatting on the target, ParagraphStyles only. 'style_props' (default) drops the font name/size override and the paragraph indents/alignment so the style's own values show, keeping bold/italic/colour. The name means 'let the style's properties win' for the font/size/indent the style governs — not 'clear only what this style defines'. 'none' keeps a hand-set font (historical; the style can look unchanged). 'all' drops every direct override (Ctrl+M). 'all' is not allowed with target='full_document' — that would flatten emphasis across the whole document; style each range instead. One of: none, style_props, all.
+            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
         """
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 
-    def get_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> _Item:
-        """Get document (or selection/range) content. Result includes document_length (plain-text characters) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_content of that markup recreates live Ruby portions.
+    def get_content(self, *, scope: str = 'full', max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool = False) -> _Item:
+        """Get document (or selection/range) content. Result includes document_length (counts the visible body text: body paragraphs and table cells, one character per paragraph or cell break, without text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and comment text are not counted) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning.
 
         Args:
-            scope (optional): Return full document (default), current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
+            scope (optional): Return full document, current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
             max_chars (optional): Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters).
             start (optional): Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end.
             end (optional): Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'.
-            include_images (optional): Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
+            include_images (optional): Include embedded image data (base64) in export. When false, an image comes back as its wrapper with the picture's name (<div|span ... id="Name"><img src=""/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture.
         """
         return _result(call_host_tool("get_content", scope=scope, max_chars=max_chars, start=start, end=end, include_images=include_images))
 
-    def get_tree(self, *, strategy: str | None = None, depth: int | None = None) -> _Item:
-        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines (default), full. depth=0 for unlimited, depth=1 (default) for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+    def get_tree(self, *, strategy: str = 'first_lines', depth: int = 1) -> _Item:
+        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines, full. depth=0 for unlimited, depth=1 for top-level only.
 
         Args:
-            strategy (optional): Content to include with headings (default: first_lines). One of: heading_only, first_lines, full.
-            depth (optional): Max tree depth (0=unlimited, default: 1).
+            strategy (optional): Content to include with headings. One of: heading_only, first_lines, full.
+            depth (optional): Max tree depth (0=unlimited).
         """
         return _result(call_host_tool("get_tree", strategy=strategy, depth=depth))
 
-    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, return_offsets: bool | None = None) -> _Item:
-        """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. When pointing the user to a match, quote the first few words of its text and its location rather than any internal index. With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax (validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit.
+    def search(self, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 20, return_offsets: bool = False) -> _Item:
+        """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax (validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (ICU syntax, default: false).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
-            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
-            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments). Default: false.
+            regex (optional): Use regular expression (ICU syntax).
+            case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
+            max_results (optional): Maximum results to return. Must be a positive integer.
+            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments).
         """
         return _result(call_host_tool("search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets))
 
-    def set_selection(self, *, search_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> _Item:
+    def set_selection(self, *, search_text: str | None = None, occurrence: int = 0, case_sensitive: bool | None = None, char_start: int | None = None, char_end: int | None = None) -> _Item:
         """Select a passage in the document (highlights it for the user and lets a following apply_content/apply_style with target='selection' act on it). Select by search_text (with occurrence and case_sensitive) or by character range (char_start/char_end). Selection is transient view state, so pair it with the edit that uses it. Character offsets are returned only for a fully applied char range. The search path returns selected_text and length.
 
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).
-            occurrence (optional): 0-based match to select when search_text repeats (default 0).
+            occurrence (optional): 0-based match to select when search_text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            char_start (optional): Alternative to search_text: 0-based start character offset (body text).
-            char_end (optional): End character offset (exclusive), required with char_start.
+            char_start (optional): Alternative to search_text: 0-based start offset in body cursor steps, which is not quite get_content's document_length space: a field or footnote anchor is one step whatever it shows, text deleted by pending tracked changes still counts, and an offset inside a table moves to the paragraph after it.
+            char_end (optional): End offset (exclusive, same cursor steps), required with char_start.
         """
         return _result(call_host_tool("set_selection", search_text=search_text, occurrence=occurrence, case_sensitive=case_sensitive, char_start=char_start, char_end=char_end))
 

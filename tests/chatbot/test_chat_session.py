@@ -300,9 +300,19 @@ def test_messages_for_request_tail_is_snapshot_only():
     assert isinstance(content_blocks, list)
     assert len(content_blocks) == 2
     assert content_blocks[0] == {"type": "text", "text": "Hello"}
-    assert snapshot_text("Active document text") == content_blocks[1]["text"]
+    assert content_blocks[1]["text"] == "\n\n" + snapshot_text("Active document text")
     assert "Today's date is" not in content_blocks[1]["text"]
     assert "[USER PROFILE / MEMORY]" not in content_blocks[1]["text"]
+
+
+def test_request_snapshot_is_separated_from_user_text():
+    """Templates that join text parts with no separator must not glue user words to the snapshot header."""
+    session = ChatSession(system_prompt="Base system")
+    session.add_user_message("Hello")
+    session.document_context = "Doc"
+
+    req = session.messages_for_request()
+    assert "".join(p["text"] for p in req[-1]["content"]) == "Hello\n\n" + snapshot_text("Doc")
 
 
 def test_messages_for_request_never_has_adjacent_user_messages():

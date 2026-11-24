@@ -67,7 +67,7 @@ class TestWriterToolsSmoke:
         names = {t.name for t in registry.get_tools(doc=doc, active_domain="page", exclude_tiers=())}
         assert "style_list" in names
         assert "style_clone" in names
-        for leftover in ("style_get_info", "style_update", "style_create", "style_import"):
+        for leftover in ("style_get_info", "style_update", "style_create", "style_import", "style_format_text"):
             assert leftover not in names, f"page domain must not pull {leftover!r}"
         default_names = {t.name for t in registry.get_tools(doc=doc)}
         assert "style_list" not in default_names

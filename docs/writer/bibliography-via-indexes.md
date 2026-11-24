@@ -250,3 +250,12 @@ The library of record is LibreOffice (v1) or Zotero’s own database via its API
 v1 shipped as `index_add_mark kind=bibliography`, `index_list_cites`, existing create/list/update. [specialized-toolsets.md](specialized-toolsets.md) lists those names. Keep this page as the why.
 
 **Live UNO spelling (probed):** `Fields` `PropertyValue.Name` is the pretty string (`Identifier`, `Author`, `Title`, `Year`, `Pages`). Type is **`BibiliographicType`** (IDL `BIBILIOGRAPHIC_TYPE` — not `BibliographicType`). A Python tuple passed to `setPropertyValue("Fields", …)` is silently dropped; use `uno.Any("[]com.sun.star.beans.PropertyValue", seq)` through `uno.invoke`. Set Fields on the descriptor *before* insert. `getServiceName()` on the table is `com.sun.star.text.Bibliography`; `getImplementationName()` is `SwXDocumentIndex`. FieldMaster attach is not required for insert.
+
+## Open
+
+- `[fidelity S few]` Bibliography FieldMaster settings (brackets, numbering, sort keys, locale) exposed through the indexes tools, plus a default master so v1 cites match Insert, Bibliographic Entry. (§ v1 — native UNO (sketch), Open questions item 5)
+- `[fidelity S few]` Locator / pages handling for cites beyond the `Pages` and `Chapter` fields. (§ Open questions item 3)
+- `[feature L few]` Zotero integration (v2): search the local Zotero API, resolve citekeys, map items to bibliography `Fields`, and refresh existing cites using the same insert and update path. (§ v2 — Zotero (researched, not implemented))
+- `[idea S few]` Decide where the Zotero item key sits on `Fields` (`Identifier` versus `CUSTOM*`) and how to handle documents that already carry Zotero plugin marks. (§ Open questions items 2 and 4)
+- `[idea S few]` Optional Better BibTeX JSON-RPC citekey lookup and a CSL-formatted preview string in tool results. (§ Citekeys (BBT-style, Zotero-native))
+- `[idea S few]` Import entries from LibreOffice's shared Bibliography `.odb` datasource as a cite source. (§ Non-goals (do not confuse with this work))

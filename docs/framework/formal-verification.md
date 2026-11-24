@@ -495,7 +495,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 17. **`plugin/framework/appearance.py`** — `_luminance`, `get_monaco_theme_info` ([`tests/framework/test_appearance.py`](../../tests/framework/test_appearance.py))
 18. **`plugin/framework/event_bus.py`** — `EventBus.emit` exception isolation ([`tests/framework/test_event_bus.py`](../../tests/framework/test_event_bus.py))
 20. **`plugin/chatbot/chat_sidebar_mode.py`** — `sidebar_mode_flags_for_doc_type`, `get_mode_labels`, `mode_from_label` ([`tests/chatbot/test_chatbot_pure_verification.py`](../../tests/chatbot/test_chatbot_pure_verification.py))
-21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant & skill store ([`tests/chatbot/test_skills.py`](../../tests/chatbot/test_skills.py))
+21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant ([`tests/chatbot/test_skills.py`](../../tests/chatbot/test_skills.py))
 22. **`plugin/chatbot/research_cache_fluff.py`** — `translated_research_cache_fluff` ([`tests/chatbot/test_web_research_cache.py`](../../tests/chatbot/test_web_research_cache.py))
 23. **`plugin/chatbot/web_research_cache.py`** — `snowball_lang_from_locale_tag`, `parse_research_cache_key`, `format_research_cache_key`, `research_cache_similarity` ([`tests/chatbot/test_chatbot_pure_verification.py`](../../tests/chatbot/test_chatbot_pure_verification.py))
 24. **`plugin/scripting/import_policy.py`** — `policy_blocked_imports`, `venv_blocked_modules`, `format_venv_import_policy_for_prompt` ([`tests/scripting/test_import_policy.py`](../../tests/scripting/test_import_policy.py))
@@ -575,7 +575,7 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 5. Tooling (low code, high leverage)
 
-- Optional CI job: `make verify` (not full CrossHair-all).
+- Optional dedicated CI job: `make verify` (not full CrossHair-all); the non-slow `*_verification.py` pytest suite already runs in PR CI (`.github/workflows/pr-ci.yml` via `make test-full`).
 - Keep `CROSSHAIR_*_SKIP` empty; hostility = shim / `# crosshair: off` / refactor.
 - Stale “Practical Implementation Guide” samples below still mention old paths—treat Phase 9 + this section as source of truth over the illustrative CI YAML.
 
@@ -1012,3 +1012,11 @@ git commit -m "feat: add verified URL utilities"
 ```
 
 By following this framework-first approach, we build a solid foundation of verified code that all higher-level modules can rely on. The verification status becomes a living document that grows as we harden more of the codebase.
+
+## Open
+
+- `[eng S few]` Add the send-button Stop-while-idle no-op as a Hypothesis property or `@deal.ensure` on `send_state.next_state`. (§ Phase 9: What to work on next (recommended order))
+- `[eng S few]` Run CrossHair on a schedule or per commit in CI; today only the manual-dispatch `crosshair-deep.yml` sweep exists. (§ Phase 6: Formal Verification of State Machines)
+- `[eng S few]` Add an optional CI job that runs `make verify`. (§ Phase 9: What to work on next (recommended order))
+- `[eng M few]` Promote the remaining engine-limited `partial` rows in `verification_status.json` (such as `payload_codec`) only once a new oracle or a written bar for `# crosshair: off` exists. (§ Phase 9: What to work on next (recommended order))
+- `[eng S few]` Extract pure color and unit helpers (mm/px) from `visual_helpers.py` into a verifiable Tier-0 slice if they are mixed with UNO. (§ Phase 9: What to work on next (recommended order))

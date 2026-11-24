@@ -461,7 +461,9 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch.object(
+    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch(
+        "plugin.chatbot.panel_factory.apply_deck_icons"
+    ) as deck_icons, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
     ), patch(
         "plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel
@@ -470,6 +472,7 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     ):
         result = el.getRealInterface()
     init.assert_called_once_with(el.ctx)
+    deck_icons.assert_called_once_with(el.ctx)
     assert result is panel
 
 
@@ -514,6 +517,7 @@ def test_sidebar_text_combo_lists_warm_catalog_after_lru():
         return ""
 
     with patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=["vendor/a", "vendor/b"]), \
+         patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=["img"]), \
          patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru) as pop, \
          patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value="img") as image_pop, \
          patch("plugin.chatbot.config_ui_helpers.get_config", side_effect=get_cfg), \
@@ -637,6 +641,179 @@ def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
         el._released = True
         captured_callbacks[0](["vendor/released"])
         assert combo_state["items"] == ["only-before"]
+
+
+def test_cold_image_catalog_repaints_after_background_fetch_and_keeps_typed_text():
+    """Cold background fetch repaints the image combo while preserving typed text and handling empty catalogs."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.config_ui_helpers import populate_image_model_selector
+
+    endpoint = "https://api.anthropic.com"
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._released = False
+    el.m_panelRootWindow = MagicMock()
+    el._update_backend_indicator = MagicMock()
+    image_selector = MagicMock()
+    image_selector.getModel.return_value = MagicMock()
+    combo_state = {"text": "", "items": [], "sel": (0, 0)}
+
+    def get_text():
+        return combo_state["text"]
+
+    def set_text(val):
+        if val != combo_state["text"]:
+            combo_state["sel"] = (0, 0)
+        combo_state["text"] = val
+
+    def get_selection():
+        return combo_state["sel"]
+
+    def set_selection(sel):
+        combo_state["sel"] = sel
+
+    def remove_items(start, count):
+        if count:
+            combo_state["items"][start : start + count] = []
+
+    def add_items(items, pos):
+        combo_state["items"][pos:pos] = list(items)
+
+    image_selector.getText.side_effect = get_text
+    image_selector.setText.side_effect = set_text
+    image_selector.getSelection.side_effect = get_selection
+    image_selector.setSelection.side_effect = set_selection
+    image_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
+    image_selector.removeItems.side_effect = remove_items
+    image_selector.addItems.side_effect = add_items
+
+    captured_callbacks = []
+
+    def fake_memo(_ep, on_fetched, *, task_name):
+        captured_callbacks.append(on_fetched)
+        return None
+
+    with patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", side_effect=fake_memo), \
+         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", wraps=populate_image_model_selector), \
+         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+         patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
+         patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
+         patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+         patch("plugin.chatbot.config_ui_helpers.save") as mock_save, \
+         patch("plugin.chatbot.panel_factory.get_text_model", return_value="claude-sonnet-4"), \
+         patch("plugin.chatbot.panel_factory.get_image_model", return_value=""), \
+         patch("plugin.chatbot.config_ui_helpers.get_image_model", return_value=""), \
+         patch("plugin.chatbot.panel_factory.set_image_model") as mock_set_image_model, \
+         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint) as mock_ep, \
+         patch("plugin.chatbot.panel_factory.get_optional_control", return_value=image_selector):
+        el._populate_model_combos(None, image_selector)
+        assert combo_state["items"] == ["(Connection failed)"]
+        assert "(Enter API Key to load models)" not in combo_state["items"]
+        assert len(captured_callbacks) == 1
+
+        # Typed text is preserved across repaint.
+        combo_state["text"] = "mid-typing/"
+        combo_state["sel"] = (4, 4)
+        image_selector.setText.reset_mock()
+        mock_set_image_model.reset_mock()
+        captured_callbacks[0](["vendor/img"])
+
+        assert "vendor/img" in combo_state["items"]
+        assert combo_state["text"] == "mid-typing/"
+        assert combo_state["sel"] == (4, 4)
+        image_selector.setText.assert_not_called()
+        mock_save.assert_not_called()
+        mock_set_image_model.assert_not_called()
+
+        # Placeholder in box when fetch completes with no image models -> shows endpoint empty-image placeholder.
+        combo_state["text"] = "(Connection failed)"
+        captured_callbacks[0]([])
+        assert combo_state["items"] == ["(No image models on this endpoint)"]
+        assert combo_state["text"] == "(No image models on this endpoint)"
+
+        # Endpoint changed before callback -> no-op.
+        combo_state["items"] = ["only-before"]
+        mock_ep.return_value = "http://localhost:1234"
+        captured_callbacks[0](["vendor/other-img"])
+        assert combo_state["items"] == ["only-before"]
+
+        # Panel released before callback -> no-op.
+        mock_ep.return_value = endpoint
+        el._released = True
+        captured_callbacks[0](["vendor/released-img"])
+        assert combo_state["items"] == ["only-before"]
+
+
+def test_populate_model_combos_uncached_keystore_paints_fetched_list():
+    """Uncached keystore ref skips keyring read on UI thread and repaints full list via on_fetched."""
+    from unittest.mock import MagicMock, patch
+
+    import plugin.framework.client.model_fetcher as mf
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+    endpoint = "https://api.anthropic.com/v1"
+    fetched_ids = [f"claude-model-{i}" for i in range(14)]
+    body = {"data": [{"id": mid, "type": "model"} for mid in fetched_ids]}
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._released = False
+    el.m_panelRootWindow = MagicMock()
+    model_selector = MagicMock()
+    model_selector.getModel.return_value = MagicMock()
+    combo_state = {"text": "", "items": [], "sel": (0, 0)}
+    model_selector.getText.side_effect = lambda: combo_state["text"]
+    model_selector.setText.side_effect = lambda val: combo_state.__setitem__("text", val)
+    model_selector.getSelection.side_effect = lambda: combo_state["sel"]
+    model_selector.setSelection.side_effect = lambda sel: combo_state.__setitem__("sel", sel)
+    model_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
+    model_selector.removeItems.side_effect = lambda s, c: combo_state["items"].__delitem__(slice(s, s + c)) if c else None
+    model_selector.addItems.side_effect = lambda items, pos: combo_state["items"].__setitem__(slice(pos, pos), list(items))
+
+    cached_in_keystore = {"value": False}
+    jobs = []
+    posted = []
+
+    def fake_get_key(_slot: str) -> str:
+        cached_in_keystore["value"] = True
+        return "sk-ant-secret"
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    try:
+        with patch.object(mf, "api_key_needs_keystore_read", side_effect=lambda _s: not cached_in_keystore["value"]), \
+             patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
+             patch.object(mf, "get_api_key_for_endpoint", side_effect=fake_get_key) as mock_get_key, \
+             patch.object(mf, "get_config", return_value=""), \
+             patch.object(mf, "run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch.object(mf.main, "post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.requests.sync_request", return_value=body), \
+             patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru), \
+             patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+             patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
+             patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={"text_model": "claude-sonnet-4-20250514"}), \
+             patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+             patch("plugin.chatbot.panel_factory.get_text_model", return_value="claude-sonnet-4-20250514"), \
+             patch("plugin.chatbot.panel_factory.set_text_model"), \
+             patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint), \
+             patch("plugin.chatbot.panel_factory.get_optional_control", return_value=model_selector):
+            el._populate_model_combos(model_selector, None)
+            mock_get_key.assert_not_called()
+            assert len(jobs) == 1
+            assert all(mid not in combo_state["items"] for mid in fetched_ids)
+
+            jobs[0]()
+            assert len(posted) == 1
+            posted[0]()
+
+        for mid in fetched_ids:
+            assert mid in combo_state["items"]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
 
 
 def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
@@ -859,14 +1036,14 @@ import contextlib
 
 
 @contextlib.contextmanager
-def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None):
+def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None, ext_url=""):
     from unittest.mock import MagicMock, patch
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
         stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
-        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=""))
-        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.get_extension_url", return_value=ext_url))
+        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_filename", return_value="python_16.png"))
         ctor = stack.enter_context(
             send_patch if send_patch is not None else patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
         )
@@ -897,6 +1074,66 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
     el._apply_sidebar_mode.assert_called_once()
+
+
+def test_settings_and_search_icons_match_menubar_hamburger_and_header() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.hamburger_menu import show_hamburger_menu
+    from plugin.framework.menu_icon_dpi import STOCK_ICON_MATH, STOCK_ICON_SEARCH, STOCK_ICON_SETTINGS
+    from plugin.menu_state import MenuIcons
+
+    def _fake_graphic(_ctx: object, icon: str) -> MagicMock:
+        graphic = MagicMock()
+        graphic.source = icon
+        return graphic
+
+    img_mgr = MagicMock()
+    img_mgr.hasImage.return_value = False
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value.getUIConfigurationManager.return_value.getImageManager.return_value = img_mgr
+    with (
+        patch("plugin.menu_state.get_ctx", return_value=MagicMock()),
+        patch("plugin.menu_state.get_service_manager", return_value=smgr),
+        patch("plugin.menu_state.load_menu_graphic", side_effect=_fake_graphic),
+        patch("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=16),
+        patch("plugin.framework.appearance.get_style_window", return_value=None),
+        patch("plugin.app.get_menu_icon", return_value=None),
+    ):
+        MenuIcons().apply()
+    menubar = {c.args[1][0]: c.args[2][0].source for c in img_mgr.insertImages.call_args_list if c.args[0] == 0}
+
+    popup = MagicMock()
+    popup.execute.return_value = 0
+    hb_ctx = MagicMock()
+    hb_ctx.getServiceManager.return_value.createInstanceWithContext.return_value = popup
+    with (
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+        patch("plugin.chatbot.hamburger_menu.load_menu_graphic", side_effect=_fake_graphic),
+    ):
+        show_hamburger_menu(hb_ctx, MagicMock(), MagicMock())
+    id_to_cmd = {c.args[0]: c.args[1] for c in popup.setCommand.call_args_list}
+    hamburger = {id_to_cmd[c.args[0]]: c.args[1].source for c in popup.setItemImage.call_args_list}
+
+    el, controls, _send, _stop = _wire_buttons_setup(chat_mode_selector=MagicMock())
+    for btn_id in ("btn_settings", "btn_python", "btn_search"):
+        ctrl = MagicMock()
+        ctrl.getModel.return_value = MagicMock()
+        controls[btn_id] = ctrl
+
+    with _wire_buttons_patches(send_listener=MagicMock(), ext_url="file:///ext"):
+        el._wire_buttons(controls, MagicMock(), "chat", None)
+
+    settings_cmd = "org.extension.writeragent:main.settings"
+    search_cmd = "org.extension.writeragent:embeddings.search_dialog"
+    latex_cmd = "org.extension.writeragent:writer.insert_latex_dialog"
+
+    assert menubar[settings_cmd] == hamburger[settings_cmd] == controls["btn_settings"].getModel.return_value.ImageURL == STOCK_ICON_SETTINGS
+    assert menubar[search_cmd] == hamburger[search_cmd] == controls["btn_search"].getModel.return_value.ImageURL == STOCK_ICON_SEARCH
+    assert menubar[latex_cmd] == hamburger[latex_cmd] == STOCK_ICON_MATH
+    assert controls["btn_python"].getModel.return_value.ImageURL == "file:///ext/assets/python_16.png"
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):
@@ -952,6 +1189,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
         patch("plugin.chatbot.panel_factory.wire_chatpanel_controls", side_effect=fake_wire),
@@ -1218,6 +1456,7 @@ def test_get_real_interface_second_queued_create_keeps_first_panel():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=run_twice),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
         patch("plugin.chatbot.panel_factory.wire_chatpanel_controls") as mock_wire,
@@ -1471,6 +1710,7 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
         patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
+        patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=None),
     ):
         mock_pop_text.return_value = "gpt-4o"
         mock_pop_img.return_value = "dall-e-3"

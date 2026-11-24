@@ -87,7 +87,8 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_content` `document_length` and `scope='range'`. |
-| `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
+| `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). `set_selection` offsets use this cursor-step space (the `writer_char_count` space), not `get_content`'s `document_length` space. |
+| `jump_view_cursor_to_page` | Move a Writer view cursor to 0-based *page*; returns `None` on hit or the page count on miss (guards `0 <= page < 0x7FFF` and compares `vc.getPage()` because `jumpToPage` clamps to the last page). |
 | `writer_char_count` / `read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
 Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot. `find_paragraph_for_range` returns `None` when the point cannot be placed (empty body, before the first or after the last paragraph, or a compare failure); only a real hit returns `0`.
@@ -108,9 +109,10 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|----------------|
 | `get_active_document` | `uno_context.get_active_document` |
 | `resolve_document_by_url` | `uno_context.resolve_document_by_url(get_ctx(), url)` |
-| `detect_doc_type` | local map (Impress → `"draw"`, unknown → `"writer"`) |
+| `detect_doc_type` | `doc_type_family_label(get_document_type(doc))` (unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
+| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes |
 
 `get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
 
@@ -328,7 +330,7 @@ Three **different** PathSettings properties; do not collapse the meanings.
 
 `resolve_listing_directory`: active doc parent (`get_document_directory` → `get_document_path`) else `get_work_directory`.
 
-**Share lookup, not meaning.** A shared `path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
+**Share lookup, not meaning.** `path_settings_from_ctx` exists in `document_research.py` (also used by `draw/designs.py`); `Work` vs `UserConfig` vs `Storage_writable` stay separate.
 
 ### 2.5 HTTP / API URL helpers vs document URLs
 
@@ -350,7 +352,7 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 - `get_extension_url` → `PackageInformationProvider.getPackageLocation(id)` or `vnd.sun.star.extension://<id>`.
 - Dialogs: `base + "/Dialogs/" + name + ".xdl"` (file URL when the OXT is unpacked; vnd URL as fallback).
-- Icons (`menu_icon_dpi.py`): `menu_icon_asset_url` then filesystem paths (`librepy/sidebar_menus.py` tries vnd first, then `systemPathToFileUrl` on disk — vnd `queryGraphic` throws in a fresh test-runner profile).
+- Icons (`menu_icon_dpi.py`): `load_menu_graphic` is the one loader — a stock URL (`private:graphicrepository/...`) goes straight to `queryGraphic`; an asset filename tries the vnd URL (`menu_icon_asset_url`), then `systemPathToFileUrl` on disk (vnd `queryGraphic` throws in a fresh test-runner profile). Settings, Search, and LaTeX use stock icons (`Image::Image(XGraphic)` in `vcl/source/image/Image.cxx` keeps the stock origin, and `ImplImage::getBitmapForHiDPI` in `vcl/source/image/ImplImage.cxx` reloads them at the drawing scale and active dark/light icon theme); brand marks (`python`, `python_cell`, `running`, `stopped`) stay PNG. The PNG ladder is `16/24/32/40` picked by LibreOffice's `CountDPIScaleFactor` DPI buckets (`vcl/source/window/window.cxx`); `resolve_menu_icon_pixel_size` returns 16 on macOS without probing because VCL on Mac draws URL-loaded images at bitmap size in points and CoreGraphics applies the Retina backing scale (issue 3710). The MCP status icon in the menubar has a 16 px ImageManager ceiling (`implts_checkAndScaleGraphic` in `framework/source/uiconfiguration/imagemanagerimpl.cxx`, `FillMenuImages` → `GetImageForCommand` default `ImageType::Small` in `framework/source/uielement/menubarmanager.cxx` / `include/vcl/commandinfoprovider.hxx`), so it is smaller than LibreOffice's own icons at ≥150% on Windows/Qt; this is accepted. Settings, Search, and LaTeX menubar icons come from `STOCK_ACTION_ICONS`, which `MenuIcons.apply` writes into the module ImageManagers: `Addons.xcu` cannot name a stock icon (`AddonsOptions_Impl::ReadImageFromURL` in `framework/source/fwe/classes/addonsoptions.cxx` opens it through UCB and returns a plain bitmap), and `MenuBarManager::FillMenuImages` asks `GetImageForCommand` (ImageManager) before `AddonsOptions`. At 100% the stamped image keeps its stock origin through `insertImages`/`getImages` (`Image::Image(XGraphic)`, `Graphic::Graphic(const Image&)` in `vcl/source/gdi/graph.cxx`) and follows the active theme and scale; above 100%, `ImageRequestParameters::scalePercentage` (`vcl/source/image/ImplImageTree.cxx`) loads it at the device scale and `implts_checkAndScaleGraphic` shrinks it to a 16 px bitmap of the theme active at startup (the same 16 px limit as the MCP icon). The Python icons keep `Addons.xcu` 32 px PNGs, rescaled to 16 × the scale bucket by `AddonsOptions::ScaleImage` (`framework/source/fwe/classes/addonsoptions.cxx`). The Extension Manager icon (`assets/extension_icon.png`) is 94×84 (47:42) so `dp_gui_extlistbox.cxx` `DrawRow` scales it without distortion. Sidebar deck icons ship as 24 px PNGs in `Sidebar.xcu` (the macOS 24-point slot); off macOS `apply_deck_icons` writes the 24/32/48 px asset for the `CountDPIScaleFactor` bucket (100 % → the shipped default 24, 150 % → 32, 200 % and 250 % → 48) into the user-layer `DeckList` when a chat or Python panel is built, read once per window by `ResourceManager::ReadDeckList` (earlier windows show 24), because the stock deck canvas is 24 × bucket (`ImplImage::getBitmapForHiDPI` in `vcl/source/image/ImplImage.cxx`). Deck icons stay PNG: an SVG IconURL is turned into a bitmap at the screen DPI (`vectorgraphicdata.cxx` `convertPrimitive2DSequenceToBitmap`, macOS DPI from `AquaSalGraphics::initResolution`), so it is about 27–33 px on a Mac and gains no HiDPI sharpness (`ImplImage::getBitmapForHiDPI` covers stock and metafile images only). `assets/writeragent_logo.svg` is the source for `logo_24.png`, `writeragent_32.png`, `writeragent_48.png`, and `extension_icon.png`.
 
 **Dispatch (menu / protocol handler)**
 
@@ -466,12 +468,11 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 **Desktop / GraphicProvider duplication (lower value)**
 
 - Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
-- `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
 - `create_property_value` (`uno_context.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
 **Notebook markdown images**
 
-`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path`: `normalize_file_url` (`url_utils`), then `uno.fileUrlToSystemPath`, falling back on `urllib.request.url2pathname(urllib.parse.unquote(urlparse(src).path))`.
+`writer_importer._resolve_markdown_image_path` resolves `file:` URLs via `_file_url_to_local_path` ([`plugin/notebook/writer_importer.py`](../../plugin/notebook/writer_importer.py)): `normalize_file_url` (`url_utils`), then `uno.fileUrlToSystemPath`, falling back on the shared stdlib `path_from_file_url` helper ([`plugin/scripting/sandbox.py`](../../plugin/scripting/sandbox.py)).
 
 ### 3.5 `uno_context.py` scope creep
 
@@ -508,17 +509,17 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### P2 — candidate unify after documenting behavior
 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
-5. **Shared PathSettings locator** (`path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
-6. **`DocumentService.detect_doc_type`** → `doc_type_family_label` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
+5. **Shared PathSettings locator** (`path_settings_from_ctx`) — **Partly landed** (research and `draw/designs.py` use it; `framework/config.py` and `writer/images/image_tools.py` still create PathSettings locally). Share lookup, not meaning (keep property names at call sites).
+6. **`DocumentService.detect_doc_type`** → **Landed.** Delegates to `_doc_type.doc_type_family_label(_doc_type.get_document_type(doc))` in `plugin/doc/document_helpers.py` and maps `"unknown"` to `"writer"`.
 7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 
 ### P3 — optional / low value
 
 9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` moved to `vcl_pumping` (re-exported by `uno_context`), and takes the panel's Ask field explicitly.
-10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
+10. GraphicProvider icon load → **Landed.** `load_menu_graphic` (`menu_icon_dpi.py`) is the single loader with stock-URL and disk fallback.
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
-12. Notebook `file://` strip fallback → same URL→path helper.
+12. Notebook `file://` strip fallback → **Landed.** `plugin/notebook/writer_importer.py` (`_file_url_to_local_path`) now falls back to `plugin/scripting/sandbox.py` (`path_from_file_url`). Tests: `tests/notebook/test_writer_importer.py`.
 13. `DocumentService.doc_key` → `get_runtime_uid` (or uid-or-url like MCP). **Landed.** Tree / proximity / FTS caches key on `uid:` / `url:`; modify and unload emit `document:cache_invalidated`. Tests: `tests/writer/test_document_helpers.py`, `tests/writer/test_tree.py`, `tests/writer/test_tree_uno.py`.
 14. Promote `uno_context._normalize_doc_url` to public name when P1 lands. **Landed** as `normalize_doc_url`.
 
@@ -541,7 +542,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | HTTP `url_utils` + `path_to_file_url` | `tests/framework/test_url_utils.py` |
 | `uno_context` getters | `tests/framework/test_uno_context.py` |
 | listeners | `tests/framework/test_uno_listeners.py` |
-| menu icons and DPI | `tests/framework/test_menu_icon_dpi.py` |
+| menu icons and DPI | `tests/framework/test_menu_icon_dpi.py`, `tests/framework/test_menu_icon_dpi_uno.py` |
 | type guards | `tests/doc/test_doc_type.py` |
 | text helpers | `tests/doc/test_text_helpers.py`, `tests/doc/test_linebreak.py` |
 | udprops | `tests/doc/test_udprops.py` |
@@ -550,3 +551,9 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | `guard_uno` boundaries | `tests/framework/test_guard_uno_boundaries.py` |
 
 Any P1 unify should extend the **matching** `test_*.py` for the module that becomes the new home, not add a fourth URL test file.
+
+## Open
+
+- `[eng S few]` Have `resolve_document_by_url` and `get_open_documents` share one desktop-element-to-model helper, keeping each caller's match policy. (§ 4. Ranked future-work recommendations)
+- `[eng S few]` Make `plugin/framework/config.py` (`_resolve_config_path_from_ctx`) and `plugin/writer/images/image_tools.py` (`add_image_to_gallery`) use the shared `path_settings_from_ctx` locator (`plugin/doc/document_research.py` and `plugin/draw/designs.py` already use it). (§ 4. Ranked future-work recommendations)
+- `[eng S few]` Point the remaining `uno.systemPathToFileUrl` image and math call sites at the shared `path_to_file_url` helper after a Windows smoke check. (§ 4. Ranked future-work recommendations)

@@ -120,6 +120,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/range_copy.py",
     "plugin/writer/table_nesting.py",
     "plugin/writer/xhtml_style_postprocess.py",
+    "plugin/writer/page_png.py",
     "plugin/writer/math/__init__.py",
     "plugin/writer/math/latex_dialog.py",
     "plugin/writer/math/math_mml_convert.py",

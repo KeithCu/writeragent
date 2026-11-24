@@ -32,6 +32,13 @@ def _tool():
     return get_tools().get("sql_query_folder")
 
 
+def _run(ctx, **kwargs):
+    """Call sql_query_folder as dispatch does: prepare_tool_call fills schema defaults (headers) first."""
+    prepared = prepare_tool_call(_tool(), ctx, "sql_query_folder", kwargs)
+    assert prepared.error is None, prepared.error
+    return _tool().execute_safe(ctx, **prepared.kwargs)
+
+
 def _mk_ctx():
     return SimpleNamespace(ctx=object(), doc=object(), doc_type="calc", active_domain="analysis")
 
@@ -190,7 +197,7 @@ def test_query_folder_sql_ingress_size_fails_loud(
     mock_exec.side_effect = lambda fn: fn()
     mock_read.return_value = [["h1", "h2"]] + [[1, 2] for _unused in range(20)]
 
-    res = _tool().execute_safe(ctx=_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
+    res = _run(ctx=_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
 
     assert res["status"] == "error"
     msg = str(res.get("message") or res.get("error") or res)
@@ -210,7 +217,7 @@ def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, m
     mock_exec.side_effect = lambda fn: fn()
 
     ctx = _mk_ctx()
-    res = _tool().execute_safe(ctx, sql="SELECT 1", files={"a": "a.csv"})
+    res = _run(ctx, sql="SELECT 1", files={"a": "a.csv"})
 
     assert res["status"] == "ok"
     mock_resolve.assert_called()
@@ -235,7 +242,7 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
     mock_exec.side_effect = lambda fn: fn()
 
     ctx = _mk_ctx()
-    res = _tool().execute_safe(ctx, sql="SELECT * FROM budget", files={"sales": "sales.csv", "budget": "budget.xlsx#Actuals"})
+    res = _run(ctx, sql="SELECT * FROM budget", files={"sales": "sales.csv", "budget": "budget.xlsx#Actuals"})
 
     assert res["status"] == "ok"
     mock_read_office.assert_called_once()
@@ -274,7 +281,7 @@ def test_query_folder_sql_office_read_error_does_not_skip(
     )
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT * FROM budget", files={"budget": "budget.xlsx#Nope"})
+    res = _run(_mk_ctx(), sql="SELECT * FROM budget", files={"budget": "budget.xlsx#Nope"})
 
     assert res["status"] == "error"
     assert "budget.xlsx" in res["message"]
@@ -294,7 +301,7 @@ def test_query_folder_sql_routes_parquet_and_json_to_flat_files(
     mock_run.return_value = {"status": "ok", "total_rows": 2}
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(
+    res = _run(
         _mk_ctx(),
         sql="SELECT * FROM ledger",
         files={
@@ -325,7 +332,7 @@ def test_query_folder_sql_rejects_unsupported_flat_type(
     mock_resolve.return_value = "/tmp/project"
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT * FROM notes", files={"notes": "notes.txt"})
+    res = _run(_mk_ctx(), sql="SELECT * FROM notes", files={"notes": "notes.txt"})
     assert res["status"] == "error"
     assert res.get("code") == "UNSUPPORTED_FILE_TYPE"
     assert ".txt" in res.get("message", "")
@@ -342,7 +349,7 @@ def test_query_folder_sql_rejects_missing_flat_file(
     mock_resolve.return_value = "/tmp/project"
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT * FROM ledger", files={"ledger": "ledger.parquet"})
+    res = _run(_mk_ctx(), sql="SELECT * FROM ledger", files={"ledger": "ledger.parquet"})
     assert res["status"] == "error"
     assert res.get("code") == "MISSING_FILE"
     assert "ledger.parquet" in res.get("message", "")
@@ -484,7 +491,7 @@ def test_preload_path_ships_used_range_grid(
     mock_run.return_value = {"status": "ok", "total_rows": 1}
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(
+    res = _run(
         _mk_ctx(),
         sql="SELECT * FROM budget",
         files={"sales": "sales.csv", "budget": "budget.xlsx#Actuals", "ledger": "ledger.ods"},
@@ -517,7 +524,7 @@ def test_preload_path_bad_sheet_hint_errors(
     mock_open.return_value = (_fake_model(), "calc", None, True)
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT * FROM budget", files={"budget": f"{xlsx.name}#MissingSheet"})
+    res = _run(_mk_ctx(), sql="SELECT * FROM budget", files={"budget": f"{xlsx.name}#MissingSheet"})
 
     assert res["status"] == "error"
     assert "budget.xlsx" in res["message"]
@@ -711,7 +718,7 @@ def test_execute_sheet_identity_preloads_used_range(mock_resolve, mock_run, mock
 
     ctx = _mk_ctx()
     ctx.doc = _fake_model()
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM sales",
         tables={"sales": {"sheet": "Actuals"}},
@@ -738,7 +745,7 @@ def test_execute_named_range_identity(mock_resolve, mock_run, mock_exec, mock_re
     ctx = _mk_ctx()
     ctx.doc = _fake_model(named_ranges=_named_container({"SalesData": _fake_named_range(addr)}))
 
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM sales",
         tables={"sales": {"named_range": "SalesData"}},
@@ -762,7 +769,7 @@ def test_execute_frozen_range_stays_absolute(mock_resolve, mock_run, mock_exec, 
     ctx = _mk_ctx()
     ctx.doc = _fake_model()
 
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM sales",
         tables={"sales": {"range": "Actuals.A1:B2"}},
@@ -783,7 +790,7 @@ def test_execute_missing_named_range_does_not_run_sql(mock_resolve, mock_run, mo
     ctx = _mk_ctx()
     ctx.doc = _fake_model()
 
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM sales",
         tables={"sales": {"named_range": "MissingName"}},
@@ -807,7 +814,7 @@ def test_execute_tables_file_sheet_identity(
     mock_run.return_value = {"status": "ok"}
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _tool().execute_safe(
+    res = _run(
         _mk_ctx(),
         sql="SELECT * FROM sales",
         tables={"sales": {"file": "budget.xlsx", "sheet": "Actuals"}},
@@ -961,7 +968,7 @@ def test_sql_path_uses_cache_on_second_query(
     abs_path, mtime_ns, size = source_stat(str(xlsx))
     write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
 
-    res = _tool().execute_safe(
+    res = _run(
         _mk_ctx(),
         sql="SELECT * FROM budget",
         files={"sales": "sales.csv", "budget": "budget.xlsx#Actuals"},
@@ -1009,7 +1016,7 @@ def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, moc
     mock_read.side_effect = read
     mock_run.side_effect = run
 
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
+    res = _run(_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "ok"
     mock_exec.assert_called_once()
     mock_run.assert_called_once()
@@ -1021,7 +1028,7 @@ def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, moc
 def test_grid_read_disposal_reports_document_disposed(mock_resolve, mock_read, mock_run):
     del mock_resolve
     mock_read.side_effect = _DisposedException("document gone")
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    res = _run(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
     mock_run.assert_not_called()
@@ -1033,7 +1040,7 @@ def test_grid_read_disposal_reports_document_disposed(mock_resolve, mock_read, m
 def test_grid_read_other_errors_stay_generic(mock_resolve, mock_read, mock_run):
     del mock_resolve
     mock_read.side_effect = RuntimeError("boom")
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    res = _run(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert res.get("code") != "DOCUMENT_DISPOSED"
     assert "boom" in res.get("message", "")
@@ -1047,7 +1054,7 @@ def test_grid_read_other_errors_stay_generic(mock_resolve, mock_read, mock_run):
 def test_sibling_grid_disposal_reports_document_disposed(mock_resolve, mock_run, mock_read_office, _mock_isfile):
     del mock_resolve
     mock_read_office.side_effect = _DisposedException("sibling gone")
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT 1", files={"budget": "budget.xlsx"})
+    res = _run(_mk_ctx(), sql="SELECT 1", files={"budget": "budget.xlsx"})
     assert res["code"] == "DOCUMENT_DISPOSED"
     mock_run.assert_not_called()
 
@@ -1076,7 +1083,7 @@ def test_named_range_disposal_is_not_a_missing_range():
     ctx = _mk_ctx()
     ctx.doc = _fake_model(named_ranges=_named_container({"SalesData": bad}))
     with patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project"), patch("plugin.scripting.client.run_folder_sql") as mock_run:
-        res = _tool().execute_safe(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
+        res = _run(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
     assert res["code"] == "DOCUMENT_DISPOSED"
     mock_run.assert_not_called()
 
@@ -1091,7 +1098,7 @@ def test_controller_disposal_is_not_a_missing_name():
     model.getCurrentController = _controller
     ctx.doc = model
     with patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project"), patch("plugin.scripting.client.run_folder_sql") as mock_run:
-        res = _tool().execute_safe(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
+        res = _run(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
     assert res["code"] == "DOCUMENT_DISPOSED"
     assert "SalesData" not in res.get("message", "")
     mock_run.assert_not_called()
@@ -1124,7 +1131,7 @@ def test_read_range_calc_error_reports_maximum_is(mock_resolve, mock_a1, mock_re
 
     del mock_resolve, mock_a1
     mock_read_range.side_effect = CalcError("Data range has 500000 cells; maximum is 250000.")
-    res = _tool().execute_safe(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    res = _run(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert "maximum is" in res.get("message", "")
 
@@ -1137,7 +1144,7 @@ def test_execute_rejects_table_and_file_with_same_name(
     _mock_isfile, _mock_read, _mock_resolve, mock_run
 ):
     ctx = _mk_ctx()
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM sales",
         tables={"sales": {"sheet": "Sales"}},
@@ -1157,7 +1164,7 @@ def test_execute_rejects_table_and_file_with_same_name(
 )
 def test_execute_missing_sheet_returns_uno_object_error(_mock_read, _mock_resolve, mock_run):
     ctx = _mk_ctx()
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM t",
         tables={"t": {"sheet": "Nope"}},
@@ -1176,7 +1183,7 @@ def test_execute_rejects_duplicate_file_table_names(
     _mock_isfile, mock_read_sibling, _mock_resolve, mock_run
 ):
     ctx = _mk_ctx()
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM budget",
         files={"": "budget.xlsx#Actuals", "budget.xlsx": "budget.xlsx#Summary"},
@@ -1190,7 +1197,7 @@ def test_execute_rejects_duplicate_file_table_names(
 
 def test_execute_rejects_data_range_with_tables_data():
     ctx = _mk_ctx()
-    res = _tool().execute_safe(
+    res = _run(
         ctx,
         sql="SELECT * FROM data",
         data_range="A1:B2",
@@ -1275,7 +1282,7 @@ def test_query_folder_sql_empty_sql_is_invalid_param():
 
     ctx = _mk_ctx()
     ctx.doc = MagicMock()
-    res = _tool().execute_safe(ctx, sql="   ")
+    res = _run(ctx, sql="   ")
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     ctx.doc.getSheets.assert_not_called()

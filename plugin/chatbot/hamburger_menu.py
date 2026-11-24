@@ -17,7 +17,13 @@ from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
-from plugin.framework.menu_icon_dpi import menu_icon_filename
+from plugin.framework.menu_icon_dpi import (
+    STOCK_ICON_MATH,
+    STOCK_ICON_SEARCH,
+    STOCK_ICON_SETTINGS,
+    load_menu_graphic,
+    menu_icon_filename,
+)
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -52,7 +58,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         next_id = 1
         pos = 0
 
-        def add_item(menu: Any, label: str, action: str, pos: int, icon_filename: str | None = None) -> int:
+        def add_item(menu: Any, label: str, action: str, pos: int, icon: str | None = None) -> int:
             nonlocal next_id
             n_id = next_id
             next_id += 1
@@ -60,15 +66,13 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             item_actions[n_id] = action
             if hasattr(menu, "setCommand"):
                 menu.setCommand(n_id, "org.extension.writeragent:" + action)
-            if icon_filename:
-                from plugin.librepy.sidebar_menus import load_menu_graphic
-
-                g = load_menu_graphic(ctx, icon_filename)
+            if icon:
+                g = load_menu_graphic(ctx, icon)
                 if g is not None:
                     if hasattr(menu, "setItemImage"):
-                        best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon_filename}")
+                        best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon}")
                     elif hasattr(menu, "setItemGraphic"):
-                        best_effort(lambda: menu.setItemGraphic(n_id, g), f"setItemGraphic failed for {icon_filename}")
+                        best_effort(lambda: menu.setItemGraphic(n_id, g), f"setItemGraphic failed for {icon}")
             return pos + 1
 
         def add_separator(menu: Any, pos: int) -> int:
@@ -89,17 +93,17 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             pos = add_item(popup, _("Edit Python in Cell..."), "scripting.edit_python_cell", pos, menu_icon_filename("python_cell", ctx=ctx))
             pos = add_item(popup, _("Convert Sheet to Python..."), "calc.convert_spreadsheet_to_python", pos)
 
-        pos = add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos, menu_icon_filename("search", ctx=ctx))
+        pos = add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos, STOCK_ICON_SEARCH)
 
         if is_writer_doc:
-            pos = add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, menu_icon_filename("latex", ctx=ctx))
+            pos = add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, STOCK_ICON_MATH)
             pos = add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos)
 
         # 4. Separator
         pos = add_separator(popup, pos)
 
         # 5. Settings & Servers with Dynamic MCP Status
-        pos = add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
+        pos = add_item(popup, _("Settings"), "main.settings", pos, STOCK_ICON_SETTINGS)
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
         from plugin.app import get_menu_icon, get_menu_text, tests_bundled

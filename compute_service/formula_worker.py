@@ -118,16 +118,18 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         # The pool sends a session id only for a sticky call; isolated calls carry None.
         use_session: str | None = session_id if isinstance(session_id, str) and session_id else None
 
-        # Stable init_session_id so the sandbox runs init once per worker and
-        # seeds later cells from that namespace (hash change replaces the snapshot).
-        init_sid: str | None = None
+        # A shared request always names its init session: the kit sends init_script on
+        # every execute while the document has one, so a missing or blank script means
+        # it was removed and the sandbox drops the old init and the session it seeded.
+        # Isolated init keys on the script hash, so a changed script is a new snapshot.
         init_code = init_script if isinstance(init_script, str) and init_script.strip() else None
         init_hash: str | None = None
+        init_sid: str | None = None
+        if use_session is not None:
+            init_sid = SessionKey.parse(use_session).with_init_suffix().wire()
         if init_code is not None:
             init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
-            if use_session is not None:
-                init_sid = SessionKey.parse(use_session).with_init_suffix().wire()
-            else:
+            if init_sid is None:
                 init_sid = SessionKey.of(SessionKind.ISOLATED, init_hash).with_init_suffix().wire()
 
         # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
@@ -148,8 +150,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             res["id"] = req_id
         return json_forward_envelope(res, req_id=req_id, session_reset=bool(req.get("expect_namespace")) and created, namespace_created=created)
     except Exception as exc:
-        # Traceback included server paths on the kit wire. Eval errors from
-        # json_egress are only status/error/stdout; this path must match.
+        # A worker fault carries no traceback: format_exc would put server paths on
+        # the kit wire. Only json_egress forwards the sandbox's user-frame traceback.
         return json_forward_envelope(
             error_dict(ec.WORKER_EXECUTION_ERROR, str(exc), req_id=req_id, stdout=""),
             req_id=req_id,

@@ -63,19 +63,14 @@ log = logging.getLogger(__name__)
 
 def _parse_structure_start(
     structure_type: str, start_raw: Any
-) -> tuple[int | str | None, str | None, str | None]:
-    """Validate structure start; optional sheet prefix from a qualified string.
+) -> tuple[int | str | None, str | None]:
+    """Validate a structure start (row number or column letter).
 
-    Strict start validation: non-ASCII digits, floats, bools, and cell addresses rejected.
+    Strict: non-ASCII digits, floats, bools, cell addresses and sheet-prefixed values are rejected.
 
-    Returns (start, sheet_prefix, error_message).
+    Returns (start, error_message).
     """
-    sheet_prefix: str | None = None
-    local_raw = start_raw
-
-    if isinstance(start_raw, str):
-        sheet_prefix, local = split_sheet_prefix(start_raw.strip())
-        local_raw = local
+    local_raw = start_raw.strip() if isinstance(start_raw, str) else start_raw
 
     if structure_type == "rows":
         if type(local_raw) is int:
@@ -83,14 +78,14 @@ def _parse_structure_start(
         elif isinstance(local_raw, str) and local_raw.isascii() and local_raw.isdigit():
             row_val = int(local_raw)
         else:
-            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+            return None, 'start for rows must be a 1-based row number (for example 5 or "5")'
         if row_val < 1:
-            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
-        return row_val, sheet_prefix, None
+            return None, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        return row_val, None
 
     if isinstance(local_raw, str) and local_raw.isascii() and local_raw.isalpha():
-        return local_raw.upper(), sheet_prefix, None
-    return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
+        return local_raw.upper(), None
+    return None, 'start for columns must be a column letter (for example "C")'
 
 
 def opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
@@ -118,20 +113,6 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
 
 def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
     return CellManipulator(CalcBridge(ctx.doc)), range_args(range_arg)
-
-
-def _mutation_error(tool: ToolBase, exc: Exception, message: str) -> dict[str, Any]:
-    """Build a tool error dict that preserves WriterAgentException code and details.
-
-    A WriterAgentException's code and details (for example the sheet list of a
-    missing sheet) must reach the agent instead of being flattened to a generic
-    tool error. Plain exceptions keep the tool's default error code. Note that
-    ``exc.details`` is unpacked into ``_tool_error`` kwargs, so keys named
-    ``suggested_call`` or ``top_level`` would be routed to those parameters.
-    """
-    if isinstance(exc, WriterAgentException):
-        return tool._tool_error(message, code=exc.code, **exc.details)
-    return tool._tool_error(message)
 
 
 def _mutate_ranges(
@@ -178,14 +159,21 @@ def _mutate_ranges(
     except Exception as exc:
         if is_disposal(exc):
             raise
-        if group is not None and group.rolled_back:
-            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. Nothing was kept.")
         entered = group is not None and group.entered
-        if len(results) > 0:
+        if group is not None and group.rolled_back:
+            msg = f"Failed on range {target!r}: {exc}. Nothing was kept."
+        elif len(results) > 0:
             if not entered:
-                return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")
-            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them.")
-        return _mutation_error(tool, exc, str(exc))
+                msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually."
+            else:
+                msg = f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them."
+        else:
+            msg = str(exc)
+        # Preserve WriterAgentException code and details (such as a missing sheet's
+        # available list) so execute_safe does not flatten them to a generic error.
+        if isinstance(exc, WriterAgentException):
+            raise ToolExecutionError(msg, code=exc.code, details=exc.details) from exc
+        return tool._tool_error(msg)
 
 
 def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
@@ -332,7 +320,7 @@ class ReadCellRange(ToolBase):
                 "enum": ["rows", "cells"],
                 "default": "rows",
                 "description": (
-                    "rows (default): 2D values, formulas and date/time types only where present. "
+                    "rows: 2D values, formulas and date/time types only where present. "
                     "cells: one object per cell with address, value, formula, type, "
                     "format_category, and format_code."
                 ),
@@ -449,8 +437,8 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": f"Target range(s). {CALC_RANGE_LIST_NOTE} With source, this is the paste top-left (source extent is copied).",
             },
-            # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
-            # first ref) live only here; read_range's description and hint just point here.
+            # The fill-down mechanics (shifted refs, $ absolute, an array of copied formulas keeping the
+            # first row's refs) live only here; read_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
             # keeps real unions (same pattern as apply_content content).
             "values": {
@@ -465,14 +453,12 @@ class WriteCellRange(ToolBase):
                     "(use '=' prefix for formulas). One ordinary formula into a "
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
-                    "rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) "
-                    "and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not "
-                    "mix them in one formula. 2-D array: one inner array per row; "
+                    "rate or tax column. Example on C2:C4: values \"=B2*0.1\" writes "
+                    "=B2*0.1, =B3*0.1, =B4*0.1; an array repeating \"=B2*0.1\" on every row "
+                    "writes =B2*0.1 in all three cells. Formulas use Calc syntax only "
+                    "(=SUM(A1;B1), Sheet1.A1, {1;2|3;4}). 2-D array: one inner array per row; "
                     "must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null "
-                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
-                    "=B2*…-style formula in every cell pins every row to the "
-                    "first ref — use one formula string over the whole column "
-                    "range instead. A JSON string of a flat or 2-D array is still "
+                    '(e.g. [["a", 1], ["b", null]] for A1:B2). A JSON string of a flat or 2-D array is still '
                     "accepted. Empty string or empty array clears. "
                     "A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other "
                     "array functions) is entered as an array formula over its "
@@ -481,7 +467,7 @@ class WriteCellRange(ToolBase):
                 ),
             },
             "array": {"type": "boolean", "description": ("Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).")},
-            "source": {"type": "string", "description": ("Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
+            "source": {"type": "string", "description": ("Optional source block to copy (A1 or Sheet.A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
         },
         "required": ["range"],
     }
@@ -636,7 +622,7 @@ class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
     name: str | None = "set_style"
-    description: str = "Applies style and formatting to the specified cell(s) or range(s)."
+    description: str = "Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -649,11 +635,11 @@ class SetCellStyle(ToolBase):
             "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {"type": "string", "description": "Border line color (hex or name). Used by border_mode; black when border_mode is given without a color."},
+            "border_color": {"type": "string", "description": "Border line color (hex or name)."},
             "border_mode": {
                 "type": "string",
                 "enum": ["all", "outline", "inner", "none"],
-                "description": "all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders.",
+                "description": "all = every cell boxed; outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders. With only border_color, the mode is all; with only border_mode, lines are black.",
             },
             "number_format": {
                 "type": "string",
@@ -751,8 +737,8 @@ class MergeCells(ToolBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to merge. {CALC_RANGE_LIST_NOTE}"},
-            "center": {"type": "boolean", "description": "Center content (default: true)"},
-            "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
+            "center": {"type": "boolean", "default": True, "description": "Center content"},
+            "unmerge": {"type": "boolean", "default": False, "description": "Split merged cells instead of merging"},
         },
         "required": ["range"],
     }
@@ -841,8 +827,8 @@ class SortRange(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to sort. {CALC_RANGE_LIST_NOTE}"},
-            "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
-            "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
+            "sort_column": {"type": "integer", "default": 0, "description": ("0-based index of the key column inside the range (0 = leftmost). Use the numeric/metric column, not the label column, when sorting by amount.")},
+            "ascending": {"type": "boolean", "default": True, "description": ("true = smallest first; false = largest/highest first.")},
             "then_by": {
                 "type": "array",
                 "items": {
@@ -867,12 +853,12 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        sort_column: int = kwargs.get("sort_column", 0)
+        sort_column: int = kwargs["sort_column"]
         # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound for every key lives in range_sort.
         if sort_column < 0:
             return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
-        ascending: bool = kwargs.get("ascending", True)
+        ascending: bool = kwargs["ascending"]
 
         then_by = parse_then_by(kwargs.get("then_by", []))
         if then_by is None:
@@ -892,10 +878,8 @@ class SortRange(ToolCalcRangeBase):
         )
 
 
-_STRUCTURE_START_DESCRIPTION = (
-    'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). '
-    "Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet."
-)
+_STRUCTURE_START_DESCRIPTION = 'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").'
+_STRUCTURE_COUNT_DEFAULT = 1
 
 
 class _StructureTool(ToolBase):
@@ -912,33 +896,28 @@ class _StructureTool(ToolBase):
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
         # The schema makes count an integer; it does not read a minimum, so 0 and negatives stop here.
-        count: int = kwargs.get("count", 1)
+        count: int = kwargs.get("count", _STRUCTURE_COUNT_DEFAULT)
         if count < 1:
             return self._tool_error(f"count must be an integer >= 1, got {count}", code="INVALID_PARAM")
 
-        start, sheet_prefix, start_err = _parse_structure_start(structure_type, kwargs["start"])
+        start, start_err = _parse_structure_start(structure_type, kwargs["start"])
         if start_err:
             return self._tool_error(start_err, code="INVALID_PARAM")
 
-        if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
-            return self._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.", code="INVALID_PARAM")
+        sheet_name: str | None = kwargs.get("sheet")
+        if sheet_name and not is_agent_visible_sheet(sheet_name):
+            return self._tool_error(f"Cannot modify internal sheet '{sheet_name}'.", code="INVALID_PARAM")
 
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        sheet = bridge.get_sheet(sheet_prefix) if sheet_prefix is not None else None
-        try:
-            assert start is not None
-            if self.insert:
-                result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
-            else:
-                confirm = kwargs.get("confirm", False) is True
-                result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
-            return make_tool_ok(**result)
-        except Exception as e:
-            # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
-            if is_disposal(e) or isinstance(e, WriterAgentException):
-                raise
-            return self._tool_error(str(e))
+        sheet = bridge.get_sheet(sheet_name) if sheet_name else None
+        assert start is not None
+        if self.insert:
+            result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
+        else:
+            confirm = kwargs.get("confirm", False) is True
+            result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
+        return make_tool_ok(**result)
 
 
 class DeleteStructure(_StructureTool):
@@ -955,14 +934,16 @@ class DeleteStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to delete (default 1)."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to delete."},
             "confirm": {
                 "type": "boolean",
+                "default": False,
                 "description": (
                     "Set true to delete even when formulas or named ranges would turn into #REF!. "
-                    "Default false: such a delete is refused and nothing changes."
+                    "When false, such a delete is refused and nothing changes."
                 ),
             },
+            "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],
     }
@@ -979,7 +960,8 @@ class InsertStructure(_StructureTool):
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
             "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
-            "count": {"type": "integer", "description": "Number to insert (default 1)."},
+            "count": {"type": "integer", "default": _STRUCTURE_COUNT_DEFAULT, "description": "Number to insert."},
+            "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["structure_type", "start"],
     }

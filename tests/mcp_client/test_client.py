@@ -16,8 +16,18 @@ from unittest.mock import patch
 import pytest
 
 from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.tool import prepare_tool_call
 from plugin.mcp_client import client as mcp_client
-from plugin.mcp_client.client import MCP_SUB_AGENT_HINT, UNTRUSTED_NOTE, McpClientError, McpServerConnection, mcp_domain_tools, render_call_result
+from plugin.mcp_client.client import (
+    MCP_SUB_AGENT_HINT,
+    UNTRUSTED_NOTE,
+    McpClientError,
+    McpServerConnection,
+    RemoteMcpTool,
+    convert_mcp_schema,
+    mcp_domain_tools,
+    render_call_result,
+)
 from plugin.mcp_client.client_helpers import format_approval_arguments
 
 TOKEN = "test-token"
@@ -899,7 +909,6 @@ def test_mcp_domain_offered_only_with_a_server():
     from unittest.mock import MagicMock
 
     from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.doc.specialized_catalog import get_specialized_delegation_tool_hint
     from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_tool_filters
 
@@ -907,19 +916,21 @@ def test_mcp_domain_offered_only_with_a_server():
     reg.register(DelegateToSubagent())
     register_writeragent_tool_filters(reg)
 
-    def _delegate_enum(schemas: list[dict[str, Any]]) -> list[str]:
+    def _delegate_fn(schemas: list[dict[str, Any]]) -> dict[str, Any]:
         for s in schemas:
             if s.get("function", {}).get("name") == "delegate_to_subagent":
-                return list(s["function"]["parameters"]["properties"]["domain"]["enum"])
+                return s["function"]
         raise AssertionError("delegate_to_subagent schema missing")
 
     with _with_servers({}):
-        assert "mcp" not in _delegate_enum(reg.get_schemas("openai", doc_type="writer", ctx=object()))
-        assert "mcp:" not in get_specialized_delegation_tool_hint("Writer", ctx=object())
+        fn = _delegate_fn(reg.get_schemas("openai", doc_type="writer", ctx=object()))
+        assert "mcp" not in fn["parameters"]["properties"]["domain"]["enum"]
+        assert "mcp: " not in fn["description"]
 
     with _with_servers({"claw": {"url": "http://127.0.0.1:9/mcp"}}):
-        assert "mcp" in _delegate_enum(reg.get_schemas("openai", doc_type="writer", ctx=object()))
-        assert "mcp:" in get_specialized_delegation_tool_hint("Writer", ctx=object())
+        fn = _delegate_fn(reg.get_schemas("openai", doc_type="writer", ctx=object()))
+        assert "mcp" in fn["parameters"]["properties"]["domain"]["enum"]
+        assert "mcp: " in fn["description"]
 
 
 def test_delegate_to_subagent_runs_the_mcp_domain(fake):
@@ -1518,3 +1529,19 @@ def test_headers_strip_whitespace_from_values(fake):
     headers = conn._headers()
     assert headers["X-Custom"] == "val"
     assert headers["X-Auth-Token"] == "secret"
+
+
+def test_remote_tool_call_does_not_fill_remote_defaults():
+    spec = {
+        "name": "list",
+        "description": "d",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "default": 10}},
+        },
+    }
+    schema = convert_mcp_schema("srv", spec)
+    tool = RemoteMcpTool({"name": "srv", "url": "http://localhost"}, spec, schema)
+    prepared = prepare_tool_call(tool, SimpleNamespace(doc_type=None, caller=None), tool.name or "", {})
+    assert prepared.error is None
+    assert prepared.kwargs == {}

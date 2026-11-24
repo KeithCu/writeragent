@@ -1324,17 +1324,19 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
 
 def test_error_or_rollback_omits_math_objects(monkeypatch):
     """When an edit fails or rolls back, attempted math objects must not be published."""
+    from plugin.framework.errors import ToolExecutionError
+    import plugin.writer.apply_document_content as apply_content_mod
+
     entry = {"kind": "tex", "display_block": False, "snippet": "x^2", "ok": True}
 
     def fake_replace_full_document(doc, ctx, content):
         return html_import_styles.WriteReport(math=[entry])
 
+    def fail_table_insert(doc, before):
+        raise ToolExecutionError("table insertion failed", code="TABLE_INSERT_FAILED")
+
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
-    monkeypatch.setattr(
-        ApplyDocumentContent,
-        "_table_insert_error",
-        lambda self, doc, has_table, before: {"status": "error", "message": "table insertion failed"},
-    )
+    monkeypatch.setattr(apply_content_mod, "_verify_table_insert", fail_table_insert)
     res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(x^2\)</p>", target="full_document")
 
     assert res["status"] == "error"

@@ -36,6 +36,7 @@ def test_frame_get_info_anchor_type_uses_enum_name():
     frames.getByName.return_value = frame
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
+    doc.getDrawPage.return_value.getCount.return_value = 0
     ctx = MagicMock()
     ctx.doc = doc
     res = FrameGetInfo().execute(ctx, name="Box")
@@ -86,6 +87,7 @@ def _ctx_for_frame(frame: Any) -> MagicMock:
     frames.getByName.return_value = frame
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
+    doc.getDrawPage.return_value.getCount.return_value = 0
     um = MagicMock()
     um.isLocked.return_value = False
     doc.getUndoManager.return_value = um
@@ -194,6 +196,7 @@ def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
     doc.getText.return_value = body_text
+    doc.getDrawPage.return_value.getCount.return_value = 0
 
     ctx = MagicMock()
     ctx.doc = doc
@@ -230,6 +233,7 @@ def test_frame_get_info_body_anchor(monkeypatch):
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
     doc.getText.return_value = same_text
+    doc.getDrawPage.return_value.getCount.return_value = 0
 
     ctx = MagicMock()
     ctx.doc = doc
@@ -275,12 +279,22 @@ def test_frame_insert_default_size_and_undo_path():
         mutate()
         return None
 
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(
+        FrameInsert(),
+        SimpleNamespace(doc_type="writer", caller="test"),
+        "frame_insert",
+        {"target": "beginning", "text": "hello", "name": "MyFrame"},
+    )
+    assert prep.error is None
+
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
         patch("plugin.writer.specialized.textframes.mm_to_unit", side_effect=lambda mm: int(mm * 100)),
     ):
-        res = FrameInsert().execute(ctx, target="beginning", text="hello", name="MyFrame")
+        res = FrameInsert().execute(ctx, **prep.kwargs)
 
     assert res["status"] == "ok"
     doc.createInstance.assert_called_with("com.sun.star.text.TextFrame")
@@ -324,9 +338,9 @@ def test_frame_insert_invalid_width_and_anchor():
 
     ctx = MagicMock(doc=MagicMock())
     tool = FrameInsert()
-    bad_w = tool.execute(ctx, width_mm=0)
+    bad_w = tool.execute(ctx, width_mm=0, height_mm=30.0, anchor_type=0)
     assert bad_w["code"] == "INVALID_PARAM"
-    bad_a = tool.execute(ctx, anchor_type=5)
+    bad_a = tool.execute(ctx, width_mm=80.0, height_mm=30.0, anchor_type=5)
     assert bad_a["code"] == "INVALID_PARAM"
 
 
@@ -343,6 +357,7 @@ def test_frame_delete_remove_text_content():
     frames.getByName.return_value = frame
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
+    doc.getDrawPage.return_value.getCount.return_value = 0
     um = MagicMock()
     um.isLocked.return_value = False
     doc.getUndoManager.return_value = um
@@ -371,3 +386,74 @@ def test_frame_delete_unknown_hints_frame_list():
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert res["details"]["available"] == []
     assert "frame_list" in res["details"]["hint"].lower()
+
+
+def _make_text_box_doc():
+    plain_frame = MagicMock()
+    plain_frame.getPropertyValue.return_value = SimpleNamespace(Width=2000, Height=1000)
+    box_frame = MagicMock()
+    box_frame.getPropertyValue.return_value = SimpleNamespace(Width=3000, Height=1500)
+
+    frames_map = {"Plain": plain_frame, "Frame1": box_frame}
+    frames = MagicMock()
+    frames.getElementNames.return_value = ["Plain"]
+    frames.hasByName.side_effect = lambda name: name in frames_map
+    frames.getByName.side_effect = lambda name: frames_map[name]
+
+    frame_shape = MagicMock()
+    frame_shape.getPropertyValue.side_effect = Exception("UnknownPropertyException")
+
+    box_content = MagicMock()
+    box_content.getName.return_value = "Frame1"
+    box_shape = MagicMock()
+    box_shape.getName.return_value = "Text Box 2"
+    box_shape.getPropertyValue.side_effect = lambda prop: (
+        True if prop == "TextBox" else box_content if prop == "TextBoxContent" else None
+    )
+
+    draw_page = MagicMock()
+    shapes = [frame_shape, box_shape]
+    draw_page.getCount.return_value = len(shapes)
+    draw_page.getByIndex.side_effect = lambda idx: shapes[idx]
+
+    doc = MagicMock()
+    doc.getTextFrames.return_value = frames
+    doc.getDrawPage.return_value = draw_page
+    return doc, plain_frame, box_frame, box_shape, draw_page
+
+
+def test_frame_list_includes_word_text_boxes(monkeypatch):
+    from plugin.writer.specialized.textframes import FrameList
+
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, limit=None: "text")
+    doc, _plain, _box, _box_shape, _dp = _make_text_box_doc()
+    ctx = MagicMock(doc=doc)
+
+    res = FrameList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 2
+    assert res["frames"][0]["name"] == "Plain"
+    assert "shape_index" not in res["frames"][0]
+    assert res["frames"][1]["name"] == "Frame1"
+    assert res["frames"][1]["shape_index"] == 1
+    assert res["frames"][1]["shape_name"] == "Text Box 2"
+
+
+def test_frame_delete_text_box_removes_owning_shape():
+    from plugin.writer.specialized.textframes import FrameDelete
+
+    doc, _plain, box_frame, box_shape, draw_page = _make_text_box_doc()
+    host = MagicMock()
+    box_frame.getAnchor.return_value.getText.return_value = host
+    ctx = MagicMock(doc=doc)
+
+    def _commit(_tool, _doc, _title, mutate, *_a, **_k):
+        mutate()
+        return None
+
+    with patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit):
+        res = FrameDelete().execute(ctx, name="Frame1")
+
+    assert res["status"] == "ok"
+    draw_page.remove.assert_called_once_with(box_shape)
+    host.removeTextContent.assert_not_called()

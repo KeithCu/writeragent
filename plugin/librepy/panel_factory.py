@@ -37,6 +37,7 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 from plugin.framework.logging import init_logging
+from plugin.framework.menu_icon_dpi import apply_deck_icons
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 
@@ -135,6 +136,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                     if self.toolpanel is not None:
                         return
                     _ensure_paths(self.ctx)
+                    apply_deck_icons(self.ctx)
                     root_window = self._getOrCreatePanelRootWindow()
                     panel = PythonToolPanel(root_window, self.xParentWindow)
                     from plugin.librepy.python_sidebar import PythonSidebarController

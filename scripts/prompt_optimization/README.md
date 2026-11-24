@@ -46,7 +46,7 @@ Endpoint:
 
 - `--api-base` / `WRITERAGENT_API_BASE`, `OPENAI_API_BASE` — default `https://openrouter.ai/api/v1`
 
-`EVAL_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
+`EVAL_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. `EVAL_GEMINI_API_KEY` (or `GEMINI_API_KEY`) routes Gemini-shaped ids on an OpenRouter base to `https://generativelanguage.googleapis.com/v1beta/openai`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
 
 Judge model (`run_eval_multi.py`):
 
@@ -248,7 +248,7 @@ For each model, `run_eval_multi.py` reports **hard pass %**, **agent score**, **
 
 Use `--out path.json` or `--out path.csv` to write results (format by extension). **Transcripts are always saved:** every `run_eval.py` / `run_eval_multi.py` run writes `scripts/prompt_optimization/transcripts/<run-timestamp>/<model>/<task_id>.json` (gitignored) for every task, pass or fail — full message list (system, user, each assistant message with tool calls, each tool result), per-round response extras (`reasoning`, `finish_reason` when the provider returns them), the tool `trace`, `usage`, `error` and `final_document`. The path is printed at startup. Details files include missing/reject/oracle/process failures and `judge_error`. Results are written after each model completes so partial data is saved if the run is interrupted.
 
-To merge a selective model run back into the master dataset without overwriting existing data (and retire older superseded generations like Mercury 2 in favor of Mercury 2.5):
+To merge a selective model run back into the master dataset without overwriting existing data (and retire older superseded generations, e.g. Mercury 2.5 Preview in favor of Mercury 3):
 
 ```bash
 python merge_benchmark_results.py \
@@ -276,11 +276,11 @@ Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`au
 
 Org_chart_gen matrix splice on #941 tip (after 2026-09-27 complete 26×18 flag-18 board), then **2026-09-28 hand-scored gallery overrides** ([docs/eval/org-chart-hand-scores-2026-09-28.md](../../docs/eval/org-chart-hand-scores-2026-09-28.md)). Catalog unchanged: GPT-6 Luna, Command A+, Ternary Bonsai 2 aboard; no 5.6 Luna / ds-v4-flash-0731; MiMos omitted. **Org-chart hard PASS (visual): 5/26** — Muse Spark, Qwen 3.8 Flash, Qwen 3.8 27B, GLM 5.3 Flash, GPT-6 Luna. Soft/borderline and other former oracle PASSes flipped to 0; catalog FAILs (incl. Ternary Bonsai hang) unchanged.
 
-Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 34/34** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (visual org HARD PASS), `anthropic/claude-opus-5.5` (clean flag after the shape-text crash fix; visual org HARD PASS), and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Haiku 5.5 and Muse Ember are visual org PARTIAL (0.9 correctness, org hard=0); LFM 3 1.7B is a visual org HARD FAIL. Grades: [2026-11-11 hand scores](../../docs/eval/org-chart-hand-scores-2026-11-11.md). Board is now 34 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11).
+Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 37/37** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (visual org HARD PASS), `anthropic/claude-opus-5.5` (clean flag after the shape-text crash fix; visual org HARD PASS), and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Haiku 5.5 and Muse Ember are visual org PARTIAL (0.9 correctness, org hard=0); LFM 3 1.7B is a visual org HARD FAIL. Grades: [2026-11-11 hand scores](../../docs/eval/org-chart-hand-scores-2026-11-11.md). Board is now 37 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11; Gemini 4 Neon, Gemini 4 Hydrogen and Inkling 2 Mini added 2026-11-22, with Mercury 3 replacing Mercury 2.5 Preview in the JSON). The 2026-11-22 Neon and Hydrogen org-chart PASSes are code-oracle only (not hand-graded yet).
 
-Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
+Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts-2026-11-22.svg`](../../docs/eval/pareto-fronts-2026-11-22.svg), [`docs/eval/pareto-distance-2026-11-22.svg`](../../docs/eval/pareto-distance-2026-11-22.svg). File names carry the refresh date so cached copies are not reused; `plot_pareto.py` writes today's date by default (`--date YYYY-MM-DD` to override), so delete the old pair and update these links when you regenerate.
 
-Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`.
+Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts-2026-11-22.svg`](../../docs/eval/pareto-fronts-2026-11-22.svg) (successive fronts) and [`docs/eval/pareto-distance-2026-11-22.svg`](../../docs/eval/pareto-distance-2026-11-22.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`.
 
 Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness. **n** is **19** for every catalog model (flag + org chart spliced).
 
@@ -288,37 +288,40 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
 | 1 | anthropic/claude-sonnet-5.5 | 1.000 | 1.000 | 0.994 | 0.98 | 47918 | 0.10723 | 2.6 | 0 |
 | 2 | anthropic/claude-opus-5.5 | 1.000 | 1.000 | 0.993 | 0.97 | 60171 | 0.28569 | 1.1 | 0 |
-| 3 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
-| 4 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01060 | 35.5 | 0 |
-| 5 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
-| 6 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
-| 7 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
-| 8 | meta/muse-ember | 0.842 | 0.889 | 0.922 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
-| 9 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
-| 10 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
-| 11 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.04401 | 9.5 | 1 |
-| 12 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
-| 13 | google/gemma-4-31b-it | 0.842 | 0.842 | 0.861 | 0.90 | 17594 | 0.00224 | 236.2 | 0 |
-| 14 | bytedance-seed/seed-2.0-mini | 0.842 | 0.842 | 0.861 | 0.90 | 28592 | 0.00415 | 93.3 | 0 |
-| 15 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
-| 16 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
-| 17 | inception/mercury-2.5-preview | 0.789 | 0.789 | 0.817 | 0.95 | 36864 | 0.01198 | 22.1 | 0 |
-| 18 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
-| 19 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
-| 20 | anthropic/claude-haiku-5.5 | 0.737 | 0.784 | 0.807 | 0.92 | 48851 | 0.00588 | 31.7 | 0 |
-| 21 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
-| 22 | minimax/minimax-m3 | 0.737 | 0.737 | 0.780 | 0.94 | 126882 | 0.05519 | 5.1 | 1 |
-| 23 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
-| 24 | upstage/solar-pro4 | 0.737 | 0.737 | 0.716 | 0.90 | 33501 | 0.00146 | 178.0 | 0 |
-| 25 | poolside/laguna-s-2.1 | 0.684 | 0.684 | 0.732 | 0.90 | 32409 | 0.00335 | 80.8 | 2 |
-| 26 | google/gemma-4-26b-a4b-it | 0.684 | 0.684 | 0.701 | 0.89 | 20530 | 0.00227 | 125.9 | 0 |
-| 27 | nvidia/nemotron-3-super-120b-a12b | 0.632 | 0.684 | 0.854 | 0.91 | 143994 | 0.01904 | 10.7 | 4 |
-| 28 | google/gemini-3.5-flash-lite | 0.632 | 0.632 | 0.708 | 0.93 | 16160 | 0.01018 | 34.4 | 0 |
-| 29 | cohere/command-a-plus | 0.579 | 0.579 | 0.641 | 0.94 | 66553 | 0.03195 | 4.8 | 6 |
-| 30 | liquid/lfm-2.5-24b-a2b | 0.579 | 0.579 | 0.589 | 0.89 | 33185 | 0.00422 | 35.5 | 1 |
-| 31 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
-| 32 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 | 9 |
-| 33 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
-| 34 | liquid/lfm-3-1.7b | 0.316 | 0.316 | 0.401 | — | 180041 | 0.01805 | 1.4 | 6 |
+| 3 | google/gemini-4-neon | 1.000 | 1.000 | 0.987 | 0.95 | 53404 | 0.16092 | 1.9 | 0 |
+| 4 | google/gemini-4-hydrogen | 1.000 | 1.000 | 0.985 | 0.94 | 45580 | 0.06967 | 4.3 | 0 |
+| 5 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
+| 6 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01104 | 34.1 | 0 |
+| 7 | deepseek/deepseek-v4.1-flash | 0.947 | 0.947 | 0.921 | 0.93 | 139971 | 0.01025 | 36.4 | 0 |
+| 8 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
+| 9 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
+| 10 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
+| 11 | qwen/qwen3.8-27b | 0.895 | 0.895 | 0.917 | 0.92 | 120710 | 0.08978 | 3.8 | 0 |
+| 12 | inception/mercury-3 | 0.895 | 0.895 | 0.906 | 0.89 | 43867 | 0.00603 | 52.4 | 0 |
+| 13 | meta/muse-ember | 0.842 | 0.889 | 0.922 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
+| 14 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.05386 | 7.7 | 1 |
+| 15 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
+| 16 | qwen/qwen3.8-flash | 0.842 | 0.842 | 0.865 | 0.89 | 56566 | 0.01120 | 19.3 | 0 |
+| 17 | google/gemma-4-31b-it | 0.842 | 0.842 | 0.861 | 0.90 | 17594 | 0.00224 | 236.2 | 0 |
+| 18 | bytedance-seed/seed-2.0-mini | 0.842 | 0.842 | 0.861 | 0.90 | 28592 | 0.00415 | 93.3 | 0 |
+| 19 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
+| 20 | prism-ml/ternary-bonsai-2-27b | 0.842 | 0.842 | 0.843 | 0.93 | 39831 | 0.00553 | 46.9 | 2 |
+| 21 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
+| 22 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.840 | 0.74 | 161718 | 0.16172 | 1.4 | 1 |
+| 23 | poolside/laguna-s-2.1 | 0.789 | 0.789 | 0.777 | 0.92 | 33308 | 0.00345 | 87.5 | 0 |
+| 24 | thinkingmachines/inkling-2-mini | 0.789 | 0.789 | 0.774 | 0.94 | 301058 | 0.02539 | 5.8 | 1 |
+| 25 | minimax/minimax-m3 | 0.789 | 0.789 | 0.738 | 0.57 | 127380 | 0.05541 | 4.3 | 0 |
+| 26 | nvidia/nemotron-3-super-120b-a12b | 0.737 | 0.789 | 0.861 | 0.91 | 119112 | 0.01575 | 15.4 | 1 |
+| 27 | anthropic/claude-haiku-5.5 | 0.737 | 0.784 | 0.807 | 0.92 | 48851 | 0.00588 | 31.7 | 0 |
+| 28 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
+| 29 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.757 | 0.93 | 69218 | 0.00744 | 20.4 | 0 |
+| 30 | upstage/solar-pro4 | 0.737 | 0.737 | 0.716 | 0.90 | 33501 | 0.00146 | 178.0 | 0 |
+| 31 | google/gemma-4-26b-a4b-it | 0.684 | 0.684 | 0.701 | 0.89 | 20530 | 0.00227 | 125.9 | 0 |
+| 32 | google/gemini-3.5-flash-lite | 0.632 | 0.632 | 0.708 | 0.93 | 16160 | 0.01018 | 34.4 | 0 |
+| 33 | cohere/command-a-plus | 0.632 | 0.632 | 0.694 | 0.94 | 59928 | 0.02877 | 6.3 | 4 |
+| 34 | liquid/lfm-2.5-24b-a2b | 0.579 | 0.579 | 0.589 | 0.89 | 33805 | 0.00499 | 30.0 | 0 |
+| 35 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
+| 36 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
+| 37 | liquid/lfm-3-1.7b | 0.316 | 0.316 | 0.401 | — | 180041 | 0.01805 | 1.4 | 6 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).

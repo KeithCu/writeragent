@@ -97,6 +97,19 @@ def test_get_sheet_summary_keeps_normal_names():
     analyzer_cls.return_value.get_sheet_summary.assert_called_once_with(sheet_name="Sheet1")
 
 
+def test_get_sheet_summary_rejects_active_internal_sheet_with_invalid_param():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.sheets.CalcBridge"),
+        patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
+    ):
+        analyzer_cls.return_value.get_sheet_summary.return_value = {"sheet_name": "__Anonymous_Sheet_DB__0"}
+        result = _tool("get_sheet_summary").execute_safe(ctx)
+
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
+
+
 def test_create_sheet_inserts_at_end_and_reports_not_populated():
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
@@ -136,7 +149,7 @@ def _make_doc_with_sheets():
         ("sheet_switch", {"sheet": "NoSuchSheet"}, True),
         ("sheet_rename", {"old_name": "NoSuchSheet", "new_name": "NewName"}, False),
         ("sheet_delete", {"sheet": "NoSuchSheet"}, False),
-        ("sheet_protect", {"sheet": "NoSuchSheet"}, False),
+        ("sheet_protect", {"sheet": "NoSuchSheet", "protect": True}, False),
     ],
 )
 def test_sheet_tool_missing_name_returns_uno_object_error(tool_name, kwargs, check_hint):

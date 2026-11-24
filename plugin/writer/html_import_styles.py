@@ -649,6 +649,8 @@ class WriteReport:
     still explains the data-lo-para skip but names no style. ``math`` is one entry per
     formula conversion attempt. ``snapped_to_paragraph`` is True when a collapsed-caret
     insert moved to after the caret's paragraph because the content was block-level.
+    ``added_content`` is internal (not reported): False when the import added nothing
+    (e.g. ``<p></p>``), so ``_insert_into_emptied_range`` keeps the emptied paragraph.
     all_matches merges one report per match with ``extend``.
     """
 
@@ -657,6 +659,7 @@ class WriteReport:
     style_tokens: list[str] = field(default_factory=list)
     math: list[dict[str, Any]] = field(default_factory=list)
     snapped_to_paragraph: bool = False
+    added_content: bool = True
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
