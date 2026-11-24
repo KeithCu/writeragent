@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import queue
+import subprocess
 import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,17 @@ from plugin.chatbot.web_research_firefox import (
     begin_firefox_bidi,
     close_firefox_bidi,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home_and_forbid_kill(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(
+        wrf,
+        "_terminate_pid",
+        lambda pid: pytest.fail(f"Unexpected _terminate_pid({pid}) in test"),
+    )
 
 
 class _FakeWebSocket:
@@ -149,7 +161,7 @@ def test_connection_drop_fails_pending_and_future_calls():
             client.call("browsingContext.create", {})
         assert client.closed is True
         sent_before = len(ws.sent)
-        with pytest.raises(RuntimeError, match="Firefox BiDi connection closed"):
+        with pytest.raises(RuntimeError, match="Firefox BiDi connection closed: "):
             client.call("browsingContext.create", {})
         assert len(ws.sent) == sent_before
     finally:
@@ -219,6 +231,8 @@ def test_begin_launches_firefox_without_chromium_flags_and_reuses_the_client(tmp
             assert mock_connect.call_count == 2
             mock_spawn.assert_called_once()
             cmd = mock_spawn.call_args.args[0]
+            assert "--no-remote" in cmd
+            assert "--new-instance" in cmd
             assert f"--remote-debugging-port={FIREFOX_BIDI_PORT}" in cmd
             assert "--profile" in cmd
             assert "--no-first-run" not in cmd
@@ -282,6 +296,8 @@ def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monk
             patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
         ):
+            mock_spawn.return_value.pid = 12345
+            mock_spawn.return_value.popen.poll.return_value = None
             client1 = begin_firefox_bidi()
             ws1.incoming.put(ConnectionClosedError(None, None))
             assert ws1.close_event.wait(2.0)
@@ -294,8 +310,7 @@ def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monk
         close_firefox_bidi()
 
 
-def test_begin_raises_on_6s_deadline(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_begin_raises_on_15s_deadline(tmp_path, monkeypatch):
     clock = {"now": 100.0}
 
     def fake_time():
@@ -313,9 +328,159 @@ def test_begin_raises_on_6s_deadline(tmp_path, monkeypatch):
             patch("plugin.chatbot.web_research_firefox.time.time", side_effect=fake_time),
             patch("plugin.chatbot.web_research_firefox.time.sleep", side_effect=fake_sleep),
         ):
-            with pytest.raises(RuntimeError, match="after 6 seconds"):
+            mock_spawn.return_value.pid = 11111
+            mock_spawn.return_value.popen.poll.return_value = None
+            with pytest.raises(RuntimeError, match=f"after {int(wrf.FIREFOX_LAUNCH_TIMEOUT_SEC)} seconds"):
                 begin_firefox_bidi()
             mock_spawn.assert_called_once()
+    finally:
+        close_firefox_bidi()
+
+
+def test_begin_stops_early_on_nonzero_exit():
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", side_effect=ConnectionRefusedError("refused")),
+            patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            mock_spawn.return_value.pid = 11111
+            mock_spawn.return_value.popen.poll.return_value = 1
+            with pytest.raises(RuntimeError, match="Firefox exited during startup \\(code 1\\)"):
+                begin_firefox_bidi()
+            mock_spawn.assert_called_once()
+    finally:
+        close_firefox_bidi()
+
+
+def test_pid_is_alive_win32_timeout_fails_closed(monkeypatch):
+    monkeypatch.setattr(wrf.sys, "platform", "win32")
+    with patch.object(wrf.ManagedSubprocess, "run", side_effect=subprocess.TimeoutExpired(["tasklist"], 3.0)):
+        assert wrf._pid_is_alive(1234) is True
+
+
+def test_finish_does_not_remove_pidfile_owned_by_another_process(tmp_path):
+    from plugin.chatbot import web_research as wr
+
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+    pidfile = profile_dir / wrf._PIDFILE_NAME
+    pidfile.write_text("98765\n999999\n", encoding="utf-8")
+
+    wr._browser_refcount.reset_for_tests()
+    try:
+        wr._browser_refcount.run_enter()
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser"):
+            wr._browser_refcount.finish()
+        assert pidfile.exists()
+    finally:
+        wr._browser_refcount.reset_for_tests()
+
+
+def test_cmdline_args_matches_exact_profile_and_port():
+    profile_dir = "/tmp/writeragent/firefox_profile"
+    port_flag = f"--remote-debugging-port={wrf.FIREFOX_BIDI_PORT}"
+    assert wrf._cmdline_args_matches(["firefox", "--profile", profile_dir, port_flag], profile_dir) is True
+    assert wrf._cmdline_args_matches(["firefox", "--profile", f"{profile_dir}_backup", port_flag], profile_dir) is False
+    assert wrf._cmdline_args_matches(["firefox", "--profile", profile_dir], profile_dir) is False
+
+
+def test_begin_kills_owned_orphan_and_respawns(tmp_path):
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+    pidfile = profile_dir / wrf._PIDFILE_NAME
+    pidfile.write_text("98765\n55555\n", encoding="utf-8")
+
+    def on_send_refuse(msg, ws):
+        ws.push_json({"type": "error", "id": msg["id"], "error": "session not created", "message": "Maximum number of active sessions"})
+
+    def on_send_ok(msg, ws):
+        ws.push_json({"type": "success", "id": msg["id"], "result": {}})
+
+    ws_refuse = _FakeWebSocket(on_send=on_send_refuse)
+    ws_ok = _FakeWebSocket(on_send=on_send_ok)
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", side_effect=[ws_refuse, ws_ok]),
+            patch("plugin.chatbot.web_research_firefox._pid_is_alive", side_effect=lambda p: p != 55555),
+            patch("plugin.chatbot.web_research_firefox._cmdline_matches_firefox_profile", return_value=True),
+            patch("plugin.chatbot.web_research_firefox._terminate_pid") as mock_kill,
+            patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+            patch("plugin.chatbot.web_research_firefox.time.sleep"),
+        ):
+            mock_spawn.return_value.pid = 22222
+            mock_spawn.return_value.is_alive.return_value = True
+            client = begin_firefox_bidi()
+            assert client is wrf._CLIENT
+            mock_kill.assert_called_once_with(98765)
+            mock_spawn.assert_called_once()
+            lines = pidfile.read_text(encoding="utf-8").splitlines()
+            assert lines[0] == "22222"
+    finally:
+        close_firefox_bidi()
+
+
+def test_begin_does_not_kill_when_owner_is_alive(tmp_path):
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+    pidfile = profile_dir / wrf._PIDFILE_NAME
+    pidfile.write_text("98765\n55555\n", encoding="utf-8")
+
+    def on_send_refuse(msg, ws):
+        ws.push_json({"type": "error", "id": msg["id"], "error": "session not created", "message": "Maximum number of active sessions"})
+
+    ws_refuse = _FakeWebSocket(on_send=on_send_refuse)
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", return_value=ws_refuse),
+            patch("plugin.chatbot.web_research_firefox._pid_is_alive", return_value=True),
+            patch("plugin.chatbot.web_research_firefox._cmdline_matches_firefox_profile", return_value=True),
+            patch("plugin.chatbot.web_research_firefox._terminate_pid") as mock_kill,
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            with pytest.raises(RuntimeError, match="refused a new WebDriver BiDi session"):
+                begin_firefox_bidi()
+            mock_kill.assert_not_called()
+            mock_spawn.assert_not_called()
+    finally:
+        close_firefox_bidi()
+
+
+def test_cmdline_string_matches_rejects_prefix_and_handles_spaces():
+    profile_dir = r"C:\Users\John Smith\.config\writeragent\firefox_profile"
+    port_flag = f"--remote-debugging-port={wrf.FIREFOX_BIDI_PORT}"
+    assert wrf._cmdline_string_matches(f'firefox.exe --profile "{profile_dir}" {port_flag}', profile_dir) is True
+    assert wrf._cmdline_string_matches(f'firefox.exe --profile "{profile_dir}_backup" {port_flag}', profile_dir) is False
+    assert wrf._cmdline_string_matches(f'firefox.exe --profile "{profile_dir}"', profile_dir) is False
+
+
+def test_begin_does_not_kill_external_firefox_when_cmdline_lacks_profile(tmp_path):
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+    pidfile = profile_dir / wrf._PIDFILE_NAME
+    pidfile.write_text("98765\n55555\n", encoding="utf-8")
+
+    def on_send_refuse(msg, ws):
+        ws.push_json({"type": "error", "id": msg["id"], "error": "session not created", "message": "Maximum number of active sessions"})
+
+    ws_refuse = _FakeWebSocket(on_send=on_send_refuse)
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", return_value=ws_refuse),
+            patch("plugin.chatbot.web_research_firefox._pid_is_alive", return_value=False),
+            patch("plugin.chatbot.web_research_firefox._cmdline_matches_firefox_profile", return_value=False),
+            patch("plugin.chatbot.web_research_firefox._terminate_pid") as mock_kill,
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            with pytest.raises(RuntimeError, match="refused a new WebDriver BiDi session"):
+                begin_firefox_bidi()
+            mock_kill.assert_not_called()
+            mock_spawn.assert_not_called()
     finally:
         close_firefox_bidi()
 

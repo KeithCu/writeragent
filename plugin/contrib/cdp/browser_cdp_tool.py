@@ -23,6 +23,7 @@ import asyncio
 import os
 import json
 import logging
+import shutil
 from typing import Any, Dict, Optional
 
 import sys
@@ -92,7 +93,7 @@ def cleanup_local_browser() -> None:
     if managed is None:
         return
     _LOCAL_BROWSER = None
-    logger.info("Terminating local browser process...")
+    logger.info("Terminating local %s process...", managed.label)
     try:
         managed.kill_tree()
         managed.abandon()
@@ -143,40 +144,75 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str, tuple[str, ...]]] = {
 }
 
 
+def _win32_app_path(exe_name: str) -> str | None:
+    """Look up an executable in Windows Registry App Paths (HKCU then HKLM)."""
+    if sys.platform != "win32":
+        return None
+    import winreg  # Windows-only stdlib module.
+
+    subkey = rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}"
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                val, _idx = winreg.QueryValueEx(key, None)
+                if isinstance(val, str) and val and os.path.exists(val):
+                    return val
+        except OSError:
+            continue
+    return None
+
+
 def find_browser_executable(
     candidates: list[str],
     default: str,
     win32_paths: tuple[str, ...] = (),
+    win32_app_name: str = "",
 ) -> str:
     """Return the first existing absolute path or PATH binary from candidates."""
     search = list(candidates)
-    if win32_paths and sys.platform == "win32":
-        search.extend(os.path.expandvars(p) for p in win32_paths)
+    if sys.platform == "win32":
+        if win32_paths:
+            search.extend(os.path.expandvars(p) for p in win32_paths)
+        if win32_app_name:
+            reg_path = _win32_app_path(win32_app_name)
+            if reg_path:
+                search.append(reg_path)
     for name in search:
         try:
             if os.path.isabs(name):
                 if os.path.exists(name):
                     return name
                 continue
-            subprocess.run(["which", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            return name
+            found = shutil.which(name)
+            if found:
+                return found
         except Exception:
             continue
     return default
 
 
-def browser_profile_dir(browser_type: str) -> str:
-    """Return and create the dedicated profile dir for a research browser."""
+def browser_profile_dir(browser_type: str, *, create: bool = True) -> str:
+    """Return (and optionally create) the dedicated profile dir for a research browser."""
     # The profile lives under the WriterAgent config dir so it survives LibreOffice profile resets.
     config_dir = os.path.expanduser("~/.config/writeragent")
     safe_name = "".join([c if c.isalnum() else "_" for c in browser_type])
     profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
-    os.makedirs(profile_dir, exist_ok=True)
+    if create:
+        os.makedirs(profile_dir, exist_ok=True)
     return profile_dir
 
 
-def spawn_local_browser(cmd: list[str], *, label: str) -> None:
-    """Launch a local browser process and register it for quit-time cleanup."""
+def _win32_minimized_startupinfo() -> Any:
+    # Windows-only: start Firefox minimized without activating so it does not steal focus.
+    # Linux and macOS have no portable non-headless equivalent (headless risks bot-blocking).
+    si = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+    si.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+    return si
+
+
+def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) -> ManagedSubprocess:
+    """Launch a local browser process, register it for quit-time cleanup, and return its handle."""
     global _LOCAL_BROWSER
     if _LOCAL_BROWSER is not None and _LOCAL_BROWSER.is_alive():
         raise RuntimeError("another local browser is already running for web research")
@@ -184,6 +220,8 @@ def spawn_local_browser(cmd: list[str], *, label: str) -> None:
     popen_kw: dict[str, Any] = {}
     if sys.platform != "win32":
         popen_kw["start_new_session"] = True
+    elif minimized:
+        popen_kw["startupinfo"] = _win32_minimized_startupinfo()
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -195,6 +233,7 @@ def spawn_local_browser(cmd: list[str], *, label: str) -> None:
         label=label,
         register=True,
     )
+    return _LOCAL_BROWSER
 
 
 def get_local_cdp_url(browser_type: str = "chrome") -> str:
@@ -233,7 +272,7 @@ def get_local_cdp_url(browser_type: str = "chrome") -> str:
     ]
 
     logger.info("Spawning local browser (%s): %s", browser_type, " ".join(cmd))
-    spawn_local_browser(cmd, label="cdp-browser")
+    spawn_local_browser(cmd, label=browser_type)
     
     # Wait for browser to listen on port 9222
     deadline = time.time() + 6.0
