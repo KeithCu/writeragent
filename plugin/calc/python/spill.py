@@ -12,6 +12,7 @@ import datetime
 import json
 import logging
 import math
+import re
 from typing import Any
 
 from plugin.calc.address_utils import format_address, format_range, qualify_a1
@@ -67,12 +68,27 @@ class SpillRecord:
         return [(cell.row, cell.col) for cell in self.cells]
 
 
+# LibreOffice reads =#ERR503! back as =#NUM!, and a void cell as #N/A.
+# Checking getError() alone would clear a user formula such as =1/0 (also 532).
+_ERROR_LITERAL_RE = re.compile(r"=?#[A-Z0-9/]+[!?]?")
+
+
+def _cell_is_formula(cell: Any) -> bool:
+    """True if cell contains a formula (getType() == 3 or starts with '=')."""
+    return bool(
+        uno_read(
+            lambda: cell.getType() == 3 or str(cell.getFormula() or "").startswith("="),
+            False,
+        )
+    )
+
+
 def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCell) -> bool:
     """Check if the cell at (col, row) matches the stored SpillCell value."""
     try:
         cell = sheet.getCellByPosition(col, row)
         if cell_rec.kind == "e":
-            return cell.getType() == 0 or cell.getString() == ""
+            return not _cell_is_formula(cell) and (cell.getType() == 0 or cell.getString() == "")
         if cell_rec.kind == "n":
             kind_type = cell.getType()
             if kind_type != 1 and getattr(kind_type, "value", None) != "VALUE":
@@ -87,20 +103,14 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
                 return False
             return cell.getString() == (cell_rec.value or "")
         if cell_rec.kind == "err":
-            return cell_rec.value is not None and int(cell.getError()) == int(cell_rec.value)
+            return (
+                cell_rec.value is not None
+                and int(cell.getError()) == int(cell_rec.value)
+                and _ERROR_LITERAL_RE.fullmatch(str(cell.getFormula() or "")) is not None
+            )
     except Exception:
         return False
     return False
-
-
-def _cell_is_formula(cell: Any) -> bool:
-    """True if cell contains a formula (getType() == 3 or starts with '=')."""
-    return bool(
-        uno_read(
-            lambda: cell.getType() == 3 or str(cell.getFormula() or "").startswith("="),
-            False,
-        )
-    )
 
 
 def cleanup_orphans(
@@ -168,9 +178,8 @@ def cleanup_orphans(
                                 if (c.row, c.col) != (frow, fcol):
                                     try:
                                         spill_cell = sheet.getCellByPosition(c.col, c.row)
-                                        if not _cell_is_formula(spill_cell):
-                                            if _cell_matches_stored_value(sheet, c.row, c.col, c):
-                                                spill_cell.clearContents(SPILL_CLEAR_FLAGS)
+                                        if _cell_matches_stored_value(sheet, c.row, c.col, c):
+                                            spill_cell.clearContents(SPILL_CLEAR_FLAGS)
                                     except Exception:
                                         log.debug("cleanup_orphans: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
                     for old_k, new_k, new_rec in to_remap:
@@ -228,7 +237,7 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
             for c in record.cells:
                 item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
                 if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
-                    item["v"] = "nan" if math.isnan(c.value) else ("inf" if c.value > 0 else "-inf")
+                    item["v"] = "inf" if c.value > 0 else "-inf"
                 elif c.value is not None:
                     item["v"] = c.value
                 cells_data.append(item)
@@ -260,10 +269,23 @@ def _write_spill_values(sheet: Any, formula_row: int, formula_col: int, values: 
         remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
         remaining_range.setDataArray(tuple(tuple(v.calc_value for v in row) for row in values[1:]))
 
-    for r_offset, row in enumerate(values):
-        for c_offset, v in enumerate(row):
-            if (r_offset, c_offset) != (0, 0) and v.kind == "err" and v.error_code is not None and v.error_code != ERR_NA:
-                sheet.getCellByPosition(formula_col + c_offset, formula_row + r_offset).setFormula(f"=#ERR{v.error_code}!")
+    # Write error cells in coalesced blocks: per-cell setFormula took 7.2 s for 10,000 cells
+    # over the UNO bridge vs. 0.07 s for one setFormulaArray.
+    decisions: list[list[Any]] = [
+        [
+            ("apply", v.error_code)
+            if (r_offset, c_offset) != (0, 0) and v.kind == "err" and v.error_code is not None and v.error_code != ERR_NA
+            else None
+            for c_offset, v in enumerate(row)
+        ]
+        for r_offset, row in enumerate(values)
+    ]
+    for r0, r1, c0, c1, code in coalesce_temporal_apply_rects(decisions):
+        formula = f"=#ERR{code}!"
+        rows = r1 - r0 + 1
+        cols = c1 - c0 + 1
+        err_range = sheet.getCellRangeByPosition(formula_col + c0, formula_row + r0, formula_col + c1, formula_row + r1)
+        err_range.setFormulaArray(((formula,) * cols,) * rows)
 
 
 def _apply_spill_temporal_formats(

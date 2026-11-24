@@ -550,6 +550,11 @@ class CalcRangeStub:
                     else:
                         cell.setString(text)
 
+    def setFormulaArray(self, data):
+        for r_off, row in enumerate(data or ()):
+            for c_off, formula in enumerate(row):
+                self._sheet.getCellByPosition(self._start_col + c_off, self._start_row + r_off).setFormula(str(formula))
+
     def setPropertyValue(self, name, val):
         for r in range(self._start_row, self._end_row + 1):
             for c in range(self._start_col, self._end_col + 1):
