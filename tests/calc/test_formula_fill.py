@@ -75,7 +75,7 @@ def test_py_whole_column_datarange_is_verbatim():
     assert expand_single_formula(formula, 2, 1) == [formula, formula]
 
 
-def test_py_index_arg_is_ambiguous_verbatim():
+def test_py_numeric_arg_is_ambiguous_verbatim():
     formula = '=PY("result = data"; 1)'
     assert expand_single_formula(formula, 2, 1) == [formula, formula]
 

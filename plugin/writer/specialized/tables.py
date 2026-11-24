@@ -8,6 +8,7 @@ Writer: named text tables (table_list / getCellByName), plus Writer-only cell me
 (table_merge_cells / table_split_cell). Draw: TableShape on a page (page + shape index, or
 shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked changes).
 """
+import itertools
 import logging
 from typing import Any, Callable
 
@@ -17,6 +18,7 @@ from plugin.doc.text_helpers import (
     KeepViewSelection,
     TrackedDeletions,
     get_string_without_tracked_deletions,
+    iter_elements,
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
@@ -25,7 +27,7 @@ from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
-from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import cells_all_tracked_deleted, supports_service, writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
@@ -250,14 +252,7 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
         return False
     if after > before:
         return True
-    deletions = TrackedDeletions(doc)
-    has_raw = False
-    for cell in cells:
-        if uno_read(cell.getString, ""):
-            has_raw = True
-        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
-            return False
-    return has_raw
+    return cells_all_tracked_deleted(cells, doc)
 
 
 def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:
@@ -279,7 +274,14 @@ def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str)
     )
 
 
-def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
+def _delete_writer_table_tracked(
+    doc: Any,
+    uno_ctx: Any,
+    table: Any,
+    name: str,
+    *,
+    pending_insertion: bool = False,
+) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
     Removing a table with removeTextContent (or removing every row) while change
@@ -299,6 +301,10 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     each anchor with tracking on gives every row its Delete redline so
     accepting removes the whole table, while Reject keeps the anchor as
     LibreOffice's own Delete Table does.
+
+    When *pending_insertion* is true, LibreOffice takes the caller's own
+    pending text back outright and leaves an empty shell that belongs to the
+    same pending insertion; removing that shell finishes the deletion cleanly.
 
     Fails closed: if the caret cannot land, the redline scan is unreliable, or
     no deletion is recorded, this raises instead of reporting an unreviewable
@@ -351,6 +357,9 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     if _deletion_recorded(doc, before, cells):
         return
     if doc.getTextTables().hasByName(name):
+        if pending_insertion:
+            _remove_writer_table(doc, table, name, _not_nested())
+            return
         raise RuntimeError("the tracked delete did not run, so the table was left in place")
     raise RuntimeError("the table was removed but no tracked change was recorded")
 
@@ -409,6 +418,80 @@ def _band_cell_names(table: Any, axis: str, idx: int) -> list[str]:
         in_row.sort()
         return [name for _col, name in in_row]
     return _column_band_cells(table, positions, idx)
+
+
+def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
+    """Return leading *names* whose own creation is a pending Insert redline.
+
+    ``SwXRedline::getPropertyValue`` (``sw/source/core/unocore/unoredline.cxx``)
+    exposes ``RedlineStart`` as the table object (``SwNodeType::Table``) only
+    when the table itself was inserted; typed text inside an existing cell
+    starts in that cell instead.
+    """
+    if not names:
+        return set()
+    pos = {name: idx for idx, name in enumerate(names)}
+    pending: set[str] = set()
+
+    def _on_item(redline: Any) -> bool:
+        if uno_read(lambda: redline.getPropertyValue("RedlineType"), None) != "Insert":
+            return True
+        start = uno_read(lambda: redline.getPropertyValue("RedlineStart"), None)
+        if start is None or not uno_read(
+            lambda: supports_service(start, "com.sun.star.text.TextTable"), False
+        ):
+            return True
+        start_name = uno_read(start.getName, None)
+        if start_name not in pos:
+            return True
+        i = pos[start_name]
+        j = len(names)
+        end = uno_read(lambda: redline.getPropertyValue("RedlineEnd"), None)
+        if end is not None and uno_read(
+            lambda: supports_service(end, "com.sun.star.text.TextTable"), False
+        ):
+            end_name = uno_read(end.getName, None)
+            if end_name in pos:
+                j = pos[end_name]
+        pending.update(names[i:j])
+        return True
+
+    scan_redlines(doc, _on_item)
+    return pending
+
+
+def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
+    """Delete leading body TextTables before a full-document replace.
+
+    Body ``gotoStart`` (``sw/source/core/unocore/unoobj.cxx:SwXTextCursor::gotoStart``)
+    steps past leading tables, so ``replace_full_document`` would leave them behind.
+    """
+    tables = list(
+        itertools.takewhile(
+            lambda el: supports_service(el, "com.sun.star.text.TextTable"),
+            iter_elements(doc.getText().createEnumeration()),
+        )
+    )
+    if not tables:
+        return
+    if not uno_read(lambda: is_recording_changes(doc), False):
+        # Reverse order: a deleted table passes its page style to the paragraph
+        # after it, not to a following table.
+        for table in reversed(tables):
+            _remove_writer_table(doc, table, table.getName(), _not_nested())
+        return
+    # Compute pending insertions once before any removal, because deleting one
+    # table can shift the redline start off the next table node.
+    names = [table.getName() for table in tables]
+    pending = _pending_insertions(doc, names)
+    for table, name in zip(tables, names):
+        # One change per table: a redline end inside a cell and one in the body
+        # cannot share a review anchor.
+        session.record_mutation(
+            lambda t=table, n=name: _delete_writer_table_tracked(
+                doc, uno_ctx, t, n, pending_insertion=n in pending
+            )
+        )
 
 
 def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: str, idx: int) -> None:
