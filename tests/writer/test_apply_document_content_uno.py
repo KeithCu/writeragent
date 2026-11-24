@@ -572,7 +572,10 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
             assert doc.getGraphicObjects().getCount() == 1, (mode, anchor_type)
             assert "updated" in doc.getText().getString(), (mode, anchor_type)
 
-        # Case A: record mode, search-replace inside a 1-para cell with AT_PARAGRAPH image leaves 1 image
+        # Case A: record mode, search-replace inside a 1-para cell with AT_PARAGRAPH image
+        # and its wrapper in the replacement leaves 1 image before and after Accept.
+        import re
+
         save({flag: "record"})
         _clear_body(doc)
         text = doc.getText()
@@ -593,10 +596,19 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
             cell.insertTextContent(cell.getStart(), g, False)
         finally:
             os.unlink(img_path)
+        html_a = document_to_content(doc, ctx, scope="full")
+        wrapper_match = re.search(
+            r'<(div|span)\b[^>]*\bid="[^"]+"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=""[^>]*>\s*(?:</p>\s*)?</\1>',
+            html_a,
+        )
+        assert wrapper_match is not None, html_a
+        replacement = f"{wrapper_match.group(0)}newlogo"
+        assert 'src=""' in replacement
         res_sr = ApplyDocumentContent().execute(
-            tctx, target="search", old_content="logo", content="newlogo"
+            tctx, target="search", old_content="logo", content=replacement
         )
         assert res_sr.get("status") == "ok", res_sr
+        assert doc.getGraphicObjects().getCount() == 1
         execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
         assert doc.getGraphicObjects().getCount() == 1
 
