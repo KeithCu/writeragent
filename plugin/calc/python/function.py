@@ -9,7 +9,7 @@
 resolves the caller's workbook state, worker session, and ``FormulaOrigin`` /
 ``is_matrix`` once into a ``CellContext`` (carried into ``finalize_python_return``
 and ``spill``), the user venv runs the code, and ``finalize_python_return``
-shapes the result (scalar, a native ``[][]any`` matrix, or a deferred spill).
+shapes the result (scalar, a native matrix, or a deferred spill).
 """
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ def finalize_python_return(
     cell: CellContext,
     result: Any,
 ) -> Any:
-    """Map worker result to a scalar or UNO ``[][]any`` matrix Calc's add-in bridge accepts."""
+    """Map worker result to a scalar or native matrix Calc's add-in bridge accepts."""
     result = result_to_calc_grid(result)
 
     if isinstance(result, (list, tuple)) and len(result) > 0:

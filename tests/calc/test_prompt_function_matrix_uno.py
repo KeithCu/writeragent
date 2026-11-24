@@ -9,7 +9,7 @@ from plugin.tests.testing_utils import with_native_doc
 @native_test
 @with_native_doc("calc")
 def test_live_array_formula_block_and_recalc(ctx, doc):
-    """Real {=PY} array blocks return every element, stay stable on recalc, and supportCalc formulas."""
+    """Real {=PY} array blocks return every element, stay stable on recalc, and support Calc formulas."""
     from plugin.calc.python.workbook_state import WorkbookState
     from tests.calc.python.test_function_uno import _with_repo_venv_for_tests
 
@@ -27,13 +27,16 @@ def test_live_array_formula_block_and_recalc(ctx, doc):
             # Block longer than result: extra cells show #N/A (32767).
             sheet.getCellRangeByPosition(4, 0, 4, 4).setArrayFormula('=PYTHON("result = [7, 8]")')
 
-            # 2x2 mixed block: number, text, bool, None.
-            sheet.getCellRangeByPosition(5, 0, 6, 1).setArrayFormula('=PYTHON("result = [[1, \'a\'], [True, None]]")')
+            # 3x2 mixed block: number, text, bool, None, and error tokens.
+            sheet.getCellRangeByPosition(5, 0, 6, 2).setArrayFormula(
+                '=PYTHON("result = [[1, \'a\'], [True, None], [\'#DIV/0!\', \'#N/A\']]")'
+            )
 
             # All-text block: strings are interned via [][]string so Calc equality and COUNTIF match.
             sheet.getCellRangeByPosition(7, 0, 7, 1).setArrayFormula('=PYTHON("result = [\'North\', \'South\']")')
             sheet.getCellByPosition(8, 0).setFormula('=H1="North"')
             sheet.getCellByPosition(8, 1).setFormula('=COUNTIF(H1:H2;"North")')
+            sheet.getCellByPosition(8, 2).setFormula('=H1=H2')
 
             # Scalar aggregation over a Python list in an ordinary cell.
             sheet.getCellByPosition(9, 0).setFormula('=SUM(PYTHON("result = [1, 2, 3, 10]"))')
@@ -59,11 +62,14 @@ def test_live_array_formula_block_and_recalc(ctx, doc):
             assert sheet.getCellByPosition(6, 0).getString() == "a"
             assert sheet.getCellByPosition(5, 1).getValue() == 1.0
             assert sheet.getCellByPosition(6, 1).getString() == ""
+            assert sheet.getCellByPosition(5, 2).getError() == 532
+            assert sheet.getCellByPosition(6, 2).getError() == 32767
 
             assert sheet.getCellByPosition(7, 0).getString() == "North"
             assert sheet.getCellByPosition(7, 1).getString() == "South"
             assert sheet.getCellByPosition(8, 0).getValue() == 1.0
             assert sheet.getCellByPosition(8, 1).getValue() == 1.0
+            assert sheet.getCellByPosition(8, 2).getValue() == 0.0
 
             assert sheet.getCellByPosition(9, 0).getValue() == 16.0
     finally:

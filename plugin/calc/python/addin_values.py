@@ -228,7 +228,8 @@ def matrix_result(result: list[Any] | tuple[Any, ...]) -> Any:
     via ``mrDoc.GetSharedStringPool().intern``. Mixed grids use ``[][]any``; note
     that ``ScSequenceToMatrix::CreateMixedMatrix`` (``sc/source/core/tool/rangeseq.cxx``)
     stores ``svl::SharedString(aUStr)`` with null ``mpDataIgnoreCase``, so Calc
-    string equality (``=``, ``COUNTIF``) on text cells in a mixed block fails.
+    string equality (``=``, ``COUNTIF``) on text cells in a mixed block fails and
+    two different texts can compare equal.
     """
     grid = result_as_spill_grid(result)
     if not grid or not any(grid):

@@ -432,7 +432,7 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 | Child unpack | [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / `matrix_result` | Scalar or UNO `[][]any` matrix for Calc's add-in bridge |
+| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / `matrix_result` | Scalar or native matrix for Calc's add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
@@ -440,7 +440,7 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 
 ### Matrix formula native return {#matrix-formula-result-session-ipc-reduction}
 
-Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as `uno.Any("[][]any", rows)`, so the block receives all elements in one worker call without a host result cache. Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
+Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as a native UNO matrix (see its docstring for exact types), so the block receives all elements in one worker call without a host result cache. Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 ### Multi-range wire format {#multi-range-wire-format}
 
