@@ -281,6 +281,7 @@ class CdpRefCount:
         try:
             web_research_firefox.close_firefox_bidi()
             browser_cdp_tool.cleanup_local_chrome()
+            web_research_firefox.remove_pidfile()
         except Exception as exc:
             log.warning("Failed to clean up local browser process: %s", exc)
         finally:
@@ -850,6 +851,13 @@ class WebResearchTool(ToolBase):
                     log.info("Browser web research enabled (%s).", browser_type)
                 except Exception as e:
                     log.warning("Failed to launch or connect to local %s browser: %s. Falling back to static HTTP.", browser_type, e)
+                    if isinstance(e, ImportError) and browser_type == BIDI_BROWSER_TYPE and ctx.chat_append_callback:
+                        ctx.chat_append_callback(
+                            _(
+                                "Warning: Firefox web research unavailable ({0}; run `make vendor` if deploying from source). "
+                                "Falling back to static HTTP.\n"
+                            ).format(e)
+                        )
 
             scope = ctx.send_cancellation
 
