@@ -631,5 +631,3 @@ def test_dsum_error_text_criteria_not_blank():
     assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 2.0
 
 
-
-

@@ -571,4 +571,3 @@ def test_criteria_compare_errors_as_text(crit: str, expected_count: int, expecte
     assert calc.countif(data, crit) == expected_count
     assert calc.sumif(data, crit, weights) == expected_sum
 
-

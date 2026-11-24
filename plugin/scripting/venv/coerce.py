@@ -34,6 +34,7 @@ LO_ERROR_TOKENS = frozenset(
         "#N/A N/A",
     }
 )
+# IGNORECASE is required because is_missing_value passes upper-cased text ("ERR:502").
 _ERR_NUMBER_RE = re.compile(r"Err:[0-9]{3}", re.IGNORECASE)
 
 # Capture one leading/trailing sign before the currency symbol so negatives like "-1,234.50" and "$-123" parse correctly; two signs mean not a number.
@@ -87,7 +88,7 @@ def is_missing_value(value: Any) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
-        # Lower-case spellings count here.
+        # Lower-case spellings such as "#n/a" count here; is_calc_error and xor need the exact token.
         return value.strip() == "" or is_error_token(value.upper())
     if isinstance(value, float):
         return math.isnan(value)
