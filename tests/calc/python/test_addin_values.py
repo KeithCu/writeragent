@@ -752,3 +752,37 @@ def test_accepts_returned_any_propagates_other_errors(monkeypatch: pytest.Monkey
 
     with pytest.raises(ValueError, match="unexpected"):
         addin_values.accepts_returned_any(_BrokenCtx())
+
+
+def test_is_failed_run_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    for res in (
+        {"code": "VENV_NOT_FOUND"},
+        {"code": "EXECUTION_TIMEOUT"},
+        {"code": "USER_STOPPED", "message": "stopped"},
+    ):
+        text = addin_values.addin_result_for_worker_status(res)
+        assert isinstance(text, str) and addin_values.is_failed_run_text(text)
+
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(RuntimeError("boom")))
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(TimeoutError("5s")))
+    assert addin_values.is_failed_run_text("Error: no calling document")
+
+    for non_failure in ("", "#SPILL!", "Errors: 3", "hello world"):
+        assert not addin_values.is_failed_run_text(non_failure)
+
+    translations = {
+        "Error: Python venv not found. Open Settings → Python, set the venv path, then Test.": "Viga: venv puudub.",
+        "Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.": "Viga: aeg otsas.",
+        "Error: Main-thread execution timed out ({0})": "Tõrge: lõim aegus ({0})",
+        "Error: {0}": "Tõrge: {0}",
+    }
+    monkeypatch.setattr(addin_values, "_", lambda s: translations.get(s, s))
+    for res in (
+        {"code": "VENV_NOT_FOUND"},
+        {"code": "EXECUTION_TIMEOUT"},
+        {"code": "USER_STOPPED", "message": "katkestatud"},
+    ):
+        text = addin_values.addin_result_for_worker_status(res)
+        assert isinstance(text, str) and addin_values.is_failed_run_text(text)
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(TimeoutError("5s")))
+    assert not addin_values.is_failed_run_text("ok")

@@ -24,7 +24,8 @@ Cell outcomes for ``=PY()`` fall into four kinds:
 - **``"Error: …"`` text**: setup and stop worker codes in
   ``addin_result_for_worker_status``, host exceptions in
   ``format_addin_error_for_display``, size errors in ``function.py``,
-  and missing-caller in ``addin_impl.py``.
+  and missing-caller in ``addin_impl.py``. Write tools recognise this kind
+  with ``is_failed_run_text``.
 
 Worker failure codes in ``addin_result_for_worker_status`` map as follows:
 
@@ -293,6 +294,38 @@ def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
     return uno_any(uno_type, rows)
 
 
+def _venv_not_found_text() -> str:
+    return _("Error: Python venv not found. Open Settings → Python, set the venv path, then Test.")
+
+
+def _timed_out_text() -> str:
+    return _("Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.")
+
+
+def _main_thread_timeout_template() -> str:
+    return _("Error: Main-thread execution timed out ({0})")
+
+
+def _error_text_template() -> str:
+    return _("Error: {0}")
+
+
+def is_failed_run_text(text: str) -> bool:
+    """True when *text* is the "Error: …" cell text of a failed =PY run (module docstring).
+
+    User code that returns such text itself is indistinguishable and counts too.
+    """
+    prefixes = (
+        "Error:",
+        _venv_not_found_text(),
+        _timed_out_text(),
+        _error_text_template().partition("{0}")[0].strip(),
+        _main_thread_timeout_template().partition("{0}")[0].strip(),
+    )
+    # An empty prefix would match everything.
+    return text.startswith(tuple(p for p in prefixes if p))
+
+
 def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     """Return add-in cell result for non-ok worker status (payload NaN error or text message).
 
@@ -302,9 +335,9 @@ def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     code = res.get("code")
     message = str(res.get("message") or res.get("error") or "")
     if code == "VENV_NOT_FOUND":
-        return _("Error: Python venv not found. Open Settings → Python, set the venv path, then Test.")
+        return _venv_not_found_text()
     if code in _TIMEOUT_CODES:
-        return _("Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.")
+        return _timed_out_text()
     if code == "USER_STOPPED":
         return _error_cell_text(message)
     log.error("=PY() worker failure: %s", message)
@@ -551,7 +584,7 @@ def format_addin_error_for_display(exc: BaseException) -> str:
     """Cell text for an exception raised while running =PY()."""
     # A TimeoutError here is the host's main-thread marshal or sync timeout, not the user's code or an HTTP request, so it gets its own message.
     if isinstance(exc, TimeoutError):
-        return _("Error: Main-thread execution timed out ({0})").format(str(exc))
+        return _main_thread_timeout_template().format(str(exc))
     return _error_cell_text(format_error_message(exc))
 
 
@@ -560,4 +593,4 @@ def _error_cell_text(message: str) -> str:
     text = (message or "").strip() or _("Unknown error")
     if text.startswith("Error:") or text.startswith("#"):
         return text
-    return _("Error: {0}").format(text)
+    return _error_text_template().format(text)
