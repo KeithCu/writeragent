@@ -1208,3 +1208,32 @@ def test_html_rename_keeps_the_link_style_uno(ctx, doc):
         if str(p.getString() or ""):
             styles.append(str(p.getPropertyValue("UnvisitedCharStyleName") or ""))
     assert styles == ["Index Link"], styles
+
+
+@native_test
+@with_native_doc("writer")
+def test_multiparagraph_html_replace_keeps_unmeasured_links_in_report_uno(ctx, doc):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+    # Finding 1: multi-paragraph HTML replace moves anchor past prefix, leaving "1. " linked.
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Old title", _OUTLINE)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Body", False)
+    res = _apply(doc, ctx, old_content="Old title\nBody", content="<p>One</p><p>Two</p>")
+    assert res.get("status") == "ok", res
+    assert res.get("hyperlink_updated") is False, res
+    assert res.get("hyperlink_url_after") == _OUTLINE, res
+    assert ("1. ", _OUTLINE, "", "") in _paragraph_rows(doc)[0], _paragraph_rows(doc)
+
+    # Finding 5: two links in one paragraph with text left on both sides, split by block HTML.
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Alpha ", "#1.Alpha|outline")
+    _append_linked(text, cursor, "Beta 2.", "#2.Beta|outline")
+    res2 = _apply(doc, ctx, old_content="Alpha Beta", content="<p>One</p><p>Two</p>")
+    assert res2.get("status") == "ok", res2
+    links2 = res2.get("hyperlinks") or []
+    assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in links2] == [
+        ("#1.Alpha|outline", False),
+        ("#2.Beta|outline", False),
+    ], links2

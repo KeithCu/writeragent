@@ -40,9 +40,13 @@ own portions, so a whole-portion URL write leaves them alone. A preserve-
 format replace keeps the old URL on the whole line; the pending pass already
 rewrites it. Skip the title-only paint when the replacement already has the
 new URL. When a paint is still needed (HTML dropped the URL), snapshot
-direct ``CharColor`` / ``CharUnderline`` overrides and link character styles
-after the text replace and put them on the same cursor immediately after the
-assignment.
+direct ``CharColor`` / ``CharUnderline`` overrides after the text replace;
+name, target, and link character styles come from before the replace. Both go
+on the same cursor immediately after the assignment.
+
+Every link write in this module uses ``write_link``, which resets
+``HyperLinkURL`` first to record the old link for undo and restores name,
+target, and link styles.
 
 A page-number replace does not change the URL. ``setString`` of those digits
 still splits the run onto Internet-link chrome, and ``CharColor`` on that
@@ -57,8 +61,6 @@ While track changes is recording, matched-link outline URLs are not renamed (a
 tracked HyperLinkURL write on existing text becomes a Format redline, and rejecting
 it drops the link). Instead, ``restore_links`` writes the link's own URL onto
 only the inserted runs, untracked, and adds ``hyperlink_note`` to the report.
-Name, target and link styles go back with the URL, and ``write_link`` records
-the old link for undo.
 Recorded plain replaces carry their own link when the whole match shares one URL,
 and partly linked matches are not painted.
 
@@ -331,6 +333,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
             if portion.getString():
                 fully_linked = False
             continue
+        # Taken after the unlinked skip so a partly linked match keeps the link's name/target.
         if not props:
             props = read_link_props(portion)
         if not url.endswith(_OUTLINE_SUFFIX):
@@ -566,7 +569,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         return []
 
     new_plain = measured_replacement(anchor, snapshot)
-    measured = new_plain is not None or not snapshot.single_paragraph
+    was_measured = new_plain is not None
     if new_plain is None:
         new_plain = fallback_plain if fallback_plain is not None else snapshot.matched
 
@@ -582,6 +585,12 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             "Could not locate the replaced text to update its outline hyperlink: %s" % exc,
             code="HYPERLINK_UPDATE_FAILED",
         ) from exc
+    # A parked anchor can land after imported blocks, so a multi-paragraph
+    # match is only measured when the anchor paragraph still starts with prefix.
+    measured = was_measured or (
+        not snapshot.single_paragraph
+        and _paragraph_text(text, anchor).startswith(snapshot.prefix)
+    )
     # A title-only HyperLinkURL write repaints Internet-link chrome
     # (module docstring). _paint skips it when the replacement already
     # has the new URL; otherwise the snapshotted look goes back on the

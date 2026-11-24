@@ -559,10 +559,11 @@ def test_restore_selects_after_a_non_bmp_prefix():
 
 def test_capture_sets_fully_linked_false_when_plain_text_in_match():
     plain = _Slice("START ", "")
-    linked = _Slice("link text", "https://example.com/")
+    linked = _Slice("link text", "https://example.com/", name="nm")
     doc = _Doc([plain, linked])
     snapshot = capture_outline_hyperlinks(_match(doc, 0, len("START link text")))
     assert snapshot.fully_linked is False
+    assert snapshot.props["HyperLinkName"] == "nm"
 
     linked_only = capture_outline_hyperlinks(_match(doc, len("START "), len("START link text")))
     assert linked_only.fully_linked is True
