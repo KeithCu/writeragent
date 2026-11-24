@@ -57,7 +57,7 @@ def long_trusted_worker_timeout_sec() -> int:
 # Settings → Python Test: per-package sandbox import probe (independent of scripting.python_exec_timeout).
 SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC = 30
 
-# Settings → Python Test: host subprocess import probe (one probe imports Docling and every installed OCR engine, and a timeout loses the whole group).
+# Settings → Python Test: host subprocess import probe (Docling cold import can exceed 5s; one probe imports Docling and every installed OCR engine, measured 2.7–3.5s warm without easyocr or openvino, and a timeout loses the whole group).
 VISION_PROBE_TIMEOUT_SEC = 60
 
 VECTOR_SEARCH_PROBE_TIMEOUT_SEC = 30

@@ -62,7 +62,7 @@ def test_configured_python_exec_timeout(mock_get):
 
 @patch("plugin.framework.config.get_config", return_value=1000)
 def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
-    # Above schema max (600) but within DEAL_MAX_ARGV (4096) so @deal.pre on _clamp_timeout still runs.
+    # Above schema max (600) but within DEAL_MAX_ARGV so @deal.pre on _clamp_timeout still runs.
     assert python_exec_timeout() == 600
 
 

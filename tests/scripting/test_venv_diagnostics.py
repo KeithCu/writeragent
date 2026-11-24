@@ -1081,6 +1081,7 @@ def test_self_check_old_docling_is_missing_with_upgrade_line(
         assert f'"{DOCLING_REQUIREMENT}"' in uv_line
     else:
         assert "Missing (OCR)" not in msg
+        assert DOCLING_REQUIREMENT not in msg
 
 
 def test_self_check_current_docling_shows_version():
@@ -1147,3 +1148,34 @@ def test_vision_broken_engine_shown_not_optional():
     assert "paddle is installed but does not work: libcuda.so.1 missing" in msg
     optional_line = next(line for line in msg.splitlines() if line.startswith("Optional (not installed):"))
     assert "paddle," not in optional_line and not optional_line.endswith(" paddle")
+
+
+@pytest.mark.parametrize(
+    ("langs", "expected_line"),
+    [
+        (["eng", "osd"], "tesseract 5.5.4; languages: eng, osd"),
+        ([], "tesseract 5.5.4; languages: none"),
+    ],
+)
+def test_vision_tesseract_version_and_langs_rendered(langs, expected_line):
+    report = ProbeReport(
+        version="3.13.0",
+        packages={
+            "docling": "present",
+            "rapidocr": "present",
+            "onnxruntime": "present",
+            "css_inline": "present",
+            "tesseract": "present",
+            "tesseract_version": "tesseract 5.5.4",
+            "tesseract_langs": langs,
+        },
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    assert expected_line in report.render()

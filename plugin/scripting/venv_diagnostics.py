@@ -191,10 +191,12 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
 
-# Engines are really imported above (Docling has already loaded torch).
-# A present nemotron_ocr also runs Docling's NemotronOcrModel.validate_runtime and its real import
-# (docling/models/stages/ocr/nemotron_ocr_model.py:152).
-# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py.
+# Engines are really imported in _VISION_PROBE_SCRIPT below (Docling has already loaded torch).
+# docling then docling-slim matches _check_docling_version; Tesseract reads version from stdout then stderr
+# and languages after the first header line, matching Docling's tesseract_ocr_cli_model.py.
+# A present nemotron_ocr runs Docling's NemotronOcrModel.validate_runtime (platform, Python, CUDA)
+# and its real import (docling/models/stages/ocr/nemotron_ocr_model.py:152).
+# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py (_VISION_PROBE_SCRIPT + _OCR_ENGINE_PROBE_BODY).
 _OCR_ENGINE_PROBE_BODY = f"""\
 import importlib.metadata
 import shutil
@@ -225,6 +227,8 @@ if out.get("nemotron_ocr") == "present":
         out[{_NEMOTRON_RUNTIME_ERROR_KEY!r}] = str(exc)[:300]
 """
 
+# rapidocr uses name="RapidOCR" because rapidocr/__init__.py is lazy (__getattr__), so a plain import misses broken cv2.
+# ocrmac imports ocrmac.ocrmac because ocrmac/__init__.py imports nothing.
 _VISION_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("docling", "docling.document_converter", report_broken=True),
     _import_try_block("rapidocr", "rapidocr", name="RapidOCR", report_broken=True),
@@ -307,7 +311,7 @@ def _run_json_probe(
     log_label: str,
 ) -> tuple[dict[str, Any], str | None]:
     """Run a one-shot ``python -c`` JSON probe outside the warm worker."""
-    # subprocess.run rejects timeout <= 0. Callers pass the 30s constants.
+    # subprocess.run rejects timeout <= 0. Callers pass the probe timeout constants.
     # The floor keeps a zero or negative value on TimeoutExpired.
     limit = max(1.0, float(timeout))
     scrubbed_env = scrub_subprocess_env(dict(os.environ))

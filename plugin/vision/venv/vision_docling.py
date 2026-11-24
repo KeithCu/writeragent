@@ -100,7 +100,7 @@ def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
     )
 
 
-# Kept in sync with _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py.
+# Kept in sync with _VISION_PROBE_SCRIPT and _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py.
 OCR_BACKENDS: dict[str, OcrBackend] = {
     "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
     "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
