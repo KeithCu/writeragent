@@ -1190,20 +1190,67 @@ def test_judge_only_for_quality_tasks() -> None:
     assert not uses_llm_judge("tax_column", "structural")
 
 
-def test_solar_sld_grouped_tree_still_scores() -> None:
-    """Production get_tree may wrap the diagram in a GroupShape."""
-    doc = json.dumps(
+@pytest.mark.parametrize(
+    ("task_id", "raw_doc"),
+    [
+        ("flowchart_gen", _FLOW_LIVE),
+        ("org_chart_gen", _ORG_GOOD),
+        ("solar_sld_gen", _SOLAR_GOOD),
+    ],
+)
+def test_grouped_draw_tree_still_scores(task_id: str, raw_doc: str) -> None:
+    """Production get_tree may wrap the diagram in GroupShape / nested GroupShapes."""
+    items = json.loads(raw_doc)["tree"]
+    grouped = json.dumps(
         {
             "status": "ok",
             "tree": [
                 {
                     "type": "GroupShape",
-                    "children": json.loads(_SOLAR_GOOD)["tree"],
+                    "children": [
+                        {"type": "GroupShape", "children": items[:3]},
+                        *items[3:],
+                    ],
                 }
             ],
         }
     )
-    assert check_oracle("solar_sld_gen", doc) == []
+    assert check_oracle(task_id, grouped) == []
+
+
+def test_grouped_org_chart_soft_counts() -> None:
+    from org_chart_eval import score_org_chart_example
+
+    items = json.loads(_ORG_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    score = score_org_chart_example(grouped, backend="lo")
+    assert score.passed is True
+    assert score.box_count == 10
+    assert score.connector_count == 9
+    assert score.soft == []
+
+
+def test_grouped_solar_sld_soft_counts() -> None:
+    from solar_sld_eval import score_solar_sld_example
+
+    items = json.loads(_SOLAR_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    ungrouped_score = score_solar_sld_example(_SOLAR_GOOD, backend="lo")
+    grouped_score = score_solar_sld_example(grouped, backend="lo")
+    assert grouped_score.passed is True
+    assert grouped_score.box_count == ungrouped_score.box_count
+    assert grouped_score.connector_count == ungrouped_score.connector_count
+    assert grouped_score.soft == ungrouped_score.soft
 
 
 def test_solar_sld_main_service_panel_label() -> None:

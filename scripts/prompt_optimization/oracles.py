@@ -62,6 +62,11 @@ _TABLE_RE = re.compile(r"<table\b", re.IGNORECASE)
 LO_ALT_RENDERING = "\n<!-- lo-alt-rendering -->\n"
 
 
+def first_rendering(doc: str) -> str:
+    """The rendering oracles and the judge score; the later ones only serve substring checks."""
+    return doc.split(LO_ALT_RENDERING, 1)[0]
+
+
 def visible_text(doc: str) -> str:
     """Tag-stripped text. Used so LO XHTML indent is not scored as content."""
     return text_without_tags(doc)
@@ -468,6 +473,35 @@ def draw_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [n for n in nodes if is_draw_connector(n)]
 
 
+def draw_nodes(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Tree nodes of a Draw export with GroupShape wrappers replaced by their children."""
+    out: list[dict[str, Any]] = []
+
+    def walk(items: list[Any]) -> None:
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            kids = node.get("children")
+            if isinstance(kids, list):
+                walk(kids)
+            else:
+                out.append(node)
+
+    tree = data.get("tree")
+    if isinstance(tree, list):
+        walk(tree)
+    return out
+
+
+def draw_connector_count(data: dict[str, Any], nodes: list[dict[str, Any]]) -> int:
+    """Connector nodes, or DrawWorld's connections list when the tree has none."""
+    connectors = draw_connectors(nodes)
+    if connectors:
+        return len(connectors)
+    conns = data.get("connections")
+    return len(conns) if isinstance(conns, list) else 0
+
+
 def draw_edges(
     data: dict[str, Any], nodes: list[dict[str, Any]]
 ) -> list[tuple[str, str]]:
@@ -551,11 +585,7 @@ def oracle_flowchart_gen(doc: str) -> list[str]:
     if not has_decision_type:
         fails.append("flowchart missing Decision shape type")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = [n for n in tree if isinstance(n, dict)]
+    nodes = draw_nodes(data or {})
 
     edges = draw_edges(data or {}, nodes)
 
@@ -634,21 +664,11 @@ def oracle_org_chart_gen(doc: str) -> list[str]:
         if token.casefold() not in folded:
             fails.append(f"org chart missing {token!r}")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = [n for n in tree if isinstance(n, dict)]
+    nodes = draw_nodes(data or {})
 
     boxes = _org_chart_labeled_boxes(nodes)
     connectors = draw_connectors(nodes)
-    # When the export is DrawWorld-style (no connector nodes), fall back to
-    # the connections list length for the connector floor.
-    conn_count = len(connectors)
-    if conn_count == 0 and data:
-        raw_conns = data.get("connections")
-        if isinstance(raw_conns, list):
-            conn_count = len(raw_conns)
+    conn_count = draw_connector_count(data or {}, nodes)
 
     if len(boxes) < _ORG_CHART_BOX_FLOOR:
         fails.append(
@@ -1138,27 +1158,6 @@ def _solar_role_keys(text: str) -> set[str]:
     return roles
 
 
-def _flatten_draw_nodes(nodes: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Walk GroupShape children so grouped production trees still score."""
-    out: list[dict[str, Any]] = []
-
-    def _walk(items: list[Any]) -> None:
-        for node in items:
-            if not isinstance(node, dict):
-                continue
-            typ = str(node.get("type") or "").casefold()
-            kids = node.get("children")
-            if "group" in typ and isinstance(kids, list):
-                _walk(kids)
-                continue
-            out.append(node)
-            if isinstance(kids, list):
-                _walk(kids)
-
-    _walk(list(nodes or []))
-    return out
-
-
 def _solar_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     boxes: list[dict[str, Any]] = []
     for node in nodes:
@@ -1268,19 +1267,10 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
         elif bad in folded:
             fails.append(f"central/string inverter drawn ({bad!r}); use microinverters")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = _flatten_draw_nodes([n for n in tree if isinstance(n, dict)])
+    nodes = draw_nodes(data or {})
 
     boxes = _solar_labeled_boxes(nodes)
-    connectors = draw_connectors(nodes)
-    conn_count = len(connectors)
-    if conn_count == 0 and data:
-        raw_conns = data.get("connections")
-        if isinstance(raw_conns, list):
-            conn_count = len(raw_conns)
+    conn_count = draw_connector_count(data or {}, nodes)
 
     if nodes and len(boxes) < _SOLAR_BOX_FLOOR:
         fails.append(
@@ -1388,7 +1378,7 @@ def check_oracle(task_id: str, final_document: str) -> list[str]:
     fn = ORACLES.get(task_id or "")
     if fn is None:
         return []
-    return fn((final_document or "").split(LO_ALT_RENDERING, 1)[0])
+    return fn(first_rendering(final_document or ""))
 
 
 def uses_llm_judge(task_id: str, category: str = "") -> bool:
