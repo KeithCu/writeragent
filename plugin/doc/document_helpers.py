@@ -47,7 +47,7 @@ from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
     ToolExecutionError,
     DocumentDisposedError, UnoObjectError,
-    uno_call, uno_read,
+    best_effort, uno_call, uno_read,
 )
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
@@ -793,13 +793,33 @@ class DocumentService(ServiceBase):
             if model is None:
                 raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
             controller = uno_call(model.getCurrentController, "Get current controller")
-            vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
+            get_vc: Any = getattr(controller, "getViewCursor", None)
+            if callable(get_vc):
+                vc: Any = uno_call(get_vc, "Get view cursor")
 
-            def _get_count() -> int:
-                uno_call(vc.jumpToLastPage, "Jump to last page")
-                return uno_call(vc.getPage, "Get page")
+                def _get_count() -> int:
+                    uno_call(vc.jumpToLastPage, "Jump to last page")
+                    return uno_call(vc.getPage, "Get page")
 
-            return _text_helpers.with_view_cursor_left_body_locked(model, vc, _get_count)
+                return _text_helpers.with_view_cursor_left_body_locked(model, vc, _get_count)
+
+            # Preview views (SwPagePreview, ViewId=7) have no getViewCursor (SfxBaseController).
+            # Reading WordCount runs GetUpdatedDocStat (unotxdoc.cxx WID_DOC_WORD_COUNT), which
+            # recalculates DocumentStatistics.PageCount from the layout (DocumentStatisticsManager.cxx:145-160)
+            # only when modified or uninitialized (lines 70-77). ODF import initializes stats from
+            # meta.xml (xmlmeta.cxx:100-130), so mark modified briefly to force a layout count.
+            was_modified = uno_call(lambda: model.isModified(), "Check modified flag")
+            try:
+                uno_call(lambda: model.setModified(True), "Mark modified for statistics")
+                uno_call(lambda: model.WordCount, "Update document statistics")
+            finally:
+                best_effort(lambda: model.setModified(was_modified), "restore modified flag after page count")
+            doc_props = uno_call(lambda: model.getDocumentProperties(), "Get document properties")
+            stats = uno_call(lambda: doc_props.DocumentStatistics, "Get document statistics")
+            for prop in stats:
+                if getattr(prop, "Name", None) == "PageCount":
+                    return int(prop.Value)
+            return 0
         except (UnoObjectError, ToolExecutionError):
             logging.getLogger(__name__).exception("get_page_count error")
             return 0
