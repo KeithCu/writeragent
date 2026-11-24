@@ -435,7 +435,7 @@ def insert_vision_item(
     params: dict[str, Any] | None,
     graphics: dict[str, Any | None],
 ) -> VisionInsertOutcome:
-    """Insert one OCR result item, passing its ``image_name`` and any kept shape."""
+    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, or by the shape kept in *graphics* for an unnamed image."""
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
