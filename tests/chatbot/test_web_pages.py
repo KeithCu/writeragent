@@ -924,3 +924,17 @@ def test_page_store_snapshot_is_a_copy():
     snap = store.snapshot()
     store.put("https://a.test/3", "three")
     assert [url for url, _page in snap] == ["https://a.test/1", "https://a.test/2"]
+
+
+def test_visit_failure_log_hides_url_secrets(caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    inner = MagicMock()
+    inner.forward.side_effect = RuntimeError("boom")
+    visit = PagedVisitTool(inner, PageStore())
+
+    out = visit.forward(url="https://u:hunter2@f.test/x?sig=hunter2")
+    assert "Error fetching the webpage: boom" in out
+    assert "hunter2" not in caplog.text
+    assert "https://f.test/x" in caplog.text
