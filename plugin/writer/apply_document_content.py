@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import re
@@ -59,30 +60,27 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import (
-    DeletionState,
-    KeepViewSelection,
-    iter_elements,
-    visible_portions,
-)
+from plugin.doc.text_helpers import KeepViewSelection
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import (
     html_import,
     html_import_styles,
     image_placeholders,
-    range_copy,
     record_changes,
     search as search_mod,
+)
+from plugin.writer.heading_links import (
+    document_headings,
+    headings_if_touched,
+    retarget_renamed_links,
 )
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
-    heading_renames,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_links,
-    retarget_outline_links,
 )
 
 
@@ -432,83 +430,6 @@ _ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
 }
 
 
-def _document_headings(doc: Any) -> list[tuple[int, str]]:
-    """Collect ``(level, text)`` headings from the body, table cells, and text frames (Word text boxes included).
-
-    ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
-    with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
-    (sw/source/core/doc/docnum.cxx) searches that list. The body-only ``build_heading_tree``
-    misses headings inside tables and text frames. When *tracked* deletions exist, every
-    paragraph is walked so a deletion's end marker in a non-heading paragraph updates state.
-    """
-    texts: list[Any] = []
-    body_text = uno_read(lambda: doc.getText(), None)
-    if body_text is not None:
-        texts.append(body_text)
-    frames = uno_read(lambda: doc.getTextFrames(), None)
-    if frames is not None:
-        frame_names: tuple[Any, ...] = uno_read(lambda: tuple(search_mod.iter_text_frame_names(doc)), ())
-        for name in frame_names:
-            frame_text = uno_read(lambda: frames.getByName(name).getText(), None)
-            if frame_text is not None:
-                texts.append(frame_text)
-
-    tracked = document_has_tracked_deletions(doc)
-    headings: list[tuple[int, str]] = []
-    for text_obj in texts:
-        state = DeletionState()
-        for para in range_copy.iter_xtext_paragraphs(text_obj):
-            level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
-            is_heading = isinstance(level, int) and level > 0
-            if not is_heading and not tracked:
-                continue
-            text = uno_read(
-                lambda: "".join(chunk for _portion, chunk in visible_portions(para, state=state)),
-                "",
-            )
-            if is_heading and text:
-                headings.append((level, text))
-    return headings
-
-
-def _touches_heading(text_range: Any) -> bool:
-    """True when any paragraph intersecting *text_range* has ``OutlineLevel > 0``."""
-    enum = uno_read(
-        lambda: text_range.getText().createTextCursorByRange(text_range).createEnumeration(),
-        None,
-    )
-    if enum is None:
-        return False
-    for para in iter_elements(enum):
-        level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
-        if isinstance(level, int) and level > 0:
-            return True
-    return False
-
-
-def _headings_if_touched(doc: Any, ranges: list[Any]) -> list[tuple[int, str]] | None:
-    """Snapshot document headings only when at least one edited range touches a heading."""
-    if any(_touches_heading(r) for r in ranges):
-        return _document_headings(doc)
-    return None
-
-
-def _retarget_renamed_links(
-    session: EditReviewSession,
-    doc: Any,
-    before: list[tuple[int, str]] | None,
-    report: html_import_styles.WriteReport,
-) -> None:
-    if not before:
-        return
-    renames = heading_renames(before, _document_headings(doc))
-    if not renames:
-        return
-    report.links_retargeted, report.stale_links = session.tag_side_effects(
-        lambda: retarget_outline_links(doc, renames)
-    )
-
-
 class ApplyDocumentContent(ToolBase):
     """Insert or replace content in the document.
 
@@ -845,7 +766,7 @@ class ApplyDocumentContent(ToolBase):
             # characters, so put that target back unchanged.
             needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
 
-        headings = None if batch else _headings_if_touched(doc, [found])
+        headings = None if batch else headings_if_touched(doc, [found])
 
         def run() -> list[dict[str, Any]]:
             original = found.getString()
@@ -881,7 +802,7 @@ class ApplyDocumentContent(ToolBase):
                 if needs_fix and snapshot is not None
                 else []
             )
-            _retarget_renamed_links(session, doc, headings, report)
+            report.links_retargeted, report.stale_links = retarget_renamed_links(session, doc, headings)
             return reports
 
         if batch:
@@ -1118,10 +1039,10 @@ class ApplyDocumentContent(ToolBase):
         if not html_import_styles.has_bare_fragment_links(params.content):
             return params, []
 
-        document_headings: list[str] = (
+        doc_headings: list[str] = (
             []
             if params.target == "full_document"
-            else [text for _level, text in _document_headings(doc)]
+            else [text for _level, text in document_headings(doc)]
         )
 
         def is_bookmark(name: str) -> bool:
@@ -1129,7 +1050,7 @@ class ApplyDocumentContent(ToolBase):
 
         new_content, diags = html_import_styles.resolve_heading_links(
             params.content,
-            document_headings,
+            doc_headings,
             is_bookmark=is_bookmark,
         )
         return replace(params, content=new_content), diags
@@ -1440,7 +1361,7 @@ class ApplyDocumentContent(ToolBase):
         # tables: with review off (or own pending-insertion tables), deleting the
         # table disposes its pictures so they can no longer be read.
         captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
-        headings = _document_headings(ctx.doc)
+        headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
         with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
             # Delete-then-import inside one undo group: a failed import or a missing
@@ -1460,7 +1381,7 @@ class ApplyDocumentContent(ToolBase):
                 clear_first=lambda: delete_leading_tables(session, ctx.doc, ctx.ctx),
                 proposed_preview=plain,
             )
-            _retarget_renamed_links(session, ctx.doc, headings, report)
+            report.links_retargeted, report.stale_links = retarget_renamed_links(session, ctx.doc, headings)
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {
             "status": "ok",
@@ -1510,7 +1431,8 @@ class ApplyDocumentContent(ToolBase):
         # collapsed position (not the selection range itself) survives the replace.
         rng = request_selection_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
-        with session:
+        headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
+        with session, (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()):
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.insert_content_at_position(
@@ -1522,6 +1444,7 @@ class ApplyDocumentContent(ToolBase):
 
             report = record_html_atomically(
                 session, ctx.doc, mutate, proposed_preview=plain)
+            report.links_retargeted, report.stale_links = retarget_renamed_links(session, ctx.doc, headings)
         res: dict[str, Any] = {"status": "ok", "message": "Inserted content at selection."}
         if report.snapped_to_paragraph:
             res["message"] = (
@@ -1557,7 +1480,7 @@ class ApplyDocumentContent(ToolBase):
         report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
-        headings = _headings_if_touched(doc, ranges)
+        headings = headings_if_touched(doc, ranges)
 
         def mutate() -> None:
             nonlocal count
@@ -1578,7 +1501,7 @@ class ApplyDocumentContent(ToolBase):
                     count += 1
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
-                _retarget_renamed_links(session, doc, headings, report)
+                report.links_retargeted, report.stale_links = retarget_renamed_links(session, doc, headings)
 
         try:
             outcome = commit_or_rollback(
