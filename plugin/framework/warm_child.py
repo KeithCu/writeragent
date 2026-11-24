@@ -220,9 +220,9 @@ class ChildSlot:
     ``WarmChild`` and the compute pool's ``BaseProcessWorker`` subclass this.
     ``_lifecycle_lock`` guards publish, drop, and each subclass's stop flags, so a
     publish either sees a stop or stores a child the stopper's ``kill`` still
-    signals. The lock is never held across ``start()`` or the handshake read:
-    ``kill()`` takes it only to read or drop the pointer, and the handshake can block for
-    the whole spawn budget.
+    signals. The lock is never held across ``start()``, the handshake read, or the signal
+    and reap in ``kill()``: it only covers reading, storing or dropping the pointer and the
+    stop flags, and the handshake can block for the whole spawn budget.
     """
 
     child: Child | None
@@ -282,7 +282,7 @@ class ChildSlot:
             self._drop_child(child)
 
     def _publish_refusal(self) -> dict[str, Any] | None:
-        """Why no new child may be published now, or None. Runs under ``_lifecycle_lock``."""
+        """Why this slot may not start a child now, or None. ``_publish`` calls it under ``_lifecycle_lock``, and that answer is final; an earlier unlocked call only saves a wasted spawn."""
         return None
 
     def _publish(self, child: Child) -> dict[str, Any] | None:
@@ -431,13 +431,6 @@ class ChildSpec:
     log_start_failure: bool = True
 
 
-@dataclass(frozen=True)
-class Death:
-    returncode: int | None
-    stderr_tail: str
-    during: str
-
-
 class Lease:
     """Pipe ownership for one warm-child request while ``begin_io`` is held."""
 
@@ -478,18 +471,15 @@ class WarmChild(ChildSlot):
         spec: ChildSpec,
         *,
         supervisor: Supervisor | None = None,
-        on_death: Callable[[Death], None] | None = None,
     ) -> None:
         super().__init__()
         self.spec: ChildSpec = spec
         self._supervisor: Supervisor = supervisor if supervisor is not None else _default_supervisor()
-        self._on_death: Callable[[Death], None] | None = on_death
         self._io_lock: threading.Lock = threading.Lock()
         self._generation: int = 0
         self._last_active: float = time.monotonic()
         self._retired: bool = False
         self._killed_by_us: bool = False
-        self._death_hook_fired: bool = False
         # Stop scope of the lease in progress; only the pipe-lock holder reads or writes it.
         self._lease_cancel: SendCancellation | None = None
         self._supervisor._register(self)
@@ -497,9 +487,11 @@ class WarmChild(ChildSlot):
     def kill(self) -> bool:
         """Signal the child as ours.
 
-        The child is read under the lock ``_publish`` holds, so a request that passes its
-        ``SendCancellation`` to ``lease`` and cancels it before calling ``kill`` either
-        sees the cancel at publish or stores a child this call signals.
+        The child is read under the lock ``_publish`` holds while it checks the lease's
+        ``SendCancellation`` and stores the child. A caller that cancels that scope before
+        calling ``kill`` is therefore either seen by publish, or finds the child here and
+        signals it. Without the lock, publish could check before the cancel and store after
+        this read, and the cancelled request would keep its child.
         """
         with self._lifecycle_lock:
             self._killed_by_us = True
@@ -509,13 +501,13 @@ class WarmChild(ChildSlot):
         return self._signal_and_drop(child)
 
     def _killed_before_lease(self) -> dict[str, Any]:
-        return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} was killed before the request started.")
+        return self._publish_refusal() or error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} was killed before the request started.")
 
     def _publish_refusal(self) -> dict[str, Any] | None:
         if self._retired or self._supervisor.is_shutting_down():
             return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
         if is_cancelled(self._lease_cancel):
-            return error_dict("CANCELLED", f"{self.spec.name} spawn was cancelled.")
+            return error_dict("CANCELLED", f"{self.spec.name} request was cancelled.")
         return None
 
     def diagnostic_tail(self) -> str:
@@ -568,7 +560,7 @@ class WarmChild(ChildSlot):
         ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``refuse`` is consulted
         only while waiting for the lock—not after it is held, because ``begin_io`` makes this
         thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
-        ``cancel`` is also checked when a spawned child is published.
+        ``cancel`` is checked again once the lock is held, before any spawn, and when a spawned child is published.
         """
         acquire_end: float | None = None
         if wait is not None and wait > 0:
@@ -603,11 +595,8 @@ class WarmChild(ChildSlot):
                 break
         try:
             # refuse is not consulted after the lock is held: begin_io() makes this thread the
-            # io_owner, so refuse would false-trigger self-reentry. cancel is checked again at publish.
+            # io_owner, so refuse would false-trigger self-reentry. _ensure_live checks cancel again.
             self._lease_cancel = cancel
-            if self._supervisor.is_shutting_down() or self._retired:
-                yield error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
-                return
             err = self._ensure_live(deadline)
             if err is not None:
                 yield err
@@ -674,45 +663,27 @@ class WarmChild(ChildSlot):
                 on_fail=leased.fail,
             )
 
-    def _notify_unexpected_death(self, *, during: str) -> None:
-        if self._death_hook_fired or self._killed_by_us:
-            return
-        child = self.child
-        rc = None
-        tail = ""
-        if child is not None:
-            popen = child.managed.popen
-            if popen is not None:
-                rc = popen.poll()
-            tail = child.diagnostic_tail()
-        death = Death(returncode=rc, stderr_tail=tail, during=during)
-        self._death_hook_fired = True
-        log.warning(
-            "%s child died unexpectedly (returncode=%s, during=%s)%s",
-            self.spec.name,
-            rc,
-            during,
-            f" stderr={tail!r}" if tail else "",
-        )
-        if self._on_death is not None:
-            self._on_death(death)
-
     def _ensure_live(self, deadline: Deadline) -> dict[str, Any] | None:
+        # Unlocked and early, so a stopped lease does not start a process only to kill it.
+        # _publish asks again under _lifecycle_lock for a stop that lands after this.
+        refusal = self._publish_refusal()
+        if refusal is not None:
+            return refusal
         child = self.child
         if child is not None and not self.is_alive():
             if not self._killed_by_us:
-                self._notify_unexpected_death(during="idle")
+                popen = child.managed.popen
+                assert popen is not None
+                tail = child.diagnostic_tail()
+                log.warning("%s child died unexpectedly while idle (returncode=%s)%s", self.spec.name, popen.poll(), f" stderr={tail!r}" if tail else "")
             self._drop_child(child)
             child = None
         if child is not None:
             return None
-        if self._retired:
-            return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is retired.")
         spawn_for = spawn_budget(deadline)
         if spawn_for is None:
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         self._killed_by_us = False
-        self._death_hook_fired = False
         managed = ManagedSubprocess(
             self.spec.argv,
             base_env=self.spec.env,
@@ -950,7 +921,6 @@ __all__ = [
     "Child",
     "ChildSlot",
     "ChildSpec",
-    "Death",
     "FailPhase",
     "FramedRequestOnFail",
     "Lease",

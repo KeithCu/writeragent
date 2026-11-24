@@ -201,6 +201,33 @@ def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
     assert res.get("code") == "WRAPPER"
 
 
+def test_commit_or_rollback_mutation_open_group_omits_rollback_msg_and_extras():
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    tool._tool_error.side_effect = make_tool_error
+    doc = MagicMock()
+    open_outcome = UndoOutcome(mutate_error=RuntimeError("boom"), group_closed=False)
+    with patch("plugin.doc.undo.commit_or_rollback", return_value=open_outcome):
+        res = commit_or_rollback_mutation(
+            tool,
+            doc,
+            "Title",
+            lambda: None,
+            "Undo unavail",
+            "Rollback failed",
+            code="CUSTOM_ERR",
+            deleted=0,
+        )
+    assert res is not None
+    assert res["status"] == "error"
+    assert res["code"] == "CUSTOM_ERR"
+    assert "Rollback failed" not in res["message"]
+    assert "undo step could not be closed" in res["message"]
+    assert "deleted" not in res
+
+
 def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
     from plugin.framework.tool import ToolContext, ToolRegistry
     from plugin.doc.undo import Undo

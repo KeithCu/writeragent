@@ -10,7 +10,8 @@ import logging
 import re
 from typing import Any
 
-from plugin.draw.base import ToolDrawMathBase
+from plugin.draw.base import DRAW_REQUIRED_PAGE_PROPERTY, ToolDrawMathBase
+from plugin.draw.tree import ensure_shape_name
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
@@ -122,7 +123,7 @@ class InsertMathDraw(ToolDrawMathBase):
         "properties": {
             "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
             "formula": {"type": "string", "description": "LaTeX or MathML formula text, per formula_type."},
-            "page": {"type": "integer", "description": "0-based index of the draw page or slide."},
+            "page": DRAW_REQUIRED_PAGE_PROPERTY,
             "x": {"type": "integer", "description": "X position, 1/100 mm."},
             "y": {"type": "integer", "description": "Y position, 1/100 mm."},
         },
@@ -179,9 +180,7 @@ class InsertMathDraw(ToolDrawMathBase):
             w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
             h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
             shape.setSize(Size(w, h))
-            from plugin.draw.shapes import _ensure_shape_name
-
-            shape_name = _ensure_shape_name(page, shape)
+            shape_name = ensure_shape_name(page, shape)
         except Exception as exc:
             if added:
                 best_effort(lambda: page.remove(shape), "remove partial math shape")

@@ -815,7 +815,7 @@ class ApplyDocumentContent(ToolBase):
             if headings is None:
                 with session:
                     return run()
-            with session, UndoStepOrRollback(doc, next_agent_edit_undo_title()):
+            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 return run()
 
         def once() -> list[dict[str, Any]]:
@@ -1251,6 +1251,7 @@ class ApplyDocumentContent(ToolBase):
         # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
         use_preserve = (not html_import.content_needs_html_import(content)) and anchor is None
+        decoded = ""
 
         if not html_import.content_needs_html_import(content):
             content = html_import_styles.expand_escapes(content)
@@ -1259,14 +1260,14 @@ class ApplyDocumentContent(ToolBase):
                     lines = [line for line in content.split("\n") if line.strip()]
                     content = "\n".join("<p>%s</p>" % line for line in lines)
             elif use_preserve:
-                # HTML entry points decode complete references once, and the StarWriter
-                # filter decodes what remains in markup. This format-preserving path must
-                # do the same, or content lands verbatim. content_has_markup() sees no tag
-                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path.
-                # Decode ONLY complete references (decode_complete_character_references;
-                # ";" required); unescaping the whole string also expands semicolon-less
-                # names ("&sect 2o" -> "§ 2o"). A bare "&" in "Banco & Cia" is never touched.
-                content = html_import_styles.decode_complete_character_references(content)
+                # Decode complete references once for plain text: literal search-replace
+                # writes via setString (no HTML parser), while other targets go through
+                # html_import where < > & " ' must stay escaped so they are not parsed as markup.
+                decoded = html_import_styles.decode_complete_character_references(content)
+                if target == "search" and position == "replace":
+                    content = decoded
+                else:
+                    content = html_import_styles.normalize_character_references(content)
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
@@ -1291,8 +1292,8 @@ class ApplyDocumentContent(ToolBase):
                 # so there's no replaced_count to report — use the standard tool error shape.
                 return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
 
-        plain = content if use_preserve else self._replacement_plain(content)
-        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
+        plain = decoded if use_preserve else self._replacement_plain(content)
+        has_table = not use_preserve and bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         all_matches = bool(kwargs.get("all_matches", False))
 
         if target == "search" and not has_anchors:
@@ -1355,6 +1356,7 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         html_import.raise_if_hidden_start(ctx.doc)
+        html_import.raise_if_protected_start(ctx.doc)
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1364,7 +1366,7 @@ class ApplyDocumentContent(ToolBase):
         captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
         headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
-        with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
+        with UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()), session:
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
@@ -1433,7 +1435,7 @@ class ApplyDocumentContent(ToolBase):
         rng = request_selection_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
-        with session, (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()):
+        with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.insert_content_at_position(
@@ -1775,7 +1777,7 @@ class ApplyDocumentContent(ToolBase):
         # review session.
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
-            # Rollback must stay outside the session: undo cannot run while its undo context is open.
+            # The undo step is outermost, so a rollback runs after the session restores RecordChanges and the author.
             with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)

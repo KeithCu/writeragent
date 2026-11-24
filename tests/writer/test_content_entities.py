@@ -6,7 +6,10 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.apply_document_content import ApplyDocumentContent
-from plugin.writer.html_import_styles import decode_complete_character_references
+from plugin.writer.html_import_styles import (
+    decode_complete_character_references,
+    normalize_character_references,
+)
 
 
 class TestPlainTextEntityGuard:
@@ -56,3 +59,30 @@ def test_plain_path_params_decode_entities_and_expand_escapes():
         )
     assert params.use_preserve is True
     assert params.content == "Valor R$5,00 &sect 2o, Banco & Cia\tok"
+
+
+def test_normalize_character_references_keeps_html_specials_escaped():
+    raw = "&lt;b&gt;R&#36;5 &amp; &quot;x&quot; &#x27;y&#x27; &sect 2o&lt;/b&gt;"
+    norm = normalize_character_references(raw)
+    assert norm == "&lt;b&gt;R$5 &amp; &quot;x&quot; &#x27;y&#x27; &sect 2o&lt;/b&gt;"
+    assert normalize_character_references(norm) == norm
+
+
+def test_parse_edit_params_escaped_table_by_target():
+    with patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):
+        tool = ApplyDocumentContent()
+        end_params = tool._parse_edit_params(MagicMock(), {"content": "&lt;table&gt;", "target": "end"})
+        after_params = tool._parse_edit_params(
+            MagicMock(),
+            {"content": "&lt;table&gt;", "target": "search", "old_content": "x", "position": "after"},
+        )
+        replace_params = tool._parse_edit_params(
+            MagicMock(),
+            {"content": "&lt;table&gt;", "target": "search", "old_content": "x", "position": "replace"},
+        )
+    assert end_params.content == "&lt;table&gt;"
+    assert end_params.has_table is False
+    assert after_params.content == "&lt;table&gt;"
+    assert after_params.has_table is False
+    assert replace_params.content == "<table>"
+    assert replace_params.has_table is False

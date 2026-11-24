@@ -26,11 +26,14 @@ from typing import Any
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
+    CLEARABLE_PARA_PROPERTIES,
     clear_direct_numbering,
     go_right,
     iter_elements,
     live_selection_range,
     normalize_linebreaks as _normalize,
+    reset_direct_char_formatting,
+    reset_properties_to_default,
 )
 from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.constants import HTML_WRITER_FILTER
@@ -74,10 +77,9 @@ def ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
 
-    Do not ``html.unescape`` here. Insert and replace already unescape once,
-    and the StarWriter filter unescapes entities itself. A second unescape
-    turned ``&amp;lt;p&amp;gt;`` / ``&amp;lt;b&amp;gt;`` inside real markup
-    into live tags.
+    Do not ``html.unescape`` here. Entry points normalize complete character
+    references while keeping ``< > & " '`` escaped, and the StarWriter filter
+    decodes entities itself so escaped markup stays literal text.
     """
     if not isinstance(content, str) or not content:
         return content
@@ -237,10 +239,12 @@ def _insert_mixed_html_and_math_at_cursor(
             if seg_ruby:
                 html_ruby.apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
-        snippet = (seg.text or "").replace("\n", " ")[:120]
         if seg.kind == "tex":
-            res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
+            tex_text = html_import_styles.decode_complete_character_references(seg.text or "")
+            snippet = tex_text.replace("\n", " ")[:120]
+            res = convert_latex_to_starmath(ctx, tex_text, display_block=seg.display_block)
         else:
+            snippet = (seg.text or "").replace("\n", " ")[:120]
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath:
             insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
@@ -354,6 +358,44 @@ def raise_if_hidden_start(model: Any) -> None:
         "nothing was changed. Show it first with section_set_visibility, or edit with another target.",
         code="HIDDEN_LEADING_SECTION",
     )
+
+
+def _sections_at(cursor: Any) -> list[Any]:
+    """Return the TextSection chain at *cursor*, innermost first."""
+    out: list[Any] = []
+    section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
+    # Service check instead of `is not None`: a mock's getParentSection() never returns None.
+    while _uno_service_true(section, "com.sun.star.text.TextSection"):
+        out.append(section)
+        cur_sec: Any = section
+        section = uno_read(lambda: cur_sec.getParentSection(), None)
+    return out
+
+
+def raise_if_protected_start(model: Any) -> None:
+    """Refuse full_document when the document opens with a protected non-index section."""
+    text = uno_read(lambda: model.getText(), None)
+    if text is None:
+        return
+    cursor = uno_read(lambda: text.createTextCursor(), None)
+    if cursor is None:
+        return
+    cursor.gotoStart(False)
+    for section in _sections_at(cursor):
+        sec: Any = section
+        # Index sections (such as TOCs) are protected by default; refusing them would
+        # block full_document on every document that opens with a TOC.
+        if (
+            uno_read(lambda: sec.getPropertyValue("IsProtected") is True, False)
+            and uno_read(lambda: sec.getPropertyValue("DocumentIndex"), None) is None
+        ):
+            sec_name = uno_read(lambda: sec.getName(), "")
+            named = f" ({sec_name!r})" if sec_name else ""
+            raise ToolExecutionError(
+                f"Document starts with a protected section{named}; nothing was changed. "
+                "Unprotect it first with section_set_protection, or edit with another target.",
+                code="PROTECTED_LEADING_SECTION",
+            )
 
 
 def _insert_mixed_or_plain_html(
@@ -511,7 +553,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # A trailing inline picture or formula stays in this paragraph and has no text.
     # Joining the paragraph keeps its bookmarks, so they need not block it.
     if any(
-        _paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
+        paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
         for para in iter_elements(leftover.createEnumeration())
     ):
         return
@@ -595,7 +637,7 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
         return
     # Redline and SoftPageBreak portions carry no content. A bookmark does count here:
     # dispose() would delete it.
-    if _paragraph_has_non_text_portion(first_para, ignore_markers=True):
+    if paragraph_has_non_text_portion(first_para, ignore_markers=True):
         return
     first_para.dispose()
 
@@ -630,7 +672,7 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
-def _paragraph_has_non_text_portion(
+def paragraph_has_non_text_portion(
     para: Any,
     *,
     ignore_markers: bool = False,
@@ -675,7 +717,7 @@ def _cursor_paragraph_has_content(cursor: Any) -> bool:
         para.gotoEndOfParagraph(True)
         # A cursor enumerates paragraphs; the portions are one level down.
         return para.getString() != "" or any(
-            _paragraph_has_non_text_portion(p, ignore_markers=True)
+            paragraph_has_non_text_portion(p, ignore_markers=True)
             for p in iter_elements(para.createEnumeration())
         )
 
@@ -701,7 +743,8 @@ def _ensure_empty_absorb_for_styled_insert(
       continues it. While recording a break is always opened, because absorbing an empty last
       paragraph would leave it in the import's style after Reject.
     - **Empty absorb paragraph** (blank doc / already-empty trailing, when not recording): merge
-      is harmless — no prep.
+      is harmless — no prep. An empty paragraph while recording is handled by the caller for
+      ``caret`` and ``beginning``.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
     selections go through ``_replace_whole_paragraphs``, other non-collapsed
@@ -737,13 +780,11 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        # No html.unescape here: apply_document_content.py already decoded complete
-        # character references on the plain path
-        # (html_import_styles.decode_complete_character_references), and a full
-        # unescape turns "&sect 2o" into "§ 2o"; the HTML import decodes entities
-        # in markup itself.
+        # insertString writes literal text without an HTML parser, so decode complete
+        # character references here while leaving incomplete ones like "&sect 2o" untouched.
         if not content_needs_html_import(swapped):
-            cursor.getText().insertString(cursor, swapped, False)
+            plain = html_import_styles.decode_complete_character_references(swapped)
+            cursor.getText().insertString(cursor, plain, False)
             return
         inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
         # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
@@ -814,6 +855,7 @@ def _import_and_drop_leftover(
     content: str,
     *,
     apply_styles: bool = True,
+    merge_forward_after_table: bool = True,
 ) -> html_import_styles.WriteReport:
     """Import *content* into an emptied range and drop the leftover empty paragraph.
 
@@ -826,11 +868,14 @@ def _import_and_drop_leftover(
     # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
     if report.added_content:
         # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
-        # delete of it joins paragraphs on Accept. After a trailing table the helper merges
-        # the leftover forward into the first deleted paragraph, which Accept then empties:
-        # the same end state as without recording.
+        # delete of it joins paragraphs on Accept. When merge_forward_after_table is True and
+        # content has a table, the helper merges the leftover forward into the first deleted
+        # paragraph, which Accept then empties: the same end state as without recording.
         with record_changes.record_changes(model, False):
-            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
+            _drop_leftover_paragraph(
+                leftover,
+                merge_forward_after_table=merge_forward_after_table and "<table" in content.lower(),
+            )
     return report
 
 
@@ -853,8 +898,8 @@ def _replace_whole_paragraphs(
     ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
     empty), while Reject keeps both styles because ``AppendRedline`` skips its
     tdf#119571 restyle when the deletion starts at offset 0. We then open a
-    fresh paragraph before the struck text so the import does not inherit the
-    struck text's character formatting. The leftover synthetic paragraph is
+    fresh paragraph before the struck text and reset the copied direct paragraph
+    and character formatting on it. The leftover synthetic paragraph is
     dropped untracked because that break is our own new insertion. Where no
     following break exists (document end, before a table, section edge), the
     old paragraph stays empty after Accept; the preceding break is not used
@@ -871,11 +916,22 @@ def _replace_whole_paragraphs(
         if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
             doomed = text_obj.createTextCursorByRange(rng.getStart())
             doomed.gotoRange(following.getEnd(), True)
+    else:
+        # Before the delete: on the emptied paragraph this reset cannot be undone, and
+        # Undo would bring the old text back without its font, size and language.
+        reset_direct_char_formatting(text_obj.createTextCursorByRange(rng))
     with _deletion_author():
         doomed.setString("")
     if recording:
         text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.goLeft(1, False)
+        # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
+        # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
+        with record_changes.record_changes(model, False):
+            _drop_absorb_paragraph_props(cursor)
+            reset_direct_char_formatting(cursor)
+    else:
+        _drop_absorb_paragraph_props(cursor)
     return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
@@ -920,9 +976,10 @@ def _insert_at_caret(
 ) -> html_import_styles.WriteReport:
     """Insert *content* at a collapsed *cursor* without splitting its paragraph.
 
-    - Empty paragraph: importing at the start of an empty paragraph neither merges nor
-      splits, and it is the only caret case where ``_lo_style_for_replaced_range``
-      allows ``data-lo-style``, so ``apply_styles`` matters only there.
+    - Empty paragraph (when not recording): importing at the start of an empty paragraph
+      neither merges nor splits, and it is the only caret case where
+      ``_lo_style_for_replaced_range`` allows ``data-lo-style``, so ``apply_styles``
+      matters only there.
     - Mixed math: the math path inserts segment by segment and still splits
       mid-paragraph, so it delegates to ``_insert_mixed_or_plain_html``.
     - Inline content (no block markup and no real newline): insert inline via
@@ -965,23 +1022,26 @@ def insert_content_at_position(
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
-    caret was mid-paragraph. When the selection is non-collapsed and *content* is
-    inline (no block markup, no real newline, no math), it replaces the selection in
-    place, keeping the host paragraph and its style with Track Changes on or off. Pass
-    *selection* to act on an explicit text range (such as a pinned Send-time selection)
-    instead of reading the live view.
+    caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
+    or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
+    the empty one so Reject restores its style and direct formatting. When the selection
+    is non-collapsed and *content* is inline (no block markup, no real newline, no math),
+    it replaces the selection in place, keeping the host paragraph and its style with Track
+    Changes on or off. Pass *selection* to act on an explicit text range (such as a pinned
+    Send-time selection) instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
     partial match.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        content = html_import_styles.decode_complete_character_references(swapped)
+        content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
         styled = position in ("beginning", "end")
         note = None
+        recording = record_changes.is_recording_changes(model)
         caret = False
         inline = False
         whole_paragraphs: Any | None = None
@@ -1016,7 +1076,18 @@ def insert_content_at_position(
                 cursor = _doc_end_cursor()
             else:
                 try:
-                    rng_text = rng.getText()
+                    try:
+                        rng_text = rng.getText()
+                    except AttributeError:
+                        raise
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        raise ToolExecutionError(
+                            "An image, shape, frame, object or block of cells is selected, not text; "
+                            "nothing was changed. Put the caret in the text (set_selection), "
+                            "or use target='search' with old_content.",
+                            code="SELECTION_NOT_TEXT",
+                        ) from None
                     cursor = rng_text.createTextCursorByRange(rng.getStart())
                     # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
                     # returns null when an endpoint sits outside the cell's text; without this
@@ -1035,7 +1106,6 @@ def insert_content_at_position(
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
                         raise_if_range_hosts_nested_table(rng)
-                        recording = record_changes.is_recording_changes(model)
                         # Inline content (plain text or inline tags, no newline, no math)
                         # replaces the selection in place, like typing over it. Otherwise
                         # ensure_html_linebreaks wraps it in <p>, which splits the host
@@ -1086,10 +1156,25 @@ def insert_content_at_position(
         # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(
-                text, cursor, position, recording=record_changes.is_recording_changes(model),
+                text, cursor, position, recording=recording,
             )
         if position == "end":
             report = _import_and_drop_leftover(model, ctx, cursor, content)
+        elif (
+            (caret or position == "beginning")
+            and recording
+            and cursor.isStartOfParagraph()
+            and cursor.isEndOfParagraph()
+        ):
+            # The import would reuse the empty paragraph's node, and Reject's join keeps that
+            # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
+            # into a fresh paragraph after it. After a trailing table the leftover stays: merged
+            # into a non-empty follower, Reject would join the empty paragraph into that follower
+            # and lose it.
+            cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            report = _import_and_drop_leftover(
+                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=False
+            )
         elif caret:
             report = _insert_at_caret(model, ctx, cursor, content, styled)
         elif inline:
@@ -1119,7 +1204,7 @@ def _deletion_author() -> Any:
 
 
 def _drop_absorb_paragraph_props(cursor: Any) -> None:
-    """Drop direct paragraph and character formatting from the absorb paragraph before HTML import.
+    """Drop direct paragraph formatting and direct numbering from the absorb paragraph before HTML import.
 
     In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
     in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures direct paragraph
@@ -1129,20 +1214,13 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     (`RES_PARATR_TABSTOP`), those must be reset to default before `SetTextCollAttrs`
     stamps them onto every imported paragraph. Direct borders (`RES_BOX`) and
     `NumberingStyleName` (`RES_PARATR_NUMRULE`) sit outside that stamped range and
-    otherwise remain on the reused first paragraph. Character formatting left on the
-    emptied paragraph would likewise become direct formatting on every imported
-    paragraph. Clearing direct paragraph and character properties ensures imported
-    paragraphs take values from their own style (while keeping language); direct
-    formatting from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES`
+    otherwise remain on the reused first paragraph. Clearing direct paragraph
+    properties ensures imported paragraphs take values from their own style; direct
+    formatting from `data-lo-para` is applied later. Callers reset character
+    formatting separately because untracked whole-paragraph replaces must do that
+    before deleting the old text so Undo restores it. `CLEARABLE_PARA_PROPERTIES`
     remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
-    from .styles import (
-        CLEARABLE_PARA_PROPERTIES,
-        reset_direct_char_formatting,
-        reset_properties_to_default,
-    )
-
     reset_properties_to_default(
         cursor,
         CLEARABLE_PARA_PROPERTIES
@@ -1157,7 +1235,6 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
         ),
     )
     clear_direct_numbering(cursor)
-    reset_direct_char_formatting(cursor)
 
 
 def replace_full_document(
@@ -1174,17 +1251,33 @@ def replace_full_document(
     ``delete_leading_tables``.
     """
     with image_placeholders.keep_placeholder_images(model, content, pre_swapped=kept_images) as swapped:
-        content = html_import_styles.decode_complete_character_references(swapped)
+        content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
+        recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
+        sections = _sections_at(cursor)
+        if sections:
+            # Place the new paragraph before the outermost leading section (sections[-1]).
+            # Inline on purpose: a held SwXParagraph breaks later enumeration (SwXParagraph::attachToText).
+            with record_changes.record_changes(model, False):
+                text.insertTextContentBefore(model.createInstance("com.sun.star.text.Paragraph"), sections[-1])
+            if not recording:
+                page_style = cursor.getPropertyValue("PageDescName")
+                page_number = cursor.getPropertyValue("PageNumberOffset")
+                cursor.gotoStart(False)  # outside the section so it is deleted whole; recorded mode keeps cursor inside because selecting from the new paragraph deletes nothing when the doc is only a section
+                if page_style:
+                    cursor.setPropertyValue("PageDescName", page_style)
+                    cursor.setPropertyValue("PageNumberOffset", page_number)
         cursor.gotoEnd(True)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
-        if not record_changes.is_recording_changes(model):
+        if not recording:
             _drop_absorb_paragraph_props(cursor)
+            # Character formatting left on the emptied paragraph would become direct formatting on every imported paragraph.
+            reset_direct_char_formatting(cursor)
             return _import_and_drop_leftover(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -1193,14 +1286,17 @@ def replace_full_document(
         # the data-lo-style pass then keeps it as a "hand-set" override).
         # Import into a fresh empty paragraph opened before the deleted
         # text, then drop that paragraph if it is left over empty
-        # (`_drop_leftover_paragraph`).
-        text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
-        cursor.goLeft(1, False)
+        # (`_drop_leftover_paragraph`). When sections is non-empty,
+        # insertTextContentBefore already created that fresh paragraph.
+        if not sections:
+            text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
+            cursor.goLeft(1, False)
         # Untracked: the fresh absorb paragraph is new, so a recorded reset
         # would add a FORMAT redline; the deleted paragraph below keeps its
         # direct props for Reject.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
+            reset_direct_char_formatting(cursor)
         return _import_and_drop_leftover(model, ctx, cursor, content)
 
 
@@ -1217,7 +1313,7 @@ def replace_single_range_with_content(
     Returns the WriteReport for this replacement.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        prepared = html_import_styles.decode_complete_character_references(swapped)
+        prepared = html_import_styles.normalize_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
@@ -1399,7 +1495,7 @@ def replace_xtext_with_html(
             if count > 1 and last is not None and not _uno_service_true(prev, "com.sun.star.text.TextTable"):
                 if not last.getString():
                     # Check for fields/portions before deleting
-                    has_content = _paragraph_has_non_text_portion(last)
+                    has_content = paragraph_has_non_text_portion(last)
                     if not has_content:
                         # To actually remove the trailing break, select from the end of the previous paragraph
                         # to the end of the document, and set String to empty.
@@ -1417,11 +1513,12 @@ def replace_xtext_with_html(
     try:
         outcome = commit_or_rollback(model, title, mutate)
     except UndoUnavailable:
-        raise ToolExecutionError("Could not enter undo context for header/footer import.")
+        raise ToolExecutionError("Could not enter undo context for header/footer import.", code="UNDO_UNAVAILABLE")
 
     if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
         raise ToolExecutionError(
-            f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
+            f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}",
+            code="ROLLBACK_FAILED",
         )
     outcome.raise_mutate_error()
     return report

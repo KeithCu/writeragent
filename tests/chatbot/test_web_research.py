@@ -1802,3 +1802,81 @@ def test_run_web_agent_prints_nothing(capsys):
     result = _run_web_agent(ctx, "secret-query", None, params)
     assert result == "web-answer"
     assert capsys.readouterr().out == ""
+
+
+def test_web_research_agent_keeps_partial_observations_and_step_budget():
+    from plugin.contrib.smolagents.models import ChatMessageToolCall, ChatMessageToolCallFunction
+    from plugin.contrib.smolagents.monitoring import LogLevel
+    from plugin.contrib.smolagents.tools import Tool
+
+    class _SearchTool(Tool):
+        name = "search_web"
+        description = "Search."
+        inputs = {"q": {"type": "string", "description": "query"}}
+        output_type = "string"
+
+        def forward(self, q: str) -> str:
+            return f"results for {q}"
+
+    class _FinalTool(Tool):
+        name = "final_answer"
+        description = "Finish."
+        inputs = {"answer": {"type": "string", "description": "answer"}}
+        output_type = "string"
+
+        def forward(self, answer: str) -> str:
+            return answer
+
+    seen: list[str] = []
+
+    def _gen(messages, **kwargs):
+        del kwargs
+        text = "\n".join(
+            "\n".join(str(p.get("text", p)) if isinstance(p, dict) else str(p) for p in m.content)
+            if isinstance(m.content, list)
+            else str(m.content or "")
+            for m in messages
+        )
+        seen.append(text)
+        if len(seen) == 1:
+            return ChatMessage(
+                role=MessageRole.ASSISTANT,
+                content="",
+                tool_calls=[
+                    ChatMessageToolCall(
+                        function=ChatMessageToolCallFunction(name="search_web", arguments={"q": "alpha"}),
+                        id="c1",
+                        type="function",
+                    ),
+                    ChatMessageToolCall(
+                        function=ChatMessageToolCallFunction(name="no_such_tool", arguments={}),
+                        id="c2",
+                        type="function",
+                    ),
+                ],
+            )
+        return ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="final_answer", arguments={"answer": "ok"}),
+                    id="c3",
+                    type="function",
+                )
+            ],
+        )
+
+    model = MagicMock()
+    model.generate.side_effect = _gen
+    agent = WebResearchToolCallingAgent(
+        tools=[_SearchTool(), _FinalTool()],
+        model=model,
+        max_steps=4,
+        final_answer_tool_name="final_answer",
+        verbosity_level=LogLevel.OFF,
+    )
+
+    assert agent.run("q") == "ok"
+    assert "results for alpha" in seen[1]
+    assert "1 step(s) used" in seen[1]

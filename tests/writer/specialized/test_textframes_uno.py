@@ -6,9 +6,16 @@
 
 import os
 
+from plugin.draw.shapes import UpsertShape
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-from plugin.writer.specialized.textframes import FrameDelete, FrameGetInfo, FrameInsert, FrameList
+from plugin.writer.specialized.textframes import (
+    FrameDelete,
+    FrameGetInfo,
+    FrameInsert,
+    FrameList,
+    FrameSetProperties,
+)
 from plugin.writer.structural import GetPageObjects
 from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
@@ -290,3 +297,56 @@ def test_frame_insert_record_mode_inline_and_anchored_search_uno(ctx, doc):
         assert text.getString() == "hello PARA world"
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_docx_text_box_set_properties_refused_uno(ctx, doc):
+    reloaded, docx_path = build_docx_objects_doc(ctx, doc)
+    try:
+        tctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
+        frame = reloaded.getTextFrames().getByName("Frame1")
+        orig_hori_orient = frame.getPropertyValue("HoriOrient")
+        orig_hori_pos = frame.getPropertyValue("HoriOrientPosition")
+
+        dp = reloaded.getDrawPage()
+        shape = next(
+            dp.getByIndex(i)
+            for i in range(dp.getCount())
+            if dp.getByIndex(i).getName() == "Text Box 2"
+        )
+        orig_size = shape.getSize()
+
+        res1 = FrameSetProperties().execute(tctx, name="Frame1", hori_orient=1)
+        assert res1.get("status") == "error", res1
+        assert res1.get("code") == "TEXT_BOX_SHAPE", res1
+        assert frame.getPropertyValue("HoriOrient") == orig_hori_orient
+        assert frame.getPropertyValue("HoriOrientPosition") == orig_hori_pos
+
+        res2 = FrameSetProperties().execute(tctx, name="Frame1", width_mm=90.0, height_mm=50.0)
+        assert res2.get("status") == "error", res2
+        assert res2.get("code") == "TEXT_BOX_SHAPE", res2
+        assert shape.getSize().Width == orig_size.Width
+        assert shape.getSize().Height == orig_size.Height
+
+        up = UpsertShape().execute(
+            tctx,
+            action="edit",
+            index=res2["details"]["shape_index"],
+            width=9000,
+            height=5000,
+        )
+        assert up.get("status") == "ok", up
+        new_shape_size = shape.getSize()
+        assert abs(new_shape_size.Width - 9000) <= 20, new_shape_size.Width
+        assert abs(new_shape_size.Height - 5000) <= 20, new_shape_size.Height
+        new_frame_size = reloaded.getTextFrames().getByName("Frame1").getPropertyValue("Size")
+        assert abs(new_frame_size.Width - new_shape_size.Width) <= 20
+        assert abs(new_frame_size.Height - new_shape_size.Height) <= 20
+    finally:
+        try:
+            reloaded.close(True)
+        except Exception:
+            pass
+        if os.path.exists(docx_path):
+            os.unlink(docx_path)

@@ -1976,8 +1976,7 @@ def child_pack_result(
     list or a split_grid envelope. Inside a small list, cells are copied
     unchanged, and ``None`` stays ``None``; ``np.int64``, ``Decimal``, and
     ``Fraction`` pass through. ``to_wire`` (depth 64) must coerce those
-    containers, on object-ndarray ``tolist()`` output, and on
-    datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
+    containers and datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """
     # crosshair: off
     if _depth > _MAX_UNPACK_DEPTH:

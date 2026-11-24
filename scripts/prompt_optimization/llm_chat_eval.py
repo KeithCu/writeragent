@@ -262,9 +262,9 @@ def _is_tool_mutating(name: str) -> bool:
     if name == SPECIALIZED_FINISH:
         return False
     try:
-        from eval_catalog import _headless_registry
+        from eval_catalog import headless_registry
 
-        tool = _headless_registry().get(name)
+        tool = headless_registry().get(name)
         if tool is not None:
             return bool(tool.detects_mutation())
     except Exception:

@@ -1558,3 +1558,59 @@ def test_full_html_struck_range_with_comment_stays_one_paragraph_uno(ctx, doc):
     p_texts = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
     assert len(p_texts) == 1, html
     assert "Keep" in p_texts[0] and "rest" in p_texts[0], html
+
+
+@native_test
+@with_native_doc("writer")
+def test_titled_frame_omits_title_from_content_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("TitledFrame")
+    frame.setPropertyValue("Title", "SecretFrameTitle")
+    frame.setPropertyValue("Width", 2000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.getText().setString("FrameBody")
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "FrameBody" in html
+    assert "SecretFrameTitle" not in html
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
+    import re
+
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "BoldPara", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Keep StruckRun", False)
+
+    bold_cur = text.createTextCursorByRange(text.getStart())
+    bold_cur.gotoEndOfParagraph(True)
+    bold_cur.setPropertyValue("CharWeight", 150.0)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoEnd(False)
+        del_cur.goLeft(len("StruckRun"), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "StruckRun" not in html
+    blocks = re.findall(r"<p\b.*?</p>", re.sub(r"\s+", " ", html))
+    bold_block = next(b for b in blocks if "BoldPara" in b)
+    keep_block = next(b for b in blocks if "Keep" in b)
+    bold_open = bold_block.split(">", 1)[0]
+    keep_open = keep_block.split(">", 1)[0]
+    assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
+    assert "data-lo-para=" not in keep_open, keep_block

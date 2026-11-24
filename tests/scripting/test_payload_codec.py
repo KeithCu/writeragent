@@ -1991,21 +1991,23 @@ def test_numpy_complex_scalar_keeps_imaginary_part() -> None:
     if payload_codec.fast_flatten_grid_2d is not None:
         _check()
 
-    obj = np.empty((BINARY_MIN_CELLS, 3), dtype=object)
+    obj = np.empty((BINARY_MIN_CELLS, 2), dtype=object)
     for row in range(BINARY_MIN_CELLS):
         obj[row, 0] = cells[0]
         obj[row, 1] = cells[1]
-        obj[row, 2] = cells[2]
     assert type(obj[0, 0]) is np.complex64
     assert type(obj[0, 1]) is np.complex128
-    assert type(obj[0, 2]) is np.clongdouble
     packed = serialize_result(obj)
     assert is_split_grid(packed)
     assert "2j" in packed["strings"][0]
     assert "2j" in packed["strings"][1]
-    assert "2j" in packed["strings"][2]
     restored = host_unpack_data(packed)
-    assert restored[0] == [str(cell) for cell in cells]
+    assert restored[0] == [str(cell) for cell in cells[:2]]
+
+    bad_obj = np.empty((BINARY_MIN_CELLS, 1), dtype=object)
+    bad_obj[:] = np.clongdouble(1 + 2j)
+    with pytest.raises(ValueError, match="clongdouble"):
+        serialize_result(bad_obj)
 
 
 def test_flatten_overflow_fraction_is_text_without_accelerator() -> None:

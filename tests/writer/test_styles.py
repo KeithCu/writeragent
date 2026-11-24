@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
-import sys
 from contextlib import contextmanager
 
 import pytest
 from plugin.writer.search import MatchMode
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
+from plugin.writer import styles
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleFormatText,
     StyleCreate, StyleClone, StyleImport, StyleUpdate,
@@ -676,12 +676,8 @@ def test_create_style_conditional():
 
 @patch("os.path.isfile", return_value=True)
 @patch("plugin.writer.styles.uno")
-@patch("plugin.writer.styles.PropertyValue")
-def test_import_styles(mock_pv, mock_uno, mock_isfile, mock_ctx):
+def test_import_styles(mock_uno, mock_isfile, mock_ctx):
     mock_uno.systemPathToFileUrl.return_value = "file:///path/to/doc.ott"
-
-    pv_instance = MagicMock()
-    mock_pv.return_value = pv_instance
 
     tool = StyleImport()
     # abspath adds a drive letter on Windows, where "/path/..." alone is not absolute.
@@ -806,7 +802,7 @@ def _fake_uno_struct_factory():
     __dict__, and test_tracking's "Date struct missing" case depends on it being
     absent. Restore the attribute's presence, not just its value.
     """
-    uno_mod = sys.modules["uno"]
+    uno_mod = styles.uno
     had = "createUnoStruct" in uno_mod.__dict__
     previous = uno_mod.__dict__.get("createUnoStruct")
     uno_mod.createUnoStruct = lambda _name: _FakeLineSpacing()
@@ -820,8 +816,6 @@ def _fake_uno_struct_factory():
 
 
 def _normalize_with_fake_struct(updates):
-    from plugin.writer import styles
-
     with _fake_uno_struct_factory():
         return styles._normalize_property_updates(updates)
 
@@ -900,11 +894,9 @@ def test_simple_values_read_back_unchanged():
 
 
 def test_tab_stops_are_set_through_a_typed_sequence():
-    from plugin.writer import styles
-
     style = MagicMock()
     value = (object(),)
-    with patch("uno.invoke") as invoke, patch("uno.Any") as any_:
+    with patch.object(styles.uno, "invoke") as invoke, patch.object(styles.uno, "Any") as any_:
         styles._set_style_property(style, "ParaTabStops", value)
     any_.assert_called_once_with("[]com.sun.star.style.TabStop", value)
     assert invoke.call_args.args[1] == "setPropertyValue"
@@ -912,8 +904,6 @@ def test_tab_stops_are_set_through_a_typed_sequence():
 
 
 def test_plain_properties_use_set_property_value():
-    from plugin.writer import styles
-
     style = MagicMock()
     styles._set_style_property(style, "CharWeight", 150)
     style.setPropertyValue.assert_called_once_with("CharWeight", 150)
@@ -1776,56 +1766,6 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         assert res["code"] == "ROLLBACK_FAILED"
 
 
-
-
-
-
-# --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
-
-
-class _MultiStatesCursor:
-    """Range that supports XMultiPropertyStates (the normal LibreOffice text cursor)."""
-
-    def __init__(self):
-        self.cleared = None
-
-    def setPropertiesToDefault(self, names):
-        self.cleared = tuple(names)
-
-
-class _SingleStateCursor:
-    """Range without the multi variant — exercises the one-at-a-time fallback."""
-
-    def __init__(self, unsupported=()):
-        self.cleared = []
-        self._unsupported = set(unsupported)
-
-    def setPropertyToDefault(self, name):
-        if name in self._unsupported:
-            raise RuntimeError("unsupported property: %s" % name)
-        self.cleared.append(name)
-
-
-def test_clear_direct_paragraph_properties_uses_multi_variant():
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
-
-    assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
-    assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
-
-
-def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
-    from plugin.writer import styles as st
-
-    cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
-
-    assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
-    assert "ParaSplit" not in cleared  # reported honestly as not cleared
-
-
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import styles as st
 
@@ -1859,24 +1799,6 @@ def test_summarize_char_overrides_reports_asian_complex():
     assert summary["CharFontNameComplex"] == "Tahoma"
     assert summary["CharHeightAsian"] == 10.5
     assert summary["CharHeightComplex"] == 11.0
-
-
-def test_reset_properties_to_default_is_a_noop_on_empty_names():
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    assert st.reset_properties_to_default(cursor, ()) == []
-    assert cursor.cleared is None  # never call UNO with an empty set
-
-
-def test_reset_properties_to_default_takes_the_caller_s_names():
-    """The clear is scoped by the caller — style_props clears the font, all clears what was found."""
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    st.reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
-
-    assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 
 
 def _make_style_doc(style_default=100):
@@ -2349,15 +2271,15 @@ def test_style_format_text_warns_when_font_not_installed():
 
 def test_style_format_text_tab_stops_use_typed_sequence():
     cursor = _noncollapsed_cursor()
-    uno_mod = sys.modules["uno"]
+    uno_mod = styles.uno
     had = "createUnoStruct" in uno_mod.__dict__
     previous = uno_mod.__dict__.get("createUnoStruct")
     uno_mod.createUnoStruct = lambda _name: _FakeStruct(Position=0, Alignment="LEFT", DecimalChar=".", FillChar=" ")
     try:
         with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
              patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
-             patch("uno.invoke") as invoke, \
-             patch("uno.Any") as any_:
+             patch.object(styles.uno, "invoke") as invoke, \
+             patch.object(styles.uno, "Any") as any_:
             res = StyleFormatText().execute(_font_ctx(), properties={"ParaTabStops": [{"Position": 2000}]})
         assert res["status"] == "ok"
         any_.assert_called_once()
@@ -2579,15 +2501,8 @@ def test_apply_style_recording_passes_author_and_toggles_record_changes():
     assert rec[0] is True
 
 
-def test_record_paragraph_formats_failure_and_disposal(monkeypatch: pytest.MonkeyPatch):
-    from types import SimpleNamespace
+def test_record_paragraph_formats_failure_and_disposal():
     from plugin.framework.errors import DocumentDisposedError
-
-    monkeypatch.setitem(
-        sys.modules,
-        "uno",
-        SimpleNamespace(Any=lambda _t, v: v, createUnoStruct=lambda _name: SimpleNamespace()),
-    )
 
     def _empty_enum():
         e = MagicMock()
@@ -2667,3 +2582,252 @@ def test_paragraph_revert_states_incomplete_walk_and_enum_error():
         fmt._paragraph_revert_states(bad_cursor, "Heading 1")
 
 
+def test_apply_style_review_mode_passes_author_on_non_recording_doc():
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: False if name == "RecordChanges" else None
+    cursor = MagicMock()
+    seen_authors: list[str | None] = []
+
+    def fake_apply(_doc, _cur, _style, _clear_direct, *, author=None):
+        seen_authors.append(author)
+        return {"direct_formatting": "preserved", "clear_direct": "none", "tracked": True}
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"), \
+         patch("plugin.writer.styles.paragraph_redline_author", return_value="WriterAgent"), \
+         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply):
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="selection")
+
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert seen_authors == ["WriterAgent"]
+    for call in ctx.doc.setPropertyValue.call_args_list:
+        assert call.args[0] != "RecordChanges"
+
+
+def _fake_portion(kind: str, *, text: str = "", is_start: bool = True, ident: str = "1") -> MagicMock:
+    p = MagicMock()
+    if kind == "Text":
+        p.getPropertyValue.side_effect = lambda n: "Text" if n == "TextPortionType" else None
+        p.getString.return_value = text
+    else:
+        props = {
+            "TextPortionType": "Redline",
+            "RedlineType": kind,
+            "IsStart": is_start,
+            "RedlineIdentifier": ident,
+        }
+        p.getPropertyValue.side_effect = lambda n: props.get(n)
+    return p
+
+
+@pytest.mark.parametrize(
+    ("portions", "expected"),
+    [
+        # Whole-paragraph Format before ParagraphFormat -> True
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+                _fake_portion("Format", is_start=False, ident="1"),
+            ],
+            True,
+        ),
+        # ParagraphFormat first -> False
+        (
+            [
+                _fake_portion("ParagraphFormat", is_start=True, ident="1"),
+                _fake_portion("Format", is_start=True, ident="2"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("Format", is_start=False, ident="2"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="1"),
+            ],
+            False,
+        ),
+        # Partial Format (ends before text finishes) -> False
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hel"),
+                _fake_portion("Format", is_start=False, ident="1"),
+                _fake_portion("Text", text="lo"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+            ],
+            False,
+        ),
+        # Second Format starts mid-paragraph and ends at end -> False
+        (
+            [
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hel"),
+                _fake_portion("Format", is_start=True, ident="3"),
+                _fake_portion("Text", text="lo"),
+                _fake_portion("Format", is_start=False, ident="3"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+            ],
+            False,
+        ),
+        # No ParagraphFormat -> False
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("Format", is_start=False, ident="1"),
+            ],
+            False,
+        ),
+    ],
+)
+def test_format_reject_drops_paragraph_restore(portions: list[MagicMock], expected: bool):
+    from plugin.writer.styles import _format_reject_drops_paragraph_restore
+
+    para = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    enum.nextElement.side_effect = portions
+    para.createEnumeration.return_value = enum
+    assert _format_reject_drops_paragraph_restore(para) is expected
+
+
+def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.writer.styles import apply_to_cursors
+
+    ctx = _style_ctx()
+    tool = ApplyStyle()
+    open_outcome = UndoOutcome(mutate_error=ValueError("x"), group_closed=False)
+    with patch("plugin.writer.styles.commit_or_rollback", return_value=open_outcome):
+        reports, err = apply_to_cursors(tool, ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
+
+    assert reports == []
+    assert err is not None
+    assert "Nothing was changed" not in err["message"]
+    assert "undo step could not be closed" in err["message"]
+
+
+def test_coerce_uno_field_builds_enum_and_char_from_strings():
+    class _FakeEnum:
+        def __init__(self, type_name: str, value: str) -> None:
+            if value not in {"LEFT", "CENTER", "RIGHT"}:
+                raise ValueError(f"unknown enum member: {value}")
+            self.typeName = type_name
+            self.value = value
+
+    class _FakeChar:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class _Struct:
+        Alignment = _FakeEnum("com.sun.star.style.TabAlign", "LEFT")
+        FillChar = _FakeChar(" ")
+
+    struct = _Struct()
+    with patch.object(styles.uno, "Enum", _FakeEnum), patch.object(styles.uno, "Char", _FakeChar):
+        aligned = styles._coerce_uno_field(struct, "Alignment", " right ")
+        assert isinstance(aligned, _FakeEnum)
+        assert aligned.typeName == "com.sun.star.style.TabAlign"
+        assert aligned.value == "RIGHT"
+
+        fill = styles._coerce_uno_field(struct, "FillChar", "..")
+        assert isinstance(fill, _FakeChar)
+        assert fill.value == "."
+
+        assert styles._coerce_uno_field(struct, "Alignment", "SIDEWAYS") == "SIDEWAYS"
+
+
+def test_paragraph_revert_states_skips_void_values_and_names_unrestorable():
+    from types import SimpleNamespace
+    from typing import Any
+
+    info_names = (
+        "ParaStyleName",
+        "NumberingStyleName",
+        "ListLabelString",
+        "NumberingRules",
+        "ParaLeftMargin",
+        "ParaRegisterModeActive",
+        "DropCapCharStyleName",
+        "ParRsid",
+        "TopBorderComplexColor",
+        "CharFontName",
+    )
+
+    def _make_para(values: dict[str, Any], direct_names: set[str]):
+        def _empty_enum():
+            e = MagicMock()
+            e.hasMoreElements.return_value = False
+            return e
+
+        def _get_val(name: str):
+            if name not in info_names:
+                raise KeyError(f"Unknown property: {name}")
+            return values.get(name)
+
+        def _get_states(names: tuple[str, ...]):
+            return [
+                SimpleNamespace(value="DIRECT_VALUE" if n in direct_names else "DEFAULT_VALUE")
+                for n in names
+            ]
+
+        para = MagicMock()
+        para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+        para.getPropertySetInfo.return_value.getProperties.return_value = [
+            SimpleNamespace(Name=n, Attributes=0) for n in info_names
+        ]
+        para.getPropertyValue.side_effect = _get_val
+        para.getPropertyStates.side_effect = _get_states
+        para.createEnumeration.side_effect = _empty_enum
+        return para
+
+    para1 = _make_para(
+        {
+            "ParaStyleName": "Standard",
+            "NumberingStyleName": "",
+            "ListLabelString": "",
+            "ParaLeftMargin": None,
+            "ParaRegisterModeActive": True,
+            "DropCapCharStyleName": "Emphasis",
+            "ParRsid": 5,
+            "TopBorderComplexColor": None,
+        },
+        {"ParaLeftMargin", "ParaRegisterModeActive", "DropCapCharStyleName", "ParRsid", "TopBorderComplexColor"},
+    )
+    cursor1 = MagicMock()
+    enum1 = MagicMock()
+    enum1.hasMoreElements.side_effect = [True, False]
+    enum1.nextElement.return_value = para1
+    cursor1.createEnumeration.return_value = enum1
+
+    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
+         patch("plugin.writer.styles.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)):
+        states, incomplete = styles._paragraph_revert_states(cursor1, "Heading 1")
+
+    assert incomplete is False
+    assert len(states) == 1
+    captured_names = [p.Name for p in states[0].properties]
+    assert captured_names == ["ParaStyleName", "ParaRegisterModeActive"]
+    assert states[0].unrestorable == ("DropCapCharStyleName",)
+
+    para2 = _make_para(
+        {
+            "ParaStyleName": "Standard",
+            "NumberingStyleName": "",
+            "ListLabelString": "",
+            "ParRsid": 5,
+        },
+        {"ParRsid"},
+    )
+    cursor2 = MagicMock()
+    enum2 = MagicMock()
+    enum2.hasMoreElements.side_effect = [True, False]
+    enum2.nextElement.return_value = para2
+    cursor2.createEnumeration.return_value = enum2
+
+    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()):
+        states2, incomplete2 = styles._paragraph_revert_states(cursor2, "Standard")
+
+    assert incomplete2 is False
+    assert states2 == []

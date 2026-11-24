@@ -826,3 +826,91 @@ def test_coerce_color_properties_keep_integer():
     assert top_hits >= 1
     assert nested_hits >= 1
     assert list_hits >= 1
+
+
+def test_coerce_drops_nested_optional_nulls_only_when_not_nullable():
+    import copy
+    from plugin.framework.tool_schema import coerce_call_args
+
+    props = {
+        "style_props": {
+            "type": "object",
+            "properties": {
+                "CharColor": {"type": ["string", "integer"]},
+                "CharHeight": {"type": "number"},
+                "RequiredProp": {"type": "string"},
+                "NullableListType": {"type": ["string", "null"]},
+                "RemoteNullable": {"type": "string", "nullable": True},
+                "EnumWithNull": {"type": "string", "enum": ["a", None]},
+                "UntypedAnyOf": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+            },
+            "required": ["RequiredProp"],
+        },
+        "fields": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "label": {"type": "string"},
+                    "value": {"type": ["string", "null"]},
+                },
+                "required": ["name", "value"],
+            },
+        },
+        "tables": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "sheet": {"type": "string"},
+                    "headers": {"type": "boolean"},
+                },
+            },
+        },
+        "str_map": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "tag_list": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    }
+    raw = {
+        "style_props": {
+            "CharColor": None,
+            "CharHeight": 12,
+            "RequiredProp": None,
+            "NullableListType": None,
+            "RemoteNullable": None,
+            "EnumWithNull": None,
+            "UntypedAnyOf": None,
+            "Undeclared": None,
+        },
+        "fields": [
+            {"name": "f1", "label": None, "value": None},
+        ],
+        "tables": {
+            "t": '{"sheet": "S1", "headers": null}',
+        },
+        "str_map": {"k": None},
+        "tag_list": [None, "x"],
+    }
+    snapshot = copy.deepcopy(raw)
+    out = coerce_call_args(props, raw)
+
+    assert raw == snapshot
+    assert out["style_props"] == {
+        "CharHeight": 12,
+        "RequiredProp": None,
+        "NullableListType": None,
+        "RemoteNullable": None,
+        "EnumWithNull": None,
+        "UntypedAnyOf": None,
+        "Undeclared": None,
+    }
+    assert out["fields"] == [{"name": "f1", "value": None}]
+    assert out["tables"] == {"t": {"sheet": "S1"}}
+    assert out["str_map"] == {"k": None}
+    assert out["tag_list"] == [None, "x"]

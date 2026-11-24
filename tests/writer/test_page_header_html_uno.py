@@ -1235,3 +1235,143 @@ def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_
     html = xtext_to_content(header, doc, ctx)
     assert "gone" not in html, html
     assert html.count('data-numbering-type="ROMAN_UPPER"') == 1, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_delete_recorded_round_trip_stays_deleted_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.page import PageSetStyleProperties, _scan_region_content
+    from plugin.writer.specialized.tables import TableDelete
+
+    style, style_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "top", False)
+    header.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    header.insertTextContent(cur, tbl, False)
+    for cell_name in ("A1", "B1", "A2", "B2"):
+        tbl.getCellByName(cell_name).setString(cell_name)
+    a1 = tbl.getCellByName("A1")
+    a1_cur = a1.createTextCursor()
+    a1_cur.gotoEnd(False)
+    a1.insertTextContent(a1_cur, doc.createInstance("com.sun.star.text.textfield.PageNumber"), False)
+    cur.gotoEnd(False)
+    header.insertString(cur, "tail", False)
+
+    ctrl = doc.getCurrentController()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_res = TableDelete().execute(_tool_ctx(doc, ctx), name=tbl.getName())
+        assert del_res["status"] == "ok", del_res
+        assert del_res.get("pending_review") is True, del_res
+        assert "T" in _header_structure(header), _header_structure(header)
+
+        got = _get(doc, ctx, "header")
+        assert got["status"] == "ok"
+        assert "<table" not in got["content"], got["content"]
+        assert got.get("fields", []) == [], got
+        assert got["paragraph_count"] == 2, got
+        assert _scan_region_content(doc, header)["has_struck"] is True
+        off_res = PageSetStyleProperties().execute(
+            _tool_ctx(doc, ctx), style=style_name, header_is_on=False,
+        )
+        assert off_res["status"] == "error"
+
+        assert _set(doc, ctx, "header", got["content"]).get("status") == "ok"
+        execute_dispatch(ctx, ctrl, ".uno:AcceptAllTrackedChanges")
+        assert "T" not in _header_structure(header), _header_structure(header)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_cell_text_struck_keeps_table_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "top", False)
+    header.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(cur, tbl, False)
+    a1 = tbl.getCellByName("A1")
+    a1.setString("cell text")
+    cur.gotoEnd(False)
+    header.insertString(cur, "tail A", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        c = a1.createTextCursor()
+        c.gotoStart(False)
+        c.gotoEnd(True)
+        c.setString("")
+        got = _get(doc, ctx, "header")
+        assert got["status"] == "ok"
+        assert "<table" in got["content"], got["content"]
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert "T" in _header_structure(header), _header_structure(header)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_second_recorded_write_not_duplicated_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "top ", False)
+    cur.gotoEnd(False)
+    header.insertTextContent(cur, doc.createInstance("com.sun.star.text.textfield.PageNumber"), False)
+    header.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 2)
+    header.insertTextContent(cur, tbl, False)
+    a1 = tbl.getCellByName("A1")
+    a1.insertTextContent(a1.createTextCursor(), doc.createInstance("com.sun.star.text.textfield.PageCount"), False)
+    cur.gotoEnd(False)
+    header.insertString(cur, "tail", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        for _idx in range(2):
+            got = _get(doc, ctx, "header")
+            assert got["status"] == "ok"
+            assert got["content"].count("<table") == 1, got["content"]
+            assert len(got.get("fields", [])) == 2, got
+            assert _set(doc, ctx, "header", got["content"]).get("status") == "ok"
+        got_before_accept = _get(doc, ctx, "header")
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        structure = _header_structure(header)
+        assert structure.count("T") == 1, structure
+        assert got_before_accept["paragraph_count"] == len(structure), (got_before_accept, structure)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_cell_fields_listed_uno(ctx, doc):
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    a1 = tbl.getCellByName("A1")
+    a1.insertTextContent(a1.createTextCursor(), doc.createInstance("com.sun.star.text.textfield.PageNumber"), False)
+
+    got = _get(doc, ctx, "header")
+    assert got["status"] == "ok"
+    assert len(got.get("fields", [])) == 1, got

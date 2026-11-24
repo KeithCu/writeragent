@@ -812,3 +812,20 @@ def test_scan_page_text_box_frame_read_failure(monkeypatch, exc, expect_disposed
         result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
         assert [s["name"] for s in result["shapes"]] == ["BrokenBox"]
         assert result["frames"] == []
+
+
+@pytest.mark.parametrize("kwargs", [{"page": 0}, {"paragraph": 0}, {}])
+def test_get_page_objects_no_view_cursor_returns_tool_error(kwargs):
+    tool = GetPageObjects()
+    doc = _make_doc()
+    doc.getCurrentController.return_value.getViewCursor.side_effect = AttributeError("getViewCursor")
+    doc_svc = MagicMock()
+    doc_svc.get_page_count.return_value = 1
+    doc_svc.get_page_for_paragraph.return_value = 1
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = doc_svc
+
+    res = tool.execute(ctx, **kwargs)
+    assert res["status"] == "error"
+    assert "Cannot resolve view cursor page:" in res["message"]

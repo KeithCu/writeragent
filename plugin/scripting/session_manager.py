@@ -20,6 +20,7 @@ from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import is_scratch_document
 from plugin.framework.thread_guard import guard_uno, unwrap_uno
 from plugin.framework.uno_context import get_desktop, iter_open_models, product_display_name
 from plugin.notebook.cell_registry import has_notebook_registry, load_registry, save_registry
@@ -86,6 +87,7 @@ def _doc_url(raw_doc: Any) -> str:
 
 
 def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
+    """Open models matching *predicate*. Registered scratch documents (hidden helpers and research copies) never match: the user did not open them, so they must not be reset or make the only open document ambiguous."""
     # get_desktop runs before iter_open_models' own guard; a desktop that is going
     # away (createInstanceWithContext raising) means no document matches.
     try:
@@ -96,11 +98,17 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
     matches: list[Any] = []
     for model in iter_open_models(desktop, strict=False, label=label):
         try:
-            if predicate(model):
+            if predicate(model) and not is_scratch_document(model):
                 matches.append(guard_uno(model))
         except Exception:
             log.debug("session_manager: predicate failed; skipping model", exc_info=True)
     return matches
+
+
+def only_open_calc_document(ctx: Any) -> Any | None:
+    """The only open workbook; None when none or several are open, because enumeration order is not focus."""
+    matches = _enumerated_matching_models(ctx, is_calc)
+    return matches[0] if len(matches) == 1 else None
 
 
 def focused_calc_document(ctx: Any) -> Any | None:
@@ -128,10 +136,7 @@ def focused_calc_document(ctx: Any) -> Any | None:
             reraise_if_disposed(e, "Focused document was closed", object_type="document")
             log.debug("session_manager: focused component unusable", exc_info=True)
 
-    matches = _enumerated_matching_models(ctx, is_calc)
-    if len(matches) == 1:
-        return matches[0]
-    return None
+    return only_open_calc_document(ctx)
 
 
 # Chat python_run_script pins ctx.doc for one execute. PyUNO models

@@ -445,3 +445,24 @@ def test_clone_heading_block_hides_multi_para_tracked_deletion_uno(ctx, doc):
     body = text.getString()
     assert body.count("Keep") == 2, body
     assert body.count("gone") == 3, body  # only the original struck text, not cloned
+
+
+@native_test
+def test_get_page_objects_print_preview_returns_tool_error_uno(ctx):
+    from plugin.framework.uno_context import get_desktop, get_service_manager
+
+    desktop = get_desktop(ctx)
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+    try:
+        dispatcher = get_service_manager(ctx).createInstanceWithContext(
+            "com.sun.star.frame.DispatchHelper", ctx
+        )
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:PrintPreview", "", 0, ())
+        tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        tool = GetPageObjects()
+        for kwargs in ({"page": 0}, {"paragraph": 0}, {}):
+            res = tool.execute(tctx, **kwargs)
+            assert res.get("status") == "error", res
+            assert "Cannot resolve view cursor page:" in res.get("message", ""), res
+    finally:
+        doc.close(True)

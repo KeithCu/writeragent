@@ -24,7 +24,7 @@ from typing import Any, Generator, NamedTuple, NoReturn
 from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
-from .range_copy import table_is_all_deleted
+from .range_copy import GRAPHIC_LAYOUT_PROPS, table_is_all_deleted
 from .record_changes import is_recording_changes, redline_kinds_covering
 
 log = logging.getLogger("writeragent.writer")
@@ -66,11 +66,7 @@ _1PX_PNG_DATA_URI = (
 )
 
 # Frame properties copied onto the restored picture (read with try: not all exist on every frame).
-_KEPT_IMAGE_PROPS = (
-    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrient", "VertOrientPosition",
-    "VertOrientRelation", "TextWrap", "SurroundContour", "LeftMargin", "RightMargin", "TopMargin",
-    "BottomMargin", "Title", "Description", "GraphicCrop", "Opaque",
-)
+_KEPT_IMAGE_PROPS = GRAPHIC_LAYOUT_PROPS + ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
 
 
 class _KeptImage(NamedTuple):
@@ -415,6 +411,13 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         # Known LibreOffice limit (checked live, recorded or not): with review on, a picture in a
         # cell of a table this edit inserts keeps "Reject all" from removing that table. Accept is
         # right; Reject leaves the new table behind. Without the picture it would be lost instead.
+        props = dict(image.props)
+        if props.get("HyperLinkURL"):
+            # Read the marker's link so an <a> the agent changed or removed wins over the original.
+            props["HyperLinkURL"] = uno_read(
+                lambda: found.getPropertyValue("HyperLinkURL"),
+                props["HyperLinkURL"],
+            )
         _insert_copy(
             model,
             found.getText(),
@@ -423,7 +426,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
             graphic=image.graphic,
             anchor=image.anchor,
             size=image.size,
-            props=image.props,
+            props=props,
             absorb=True,  # True: the marker text is replaced
         )
 

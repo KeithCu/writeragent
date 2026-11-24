@@ -360,4 +360,18 @@ def test_rename_of_one_sheet_keeps_other_sheets_spills(monkeypatch: pytest.Monke
     assert ("Sheet1", 0, 0) in state.spills
 
 
+def test_rename_keeps_geometric_registry_when_memory_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import plugin.calc.python.geometric_recalc as gr
+
+    doc = CalcDocStub(props={"RuntimeUID": "uid-rename-geom"})
+    stored = {"value": json.dumps({"version": 1, "sheets": {"Sheet1": {"A2": "A1"}}})}
+    monkeypatch.setattr(gr, "get_document_property", lambda _d, _n, default=None: stored["value"])
+    monkeypatch.setattr(gr, "set_document_property", lambda _d, _n, v: stored.__setitem__("value", v))
+
+    migrate_sheet_rename(doc, "Sheet1", "New")
+
+    assert json.loads(stored["value"])["sheets"] == {"New": {"A2": "A1"}}
+
+
 

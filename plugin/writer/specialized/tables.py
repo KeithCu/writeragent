@@ -22,8 +22,8 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
-from plugin.framework.uno_context import execute_dispatch, resolve_uno_context, uno_same
-from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
+from plugin.writer.html_import import paragraph_has_non_text_portion, run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
@@ -42,6 +42,7 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 _EMPTY_ROW_ANCHOR = "\u200d"
 # LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
 _UNO_TABLE_COLUMN_SUM = 10000
+_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1)."}
 
 
 def _tables(doc: Any) -> Any:
@@ -420,19 +421,37 @@ def _band_cell_names(table: Any, axis: str, idx: int) -> list[str]:
     return _column_band_cells(table, positions, idx)
 
 
-def _row_start_spanning_cell(table: Any, idx: int) -> tuple[str, int] | None:
-    """First cell starting in row *idx* whose RowSpan exceeds 1, or ``None``.
+def _row_spanning_cells(table: Any, idx: int) -> list[tuple[str, int]]:
+    """Cells starting in row *idx* whose RowSpan exceeds 1, left to right, with that span."""
+    spans = [
+        (name, int(table.getCellByName(name).getPropertyValue("RowSpan")))
+        for name in _band_cell_names(table, "row", idx)
+    ]
+    return [(name, span) for name, span in spans if span > 1]
 
-    sw/source/core/table/swnewtable.cxx:SwTable::PrepareDelBoxes transfers only the
-    remaining span to the covered box below, so deleting the start row drops its content.
-    SwTable::CreateSelection also grows the selection by an edge box's span, so a tracked
-    delete would mark the rows below for deletion too.
+
+def _cell_has_content(cell: Any) -> bool:
+    """True when *cell* holds text or any field, mark, comment, frame, picture or shape.
+
+    Raw text counts, so a pending tracked deletion is content: removing it would lose the
+    user's chance to reject it. AT_PARAGRAPH objects are not portions; only the paragraph's
+    content enumeration lists them (``SwXParagraph::createContentEnumeration``,
+    sw/source/core/unocore/unoparagraph.cxx). Nested tables are the caller's earlier check.
     """
-    for name in _band_cell_names(table, "row", idx):
-        row_span = int(table.getCellByName(name).getPropertyValue("RowSpan"))
-        if row_span > 1:
-            return name, row_span
-    return None
+    if cell.getString().strip("\n"):
+        return True
+    return any(
+        paragraph_has_non_text_portion(para, ignore_markers=True)
+        or enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent"))
+        for para in iter_elements(cell.createEnumeration())
+    )
+
+
+def _split_rows_hint(row_span: int) -> str:
+    """How to split a cell spanning *row_span* rows; table_split_cell takes at most 20 parts."""
+    if row_span <= 20:
+        return "Split it with table_split_cell (direction='rows', parts=%d)" % row_span
+    return "Split it repeatedly with table_split_cell (direction='rows')"
 
 
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
@@ -518,6 +537,20 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
     if axis == "row":
         target_cell = band_names[0]
+        # SwFEShell::DeleteRow (sw/source/core/frmedt/fetab.cxx) selects from the row's first box
+        # to its last, and SwTable::CreateSelection (sw/source/core/table/swnewtable.cxx) extends
+        # that selection down by either box's row span, so the rows below would be struck too.
+        edge = next(
+            (s for s in _row_spanning_cells(table, idx) if s[0] in (band_names[0], band_names[-1])), None
+        )
+        if edge is not None:
+            cell_name, row_span = edge
+            raise ToolExecutionError(
+                "Cannot delete this row as a tracked change: cell '%s', first or last in the row, spans "
+                "%d rows, so LibreOffice would mark the rows below for deletion too. %s, then delete the row."
+                % (cell_name, row_span, _split_rows_hint(row_span)),
+                code="ROW_HAS_SPANNING_CELL",
+            )
     else:
         col_target = next((n for n in band_names if writer_cell_position(n) == (idx, 0)), None)
         if col_target is None:
@@ -550,8 +583,9 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
 def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
     """Run a Writer delete with optional review inside an undo rollback guard."""
-    # UndoStepOrRollback must stay outside the review session because undo cannot run
-    # while the session's undo context is still open.
+    # The guard stays outside record_mutation, which keeps its own undo group open while apply
+    # runs: XUndoManager.undo refuses inside an open context (impl_doUndoRedo in
+    # framework/source/fwe/helper/undomanagerhelper.cxx).
     with UndoStepOrRollback(doc, title):
         return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
 
@@ -702,7 +736,7 @@ class TableGetCells(ToolWriterTableBase):
                 "type": "string",
                 "description": "Optional. One A1-style address; return that cell only.",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],
@@ -797,7 +831,7 @@ class TableSetCell(ToolWriterTableBase):
             "name": {"type": "string", "description": "Table name from table_list."},
             "cell": {"type": "string", "description": "A1-style cell address, e.g. 'B2'."},
             "text": {"type": "string", "description": "New plain text for the cell."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": ["cell", "text"],
@@ -859,7 +893,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
-        "refuses to delete a row in which a cell spanning several rows starts; "
+        "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
@@ -873,7 +907,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 "type": "integer",
                 "description": "0-based row or column index (insert at count = append).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "shape_index": {
                 "type": "integer",
                 "description": "Draw/Impress: table shape index (not the row/column index).",
@@ -919,18 +953,18 @@ class ManageTableStructure(ToolWriterTableBase):
                         % (axis_arg, ", ".join(nested))
                     )
                 if axis_arg == "row":
-                    spanning = _row_start_spanning_cell(table, idx)
-                    if spanning is not None:
-                        cell_name, row_span = spanning
-                        split_hint = (
-                            "Split it with table_split_cell (direction='rows', parts=%d)" % row_span
-                            if row_span <= 20
-                            else "Split it repeatedly with table_split_cell (direction='rows')"
-                        )
+                    # PrepareDelBoxes (sw/source/core/table/swnewtable.cxx) hands the covered box below only
+                    # the remaining span, so whatever the spanning cell holds goes with its start row.
+                    held = next(
+                        (s for s in _row_spanning_cells(table, idx) if _cell_has_content(table.getCellByName(s[0]))),
+                        None,
+                    )
+                    if held is not None:
+                        cell_name, row_span = held
                         return self._tool_error(
                             "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
                             "so its content would be deleted too. %s, move the content to keep into a lower row, "
-                            "then delete the row." % (cell_name, row_span, split_hint),
+                            "then delete the row." % (cell_name, row_span, _split_rows_hint(row_span)),
                             code="ROW_HAS_SPANNING_CELL",
                         )
             if insert:
@@ -1095,7 +1129,7 @@ class TableInsert(ToolWriterTableBase):
                 "type": "string",
                 "description": "Writer: A1-style host cell (requires parent).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (active if omitted)"},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted)"},
             "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
             "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
             "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},
@@ -1214,7 +1248,7 @@ class TableDelete(ToolWriterTableBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],

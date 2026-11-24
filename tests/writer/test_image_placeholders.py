@@ -346,3 +346,31 @@ def test_restore_region_images_at_page_nodata_and_in_region_dispose():
             model, [image_placeholders._RegionImage("m_in", "InLogo", kept_in, False, True)]
         )
     imported_in.dispose.assert_called_once()
+
+
+def test_restore_image_placeholders_updates_hyperlink_from_marker():
+    from plugin.writer import image_placeholders
+
+    model = MagicMock()
+    found = MagicMock()
+    found.getPropertyValue.side_effect = lambda k: "https://new.example" if k == "HyperLinkURL" else ""
+    search = MagicMock()
+    model.createSearchDescriptor.return_value = search
+
+    kept_linked = image_placeholders._KeptImage(
+        "m1", "Pic1", MagicMock(), "G1", MagicMock(value="AT_PARAGRAPH"), MagicMock(),
+        {"HyperLinkURL": "https://old.example"},
+    )
+    kept_unlinked = image_placeholders._KeptImage(
+        "m2", "Pic2", MagicMock(), "G2", MagicMock(value="AT_PARAGRAPH"), MagicMock(),
+        {},
+    )
+    with (
+        patch.object(image_placeholders, "_find_marker", return_value=found),
+        patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True),
+        patch.object(image_placeholders, "_insert_copy") as ins,
+    ):
+        image_placeholders._restore_image_placeholders(model, [kept_linked, kept_unlinked])
+
+    assert ins.call_args_list[0].kwargs["props"]["HyperLinkURL"] == "https://new.example"
+    assert "HyperLinkURL" not in ins.call_args_list[1].kwargs["props"]

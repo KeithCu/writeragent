@@ -342,6 +342,31 @@ def _match_enum(value: str, enum: list[Any]) -> str:
     return value
 
 
+def _without_optional_nulls(schema: dict[str, Any], value: dict[str, Any]) -> dict[str, Any]:
+    """Drop nulls from declared optional properties that do not themselves accept null.
+
+    Advertised schemas add null to optional scalars (``_make_optional_scalar_nullable``),
+    so a null there means the argument was omitted. A type, enum or ``nullable`` hint
+    (remote MCP schemas) that allows null makes it a real value, and so does a missing type.
+    """
+    props = call_properties(schema) or {}
+    required = required_keys(schema)
+
+    def omitted(key: str) -> bool:
+        spec = props.get(key)
+        if value[key] is not None or key in required or not isinstance(spec, dict):
+            return False
+        enum = spec.get("enum")
+        accepts_null = (
+            spec.get("nullable") is True
+            or (isinstance(enum, list) and None in enum)
+            or value_matches_type(None, spec.get("type"))
+        )
+        return not accepts_null
+
+    return {k: v for k, v in value.items() if not omitted(k)}
+
+
 def _coerce_value(spec: dict[str, Any], value: Any, *, is_item: bool = False) -> Any:
     """Coerce *value* toward one property, ``items``, or ``additionalProperties`` schema, then walk into it.
 
@@ -361,7 +386,7 @@ def _coerce_value(spec: dict[str, Any], value: Any, *, is_item: bool = False) ->
     elif isinstance(value, dict):
         # A key that matches patternProperties is not "additional", and a remote server's regexes are never run on arguments.
         extra = None if "patternProperties" in spec else spec.get("additionalProperties")
-        value = coerce_call_args(spec.get("properties"), value, extra)
+        value = coerce_call_args(spec.get("properties"), _without_optional_nulls(spec, value), extra)
     enum = spec.get("enum")
     if isinstance(value, str) and isinstance(enum, list) and enum and value not in enum:
         value = _match_enum(value, enum)
@@ -385,6 +410,7 @@ def coerce_call_args(props: Any, kwargs: dict[str, Any], extra: Any = None) -> d
     - Whole floats convert to ``int`` for ``integer``; ints ``0``/``1`` convert to ``bool`` for ``boolean``.
     - Non-bool numbers (``int``/``float``) convert to ``str(value)`` when ``type`` includes ``string``.
     - String enum misses map only on a unique match (never pick a member silently) by fold, plural ``s``, or one-edit match with a 5-character floor (short members such as ``line``/``pie`` and ``odt``/``pdf`` are within two edits of each other).
+    - Nested optional ``null`` values on declared object properties are dropped unless the property's ``type``, ``enum``, or ``nullable`` allows null (or ``type`` is missing).
     """
     if not isinstance(kwargs, dict):
         return kwargs

@@ -40,6 +40,15 @@ from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
 from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
+from .tree import (
+    custom_shape_geometry,
+    ensure_shape_name,
+    find_shape_on_page,
+    iter_shape_addresses,
+    normalize_negative_span,
+    page_shape_names,
+    resolve_shape_ref,
+)
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase, ToolContext
@@ -60,45 +69,6 @@ class _AnyDocumentShapeTool(ToolDrawShapeBase):
     )
 
 
-def _page_shape_names(page: Any) -> list[str]:
-    from plugin.draw.tree import iter_shape_addresses
-
-    seen: set[str] = set()
-    names: list[str] = []
-    for _path, shape, _parent in iter_shape_addresses(page):
-        raw = getattr(shape, "Name", None)
-        if raw is None:
-            continue
-        name = str(raw).strip()
-        if name and name not in seen:
-            seen.add(name)
-            names.append(name)
-    return names
-
-
-def _ensure_shape_name(page: Any, shape: Any) -> str:
-    """Return *shape*'s Name, assigning ``Shape<n>`` if it is empty.
-
-    Writer's ``SwXDrawPage::add`` (``sw/source/core/unocore/unodraw.cxx:SwXDrawPage::add``)
-    already assigns a unique Name, whereas Draw, Impress, and Calc leave Name
-    empty and prompts tell the model to address shapes by Name.
-    Uses one more than the highest existing ``Shape<n>`` number on the page so
-    deleting a shape never hands its old name to a newly created shape.
-    """
-    current = str(shape.Name or "").strip()
-    if current:
-        return current
-    highest = 0
-    for name in _page_shape_names(page):
-        if name.startswith("Shape"):
-            suffix = name[5:]
-            if suffix.isascii() and suffix.isdigit():
-                highest = max(highest, int(suffix))
-    candidate = f"Shape{highest + 1}"
-    shape.Name = candidate
-    return candidate
-
-
 def _name_taken_error(tool: ToolBase, name: str) -> dict[str, Any]:
     return tool._tool_error(
         "A shape named %r already exists on this page; choose another name or edit that shape." % name,
@@ -113,7 +83,6 @@ def _lookup_ref(
     *,
     by_name: bool = False,
 ) -> tuple[int | str | None, Any | None, Any | None, dict[str, Any] | None]:
-    from plugin.draw.tree import find_shape_on_page, resolve_shape_ref
     from plugin.framework.errors import available_miss_details
 
     if by_name:
@@ -124,7 +93,7 @@ def _lookup_ref(
         addr, shape, parent, err = resolve_shape_ref(page, ref)
     if err or shape is None:
         if err and err.startswith("No shape named"):
-            names = _page_shape_names(page)
+            names = page_shape_names(page)
             capped = names[:40]
             return None, None, None, tool._tool_error(
                 err,
@@ -135,13 +104,14 @@ def _lookup_ref(
     return addr, shape, parent, None
 
 
-def _reject_duplicate_shapes(tool: ToolBase, shapes: list[Any]) -> dict[str, Any] | None:
-    seen: set[int] = set()
-    for shape in shapes:
-        token = id(shape)
-        if token in seen:
-            return tool._tool_error("Duplicate shape in indices; pass each shape once.")
-        seen.add(token)
+def _reject_duplicate_shapes(tool: ToolBase, addresses: list[int | str]) -> dict[str, Any] | None:
+    """Reject duplicate shape references using canonical addresses from ``_lookup_ref``.
+
+    An integer index, a digit string, and a shape Name resolve to the same canonical
+    address, whereas PyUNO hands out a new proxy object on each lookup.
+    """
+    if len(set(addresses)) < len(addresses):
+        return tool._tool_error("Duplicate shape in indices; pass each shape once.")
     return None
 
 
@@ -297,7 +267,6 @@ class GetDrawSummary(_AnyDocumentShapeTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.tree import custom_shape_geometry, iter_shape_addresses
 
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
@@ -329,17 +298,6 @@ def _is_line_shape_type(shape_type: str | None) -> bool:
         return False
     name = str(shape_type).rsplit(".", 1)[-1]
     return name == "LineShape" or name == "line"
-
-
-def _normalize_negative_span(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
-    """Shift x/y by any negative width/height so position is top-left and size is non-negative."""
-    if width < 0:
-        x += width
-        width = -width
-    if height < 0:
-        y += height
-        height = -height
-    return x, y, width, height
 
 
 def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> None:
@@ -553,8 +511,6 @@ def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
 
 def _apply_corner_radius(shape: Any, radius: int) -> None:
     """Set CornerRadius on primitive shapes, or map rectangle/round-rectangle presets."""
-    from plugin.draw.tree import custom_shape_geometry
-
     # CustomShape has no CornerRadius (svx/source/unodraw/unoprov.cxx: ImplGetSvxCustomShapePropertyMap).
     # Its radius is the round-rectangle preset's adjustment: 1/21600 of the shorter side, at most half of it
     # (svx/source/customshapes/EnhancedCustomShapeGeometry.cxx: mso_sptRoundRectangleHandle).
@@ -876,7 +832,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # Without this check, an explicit duplicate name would undo the
         # page-unique Name guarantee that auto-naming relies on.
         wanted_name = str(kwargs.get("name") or "").strip()
-        if wanted_name and wanted_name in _page_shape_names(page):
+        if wanted_name and wanted_name in page_shape_names(page):
             return _name_taken_error(tool, wanted_name)
 
         type_map = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
@@ -900,7 +856,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # Non-line shapes normalize negative spans to top-left + positive size.
         # LineShape keeps the signed size so LibreOffice preserves start->end direction.
         if not _is_line_shape_type(uno_type):
-            x, y, width, height = _normalize_negative_span(x, y, width, height)
+            x, y, width, height = normalize_negative_span(x, y, width, height)
 
         position = Point(x, y)
         size = Size(width, height)
@@ -936,7 +892,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
             props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if is_custom_shape else kwargs
             failed_props = _apply_shape_properties(shape, props)
-            shape_name = _ensure_shape_name(page, shape)
+            shape_name = ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
             if _is_line_shape_type(uno_type) and (width < 0 or height < 0):
@@ -980,8 +936,6 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         return result
 
     elif action == "edit":
-        from plugin.draw.tree import find_shape_on_page
-
         # Index is fragile for peer "fill field X"; Name from shape_get_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed, and then
         # name is the new Name (a rename), not a lookup key.
@@ -1001,7 +955,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # Without this check, renaming by index to an existing name would
         # create a duplicate on the page.
         new_name = str(kwargs.get("name") or "").strip()
-        if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in _page_shape_names(page):
+        if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in page_shape_names(page):
             return _name_taken_error(tool, new_name)
 
         has_pos = "x" in kwargs or "y" in kwargs
@@ -1019,7 +973,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             if is_line:
                 _set_line_endpoints(shape, target_x, target_y, target_w, target_h)
             else:
-                norm_x, norm_y, target_w, target_h = _normalize_negative_span(target_x, target_y, target_w, target_h)
+                norm_x, norm_y, target_w, target_h = normalize_negative_span(target_x, target_y, target_w, target_h)
                 if has_pos or norm_x != target_x or norm_y != target_y:
                     shape.setPosition(Point(norm_x, norm_y))
                 shape.setSize(Size(target_w, target_h))
@@ -1104,7 +1058,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
 
         # Additional properties
         failed_props = _apply_shape_properties(shape, kwargs)
-        conn_name = _ensure_shape_name(page, shape)
+        conn_name = ensure_shape_name(page, shape)
 
     except Exception:
         # The connector is already on the page. Remove it so a failed
@@ -1184,27 +1138,33 @@ class GroupShapes(_AnyDocumentShapeTool):
 
         shape_collection = _create_shape_collection(ctx.ctx)
         resolved_shapes: list[Any] = []
+        addresses: list[int | str] = []
         for ref in indices:
             addr, shape, parent, err_res = _lookup_ref(self, page, ref)
             if err_res is not None:
                 return err_res
-            assert shape is not None and parent is not None
+            assert shape is not None and parent is not None and addr is not None
             if not uno_same(parent, page):
                 return self._tool_error(
                     "Cannot group shape %s: it is not a top-level shape on the page." % addr,
                 )
             resolved_shapes.append(shape)
-        dup_err = _reject_duplicate_shapes(self, resolved_shapes)
+            addresses.append(addr)
+        dup_err = _reject_duplicate_shapes(self, addresses)
         if dup_err is not None:
             return dup_err
         for shape in resolved_shapes:
             shape_collection.add(shape)
         # page.group is the first page mutation; failure propagates to execute_safe.
         group = page.group(shape_collection)
+        # SwFmDrawPage::group (sw/source/core/unocore/unodraw.cxx) returns null when none of the
+        # shapes can be marked, for example when all of them are text frames.
+        if group is None:
+            return self._tool_error("None of these shapes can be grouped (Writer text frames cannot).")
         group_name = ""
         warnings: list[str] = []
         try:
-            group_name = _ensure_shape_name(page, group)
+            group_name = ensure_shape_name(page, group)
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -1214,7 +1174,10 @@ class GroupShapes(_AnyDocumentShapeTool):
         res: dict[str, Any] = {
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
-            "index": page.getCount() - 1,  # Grouping replaces the individuals with this group shape
+            # The group sits in its topmost member's slot, not last (SdrEditView::GroupMarked,
+            # svx/source/svdraw/svdedtv2.cxx). ZOrder is that page index; in Writer both skip
+            # shape text boxes (SwTextBoxHelper::getOrdNum and getByIndex).
+            "index": group.getPropertyValue("ZOrder"),
             "name": group_name,
             "page": actual_idx,
         }
@@ -1254,7 +1217,7 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
         assert shape is not None and addr is not None
         shapes.append(shape)
         resolved_indices.append(addr)
-    dup_err = _reject_duplicate_shapes(tool, shapes)
+    dup_err = _reject_duplicate_shapes(tool, resolved_indices)
     if dup_err is not None:
         return dup_err
     new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)

@@ -229,9 +229,8 @@ def is_text_analytics_result(value: Any) -> bool:
 def _result_to_html_table(data: dict[str, Any]) -> str:
     """Shared: turn analysis result data into a compact bordered HTML table.
 
-    Cell text is double-escaped. ``insert_content_at_position`` unescapes once
-    before the StarWriter HTML filter, so a single ``html.escape`` would turn
-    a lemma such as ``<script>`` back into markup.
+    Cell text is single-escaped through ``escape_for_html_insert`` so literal
+    angle brackets such as ``<script>`` stay text after HTML import.
     """
     rows: list[str] = []
 
