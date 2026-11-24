@@ -166,7 +166,14 @@ def tracked_change_before_point(doc: Any, point: Any) -> bool:
 
 
 def tracked_change_spans_past(doc: Any, text_range: Any) -> bool:
-    """True when a pending Insert or Delete redline starts before *text_range* and ends after it."""
+    """True when a pending Insert or Delete redline starts before *text_range* and ends after it.
+
+    ``SwDoc::InsertSwSection`` calls ``DocumentRedlineManager::SplitRedline`` over the new
+    section. A redline that starts before and ends after the span becomes two pieces, and
+    accepting or rejecting it then loses text outside the section; a redline that starts or
+    ends at or inside the span resolves to the same text. ``tracked_change_before_point``
+    checks a single collapsed insertion point and would refuse safe spans.
+    """
     redlines = doc.getRedlines()
     for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
         kind = rl.getPropertyValue("RedlineType")

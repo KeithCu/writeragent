@@ -535,7 +535,10 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
         pe = para.createEnumeration()
         while enum_has_more(pe):
             p = pe.nextElement()
-            out.append("Frame" if p.getPropertyValue("TextPortionType") == "Frame" else p.getString())
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Redline":
+                continue
+            out.append("Frame" if ptype == "Frame" else p.getString())
         return out
 
     def _paras() -> list[Any]:
@@ -549,11 +552,8 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
 
     for rec in (False, True):
         try:
-            # 1. Inline math before/after
-            for pos, expected in (
-                ("after", ["mid MATCH", "Frame", " end"]),
-                ("before", ["mid ", "Frame", "MATCH end"]),
-            ):
+            for pos in ("before", "after"):
+                # 1. Inline math
                 doc.setPropertyValue("RecordChanges", False)
                 _reset("mid MATCH end")
                 base_embeds = _embed_count(doc)
@@ -565,52 +565,68 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 assert res.get("status") == "ok", res
                 assert res.get("inserted") is True, res
                 assert len(res.get("math_objects") or []) == 1, res
-                if rec:
-                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
                 paras = _paras()
                 assert len(paras) == 1
-                assert _para_portions(paras[0]) == expected, (rec, pos, _para_portions(paras[0]))
+                expected_inline = ["mid ", "Frame", "MATCH end"] if pos == "before" else ["mid MATCH", "Frame", " end"]
+                assert _para_portions(paras[0]) == expected_inline, (rec, pos, _para_portions(paras[0]))
                 assert _embed_count(doc) == base_embeds + 1
-                if not rec:
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
                     doc.getUndoManager().undo()
-                    assert text.getString() == "mid MATCH end"
-                    assert _embed_count(doc) == base_embeds
-
-            # 2. Block HTML with math
-            doc.setPropertyValue("RecordChanges", False)
-            _reset("mid MATCH end")
-            base_embeds = _embed_count(doc)
-            doc.setPropertyValue("RecordChanges", rec)
-            res_blk = apply_tool.execute(
-                tool_ctx,
-                target="search", old_content="MATCH", content=r"<p>A \(x\) B</p>", position="before",
-            )
-            assert res_blk.get("status") == "ok", res_blk
-            if rec:
-                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
                 assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
                 assert _embed_count(doc) == base_embeds
-            else:
+
+                # 2. Block HTML with math
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_blk = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content=r"<p>A \(x\) B</p>", position=pos,
+                )
+                assert res_blk.get("status") == "ok", res_blk
+                assert len(res_blk.get("math_objects") or []) == 1, res_blk
                 paras = _paras()
                 assert len(paras) == 2
-                assert _para_portions(paras[0]) == ["A ", "Frame", " B"]
-                assert paras[1].getString() == "mid MATCH end"
+                math_idx, orig_idx = (0, 1) if pos == "before" else (1, 0)
+                assert _para_portions(paras[math_idx]) == ["A ", "Frame", " B"]
+                assert paras[orig_idx].getString() == "mid MATCH end"
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
 
-            # 3. Display math centered paragraph
-            doc.setPropertyValue("RecordChanges", False)
-            _reset("mid MATCH end")
-            doc.setPropertyValue("RecordChanges", rec)
-            res_disp = apply_tool.execute(
-                tool_ctx,
-                target="search", old_content="MATCH", content="$$y=1$$", position="before",
-            )
-            assert res_disp.get("status") == "ok", res_disp
-            if rec:
-                execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-            paras = _paras()
-            assert [p.getString() for p in paras] == ["mid ", "", "MATCH end"], [p.getString() for p in paras]
-            assert _para_portions(paras[1]) == ["Frame"]
-            assert paras[1].getPropertyValue("ParaAdjust") == 3  # Center
+                # 3. Display math centered paragraph
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_disp = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content="$$y=1$$", position=pos,
+                )
+                assert res_disp.get("status") == "ok", res_disp
+                assert len(res_disp.get("math_objects") or []) == 1, res_disp
+                paras = _paras()
+                expected_disp = ["mid ", "", "MATCH end"] if pos == "before" else ["mid MATCH", "", " end"]
+                assert [p.getString() for p in paras] == expected_disp, (rec, pos, [p.getString() for p in paras])
+                assert _para_portions(paras[1]) == ["Frame"]
+                assert paras[1].getPropertyValue("ParaAdjust") == 3  # Center
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
         finally:
             doc.setPropertyValue("RecordChanges", False)
 

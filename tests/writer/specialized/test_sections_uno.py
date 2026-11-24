@@ -522,3 +522,48 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
     assert allowed["status"] == "ok", allowed
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
     assert [p.getString() for p in _paras()] == baseline_accept
+
+    # 3. Delete from mid p1 to p3 offset 0: section on p2 is also refused
+    _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
+    ps = _paras()
+    del_zero = text.createTextCursorByRange(ps[1].getStart())
+    del_zero.goRight(5, False)
+    del_zero.gotoRange(ps[3].getStart(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_zero.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    before_text = text.getString()
+    before_redlines = doc.getRedlines().getCount()
+    before_sections = doc.getTextSections().getCount()
+    refused_zero = SectionCreate().execute(tctx, name="S_zero", locator="paragraph:2")
+    assert refused_zero["status"] == "error"
+    assert refused_zero["code"] == "SECTION_IN_TRACKED_CHANGE"
+    assert text.getString() == before_text
+    assert doc.getRedlines().getCount() == before_redlines
+    assert doc.getTextSections().getCount() == before_sections
+
+    # 4. Insert redline past both ends (mid p1 to mid p3): section on p2 is refused
+    _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
+    ps = _paras()
+    ins_cur = text.createTextCursorByRange(ps[1].getStart())
+    ins_cur.goRight(5, False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        text.insertString(ins_cur, "INS1", False)
+        text.insertControlCharacter(ins_cur, PARAGRAPH_BREAK, False)
+        text.insertString(ins_cur, "INS2", False)
+        text.insertControlCharacter(ins_cur, PARAGRAPH_BREAK, False)
+        text.insertString(ins_cur, "INS3", False)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    before_text = text.getString()
+    before_redlines = doc.getRedlines().getCount()
+    before_sections = doc.getTextSections().getCount()
+    refused_ins = SectionCreate().execute(tctx, name="S_ins", locator="paragraph:2")
+    assert refused_ins["status"] == "error"
+    assert refused_ins["code"] == "SECTION_IN_TRACKED_CHANGE"
+    assert text.getString() == before_text
+    assert doc.getRedlines().getCount() == before_redlines
+    assert doc.getTextSections().getCount() == before_sections
