@@ -623,6 +623,17 @@ def test_filter_criteria_truthiness():
     assert calc.filter([], [], "none") == "#VALUE!"
 
 
+def test_gammadist_zero_density():
+    import struct
+
+    res = calc.gammadist(0, 0.5, 1, 0)
+    assert isinstance(res, float) and math.isnan(res)
+    assert (struct.unpack("Q", struct.pack("d", res))[0] & 0xFFFF) == 532
+    assert math.isclose(calc.gammadist(0, 1, 2, 0), 0.5)
+    assert calc.gammadist(0, 2, 1, 0) == 0.0
+    assert calc.gammadist(0, 0.5, 1, 1) == 0.0
+
+
 def test_duration_and_mduration_excel_doc_examples():
     from plugin.scripting.venv.calc_functions_i_m import mduration
 

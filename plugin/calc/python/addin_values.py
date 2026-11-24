@@ -36,7 +36,8 @@ Worker failure codes in ``addin_result_for_worker_status`` map as follows:
 
 ``LO_ERROR_TOKENS`` in ``plugin/scripting/venv/coerce.py`` mirrors
 ``_CALC_ERROR_TOKEN_CODES``; ``tests/calc/python/test_addin_values.py`` pins that both
-agree.
+agree. ``calc_error_code_for_token`` maps those tokens plus published ``Err:<n>``
+codes (case-insensitive).
 """
 
 from __future__ import annotations
@@ -72,6 +73,12 @@ _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
     "#NAME?": 525,
     "#NULL!": 521,
 }
+
+# Same spelling as coerce._ERR_NUMBER_RE in the worker.
+_ERR_NUMBER_RE = re.compile(r"Err:([0-9]{3})", re.IGNORECASE)
+# isPublishedFormulaError (include/formula/errorcodes.hxx). =#ERRn! with any other number is #NAME?,
+# and a payload NaN with 537 (RetryCircular) starts Calc's recursion handling.
+_PUBLISHED_ERROR_CODES = frozenset({*range(501, 505), *range(507, 526), *range(530, 534), *range(538, 541)})
 
 _ERR_VALUE = _CALC_ERROR_TOKEN_CODES["#VALUE!"]
 _ERR_NUM = _CALC_ERROR_TOKEN_CODES["#NUM!"]
@@ -117,7 +124,12 @@ def nonfinite_error_code(val: float) -> int:
 
 
 def calc_error_code_for_token(text: str) -> int | None:
-    return _CALC_ERROR_TOKEN_CODES.get(text.strip())
+    token = text.strip()
+    match = _ERR_NUMBER_RE.fullmatch(token)
+    if match is not None:
+        code = int(match.group(1))
+        return code if code in _PUBLISHED_ERROR_CODES else None
+    return _CALC_ERROR_TOKEN_CODES.get(token)
 
 
 def worker_exception_error_code(message: str) -> int:
@@ -163,8 +175,8 @@ def is_helper_error_dict(val: Any) -> bool:
 def _calc_code_for_helper_error(code: str) -> int:
     """FormulaError integer for a helper error code.
 
-    Tokens use calc_error_code_for_token (the _map_addin_error_tokens table).
-    Exception names use _WORKER_EXC_CODES (the worker_exception_error_code table).
+    Tokens and published ``Err:<n>`` strings use ``calc_error_code_for_token``.
+    Exception names use ``_WORKER_EXC_CODES`` (the ``worker_exception_error_code`` table).
     Anything else is #VALUE! (519). The helper message is not scanned.
     """
     token_code = calc_error_code_for_token(code)
@@ -482,7 +494,7 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
         stripped = val.strip()
         if not stripped:
             return _SPILL_EMPTY
-        err = _CALC_ERROR_TOKEN_CODES.get(stripped)
+        err = calc_error_code_for_token(stripped)
         if err is not None:
             return _spill_error(err)
         if match_iso_duration(stripped):

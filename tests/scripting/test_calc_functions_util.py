@@ -313,6 +313,44 @@ def test_is_calc_error_helper():
     assert is_calc_error(True) is False
 
 
+@pytest.mark.parametrize(
+    ("val", "expected"),
+    [
+        (0.1 + 0.2, "0.3"),
+        (1 / 3, "0.333333333333333"),
+        (1e-5, "0.00001"),
+        (1e-10, "0.0000000001"),
+        (1.5e-20, "1.5E-020"),
+        (1e15, "1000000000000000"),
+        (1234567890123456, "1234567890123456"),
+        (1e20, "1E+020"),
+        (12345678901234567890.0, "1.23456789012346E+019"),
+        (1e-100, "1E-100"),
+        (5.0, "5"),
+        (float("inf"), "inf"),
+    ],
+)
+def test_number_text_calc_general(val, expected):
+    from plugin.scripting.venv.calc_functions_util import number_text
+
+    assert number_text(val) == expected
+
+
+def test_criteria_text_compares_numbers_and_booleans():
+    from plugin.scripting.venv import calc_functions
+
+    cells = ["apple", 5.0, True, "#DIV/0!", None, "12", 1.5]
+    assert calc_functions.countif(cells, "*") == 6
+    assert calc_functions.countif(cells, "<>*") == 1
+    assert calc_functions.countif(cells, "*5") == 2
+    assert calc_functions.countif(cells, "1*") == 2
+    assert calc_functions.countif(cells, "<>1*") == 5
+    assert calc_functions.countif(cells, "T*") == 1
+    assert calc_functions.countif(cells, ">a") == 1
+    assert math.isclose(calc_functions.sumif([5.0, True, 1.5, None], "*"), 6.5)
+    assert calc_functions.countif([0.1 + 0.2], "?.?") == 1
+
+
 def test_calc_sort_key():
     from plugin.scripting.venv.calc_functions_n_s import _calc_sort_key
 
