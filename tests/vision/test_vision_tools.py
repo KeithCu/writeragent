@@ -295,6 +295,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "image_names": ["Img1"],
         "failed_image": "Img2",
         "deleted_images": ["Img1"],
+        "kept_images_delete_not_trackable": ["Img3"],
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
     result = ExtractStructureFromImage().execute(tool_ctx)
@@ -306,6 +307,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
     assert result["details"]["image_names"] == ["Img1"]
     assert result["details"]["inserted"] is True
     assert result["details"]["deleted_images"] == ["Img1"]
+    assert result["details"]["kept_images_delete_not_trackable"] == ["Img3"]
 
 
 def test_extract_structure_reraises_document_disposed(tool_ctx):

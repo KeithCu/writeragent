@@ -646,3 +646,19 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_bracketed_prose_not_parsed_as_list_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+
+    res1 = ApplyDocumentContent().execute(tctx, target="full_document", content="[see <b>x</b>]")
+    assert res1.get("status") == "ok", res1
+    assert doc.getText().getString().strip() == "[see x]"
+
+    res2 = ApplyDocumentContent().execute(tctx, target="full_document", content="[TODO] <p>later</p>")
+    assert res2.get("status") == "ok", res2
+    body = doc.getText().getString()
+    assert "[TODO]" in body
+    assert "later" in body
+
