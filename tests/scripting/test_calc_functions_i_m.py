@@ -393,6 +393,12 @@ def test_ifna_only_na() -> None:
     assert calc.ifna(lambda: calc.rank(calc.na(), [1]), "alt") == "alt"
     # Exceptions stay trapped because np.int64(NA_NAN) raises ValueError in translated INDEX/MATCH.
     assert calc.ifna(lambda: np.asarray([1, 2])[np.int64(calc.xmatch(99, [1, 2], 0)) - 1], "alt") == "alt"
+    with np.errstate(invalid="ignore", over="ignore"):
+        assert calc.ifna(lambda: np.asarray([1, 2])[np.int64(np.float64(calc.na())) - 1], "alt") == "alt"
+    with pytest.raises(ZeroDivisionError):
+        calc.ifna(lambda: 1 / 0, "alt")
+    with pytest.raises(NameError):
+        calc.ifna(lambda: (_ for _ in ()).throw(NameError("x")), "alt")
 
 
 def test_error_predicates_i_m():

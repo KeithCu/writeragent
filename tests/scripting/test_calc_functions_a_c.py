@@ -53,7 +53,7 @@ def test_aggregate_stubs_and_bools():
     assert calc.aggregate(2, 4, [True, 1.0]) == 1.0
     assert calc.aggregate(3, 4, [True]) == 1.0
     assert calc.aggregate(3, 4, [True, False, ""]) == 2.0
-    assert math.isnan(calc.aggregate(3, 4, [True, float("nan")]))
+    assert calc.aggregate(3, 4, [True, float("nan")]) == 2.0
     assert calc.aggregate(4, 4, []) == 0.0
     assert calc.aggregate(4, 4, ["a", "b"]) == 0.0
     assert calc.aggregate(5, 6, [float("nan")]) == 0.0
@@ -452,4 +452,21 @@ def test_a_c_approx_floor_counts_and_df():
     assert calc.chidist(5.0, 0.29 * 100) == calc.chidist(5.0, 29)
     assert calc.chiinv(0.5, 0.29 * 100) == calc.chiinv(0.5, 29)
     assert calc.confidence(0.05, 2.0, 0.29 * 100) == calc.confidence(0.05, 2.0, 29)
+
+
+def test_aggregate_error_codes_and_count_modes():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
+
+    assert calc.aggregate(9, 4, [1, "#DIV/0!", 3, "#N/A"]) == "#DIV/0!"
+    assert calc.aggregate(4, 4, [1, "#DIV/0!", 3, "#N/A"]) == "#DIV/0!"
+    res = calc.aggregate(9, 4, [1, DIV0_NAN, 3])
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+    assert calc.aggregate(4, 4, [1, "#DIV/0!"], ["#N/A"]) == "#N/A"
+    erred = [1, "#DIV/0!", 3, "#N/A", 5, 6]
+    assert calc.aggregate(2, 0, erred) == 4.0
+    assert calc.aggregate(2, 4, erred) == 4.0
+    assert calc.aggregate(2, 6, erred) == 4.0
+    assert calc.aggregate(3, 0, erred) == 6.0
+    assert calc.aggregate(3, 4, erred) == 6.0
+    assert calc.aggregate(3, 6, erred) == 4.0
 

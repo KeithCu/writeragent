@@ -23,17 +23,19 @@ from .calc_functions_util import (
     as_nonzero,
     collect_a_values,
     coupon_schedule,
-    criteria_numbers,
+    criteria_reduce,
     extract_numeric_array,
+    first_error,
     from_complex,
+    is_calc_error,
     match_criteria,
     multi_criteria_mask,
     npf_result,
+    propagate_errors,
     round_half_up,
     scipy_stats,
     yearfrac,
 )
-from .coerce import is_missing_value
 
 
 __all__ = [
@@ -124,6 +126,7 @@ def _accrued(
     return float(f_par * f_rate * yf)
 
 
+@propagate_errors
 def accrint(
     issue: Any,
     first_interest: Any,
@@ -140,6 +143,7 @@ def accrint(
     return _accrued(issue, settlement, rate, par, basis, frequency)
 
 
+@propagate_errors
 def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: Any = 0) -> float:
     return _accrued(issue, settlement, rate, par, basis)
 
@@ -192,7 +196,7 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
     return res
 
 
-def aggregate(function_num: Any, options: Any, *args: Any) -> float:
+def aggregate(function_num: Any, options: Any, *args: Any) -> float | str:
     # ScAggregate dispatches 1..11 like ScSubTotal, plus MEDIAN (12) and
     # MODE.SNGL (13). 14..19 need k and stay unimplemented. Bool is not a
     # number for the numeric reductions (float(True) would be 1.0). COUNTA
@@ -201,54 +205,44 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
     fn = int(float(function_num))
     opt = int(float(options))
     assert 1 <= fn <= 13
+    flat = [np.asarray(arg, dtype=object).ravel() for arg in args]
+    ignore_errors = opt in (2, 3, 6, 7)
+    # COUNT (2) and COUNTA (3) never return an input error (AGGREGATE(2;4;…) counts the numbers).
+    if fn not in (2, 3) and not ignore_errors:
+        err = first_error(v for cells in reversed(flat) for v in cells)
+        if err is not None:
+            return err
     numeric: list[float] = []
-    n_text = 0
-    n_bool = 0
-    for arg in args:
-        for x in np.asarray(arg, dtype=object).ravel():
-            if isinstance(x, (bool, np.bool_)):
-                # Numeric reductions ignore bools. COUNTA must still see
-                # them: skipping here made AGGREGATE(3, …, TRUE) return 0.
-                n_bool += 1
-                continue
-            if isinstance(x, str):
-                if is_missing_value(x):
-                    # Blank strings are ignored. Error tokens stay NaN unless
-                    # the option below strips them.
-                    if x.strip() != "":
-                        numeric.append(float("nan"))
+    n_other = 0  # non-numeric cells COUNTA counts: text, booleans, and errors that are not ignored
+    for cells in flat:
+        for x in cells:
+            if is_calc_error(x):
+                n_other += not ignore_errors
+            elif isinstance(x, (bool, np.bool_)):
+                n_other += 1
+            elif isinstance(x, str):
+                n_other += x.strip() != ""
+            else:
+                try:
+                    numeric.append(float(x))
+                except (ValueError, TypeError, OverflowError):
                     continue
-                n_text += 1
-                continue
-            try:
-                numeric.append(float(x))
-            except (ValueError, TypeError, OverflowError):
-                continue
-
     arr = np.asarray(numeric, dtype=float)
-    if opt in (2, 3, 6, 7):
-        arr = arr[~np.isnan(arr)]
-    elif arr.size and bool(np.isnan(arr).any()):
-        # Options 0, 1, 4, 5 keep errors. nanmax, nanmin, and COUNT
-        # skip NaN, so an error token disappeared and the call returned
-        # a number. Calc returns the error instead.
-        return float("nan")
 
     if fn == 1:
         # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
         # RuntimeWarning from np.mean([]).
         return float(np.mean(arr)) if arr.size else float("nan")
     if fn == 2:
-        return float(np.sum(~np.isnan(arr)))
+        return float(arr.size)
     if fn == 3:
-        return float(len(arr) + n_text + n_bool)
+        return float(len(arr) + n_other)
     if fn == 4:
         # ScMax pushes 0 when nothing numeric remains (text is ignored).
-        # np.nanmax([]) raises ValueError. Empty is 0 here, not that exception.
-        return float(np.nanmax(arr)) if arr.size else 0.0
+        return float(np.max(arr)) if arr.size else 0.0
     if fn == 5:
         # Same empty rule as ScMin / ScMax.
-        return float(np.nanmin(arr)) if arr.size else 0.0
+        return float(np.min(arr)) if arr.size else 0.0
     if fn == 6:
         # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
         # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
@@ -324,6 +318,7 @@ def _parse_amor(
     return f_cost, d_purch, d_first, f_salv, n_per, f_rate, b
 
 
+@propagate_errors
 def amordegrc(
     cost: Any,
     date_purchased: Any,
@@ -369,6 +364,7 @@ def amordegrc(
     return float(f_n_rate)
 
 
+@propagate_errors
 def amorlinc(
     cost: Any,
     date_purchased: Any,
@@ -486,6 +482,7 @@ def asc(text: Any) -> str:
     return str(text).translate(_ASC_TRANS)
 
 
+@propagate_errors
 def avedev(*args: Any) -> float:
     # Excel/Calc AVEDEV ignores text and logicals.
     arr = extract_numeric_array(*args, propagate_nan=False)
@@ -494,6 +491,7 @@ def avedev(*args: Any) -> float:
     return float(np.mean(np.abs(arr - np.mean(arr))))
 
 
+@propagate_errors
 def averagea(*args: Any) -> float:
     # Blank strings and whitespace stay in the denominator as 0, same as text:
     # Calc AVERAGEA(10,"",20) is 10, not 15. collect_a_values counts blank
@@ -504,11 +502,13 @@ def averagea(*args: Any) -> float:
     return float(np.mean(vals))
 
 
-def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    vals = criteria_numbers(r if ar is None else ar, [(r, crit)])
-    if vals is None or not vals:
-        return float("nan")
-    return float(np.mean(vals))
+def _mean(vals: list[float]) -> float:
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def averageif(r: Any, crit: Any, ar: Any | None = None) -> float | str:
+    res = criteria_reduce(r if ar is None else ar, [(r, crit)], _mean)
+    return float("nan") if res is None else res
 
 
 def _criteria_pairs(args: tuple[Any, ...]) -> list[tuple[Any, Any]] | None:
@@ -527,12 +527,8 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
-    vals = criteria_numbers(ar, pairs)
-    if vals is None:
-        return "#VALUE!"
-    if not vals:
-        return float("nan")
-    return float(np.mean(vals))
+    res = criteria_reduce(ar, pairs, _mean)
+    return "#VALUE!" if res is None else res
 
 
 def base(number: Any, radix: Any, min_length: Any = 0) -> str:
@@ -875,28 +871,34 @@ def _coupon(settlement: Any, maturity: Any, frequency: Any, basis: Any, idx: int
         return float("nan")
 
 
+@propagate_errors
 def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     # Coupon dates step by calendar months. frequency in (1, 2, 4), basis in
     # (0..4), settlement < maturity. A fixed day step (180, 182.5) drifts.
     return _coupon(settlement, maturity, frequency, basis, 4)
 
 
+@propagate_errors
 def coupdays(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     return _coupon(settlement, maturity, frequency, basis, 2)
 
 
+@propagate_errors
 def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     return _coupon(settlement, maturity, frequency, basis, 5)
 
 
+@propagate_errors
 def coupncd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     return _coupon(settlement, maturity, frequency, basis, 1)
 
 
+@propagate_errors
 def coupnum(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     return _coupon(settlement, maturity, frequency, basis, 3)
 
 
+@propagate_errors
 def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
     return _coupon(settlement, maturity, frequency, basis, 0)
 
@@ -966,10 +968,12 @@ def _cum_payment(
     return npf_result(kind, r, pers, n, p, 0, t)
 
 
+@propagate_errors
 def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
     return _cum_payment("ipmt", rate, nper, pv, start_period, end_period, type_val)
 
 
+@propagate_errors
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
     return _cum_payment("ppmt", rate, nper, pv, start_period, end_period, type_val)
 
