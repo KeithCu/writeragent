@@ -2230,24 +2230,27 @@ def _cursor_para(portions, *, is_table: bool = False):
 def test_replace_header_footer_skips_struck_portions():
     from plugin.writer.page import _find_region_matches
 
-    doc = MagicMock()
-    doc.getRedlines.return_value.hasElements.return_value = False
-
-    # Case 1: live "Annex ", struck "Annex", live " Annex" in one paragraph.
-    p1 = _cursor_para([
+    # Case 1: live "Annex ", struck "Annex", live " Annex" in one paragraph, driven through the tool.
+    portions = [
         _cursor_portion("Text", "Annex "),
         _cursor_portion("Redline", is_start=True),
         _cursor_portion("Text", "Annex"),
         _cursor_portion("Redline", is_start=False),
         _cursor_portion("Text", " Annex"),
-    ])
-    t1 = MagicMock()
-    t1.createEnumeration.return_value = _enum_of([p1])
-    hits1, notes1 = _find_region_matches(doc, t1, "Annex", True)
-    assert notes1 == []
-    assert [(h[0], h[1]) for h in hits1] == [(p1, 0), (p1, 12)]
+    ]
+    hay = "Annex Annex Annex"
+    doc, text_obj = _replace_doc(portions, hay=hay)
+    seen = _cursors_for(text_obj, hay)
+    res = _replace(doc, old_content="Annex", content="Appendix", all_matches=True)
+    assert res["status"] == "ok" and res["replaced_count"] == 2
+    assert [(c.anchor, c.pos, c.written) for c in seen] == [
+        (0, 5, "Appendix"),
+        (12, 17, "Appendix"),
+    ]
 
     # Case 2: deletion opens in paragraph 1 and closes in paragraph 2.
+    doc2 = MagicMock()
+    doc2.getRedlines.return_value.hasElements.return_value = False
     p2a = _cursor_para([
         _cursor_portion("Text", "Annex "),
         _cursor_portion("Redline", is_start=True),
@@ -2260,7 +2263,7 @@ def test_replace_header_footer_skips_struck_portions():
     ])
     t2 = MagicMock()
     t2.createEnumeration.return_value = _enum_of([p2a, p2b])
-    hits2, _ = _find_region_matches(doc, t2, "Annex", True)
+    hits2, _ = _find_region_matches(doc2, t2, "Annex", True)
     assert [(h[0], h[1]) for h in hits2] == [(p2a, 0), (p2b, 6)]
 
     # Case 3: a TextTable before the paragraph is skipped without createEnumeration().
@@ -2268,7 +2271,7 @@ def test_replace_header_footer_skips_struck_portions():
     p3 = _cursor_para([_cursor_portion("Text", "Annex")])
     t3 = MagicMock()
     t3.createEnumeration.return_value = _enum_of([tbl, p3])
-    hits3, _ = _find_region_matches(doc, t3, "Annex", True)
+    hits3, _ = _find_region_matches(doc2, t3, "Annex", True)
     assert [(h[0], h[1]) for h in hits3] == [(p3, 0)]
 
 

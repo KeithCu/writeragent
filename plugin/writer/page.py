@@ -1094,10 +1094,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
 
 
-# A field or a struck character is one cursor step in goRight, so the search string
-# uses \x01 per TextField and per struck character rather than getString().
-# doc.findFirst is the wrong tool here too: it hits the body first, and it cannot see
-# a header on a page style no page uses.
+# A field or a struck character is one cursor step in goRight, because getString() expands
+# a field to the digits the reader sees, so the search string uses \x01 per TextField and per
+# struck character rather than getString(). doc.findFirst is the wrong tool here too: it hits
+# the body first, and it cannot see a header on a page style no page uses.
 _OPAQUE_CURSOR_STEP = "\x01"
 
 

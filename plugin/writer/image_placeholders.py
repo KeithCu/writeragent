@@ -290,7 +290,8 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
 def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     """True when the edit removed *original*: missing from getGraphicObjects() or disposed
     (review off), or Accept All would remove it under a pending tracked deletion (review on).
-    Anything else stays in place and must not be duplicated.
+    Anything else stays in place and must not be duplicated, e.g. a search replace of the text
+    of the paragraph a picture is anchored to.
     """
     # hasByName is tested before getAnchor() because a deleted graphic can remain in
     # getGraphicObjects with a null anchor that crashes SwXFrame::getSwAnchor.

@@ -1498,3 +1498,32 @@ def test_header_struck_logo_blocks_disable_uno(ctx, doc):
         assert res["status"] == "error", res
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_recorded_trailing_table_without_tail_clears_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("a")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    elems = list(iter_elements(header.createEnumeration()))
+    elems[-1].dispose()
+    assert _header_structure(header) == ["P:a", "T"]
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = _set(doc, ctx, "header", "<p>z</p>")
+        assert res["status"] == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        struct = _header_structure(header)
+        assert struct == ["P:z", "P:"], struct
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

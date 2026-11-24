@@ -1213,7 +1213,10 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
     style, s_name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
-    header.setString("first\nsecond")
+    cur = header.createTextCursor()
+    header.insertString(cur, "first", False)
+    header.insertControlCharacter(cur, 0, False)
+    header.insertString(cur, "second", False)
 
     gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
     gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, _file_url_for_path(_header_logo_path())))
@@ -1225,12 +1228,18 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        got_before = _set_text(doc, ctx, "header", "<p>live</p>")
-        assert got_before["status"] == "ok", got_before
+        from plugin.doc.text_helpers import iter_elements
+        from plugin.writer.page import PageGetHeaderFooterText
+
+        got = PageGetHeaderFooterText().execute(_tool_ctx(doc, ctx), style=s_name, region="header", include_images=False)
+        assert got["status"] == "ok", got
+        wrote = _set_text(doc, ctx, "header", got["content"])
+        assert wrote["status"] == "ok", wrote
         res = copy_page_style(doc, s_name, "ClonedStruckHeader")
         assert res["shapes_copied"] == 1, res
         cloned_header = resolve_page_style(doc, "ClonedStruckHeader").getPropertyValue("HeaderText")
-        assert cloned_header.getString() == "live"
+        paras = [p.getString() for p in iter_elements(cloned_header.createEnumeration())]
+        assert paras == ["first", "second"], paras
         assert len(_region_shapes(doc, cloned_header)[0]) == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)

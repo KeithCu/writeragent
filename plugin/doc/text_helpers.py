@@ -772,12 +772,18 @@ def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: An
     para.gotoEndOfParagraph(True)
     if not bounds_cover(bounds, para):
         return False
+    # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
+    # as the whole text when the first enumerated element is not a table.
+    first = next(iter_elements(text.createEnumeration()), None)
+    if (
+        not _is_text_table(first)
+        and text.compareRegionStarts(start, text.getStart()) == 0
+        and text.compareRegionEnds(text.getEnd(), end) == 0
+    ):
+        return True
     if text.compareRegionStarts(start, para) == 0 and text.compareRegionEnds(para, end) == 0:
-        # Deleting just this paragraph's text keeps the paragraph, unless it is the whole text.
-        return (
-            text.compareRegionStarts(start, text.getStart()) == 0
-            and text.compareRegionEnds(text.getEnd(), end) == 0
-        )
+        # Deleting just this paragraph's text keeps the paragraph (whole-text case handled above).
+        return False
     # Deleting only the break between two paragraphs keeps both anchors (IsNotBackspaceHeuristic).
     step = text.createTextCursorByRange(start.getStart())
     return not (step.goRight(1, False) and text.compareRegionStarts(step, end) == 0)

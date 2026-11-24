@@ -392,9 +392,9 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
         pv.Value = "file://" + img_path
         graphic = provider.queryGraphic((pv,))
 
-        def _check(name, setup_fn):
+        def _check(name, expected, setup_fn, *, target_fn=None):
             doc.setPropertyValue("RecordChanges", False)
-            text = doc.getText()
+            text = doc.getText() if target_fn is None else target_fn()
             text.setString("")
             gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
             gfx.setPropertyValue("Graphic", graphic)
@@ -405,7 +405,9 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
             predicted = TrackedDeletions(doc).removes_anchored(gfx)
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
             actual = not doc.getGraphicObjects().hasByName(name)
-            assert predicted is actual, f"{name}: predicted={predicted}, actual={actual}"
+            assert predicted is expected and actual is expected, (
+                f"{name}: expected={expected}, predicted={predicted}, actual={actual}"
+            )
 
         def _delete_range(text, start_para, start_off, end_para, end_off):
             enum = text.createEnumeration()
@@ -488,8 +490,36 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
                 _delete_range(text, 0, 1, 0, 3)
             return _fn
 
+        def _header_text():
+            styles = doc.getStyleFamilies().getByName("PageStyles")
+            s_name = "Standard" if styles.hasByName("Standard") else styles.getElementNames()[0]
+            style = styles.getByName(s_name)
+            style.setPropertyValue("HeaderIsOn", True)
+            return style.getPropertyValue("HeaderText")
+
+        def _para_table_then_struck(text, gfx):
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getStart(), tbl, False)
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "Acme", False)
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            del_c = text.createTextCursorByRange(text.getStart())
+            del_c.gotoEnd(True)
+            doc.setPropertyValue("RecordChanges", True)
+            del_c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _para_two_empty_break(text, gfx):
+            _set_paras(text, ["", ""])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 0)
+
         # AS_CHARACTER cases
-        def _as_char(offset):
+        def _as_char(offset, del_end=4):
             def _fn(text, gfx):
                 text.setString("abcd")
                 gfx.setPropertyValue("AnchorType", AS_CHARACTER)
@@ -499,21 +529,25 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
                     c.goRight(offset, False)
                 text.insertTextContent(c, gfx, False)
                 # Anchor sits before the character at `offset`, shifting remaining chars by 1.
-                _delete_range(text, 0, 1, 0, 4)
+                _delete_range(text, 0, 1, 0, del_end)
             return _fn
 
-        _check("p_mid", _para_mid)
-        _check("p_first", _para_first_of_multi)
-        _check("p_last", _para_last_of_multi)
-        _check("p_break", _para_break_only)
-        _check("p_empty_first", _para_empty_first)
-        _check("p_single_whole", _para_single_whole)
-        _check("p_single_not_whole", _para_single_not_whole)
-        _check("at_char_inside", _at_char(2))
-        _check("at_char_start", _at_char(1))
-        _check("at_char_end", _at_char(3))
-        _check("as_char_start", _as_char(1))
-        _check("as_char_end", _as_char(3))
+        _check("p_mid", False, _para_mid)
+        _check("p_first", True, _para_first_of_multi)
+        _check("p_last", True, _para_last_of_multi)
+        _check("p_break", False, _para_break_only)
+        _check("p_empty_first", True, _para_empty_first)
+        _check("p_single_whole", True, _para_single_whole)
+        _check("p_single_whole_hdr", True, _para_single_whole, target_fn=_header_text)
+        _check("p_single_not_whole", False, _para_single_not_whole)
+        _check("p_table_then_struck_hdr", False, _para_table_then_struck, target_fn=_header_text)
+        _check("p_two_empty_break", True, _para_two_empty_break)
+        _check("at_char_inside", True, _at_char(2))
+        _check("at_char_start", False, _at_char(1))
+        _check("at_char_end", False, _at_char(3))
+        _check("as_char_start", True, _as_char(1))
+        _check("as_char_end", True, _as_char(3))
+        _check("as_char_after", False, _as_char(4, del_end=4))
     finally:
         if os.path.exists(img_path):
             os.unlink(img_path)
