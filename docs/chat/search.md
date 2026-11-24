@@ -6,8 +6,8 @@ This document outlines the architecture and implementation of the **web search**
 
 ## 1. Purpose and Architecture
 
-- **Purpose**: Add a `search_web` tool to the main WriterAgent agent allowing it to perform autonomous web research.
-- **Sub-Agent Approach**: Instead of having the main agent issue individual search queries and fetch URLs—which consumes significant context and risks derailing the main task—the `search_web` tool delegates the entire research task to an autonomous **sub-agent**.
+- **Purpose**: Give the main WriterAgent agent autonomous web research through the `web_research` tool, reached by `delegate_to_subagent(domain="web_research")`.
+- **Sub-Agent Approach**: Instead of having the main agent issue individual search queries and fetch URLs—which consumes significant context and risks derailing the main task—the `web_research` tool delegates the entire research task to an autonomous **sub-agent**.
 - **Smolagents**: We have **vendored** parts of the Hugging Face `smolagents` library (specifically the `ToolCallingAgent` and supporting models/tools) to power this sub-agent. The sub-agent runs its own ReAct loop to iteratively search, read, and synthesize information until it finds the answer.
 
 ---
@@ -20,8 +20,8 @@ To avoid introducing a heavy external dependency on `smolagents` (which ordinari
 - We modified `agents.py` to load its prompts from a bundled Python module (`toolcalling_agent_prompts.py`) rather than depending on `pyyaml`.
 
 ### Zero-Dependency Web Tools
-The original `smolagents` web tools (`DuckDuckGoSearchTool` and `VisitWebpageTool`) rely on `requests`, `beautifulsoup4`, and `markdownify`. We completely rewrote these tools to use only Python's standard library:
-- **Networking**: Replaced `requests` with `urllib.request`. Both tools send a realistic Firefox user agent string (`Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0`) to reduce 403s from some sites (e.g., Yelp).
+The original `smolagents` web tools (`DuckDuckGoSearchTool` and `VisitWebpageTool`) rely on `requests`, `beautifulsoup4`, and `markdownify`. We completely rewrote these tools without those dependencies, using the Python standard library and WriterAgent's own HTTP client:
+- **Networking**: `web_search` uses [`sync_request`](../../plugin/framework/client/requests.py); the static `visit_webpage` uses `urllib.request`. `_get_user_agent_for_url` sends WriterAgent's own user agent to DuckDuckGo and Wikipedia hosts, and a Firefox user agent (`BROWSER_USER_AGENT`) to other sites to reduce 403s (e.g., Yelp).
 - **Parsing**: Replaced `beautifulsoup4` and `markdownify` with custom subclasses of standard `html.parser.HTMLParser` to extract search results and strip tags for page content reading.
 
 ### LlmClient Wrapper
@@ -86,12 +86,12 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 
 **What is Done:**
 - **Vendoring core files**: Copied `agents.py`, `models.py`, `tools.py`, `default_tools.py`, etc. to `plugin/contrib/smolagents`.
-- **Tool Adaptation**: Rewrote `DuckDuckGoSearchTool` (using [`sync_request`](../../plugin/framework/client/requests.py)) and `VisitWebpageTool` (using `urllib.request`) in `default_tools.py` with standard library HTML parsers and a realistic Firefox user agent to reduce 403s.
+- **Tool Adaptation**: Rewrote `DuckDuckGoSearchTool` (using [`sync_request`](../../plugin/framework/client/requests.py)) and `VisitWebpageTool` (using `urllib.request`) in `default_tools.py` with standard library HTML parsers and the per-host user agent described above.
 - **Model Wrapper**: Built `WriterAgentSmolModel` ([`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)) to connect the sub-agent directly to WriterAgent's existing `LlmClient`.
-- **Tool Registration**: Registered the `search_web` / web-research path so the ReAct loop runs via the shared smol agent construction.
-- **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The search_web path no longer depends on Jinja2.
-- **Optional Rich/logging**: `monitoring.py` and `agents.py` use lightweight stubs when `rich` is absent; the search_web path logs to stderr/stdout only, and our `Console` stub ignores Rich-only kwargs like `style=...`.
-- **Optional heavy deps (PIL/requests/audio)**: `agent_types.py` treats Pillow and requests as optional; image/audio types only require them if actually used. This keeps the vendored package importable on a minimal Python install while search_web (text only) continues to work.
+- **Tool Registration**: Registered the `web_research` tool so the ReAct loop runs via the shared smol agent construction.
+- **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The `web_research` path no longer depends on Jinja2.
+- **Optional Rich/logging**: `monitoring.py` and `agents.py` use lightweight stubs when `rich` is absent; the `web_research` path logs to stderr/stdout only, and our `Console` stub ignores Rich-only kwargs like `style=...`.
+- **Optional heavy deps (PIL/requests/audio)**: `agent_types.py` treats Pillow and requests as optional; image/audio types only require them if actually used. This keeps the vendored package importable on a minimal Python install while `web_research` (text only) continues to work.
 - **Errors and time limits**: `SmolAgentExecutor.execute_safe` ([`smol_agent.py`](../../plugin/chatbot/smol_agent.py)) turns sub-agent failures into the standard error payload (`Web search failed: ...`), and Stop into a `USER_STOPPED` payload. The tool is async, so the sidebar runs it on a background worker and the UI stays responsive. There is no overall time limit: a shallow run is bounded by `chatbot.max_tool_rounds` agent steps, after which the model is asked for a final answer, and each network call has its own limit (LLM reads use `request_timeout`, default 120 s; each search attempt allows 5 s to connect and 10 s to read; static page fetches use a 20 s socket timeout).
 
 ---

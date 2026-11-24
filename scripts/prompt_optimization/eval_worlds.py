@@ -681,8 +681,16 @@ class DrawWorld:
         indexes = {s["index"] for s in self.shapes}
         if start_i not in indexes or end_i not in indexes:
             return {"status": "error", "message": "Failed to find shapes at given indices."}
+        arrowheads: dict[str, str] = {}
+        for key in ("line_start", "line_end"):
+            marker = kwargs.get(key)
+            if marker not in (None, "none", "arrow"):
+                return {"status": "error", "message": f"Invalid value for {key}: {marker!r}. Valid options: none, arrow"}
+            # shape_get_tree omits an end without an arrowhead, so only "arrow" is stored.
+            if marker == "arrow":
+                arrowheads[key] = marker
         label = str(kwargs.get("label") or kwargs.get("text") or "")
-        entry: dict[str, Any] = {"from_index": start_i, "to_index": end_i}
+        entry: dict[str, Any] = {"from_index": start_i, "to_index": end_i, **arrowheads}
         if label:
             entry["label"] = label
         self.connections.append(entry)

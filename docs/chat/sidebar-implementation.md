@@ -82,11 +82,9 @@ In addition to `old_content`, `apply_content(target='search')` supports landmark
 
 ### Math prompt policy (`WRITER_APPLY_DOCUMENT_HTML_RULES`)
 
-Recommend `\(...\)` inline delimiters only. The import path still parses `$`, `$$`, and `\[...\]` ([`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py)) for pasted or legacy content — we just do not steer models toward display delimiters.
+Recommend `\(...\)` for inline math and `\[...\]` for centered display math. The import path also parses `$` and `$$` ([`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py)) for pasted or legacy content.
 
-`display_block` in `insert_writer_math_formula` only wraps the formula in paragraph breaks; the OLE stays `AS_CHARACTER`, so display math is not centered and looks like inline on its own line — no visual win, extra delimiter choice confuses LLMs.
-
-If we implement true block/centered math (e.g. paragraph anchor + alignment), revisit split inline vs display rules here and in [../writer/math-tex.md](../writer/math-tex.md).
+`display_block` in `insert_writer_math_formula` puts the formula in its own paragraph and centers that paragraph; the OLE stays `AS_CHARACTER`, and the paragraph after it keeps the alignment it had before. See [../writer/math-tex.md](../writer/math-tex.md).
 
 ### Sidebar HTML examples (`CHAT_SIDEBAR_HTML_EXAMPLES`)
 
