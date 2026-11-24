@@ -137,9 +137,17 @@ def system_path_from_url(url: str) -> str | None:
     return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
+def unquote_path(raw: Any) -> str:
+    """Strip whitespace and one pair of matching quotes a model put around a path."""
+    text = str(raw).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        text = text[1:-1].strip()
+    return text
+
+
 def resolve_file_target(raw: str) -> tuple[str, str] | None:
     """Resolve an absolute path (with ~ expansion) or file: URL to (system_path, file_url)."""
-    text = str(raw).strip()
+    text = unquote_path(raw)
     if not text:
         return None
     if text.startswith("file:"):
@@ -519,7 +527,7 @@ def resolve_path_or_name(
     Raises SendCancelled when the user stops during the listing.
     Returns (path, url) or (None, error_message).
     """
-    raw = str(path_or_name).strip()
+    raw = unquote_path(path_or_name)
     if not raw:
         return None, "path_or_name is required"
 

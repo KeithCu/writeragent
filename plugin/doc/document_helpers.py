@@ -189,43 +189,6 @@ def _with_math_ole_chat_hint(model: Any, body: str) -> str:
     )
 
 
-def _writer_excerpt_overlaps_selection(
-    model: Any,
-    excerpt_start: int,
-    excerpt_end: int,
-    sel_start_pos: Any,
-    sel_end_pos: Any,
-) -> bool:
-    """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
-    exc_cursor = _text_helpers.get_text_cursor_at_range(model, excerpt_start, excerpt_end)
-    if exc_cursor is None:
-        return False
-    if not _text_helpers.position_text_is_body(model, sel_start_pos, "Get selection text"):
-        # Different XText (table, frame, header). compareRegionStarts
-        # Nested text vs body compareRegionStarts raises; treat as non-overlapping instead of failing chat context.
-        return False
-    text = uno_call(model.getText, "Get document text")
-    exc_start = uno_call(exc_cursor.getStart, "Excerpt getStart")
-    exc_end = uno_call(exc_cursor.getEnd, "Excerpt getEnd")
-    if uno_call(lambda: text.compareRegionStarts(sel_end_pos, exc_start), "compareRegionStarts sel_end exc_start") > 0:
-        return False
-    if uno_call(lambda: text.compareRegionStarts(exc_end, sel_start_pos), "compareRegionStarts exc_end sel_start") > 0:
-        return False
-    return True
-
-
-def _writer_selection_overlaps_windows(
-    model: Any,
-    windows: list[tuple[int, int]],
-    sel_start_pos: Any,
-    sel_end_pos: Any,
-) -> bool:
-    for win_start, win_end in windows:
-        if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
-            return True
-    return False
-
-
 @main_thread_only
 def get_document_context_for_chat(
     model: Any,
@@ -261,7 +224,12 @@ def get_document_context_for_chat(
             try:
                 if model is None:
                     raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-                doc_len = _text_helpers.writer_char_count(model)
+                positions: tuple[Any, ...] = ()
+                if include_selection:
+                    sel_positions = _text_helpers.get_writer_selection_positions(model, selection=selection)
+                    if sel_positions is not None:
+                        positions = sel_positions[1:]
+                text, offsets = _text_helpers.read_visible_body(model, positions)
             except UnoObjectError:
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
                 sel_text = _text_helpers.get_selection_text(model)
@@ -269,67 +237,36 @@ def get_document_context_for_chat(
                     return f"[Document text reading failed. Active selection: {sel_text}]"
                 return "[Document content unavailable]"
 
-            # Split only when the document does not fit. A threshold of
-            # max_context // 2 sends a document that still fits
-            # (half < doc_len <= max_context) through a head window and a
-            # tail window that overlap, so the middle is repeated, and the
-            # "middle omitted" note stays off because doc_len is not past
-            # the budget. One slice when the document fits. Head and tail
-            # only when it does not. Those windows cannot overlap: together
-            # they are max_context characters and the body is longer than
-            # that, so the tail starts after the head.
-            use_head_tail = include_end and doc_len > max_context
-            if use_head_tail:
+            total = len(text)
+            sel_start, sel_end = (0, 0)
+            if len(offsets) == 2 and offsets[0] is not None and offsets[1] is not None:
+                sel_start, sel_end = offsets[0], offsets[1]
+                if sel_start > sel_end:
+                    sel_start, sel_end = sel_end, sel_start
+                max_selection_span = 2000
+                if sel_end - sel_start > max_selection_span:
+                    sel_end = sel_start + max_selection_span
+
+            # Split into non-overlapping head and tail windows only when the visible body exceeds max_context.
+            if include_end and total > max_context:
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
-                # Document text goes from 0 to doc_len, we take end_chars.
-                excerpt_windows = [(0, start_chars), (max(0, doc_len - end_chars), doc_len)]
-            else:
-                start_chars = 0
-                end_chars = 0
-                take = min(doc_len, max_context)
-                excerpt_windows = [(0, take)]
-
-            # The windows are in cursor steps (doc_len); the model is shown the visible length,
-            # the number get_content reports as document_length. Cursor steps also count
-            # pending deleted text, so the two disagreed in review mode (3405 vs 2439).
-            shown_len = _text_helpers.get_document_length(model)
-
-            start_offset, end_offset = (0, 0)
-            if include_selection:
-                sel_positions = _text_helpers.get_writer_selection_positions(model, selection=selection)
-                if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                    start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len, selection=selection)
-                    start_offset = max(0, min(start_offset, doc_len))
-                    end_offset = max(0, min(end_offset, doc_len))
-                    if start_offset > end_offset:
-                        start_offset, end_offset = end_offset, start_offset
-                    max_selection_span = 2000
-                    if end_offset - start_offset > max_selection_span:
-                        end_offset = start_offset + max_selection_span
-
-            if use_head_tail:
-                tail_start = max(0, doc_len - end_chars)
-                start_excerpt = _text_helpers.read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers.read_writer_text_slice(model, tail_start, end_chars)
-                start_excerpt = _inject_selection_markers(model, start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
+                tail_start = total - end_chars
+                start_excerpt = _inject_selection_markers(text[:start_chars], 0, sel_start, sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "")
+                end_excerpt = _inject_selection_markers(text[tail_start:], tail_start, sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _writer_snapshot(
                     model,
-                    "Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt),
+                    "Document length: %d characters.\n\n%s%s%s" % (total, start_excerpt, middle_note, end_excerpt),
                 )
 
-            take = min(doc_len, max_context)
-            excerpt = _text_helpers.read_writer_text_slice(model, 0, take)
-            if doc_len > max_context:
-                excerpt += "\n\n[... document truncated ...]"
+            note = "\n\n[... document truncated ...]" if total > max_context else ""
             # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "")
+            excerpt = _inject_selection_markers(text[:max_context], 0, sel_start, sel_end, "[DOCUMENT START]\n", note)
             return _writer_snapshot(
                 model,
-                "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
+                "Document length: %d characters.\n\n%s" % (total, excerpt),
             )
 
         return ""
@@ -347,31 +284,17 @@ def get_document_context_for_chat(
 
 
 def _inject_selection_markers(
-    model: Any,
     excerpt_text: str,
     excerpt_start: int,
-    excerpt_end: int,
     sel_start: int,
     sel_end: int,
     prefix: str,
     suffix: str,
 ) -> str:
-    """Insert selection markers at visible offsets in the excerpt."""
-    # Excerpt hides pending deletions and multi-step UNO objects (like
-    # fields/footnotes), so cursor-step offsets cannot index it directly;
-    # read the prefix slice to map into visible coordinates.
+    """Insert selection markers at visible offsets in *excerpt_text*."""
     visible_len = len(excerpt_text)
-
-    def _visible(offset: int) -> int:
-        if offset <= excerpt_start:
-            return 0
-        if offset >= excerpt_end:
-            return visible_len
-        prefix_text = _text_helpers.read_writer_text_slice(model, excerpt_start, offset - excerpt_start)
-        return min(len(prefix_text), visible_len)
-
-    s = _visible(sel_start)
-    e = _visible(sel_end)
+    s = max(0, min(sel_start - excerpt_start, visible_len))
+    e = max(0, min(sel_end - excerpt_start, visible_len))
     if s >= visible_len or e <= 0:
         return prefix + excerpt_text + suffix
     return (

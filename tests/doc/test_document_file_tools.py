@@ -101,6 +101,17 @@ def test_resolve_file_target(tmp_path):
         url_target.as_uri(),
     )
 
+    # Matching quotes (and inner spaces) are stripped; mismatched or empty quotes are not paths.
+    assert resolve_file_target(f'"{target}"') == (str(target), target.as_uri())
+    assert resolve_file_target(f"'{target}'") == (str(target), target.as_uri())
+    assert resolve_file_target(f'"{url_target.as_uri()}"') == (str(url_target), url_target.as_uri())
+    assert resolve_file_target(f'  " {target} "  ') == (str(target), target.as_uri())
+    assert resolve_file_target(f'"{target}\'') is None
+    assert resolve_file_target('"') is None
+    assert resolve_file_target('""') is None
+    inner_quote = tmp_path / 'a"b.odt'
+    assert resolve_file_target(str(inner_quote)) == (str(inner_quote), inner_quote.as_uri())
+
 
 def test_document_open_missing_file(tmp_path):
     missing = tmp_path / "missing.odt"
@@ -127,6 +138,23 @@ def test_document_open_fresh_file(tmp_path):
     assert res["status"] == "ok"
     assert res["already_open"] is False
     assert res["document"]["uid"] == "uid-new"
+    assert desktop.loadComponentFromURL.call_args.args == (target.as_uri(), "_default", 0, ())
+
+
+def test_document_open_quoted_path(tmp_path):
+    target = tmp_path / "quoted doc.odt"
+    target.write_text("x", encoding="utf-8")
+    model = _make_model(url=target.as_uri(), uid="uid-quoted")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = model
+
+    with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools._detect_load_filter", return_value=("writer8", TEXT_DOCUMENT_SERVICE)), \
+         patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_research.system_path_from_url", return_value=str(target)):
+        res = DocumentOpen().execute(_make_ctx(), path=f'"{target}"')
+
+    assert res["status"] == "ok"
     assert desktop.loadComponentFromURL.call_args.args == (target.as_uri(), "_default", 0, ())
 
 

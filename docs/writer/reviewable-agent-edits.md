@@ -107,6 +107,11 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
+* Format redlines recorded by `style_format_text` and character `apply_style` in record/wait mode
+  when the document is recording during the call are authored `WriterAgent` so formatting the
+  agent's own pending insertion folds into it and keeps it rejectable (`PreAppendFormatRedline` in
+  `DocumentRedlineManager.cxx`). When the target overlaps a pending insertion by another author, the
+  office author stays so rejecting does not keep the other author's text.
 * Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`,
   including `target='selection'` and streamed Extend/Edit Selection) are
   recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
@@ -307,6 +312,8 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   insert/delete colors.
 * **`ShowChanges` is forced on** during review and is not restored afterward; the user must toggle
   display back manually if they had it off. Do not treat that as a missing restore bug in the wait loop.
+* **Formatting across a foreign pending insertion** (or across both the user's and the agent's) still
+  lets LibreOffice turn one of them into a Format redline; rejecting then keeps that text.
 * **Closing the document during wait** aborts with ``complete=False`` and ``timed_out=False`` (not a
   full-timeout spin). A change that never gets an anchor bookmark is **not** registered as a
   reviewable agent edit.

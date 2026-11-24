@@ -507,6 +507,8 @@ def test_deleting_the_whole_outline_link_succeeds_uno(ctx, doc):
     _append_linked(text, cursor, "Old title", _OUTLINE)
     res = _apply(doc, ctx, old_content="Old title", content="")
     assert res.get("status") == "ok", res
+    assert res.get("hyperlink_updated") is False, res
+    assert res.get("hyperlink_url_after") == "", res
     body = doc.getText().getString()
     assert "Old title" not in body, body
 
@@ -1078,6 +1080,163 @@ def test_recorded_all_matches_across_paragraphs_does_not_merge_uno(ctx, doc):
         "See baz",
         "baz bar",
     ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_replace_over_two_links_reports_the_dropped_link_uno(ctx, doc):
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Alpha ", "#1.Alpha Beta|outline")
+    _append_linked(text, cursor, "Beta", _OTHER)
+    res = _apply(doc, ctx, old_content="Alpha Beta", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    assert _paragraph_rows(doc) == [[("New title", "", "", "")]]
+    links = res.get("hyperlinks") or []
+    assert len(links) == 2, res
+    assert all(r["hyperlink_updated"] is False and r["hyperlink_url_after"] == "" for r in links), links
+
+
+@native_test
+@with_native_doc("writer")
+def test_identical_retarget_undo_restores_the_link_uno(ctx, doc):
+    text, cursor = _clear(doc)
+    text.insertString(cursor, "See ", False)
+    _append_linked(text, cursor, "New title", _OUTLINE, name="nm", target="_blank")
+    text.insertString(cursor, " x", False)
+    # Clear link properties on the plain runs so only the middle is linked.
+    whole = text.createTextCursor()
+    whole.gotoStart(False)
+    whole.goRight(4, True)
+    whole.setPropertyValue("HyperLinkURL", "")
+    tail = text.createTextCursor()
+    tail.gotoEnd(False)
+    tail.goLeft(2, True)
+    tail.setPropertyValue("HyperLinkURL", "")
+
+    before = _paragraph_rows(doc)
+    res = _apply(
+        doc, ctx, old_content="New title", content="New title",
+        hyperlink_url=_OUTLINE_NEW)
+    assert res.get("status") == "ok", res
+    after = _paragraph_rows(doc)
+    assert after != before, (before, after)
+
+    um = doc.getUndoManager()
+    um.undo()
+    assert _paragraph_rows(doc) == before
+    um.redo()
+    assert _paragraph_rows(doc) == after
+    um.undo()
+    assert _paragraph_rows(doc) == before
+
+
+@native_test
+@with_native_doc("writer")
+def test_unrecorded_replace_keeps_link_name_and_target_uno(ctx, doc):
+    # HTML rename
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _OUTLINE, name="nm", target="_blank")
+    res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    assert _paragraph_rows(doc) == [[("New title", _OUTLINE_NEW, "nm", "_blank")]]
+
+    # HTML put-back
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _OTHER, name="nm", target="_blank")
+    res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    assert _paragraph_rows(doc) == [[("New title", _OTHER, "nm", "_blank")]]
+
+    # HTML over bookmark
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _BOOKMARK, name="nm", target="_blank")
+    res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    assert _paragraph_rows(doc) == [[("New title", _BOOKMARK, "nm", "_blank")]]
+
+    # Page-digit edit on whole-paragraph link
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Old title\t5", _OTHER, name="nm", target="_blank")
+    res = _apply(doc, ctx, old_content="5", content="6")
+    assert res.get("status") == "ok", res
+    assert _paragraph_rows(doc) == [[("1. Old title\t6", _OTHER, "nm", "_blank")]]
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_html_replace_keeps_link_name_and_target_uno(ctx, doc):
+    from plugin.writer.record_changes import record_changes
+
+    for url in (_OUTLINE, _BOOKMARK):
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "Old title", url, name="nm", target="_blank")
+        with record_changes(doc, True):
+            res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert _paragraph_rows(doc) == [[("New title", url, "nm", "_blank")]]
+
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "Old title", url, name="nm", target="_blank")
+        with record_changes(doc, True):
+            res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _paragraph_rows(doc) == [[("Old title", url, "nm", "_blank")]]
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_rename_keeps_the_link_style_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    sel.setPropertyValue("UnvisitedCharStyleName", "Index Link")
+    sel.setPropertyValue("VisitedCharStyleName", "Index Link")
+
+    res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    para = text.createEnumeration().nextElement()
+    portions = para.createEnumeration()
+    styles = []
+    while enum_has_more(portions):
+        p = portions.nextElement()
+        if str(p.getString() or ""):
+            styles.append(str(p.getPropertyValue("UnvisitedCharStyleName") or ""))
+    assert styles == ["Index Link"], styles
+
+
+@native_test
+@with_native_doc("writer")
+def test_multiparagraph_html_replace_keeps_unmeasured_links_in_report_uno(ctx, doc):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+    # Finding 1: multi-paragraph HTML replace moves anchor past prefix, leaving "1. " linked.
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Old title", _OUTLINE)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Body", False)
+    res = _apply(doc, ctx, old_content="Old title\nBody", content="<p>One</p><p>Two</p>")
+    assert res.get("status") == "ok", res
+    assert res.get("hyperlink_updated") is False, res
+    assert res.get("hyperlink_url_after") == _OUTLINE, res
+    assert ("1. ", _OUTLINE, "", "") in _paragraph_rows(doc)[0], _paragraph_rows(doc)
+
+    # Finding 5: two links in one paragraph with text left on both sides, split by block HTML.
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Alpha ", "#1.Alpha|outline")
+    _append_linked(text, cursor, "Beta 2.", "#2.Beta|outline")
+    res2 = _apply(doc, ctx, old_content="Alpha Beta", content="<p>One</p><p>Two</p>")
+    assert res2.get("status") == "ok", res2
+    links2 = res2.get("hyperlinks") or []
+    assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in links2] == [
+        ("#1.Alpha|outline", False),
+        ("#2.Beta|outline", False),
+    ], links2
 
 
 @native_test

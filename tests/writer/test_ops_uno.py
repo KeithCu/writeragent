@@ -1,9 +1,6 @@
 
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
-from plugin.doc.text_helpers import get_text_cursor_at_range, normalize_linebreaks
-from plugin.doc.text_helpers import (
-    get_selection_range,
-)
+from plugin.doc.text_helpers import get_text_cursor_at_range_reached, normalize_linebreaks
 from plugin.writer.html_import import insert_html_fragment_at_cursor
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
@@ -19,7 +16,7 @@ def _populate_ops_doc(doc):
 
 @native_test
 @with_native_doc("writer")
-def test_get_text_cursor_at_range(ctx, doc):
+def test_get_text_cursor_at_range_reached(ctx, doc):
     _populate_ops_doc(doc)
     text = doc.getText()
     full_text_str = text.getString()
@@ -28,8 +25,9 @@ def test_get_text_cursor_at_range(ctx, doc):
     start_idx = 0
     end_idx = min(3, len(full_text_str))
 
-    cursor = get_text_cursor_at_range(doc, start_idx, end_idx)
-    assert cursor is not None, "get_text_cursor_at_range returned None"
+    cursor, reached = get_text_cursor_at_range_reached(doc, start_idx, end_idx)
+    assert cursor is not None, "get_text_cursor_at_range_reached returned None"
+    assert reached is True
 
     selected_text = cursor.getString()
     expected_text = full_text_str[start_idx:end_idx]
@@ -39,7 +37,7 @@ def test_get_text_cursor_at_range(ctx, doc):
     # span (GHA 35466498641). Offsets stay correct; only the encoding of
     # the break differs. Product callers use normalize_linebreaks.
     assert normalize_linebreaks(selected_text) == normalize_linebreaks(expected_text), (
-        f"get_text_cursor_at_range mismatch. Expected '{expected_text}', got '{selected_text}'"
+        f"get_text_cursor_at_range_reached mismatch. Expected '{expected_text}', got '{selected_text}'"
     )
 
 
@@ -60,22 +58,6 @@ def test_find_paragraph_for_range(ctx, doc):
 
     idx = find_paragraph_for_range(cursor, para_ranges, text)
     assert idx == 1, f"find_paragraph_for_range expected index 1, got {idx}"
-
-
-@native_test
-@with_native_doc("writer")
-def test_get_selection_range(ctx, doc):
-    _populate_ops_doc(doc)
-    controller = doc.getCurrentController()
-    view_cursor = controller.getViewCursor()
-    view_cursor.gotoStart(False)
-    view_cursor.goRight(3, True)
-
-    start_offset, end_offset = get_selection_range(doc)
-
-    # Start should be 0, end should be 3
-    assert start_offset == 0, f"Expected start_offset 0, got {start_offset}"
-    assert end_offset == 3, f"Expected end_offset 3, got {end_offset}"
 
 
 @native_test

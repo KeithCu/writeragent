@@ -801,9 +801,8 @@ def document_to_content(
 
     if scope in ("selection", "range"):
         if scope == "selection":
-            # Copy the selection's own paragraphs. Character offsets from
-            # get_selection_range and this walk disagree across an index section,
-            # and measuring each paragraph from the document start hung on a long file.
+            # Copy the selection's own paragraphs: offsets measured from the document start
+            # would cost a walk per paragraph on a long file.
             source = _selection_cursor(model, selection=selection)
             if source is None:
                 return _done("", "selection")
