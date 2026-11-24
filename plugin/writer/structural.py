@@ -129,7 +129,6 @@ class GetPageObjects(ToolBase):
             return self._tool_error("Cannot resolve view cursor page: %s" % exc)
 
         if page is None:
-            lo_page = 0
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:

@@ -2327,6 +2327,26 @@ def test_insert_mixed_html_and_math_decodes_tex_entities():
     assert conv.call_args.args[1] == "a < b"
 
 
+def test_insert_mixed_html_and_math_failed_tex_fallback_decodes_entities():
+    from plugin.writer import html_import
+    from plugin.writer.math.math_mml_convert import MathConversionResult
+
+    model = MagicMock()
+    cursor = MagicMock()
+    with patch.object(
+        html_import,
+        "convert_latex_to_starmath",
+        return_value=MathConversionResult(ok=False, starmath="", error_message="bad"),
+    ):
+        attempts = html_import._insert_mixed_html_and_math_at_cursor(
+            model, MagicMock(), cursor, r"$\badcmd{a} &lt; b$"
+        )
+    cursor.getText.return_value.insertString.assert_called_once_with(
+        cursor, r"[Math import failed] \badcmd{a} < b", False
+    )
+    assert attempts[0]["snippet"] == r"\badcmd{a} < b"
+
+
 def test_insert_content_at_position_non_text_selection_raises_coded_error():
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import

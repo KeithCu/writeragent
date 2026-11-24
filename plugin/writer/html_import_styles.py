@@ -487,7 +487,13 @@ def decode_complete_character_references(text: str) -> str:
 
 
 def normalize_character_references(text: str) -> str:
-    """Decode complete character references, keeping < > & " ' escaped so escaped markup stays text."""
+    """Decode complete character references, keeping < > & " ' escaped so escaped markup stays text.
+
+    Needed because ``&#36;`` must become ``$`` before math detection (``R&#36;5.000,00``),
+    StarWriter prints HTML5-only names such as ``&check;`` literally, and a full decode would
+    turn ``&lt;table&gt;`` into a live table. Incomplete references like ``&sect 2o`` and bare
+    ``&`` in ``Banco & Cia`` are left untouched.
+    """
     if "&" not in text:
         return text
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.escape(html_mod.unescape(m.group(0))), text)

@@ -392,7 +392,11 @@ def _elapsed_since(t0: float) -> float:
 
 
 def escape_for_html_insert(value: Any) -> str:
-    """Escape a script result so it stays text after Writer/Calc HTML insert."""
+    """Escape a script result so it stays text after Writer/Calc HTML insert.
+
+    One escape level is enough because both Writer and Calc importers normalize
+    complete references while keeping ``< > & " '`` escaped.
+    """
     return html.escape(str(value))
 
 

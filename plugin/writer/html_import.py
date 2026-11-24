@@ -236,11 +236,12 @@ def _insert_mixed_html_and_math_at_cursor(
             if seg_ruby:
                 html_ruby.apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
-        snippet = (seg.text or "").replace("\n", " ")[:120]
         if seg.kind == "tex":
-            tex_text = html_import_styles.decode_complete_character_references(seg.text)
+            tex_text = html_import_styles.decode_complete_character_references(seg.text or "")
+            snippet = tex_text.replace("\n", " ")[:120]
             res = convert_latex_to_starmath(ctx, tex_text, display_block=seg.display_block)
         else:
+            snippet = (seg.text or "").replace("\n", " ")[:120]
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath:
             insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
@@ -360,6 +361,7 @@ def _sections_at(cursor: Any) -> list[Any]:
     """Return the TextSection chain at *cursor*, innermost first."""
     out: list[Any] = []
     section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
+    # Service check instead of `is not None`: a mock's getParentSection() never returns None.
     while _uno_service_true(section, "com.sun.star.text.TextSection"):
         out.append(section)
         cur_sec: Any = section
@@ -378,6 +380,8 @@ def raise_if_protected_start(model: Any) -> None:
     cursor.gotoStart(False)
     for section in _sections_at(cursor):
         sec: Any = section
+        # Index sections (such as TOCs) are protected by default; refusing them would
+        # block full_document on every document that opens with a TOC.
         if (
             uno_read(lambda: sec.getPropertyValue("IsProtected") is True, False)
             and uno_read(lambda: sec.getPropertyValue("DocumentIndex"), None) is None
@@ -1226,13 +1230,14 @@ def replace_full_document(
         cursor.gotoStart(False)
         sections = _sections_at(cursor)
         if sections:
+            # Place the new paragraph before the outermost leading section (sections[-1]).
             # Inline on purpose: a held SwXParagraph breaks later enumeration (SwXParagraph::attachToText).
             with record_changes.record_changes(model, False):
                 text.insertTextContentBefore(model.createInstance("com.sun.star.text.Paragraph"), sections[-1])
             if not recording:
                 page_style = cursor.getPropertyValue("PageDescName")
                 page_number = cursor.getPropertyValue("PageNumberOffset")
-                cursor.gotoStart(False)  # now outside the section, so the section is deleted whole
+                cursor.gotoStart(False)  # outside the section so it is deleted whole; recorded mode keeps cursor inside because selecting from the new paragraph deletes nothing when the doc is only a section
                 if page_style:
                     cursor.setPropertyValue("PageDescName", page_style)
                     cursor.setPropertyValue("PageNumberOffset", page_number)
@@ -1250,7 +1255,8 @@ def replace_full_document(
         # the data-lo-style pass then keeps it as a "hand-set" override).
         # Import into a fresh empty paragraph opened before the deleted
         # text, then drop that paragraph if it is left over empty
-        # (`_drop_leftover_paragraph`).
+        # (`_drop_leftover_paragraph`). When sections is non-empty,
+        # insertTextContentBefore already created that fresh paragraph.
         if not sections:
             text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
             cursor.goLeft(1, False)

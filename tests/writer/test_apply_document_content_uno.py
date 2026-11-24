@@ -912,31 +912,52 @@ def test_full_document_leading_sections_uno(ctx, doc):
     tool = ApplyDocumentContent()
     text = doc.getText()
 
-    # Protected leading section refuses without changing the document.
-    _clear_body(doc)
-    sec = doc.createInstance("com.sun.star.text.TextSection")
-    sec.setName("ProtLead")
-    sec.setPropertyValue("IsProtected", True)
-    text.insertTextContent(text.getStart(), sec, False)
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    text.insertString(cur, "Keep protected", False)
+    def _make_leading_section(name: str, body: str, *, protected: bool = False):
+        _clear_body(doc)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName(name)
+        sec.setPropertyValue("IsProtected", protected)
+        text.insertTextContent(text.getStart(), sec, False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, body, False)
+        return sec
+
+    # 1. Protected leading section (and protected outer with unprotected inner) refuses.
+    outer_sec = _make_leading_section("ProtOuter", "Keep protected", protected=False)
+    inner_cur = text.createTextCursor()
+    inner_cur.gotoStart(False)
+    inner_cur.goRight(4, True)
+    inner_sec = doc.createInstance("com.sun.star.text.TextSection")
+    inner_sec.setName("UnprotInner")
+    inner_sec.setPropertyValue("IsProtected", False)
+    text.insertTextContent(inner_cur, inner_sec, True)
+    assert inner_sec.getParentSection() is not None
+    outer_sec.setPropertyValue("IsProtected", True)
     res_prot = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
     assert res_prot.get("status") == "error", res_prot
     assert res_prot.get("code") == "PROTECTED_LEADING_SECTION", res_prot
-    assert "Keep protected" in text.getString()
+    assert "Keep" in text.getString() and "protected" in text.getString()
 
-    # Visible leading section is replaced outside the section; one undo restores it.
-    sec.setPropertyValue("IsProtected", False)
+    # 2. Nested visible leading sections are replaced outside; PageDescName/PageNumberOffset preserved; undo restores.
+    outer_sec.setPropertyValue("IsProtected", False)
+    first_cur = text.createTextCursor()
+    first_cur.gotoStart(False)
+    first_cur.setPropertyValue("PageDescName", "First Page")
+    first_cur.setPropertyValue("PageNumberOffset", 7)
     res_vis = tool.execute(tctx, target="full_document", content="<p>Outside</p>")
     assert res_vis.get("status") == "ok", res_vis
     assert text.getString().strip() == "Outside"
     assert doc.getTextSections().getCount() == 0
+    check_cur = text.createTextCursor()
+    check_cur.gotoStart(False)
+    assert check_cur.getPropertyValue("PageDescName") == "First Page"
+    assert check_cur.getPropertyValue("PageNumberOffset") == 7
     doc.getUndoManager().undo()
-    assert "Keep protected" in text.getString()
-    assert doc.getTextSections().getCount() == 1
+    assert "Keep" in text.getString() and "protected" in text.getString()
+    assert doc.getTextSections().getCount() == 2
 
-    # Leading TOC is replaced outside the index.
+    # 3. Leading TOC is replaced outside the index.
     _clear_body(doc)
     toc = doc.createInstance("com.sun.star.text.ContentIndex")
     text.insertTextContent(text.getStart(), toc, False)
@@ -945,25 +966,34 @@ def test_full_document_leading_sections_uno(ctx, doc):
     assert text.getString().strip() == "No TOC"
     assert doc.getTextSections().getCount() == 0
 
-    # Recorded leading section: Reject restores original text, Accept keeps new text outside.
-    _clear_body(doc)
-    sec2 = doc.createInstance("com.sun.star.text.TextSection")
-    sec2.setName("RecLead")
-    text.insertTextContent(text.getStart(), sec2, False)
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    text.insertString(cur, "Original", False)
+    # 4. Recorded leading section: Reject restores original text; new paragraph sits outside section.
+    _make_leading_section("RecLead1", "Original")
     doc.setPropertyValue("RecordChanges", True)
     try:
         res_rec = tool.execute(tctx, target="full_document", content="<p>NewRec</p>")
         assert res_rec.get("status") == "ok", res_rec
+        c1 = text.createTextCursor()
+        c1.gotoStart(False)
+        assert c1.getPropertyValue("TextSection") is None
+        assert doc.getTextSections().getCount() == 1
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert "Original" in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 5. Recorded leading section (rebuilt fresh): Accept keeps new text outside section.
+    _make_leading_section("RecLead2", "Original2")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
         res_rec2 = tool.execute(tctx, target="full_document", content="<p>Accepted</p>")
         assert res_rec2.get("status") == "ok", res_rec2
+        c2 = text.createTextCursor()
+        c2.gotoStart(False)
+        assert c2.getPropertyValue("TextSection") is None
+        assert doc.getTextSections().getCount() == 1
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         assert "Accepted" in text.getString()
-        assert "Original" not in text.getString()
+        assert "Original2" not in text.getString()
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1002,14 +1032,12 @@ def test_selection_object_and_cell_block_refuse_uno(ctx, doc):
 def test_linked_picture_round_trip_uno(ctx, doc):
     import base64
     import os
+    import re
     import tempfile
-    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
     from plugin.writer.html_export import document_to_content
 
     tctx = native_writer_tool_context(doc, ctx)
-    _clear_body(doc)
-    text = doc.getText()
-    text.setString("before")
     png = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     )
@@ -1018,21 +1046,54 @@ def test_linked_picture_round_trip_uno(ctx, doc):
     with open(img_path, "wb") as f:
         f.write(png)
     try:
-        gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
-        gfx.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
-        gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
-        gfx.setPropertyValue("Width", 400)
-        gfx.setPropertyValue("Height", 400)
-        gfx.setPropertyValue("HyperLinkURL", "https://example.org/orig")
-        text.insertTextContent(text.getStart(), gfx, False)
-        gfx.setName("LinkedPic")
+        text = doc.getText()
 
+        def _setup_pic(anchor_type, url: str, name: str) -> None:
+            _clear_body(doc)
+            text.setString("before")
+            gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            gfx.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            gfx.setPropertyValue("AnchorType", anchor_type)
+            gfx.setPropertyValue("Width", 400)
+            gfx.setPropertyValue("Height", 400)
+            gfx.setPropertyValue("HyperLinkURL", url)
+            text.insertTextContent(text.getStart(), gfx, False)
+            gfx.setName(name)
+
+        # AT_PARAGRAPH: keep, change href, and remove <a> via full_document.
+        _setup_pic(AT_PARAGRAPH, "https://example.org/orig", "LinkedPara")
         html = document_to_content(doc, ctx, scope="full", include_images=False)
         res = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
         assert res.get("status") == "ok", res
-        objs = doc.getGraphicObjects()
-        assert objs.getCount() == 1, (objs.getCount(), html, res)
-        restored = objs.getByIndex(0)
-        assert restored.getPropertyValue("HyperLinkURL") == "https://example.org/orig"
+        assert doc.getGraphicObjects().getCount() == 1
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/orig"
+
+        html_changed = html.replace("https://example.org/orig", "https://example.org/changed")
+        res_chg = ApplyDocumentContent().execute(tctx, target="full_document", content=html_changed)
+        assert res_chg.get("status") == "ok", res_chg
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/changed"
+
+        html_unlinked = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", html_changed, flags=re.DOTALL)
+        res_rm = ApplyDocumentContent().execute(tctx, target="full_document", content=html_unlinked)
+        assert res_rm.get("status") == "ok", res_rm
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == ""
+
+        # AT_CHARACTER via full_document.
+        _setup_pic(AT_CHARACTER, "https://example.org/atchar", "LinkedAtChar")
+        html_at = document_to_content(doc, ctx, scope="full", include_images=False)
+        res_at = ApplyDocumentContent().execute(tctx, target="full_document", content=html_at)
+        assert res_at.get("status") == "ok", res_at
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/atchar"
+
+        # AS_CHARACTER via selection.
+        _setup_pic(AS_CHARACTER, "https://example.org/aschar", "LinkedAsChar")
+        html_as = document_to_content(doc, ctx, scope="full", include_images=False)
+        sel = text.createTextCursor()
+        sel.gotoStart(False)
+        sel.gotoEnd(True)
+        doc.getCurrentController().select(sel)
+        res_as = ApplyDocumentContent().execute(tctx, target="selection", content=html_as)
+        assert res_as.get("status") == "ok", res_as
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/aschar"
     finally:
         os.unlink(img_path)

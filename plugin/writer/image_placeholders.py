@@ -413,6 +413,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         # right; Reject leaves the new table behind. Without the picture it would be lost instead.
         props = dict(image.props)
         if props.get("HyperLinkURL"):
+            # Read the marker's link so an <a> the agent changed or removed wins over the original.
             props["HyperLinkURL"] = uno_read(
                 lambda: found.getPropertyValue("HyperLinkURL"),
                 props["HyperLinkURL"],

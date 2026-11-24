@@ -436,6 +436,10 @@ class _SemanticTransformer(HtmlPassthroughParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
+        if tag.lower() in ("div", "span") and self._box_next:
+            self._box_next = False
+            if self._open:
+                self._open[-1] = "after_box"
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
     def handle_endtag(self, tag: str) -> None:
