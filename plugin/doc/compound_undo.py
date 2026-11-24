@@ -211,12 +211,16 @@ class UndoOutcome:
       None even if mutate raised.
     Document disposal still raises from :func:`commit_or_rollback`; it is never stored
     on ``mutate_error``.
+    ``group_closed`` is False when ``leaveUndoContext`` failed: the undo group is still
+    open, nothing was rolled back, and whatever mutate wrote is still in the document.
+    ``nothing_landed`` is never True in that state.
     """
 
     error: dict[str, Any] | None = None
     rolled_back: bool = False
     nothing_landed: bool = False
     mutate_error: Exception | None = None
+    group_closed: bool = True
 
     def raise_mutate_error(self) -> None:
         """Re-raise a failed ``mutate`` when the caller uses exception flow."""
@@ -297,7 +301,7 @@ def commit_or_rollback(
                 exc_cause = None
 
     nothing_landed = rolled_back or (
-        session is not None and len(session.changes) == changes_snapshot
+        left and session is not None and len(session.changes) == changes_snapshot
     )
 
     if exc_cause is not None:
@@ -307,5 +311,11 @@ def commit_or_rollback(
             rolled_back=rolled_back,
             nothing_landed=nothing_landed,
             mutate_error=exc_cause,
+            group_closed=left,
         )
-    return UndoOutcome(error=error, rolled_back=rolled_back, nothing_landed=nothing_landed)
+    return UndoOutcome(
+        error=error,
+        rolled_back=rolled_back,
+        nothing_landed=nothing_landed,
+        group_closed=left,
+    )

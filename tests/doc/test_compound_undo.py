@@ -519,6 +519,7 @@ def test_commit_or_rollback_exception_rolls_back_and_returns_cause():
     assert isinstance(outcome.mutate_error, ValueError)
     assert str(outcome.mutate_error) == "mutation error"
     assert outcome.rolled_back is True
+    assert outcome.group_closed is True
     mgr.leaveUndoContext.assert_called_once()
     mgr.undo.assert_called_once()
 
@@ -581,6 +582,26 @@ def test_commit_or_rollback_failed_leave_after_success_is_an_error():
     assert outcome.error is not None
     assert outcome.error["status"] == "error"
     assert outcome.error["code"] == "UNDO_CONTEXT_LEAK"
+    assert outcome.group_closed is False
+    mgr.undo.assert_not_called()
+
+
+def test_commit_or_rollback_failed_leave_after_mutate_error_keeps_nothing_landed_false():
+    from plugin.doc.compound_undo import commit_or_rollback
+
+    doc, mgr = _mock_undo_doc()
+    mgr.leaveUndoContext.side_effect = RuntimeError("leave failed")
+    session = MagicMock()
+    session.changes = [1]
+
+    def mutate():
+        raise ValueError("boom")
+
+    outcome = commit_or_rollback(doc, "Title", mutate, session=session)
+    assert isinstance(outcome.mutate_error, ValueError)
+    assert outcome.group_closed is False
+    assert outcome.nothing_landed is False
+    assert outcome.rolled_back is False
     mgr.undo.assert_not_called()
 
 

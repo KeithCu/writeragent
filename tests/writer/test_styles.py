@@ -2667,3 +2667,130 @@ def test_paragraph_revert_states_incomplete_walk_and_enum_error():
         fmt._paragraph_revert_states(bad_cursor, "Heading 1")
 
 
+def test_apply_style_review_mode_passes_author_on_non_recording_doc():
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: False if name == "RecordChanges" else None
+    cursor = MagicMock()
+    seen_authors: list[str | None] = []
+
+    def fake_apply(_doc, _cur, _style, _clear_direct, *, author=None):
+        seen_authors.append(author)
+        return {"direct_formatting": "preserved", "clear_direct": "none", "tracked": True}
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"), \
+         patch("plugin.writer.styles.paragraph_redline_author", return_value="WriterAgent"), \
+         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply), \
+         patch("plugin.writer.styles._flag_stacked_format_redlines"):
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="selection")
+
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert seen_authors == ["WriterAgent"]
+    for call in ctx.doc.setPropertyValue.call_args_list:
+        assert call.args[0] != "RecordChanges"
+
+
+def _fake_portion(kind: str, *, text: str = "", is_start: bool = True, ident: str = "1") -> MagicMock:
+    p = MagicMock()
+    if kind == "Text":
+        p.getPropertyValue.side_effect = lambda n: "Text" if n == "TextPortionType" else None
+        p.getString.return_value = text
+    else:
+        props = {
+            "TextPortionType": "Redline",
+            "RedlineType": kind,
+            "IsStart": is_start,
+            "RedlineIdentifier": ident,
+        }
+        p.getPropertyValue.side_effect = lambda n: props.get(n)
+    return p
+
+
+@pytest.mark.parametrize(
+    ("portions", "expected"),
+    [
+        # Whole-paragraph Format before ParagraphFormat -> True
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+                _fake_portion("Format", is_start=False, ident="1"),
+            ],
+            True,
+        ),
+        # ParagraphFormat first -> False
+        (
+            [
+                _fake_portion("ParagraphFormat", is_start=True, ident="1"),
+                _fake_portion("Format", is_start=True, ident="2"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("Format", is_start=False, ident="2"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="1"),
+            ],
+            False,
+        ),
+        # Partial Format (ends before text finishes) -> False
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hel"),
+                _fake_portion("Format", is_start=False, ident="1"),
+                _fake_portion("Text", text="lo"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+            ],
+            False,
+        ),
+        # Second Format starts mid-paragraph and ends at end -> False
+        (
+            [
+                _fake_portion("ParagraphFormat", is_start=True, ident="2"),
+                _fake_portion("Text", text="hel"),
+                _fake_portion("Format", is_start=True, ident="3"),
+                _fake_portion("Text", text="lo"),
+                _fake_portion("Format", is_start=False, ident="3"),
+                _fake_portion("ParagraphFormat", is_start=False, ident="2"),
+            ],
+            False,
+        ),
+        # No ParagraphFormat -> False
+        (
+            [
+                _fake_portion("Format", is_start=True, ident="1"),
+                _fake_portion("Text", text="hello"),
+                _fake_portion("Format", is_start=False, ident="1"),
+            ],
+            False,
+        ),
+    ],
+)
+def test_format_reject_drops_paragraph_restore(portions: list[MagicMock], expected: bool):
+    from plugin.writer.styles import _format_reject_drops_paragraph_restore
+
+    para = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    enum.nextElement.side_effect = portions
+    para.createEnumeration.return_value = enum
+    assert _format_reject_drops_paragraph_restore(para) is expected
+
+
+def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.writer.styles import apply_to_cursors
+
+    ctx = _style_ctx()
+    tool = ApplyStyle()
+    open_outcome = UndoOutcome(mutate_error=ValueError("x"), group_closed=False)
+    with patch("plugin.writer.styles.commit_or_rollback", return_value=open_outcome):
+        reports, err = apply_to_cursors(tool, ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
+
+    assert reports == []
+    assert err is not None
+    assert "Nothing was changed" not in err["message"]
+    assert "undo step could not be closed" in err["message"]
+
+
