@@ -2828,6 +2828,153 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
 
 
 @native_test
+def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
+    """Untracked full_document Undo restores formatting of a lone paragraph; reuse=False because a reused doc can hide formatting loss."""
+    from com.sun.star.lang import Locale
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _state(doc: Any) -> list[tuple[str, int, str, dict[str, Any]]]:
+        out = []
+        for para in _body_paragraphs(doc):
+            s = para.getString()
+            if s:
+                out.append((
+                    s,
+                    int(para.getPropertyValue("ParaLeftMargin")),
+                    str(para.getPropertyValue("ListLabelString") or ""),
+                    _first_text_portion_props(para),
+                ))
+        return out
+
+    try:
+        save({flag: "off"})
+        for char_style in ("", "Emphasis"):
+            for words in (["Only"], ["First", "Second"]):
+                with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+                    doc.setPropertyValue("RecordChanges", False)
+                    tctx = native_writer_tool_context(doc, ctx)
+                    text = doc.getText()
+                    text.setString("")
+                    cur = text.createTextCursor()
+                    for idx, word in enumerate(words):
+                        if idx:
+                            text.insertString(cur, "\r", False)
+                        text.insertString(cur, word, False)
+                    cur.gotoStart(False)
+                    cur.gotoEnd(True)
+                    cur.setPropertyValue("CharWeight", 150.0)
+                    cur.setPropertyValue("CharHeight", 30.0)
+                    cur.setPropertyValue("CharColor", 0xFF0000)
+                    cur.setPropertyValue("CharLocale", Locale("pt", "PT", ""))
+                    if char_style:
+                        cur.setPropertyValue("CharStyleName", char_style)
+                    cur.setPropertyValue("ParaLeftMargin", 800)
+                    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+                    expected_seeded = _state(doc)
+                    assert len(expected_seeded) == len(words)
+                    for _s, margin, label, props in expected_seeded:
+                        assert margin > 0
+                        assert label != ""
+                        assert props["weight"] == 150.0
+                        assert props["height"] == 30.0
+                        assert props["color"] == 0xFF0000
+                        assert props["char_style"] == char_style
+                        assert props["lang"] == "pt"
+                    doc.getUndoManager().clear()
+
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="full_document", content=["<p>Done</p>"]
+                    )
+                    assert res.get("status") == "ok", res
+                    std_height = float(
+                        doc.getStyleFamilies()
+                        .getByName("ParagraphStyles")
+                        .getByName("Standard")
+                        .getPropertyValue("CharHeight")
+                    )
+                    expected_done = [(
+                        "Done",
+                        0,
+                        "",
+                        {
+                            "weight": 100.0,
+                            "height": std_height,
+                            "color": -1,
+                            "char_style": "",
+                            "lang": "pt",
+                        },
+                    )]
+                    assert _state(doc) == expected_done
+
+                    doc.getUndoManager().undo()
+                    assert _state(doc) == expected_seeded
+
+                    doc.getUndoManager().redo()
+                    assert _state(doc) == expected_done
+    finally:
+        save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, doc: Any) -> None:
+    """Replacing a restarted chapter heading preserves its start number in search and full_document."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.chapter_numbering_fixtures import enable_chapter_numbering
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    enable_chapter_numbering(doc, levels=2, suffix="")
+
+    def _seed() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Old Heading", False)
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        cur.setPropertyValue("ParaIsNumberingRestart", True)
+        cur.setPropertyValue("NumberingStartValue", 5)
+        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "5"
+
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            for target in ("search", "full_document"):
+                _seed()
+                kwargs: dict[str, Any] = {
+                    "target": target,
+                    "content": ["<h1>One</h1><h1>Two</h1>"],
+                }
+                if target == "search":
+                    kwargs["old_content"] = "Old Heading"
+                res = ApplyDocumentContent().execute(tctx, **kwargs)
+                assert res.get("status") == "ok", res
+                if mode == "record":
+                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                labels = [
+                    (p.getString(), str(p.getPropertyValue("ListLabelString") or ""))
+                    for p in _body_paragraphs(doc)
+                    if p.getString()
+                ]
+                assert labels == [("One", "5"), ("Two", "6")], (mode, target, labels)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> None:
     """full_document keeps the first old character's language in every mode, even over a leading section."""

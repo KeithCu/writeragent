@@ -1282,7 +1282,15 @@ def replace_full_document(
             if trailing:
                 text.insertTextContentAfter(model.createInstance("com.sun.star.text.Paragraph"), trailing[-1])
         cursor.gotoStart(False)
+        one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
+        # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
+        # sw/source/core/undo/unattr.cxx, calls DontExpandFormat), so Undo would bring a lone
+        # paragraph back without its font, size and language. Undo restores several paragraphs
+        # with their own formatting, and resetting a long document first doubles the delete time.
+        reset_first = one_paragraph and not recording
+        if reset_first:
+            reset_direct_char_formatting(cursor, language)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
@@ -1302,7 +1310,8 @@ def replace_full_document(
         # paragraph would become direct formatting on every imported paragraph.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
-            reset_direct_char_formatting(cursor, language)
+            if not reset_first:
+                reset_direct_char_formatting(cursor, language)
         return _import_and_drop_leftover(model, ctx, cursor, content)
 
 
