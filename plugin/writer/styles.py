@@ -270,6 +270,11 @@ class _ParagraphRevert(NamedTuple):
 
 
 class _DirectFormatReport(NamedTuple):
+    """Per-cursor result of StyleFormatText: cleared names, whether any ParagraphFormat redline
+    was recorded, and whether every recordable touched paragraph was recorded (empty paragraphs
+    do not clear ``para_complete`` while another paragraph was recorded).
+    """
+
     cleared: list[str]
     para_recorded: bool
     para_complete: bool
@@ -446,7 +451,11 @@ def _has_paragraph_format_redline(para: Any) -> bool:
 
 
 def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None) -> tuple[list[_ParagraphRevert], bool]:
-    """Capture each changed paragraph's pre-change formatting for a ParagraphFormat redline."""
+    """Capture each touched paragraph's pre-change formatting for a ParagraphFormat redline.
+
+    Pass *style_name* to skip paragraphs already in that style without direct properties,
+    or ``None`` to capture every touched paragraph.
+    """
     read = _CountingReader()
     notes: list[str] = []
     para_enum = capture_cursor.createEnumeration()
@@ -1627,8 +1636,8 @@ def apply_to_cursors(
             )
         if outcome.mutate_error is not None:
             error = outcome.mutate_error
-            # Not rolled back with no finished range: the first write was refused before it
-            # changed anything, so the undo group is empty.
+            # Not rolled back with no finished range (assumes the group closed): the first write
+            # was refused before it changed anything, so the undo group is empty.
             if outcome.rolled_back or not reports:
                 return [], tool._tool_error(
                     "Nothing was changed: %s" % (error,),
@@ -2088,6 +2097,7 @@ class StyleFormatText(ToolWriterStyleBase):
                 w = _font_not_installed_warning(ctx, updates[font_prop])
                 if w:
                     warnings.append(w)
+
         def is_untracked(name: str) -> bool:
             if name in _RECORDABLE_PARA_PROPERTIES:
                 return not para_complete
