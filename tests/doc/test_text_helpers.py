@@ -172,12 +172,16 @@ class _Portion:
 
 
 class _Paragraph:
-    def __init__(self, portions, fallback_text=""):
+    def __init__(self, portions, fallback_text="", contents=()):
         self._portions = portions
         self._fallback_text = fallback_text
+        self._contents = contents
 
     def createEnumeration(self):
         return _Enum(self._portions)
+
+    def createContentEnumeration(self, _service):
+        return _Enum(self._contents)
 
     def getString(self):
         return self._fallback_text
@@ -797,6 +801,20 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
             "AA\n\nCC",
             [],
             id="live_frame_in_deleted_line",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [],
+            id="live_para_anchored_content",
         ),
     ],
 )

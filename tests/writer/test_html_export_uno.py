@@ -1631,15 +1631,66 @@ def test_struck_paragraph_flags_full_and_range_uno(ctx: Any, doc: Any) -> None:
         (["AA", "CC"], (0, 2), (1, 2), [False, True]),
         (["AA", "CC"], (0, 0), (1, 2), [True, True]),
     ]
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     for paragraphs, d_start, d_end, expected in cases:
         _setup_struck_doc(doc, paragraphs, d_start, d_end)
         redlines_before = doc.getRedlines().getCount()
+        frames_before = desktop.getFrames().getCount()
         full_html = document_to_content(doc, ctx, scope="full")
         assert _deleted_flags_from_html(full_html) == expected, (paragraphs, d_start, d_end, full_html)
         doc_len = len(read_visible_body(doc)[0])
         range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
         assert _deleted_flags_from_html(range_html) == expected, (paragraphs, d_start, d_end, range_html)
         assert doc.getRedlines().getCount() == redlines_before
+        assert desktop.getFrames().getCount() == frames_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import tempfile
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png)
+        img_path = f.name
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "AA", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "BB", False)
+    graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    graphic.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+    graphic.setPropertyValue(
+        "AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH")
+    )
+    cur.gotoStartOfParagraph(False)
+    text.insertTextContent(cur, graphic, False)
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    sel = text.createTextCursorByRange(paras[1].getStart())
+    sel.gotoEndOfParagraph(True)
+    doc.setPropertyValue("RecordChanges", True)
+    sel.setString("")
+
+    full_html = document_to_content(doc, ctx, scope="full")
+    doc_len = len(read_visible_body(doc)[0])
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+    assert 'data-lo-deleted="true"' not in full_html
+    assert 'data-lo-deleted="true"' not in range_html
+    assert "<img" in range_html
+    assert read_visible_body(doc)[2] == []
 
 
 @native_test

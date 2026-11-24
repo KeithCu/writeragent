@@ -468,7 +468,7 @@ def test_expand_tracked_deletions_three_blocks_reopens_span():
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>'
-        '<text:h text:style-name="H1"><text:span text:style-name="T1">\ufdd0</text:span></text:h>'
+        '<text:h text:style-name="H1">\ufdd0<text:span text:style-name="T1"></text:span></text:h>'
         '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>'
         '</office:text></office:body>'
     )
@@ -543,7 +543,7 @@ def test_expand_tracked_deletions_table_ignored_adjacent_changes_and_successor_f
         pytest.param(
             "<text:p>BB</text:p>",
             '<text:p><text:change text:change-id="ct1"/></text:p>',
-            '<text:p><text:change text:change-id="ct1"/>\ufdd0</text:p>',
+            '<text:p>\ufdd0<text:change text:change-id="ct1"/></text:p>',
             id="single_block_whole_paragraph",
         ),
         pytest.param(
@@ -567,19 +567,19 @@ def test_expand_tracked_deletions_table_ignored_adjacent_changes_and_successor_f
         pytest.param(
             "<text:p>cell</text:p>",
             '<table:table><table:table-row><table:table-cell><text:p><text:change text:change-id="ct1"/></text:p></table:table-cell></table:table-row></table:table>',
-            '<table:table><table:table-row><table:table-cell><text:p><text:change text:change-id="ct1"/>\ufdd0</text:p></table:table-cell></table:table-row></table:table>',
+            '<table:table><table:table-row><table:table-cell><text:p>\ufdd0<text:change text:change-id="ct1"/></text:p></table:table-cell></table:table-row></table:table>',
             id="struck_table_cell_paragraph",
         ),
         pytest.param(
             "<text:h>H1</text:h>",
             '<text:h><text:change text:change-id="ct1"/></text:h>',
-            '<text:h><text:change text:change-id="ct1"/>\ufdd0</text:h>',
+            '<text:h>\ufdd0<text:change text:change-id="ct1"/></text:h>',
             id="whole_heading",
         ),
         pytest.param(
             '<text:p>S1</text:p><text:p><text:a xlink:href="#H|outline">S2</text:a></text:p><text:p>E</text:p>',
             '<text:p><text:a xlink:href="#H|outline"><text:change text:change-id="ct1"/>Live</text:a></text:p>',
-            '<text:p><text:a xlink:href="#H|outline"></text:a>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p><text:a xlink:href="#H|outline">Live</text:a></text:p>',
+            '<text:p>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p><text:a xlink:href="#H|outline">Live</text:a></text:p>',
             id="struck_link_keeps_mark_outside_anchor",
         ),
     ],
@@ -598,6 +598,28 @@ def test_expand_tracked_deletions_marks_wholly_struck_blocks(deletion: str, body
     else:
         assert out is not None
         assert out.split("</text:tracked-changes>", 1)[1] == f"{expected_body}</office:text></office:body>"
+
+
+def test_expand_tracked_deletions_partial_deletion_in_live_link_keeps_single_anchor():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
+
+    fodt = (
+        "<office:body><office:text><text:tracked-changes>"
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>BB</text:p></text:deletion></text:changed-region>'
+        '<text:changed-region text:id="ct2"><text:deletion><text:p>dead </text:p></text:deletion></text:changed-region>'
+        "</text:tracked-changes>"
+        '<text:p><text:change text:change-id="ct1"/></text:p>'
+        '<text:p><text:a xlink:href="#H|outline">Click <text:change text:change-id="ct2"/>here</text:a></text:p>'
+        "</office:text></office:body>"
+    )
+    out = expand_tracked_deletions(fodt)
+    assert out is not None
+    body = out.split("</text:tracked-changes>", 1)[1]
+    assert body == (
+        '<text:p>\ufdd0<text:change text:change-id="ct1"/></text:p>'
+        '<text:p><text:a xlink:href="#H|outline">Click <text:change text:change-id="ct2"/>here</text:a></text:p>'
+        "</office:text></office:body>"
+    )
 
 
 def test_xhtml_to_semantic_html_deleted_mark():

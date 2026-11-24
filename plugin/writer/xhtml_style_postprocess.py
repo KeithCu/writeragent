@@ -49,6 +49,7 @@ _STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.DOTALL | re.IGNORE
 _RULE_RE = re.compile(r"\.([A-Za-z0-9_\-]+)\s*\{([^}]*)\}")
 _BODY_RE = re.compile(r"<body[^>]*>(.*)</body>", re.DOTALL | re.IGNORECASE)
 _PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
+# Unicode noncharacter carried as text through the scratch copy, outside the math placeholder range (U+E000+).
 DELETED_MARK = "\ufdd0"
 _TRAILING_EMPTY_P_RE = re.compile(
     r"\s*<p\b(?![^>]*\bdata-lo-deleted)[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
@@ -548,6 +549,7 @@ class _OpenTag:
     name: str
     attrs: str
     live: bool = False
+    struck: bool = False
     slot: int | None = None
 
 
@@ -592,9 +594,10 @@ def expand_tracked_deletions(fodt: str) -> str | None:
     ``body.xsl`` has no ``text:change`` rule, so XHTML export otherwise joins
     paragraphs across a multi-paragraph deletion. A deletion of *n* top-level
     blocks produces *n* - 1 breaks, each taking the deleted block's tag and style.
-    Also puts ``DELETED_MARK`` in wholly struck paragraphs because ``body.xsl``
-    (``match="text:h"`` drops empty headings, and empty ``text:p`` gets no
-    ``data-lo-style`` or is dropped by ``_TRAILING_EMPTY_P_RE``).
+    Also puts ``DELETED_MARK`` in wholly struck paragraphs: otherwise ``body.xsl``
+    (``match="text:h"``) drops a heading without text, an empty ``text:p`` comes
+    out as ``<p class=…/>`` without ``data-lo-style``, and
+    ``_drop_trailing_empty_paragraphs`` removes a trailing one.
     """
     # crosshair: off
     regions: dict[str, list[_DeletedBlock]] = {}
@@ -614,14 +617,9 @@ def expand_tracked_deletions(fodt: str) -> str | None:
     changed = False
     stack: list[_OpenTag] = []
 
-    def touch(tag: _OpenTag) -> None:
-        if tag.slot is None:
-            tag.slot = len(out)
-            out.append("")
-
     def finish(tag: _OpenTag) -> None:
         nonlocal changed
-        if tag.slot is not None and not tag.live:
+        if tag.struck and tag.slot is not None and not tag.live:
             out[tag.slot] = DELETED_MARK
             changed = True
 
@@ -643,7 +641,16 @@ def expand_tracked_deletions(fodt: str) -> str | None:
             finish(stack.pop())
             continue
         if not empty:
-            stack.append(_OpenTag(name, attrs))
+            if name in ("text:p", "text:h"):
+                # Mark before any text:a: odf2xhtml builds an outline href from link text,
+                # and a marked link would be counted by _put_outline_urls.
+                out.append(fodt[pos:m.end()])
+                pos = m.end()
+                slot = len(out)
+                out.append("")
+                stack.append(_OpenTag(name, attrs, slot=slot))
+            else:
+                stack.append(_OpenTag(name, attrs))
             continue
         if name != "text:change":
             continue
@@ -657,27 +664,20 @@ def expand_tracked_deletions(fodt: str) -> str | None:
         out.append(fodt[pos:m.start()] if len(cid_blocks) > 1 else fodt[pos:m.end()])
         pos = m.end()
         lead = stack[para].live
-        a_idx = next((idx for idx in range(para + 1, len(stack)) if stack[idx].name == "text:a"), None)
-        if a_idx is not None:
-            out.extend("</%s>" % t.name for t in reversed(stack[a_idx:]))
-            touch(stack[para])
-            for t in stack[a_idx:]:
-                out.append("<%s%s>" % (t.name, _XML_ID_ATTR_RE.sub("", t.attrs)))
-        else:
-            touch(stack[para])
+        stack[para].struck = True
         for i, block in enumerate(cid_blocks[1:], start=1):
             changed = True
             out.extend("</%s>" % t.name for t in reversed(stack[top:]))
             finish(stack[para])
             stack[para] = _OpenTag(block.name, block.attrs)
-            want_touch = i < len(cid_blocks) - 1 or block.has_content or lead
             for idx, t in enumerate(stack[top:], start=top):
                 cleaned = _XML_ID_ATTR_RE.sub("", t.attrs)
                 if idx != para:
                     cleaned = _START_VALUE_ATTR_RE.sub("", cleaned)
-                if t.name == "text:a" and want_touch:
-                    touch(stack[para])
                 out.append("<%s%s>" % (t.name, cleaned))
-            if want_touch:
-                touch(stack[para])
+                if idx == para:
+                    stack[para].slot = len(out)
+                    out.append("")
+            if i < len(cid_blocks) - 1 or block.has_content or lead:
+                stack[para].struck = True
     return "".join(out) + fodt[pos:] if changed else None

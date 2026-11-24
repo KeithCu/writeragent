@@ -500,9 +500,15 @@ class DeletionState:
         """
         if self.para_live:
             return False
-        if self.para_opens:
-            return True
-        return opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+        struck = self.para_opens or (
+            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+        )
+        if not struck:
+            return False
+        # AT_PARAGRAPH frames/images are not portions (SwXParagraph::createContentEnumeration,
+        # unoparagraph.cxx:1356), so a paragraph holding one is still live on the FODT side.
+        contents = uno_read(lambda: para.createContentEnumeration("com.sun.star.text.TextContent"), None)
+        return not enum_has_more(contents)
 
 
 def visible_portions(

@@ -303,18 +303,16 @@ def _inject_markers(
 
     in_window = [p - excerpt_start for p in struck if excerpt_start <= p <= excerpt_start + visible_len]
     if in_window:
-        run_start = in_window[0]
-        run_len = 1
-        for p in in_window[1:]:
-            if p == run_start + run_len:
-                run_len += 1
+        # Collapse consecutive struck slots so a long struck passage does not flood the context.
+        runs: list[list[int]] = []
+        for p in in_window:
+            if runs and p == runs[-1][0] + runs[-1][1]:
+                runs[-1][1] += 1
             else:
-                label = "[tracked deletion]" if run_len == 1 else "[tracked deletion, %d paragraphs]" % run_len
-                markers.append((run_start, label))
-                run_start = p
-                run_len = 1
-        label = "[tracked deletion]" if run_len == 1 else "[tracked deletion, %d paragraphs]" % run_len
-        markers.append((run_start, label))
+                runs.append([p, 1])
+        for run_start, run_len in runs:
+            label = "[tracked deletion]" if run_len == 1 else "[tracked deletion, %d paragraphs]" % run_len
+            markers.append((run_start, label))
 
     if not markers:
         return prefix + excerpt_text + suffix
