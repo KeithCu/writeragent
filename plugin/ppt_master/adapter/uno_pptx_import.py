@@ -259,6 +259,5 @@ def import_pptx_slide_to_odp(
         return imported
     finally:
         if target_doc is not None and imported is None:
-            unused_doc = target_doc
-            best_effort(lambda: close_scratch_document(unused_doc), "close unused import target")
+            best_effort(lambda: close_scratch_document(target_doc), "close unused import target")
         best_effort(lambda: close_scratch_document(source_doc), "close source pptx doc")

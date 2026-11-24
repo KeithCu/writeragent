@@ -15,7 +15,7 @@ from com.sun.star.awt import Point, Size
 
 from plugin.draw import shape_clone
 from plugin.framework.scratch_writer import close_scratch_document, is_scratch_document
-from plugin.framework.uno_context import create_property_value, enum_has_more, get_desktop, get_runtime_uid, resolve_document_by_url
+from plugin.framework.uno_context import create_property_value, enum_has_more, get_desktop, get_runtime_uid, resolve_document_by_url, uno_same
 from plugin.ppt_master.adapter import uno_pptx_import
 from plugin.ppt_master.adapter.uno_pptx_import import (
     _import_slides_from_source,
@@ -144,6 +144,7 @@ def _desktop_component_count(desktop) -> int:
 @with_native_doc("impress")
 def test_import_replaces_placeholders_and_keeps_imported_title_uno(ctx, doc):
     if sys.platform == "win32":
+        # Leftover hidden Impress loads hang on Windows.
         raise unittest.SkipTest("skipped on win32")
     with tempfile.TemporaryDirectory(prefix="wa_pptx_zorder_") as tmp_dir:
         tmp = Path(tmp_dir)
@@ -206,6 +207,7 @@ def test_import_replaces_placeholders_and_keeps_imported_title_uno(ctx, doc):
 @with_native_doc("impress")
 def test_failed_copy_keeps_target_shapes_uno(ctx, doc):
     if sys.platform == "win32":
+        # Leftover hidden Impress loads hang on Windows.
         raise unittest.SkipTest("skipped on win32")
     with tempfile.TemporaryDirectory(prefix="wa_pptx_fail_keep_") as tmp_dir:
         tmp = Path(tmp_dir)
@@ -236,16 +238,16 @@ def test_failed_copy_keeps_target_shapes_uno(ctx, doc):
 
         target_page = doc.getDrawPages().getByIndex(0)
         target_page.getByIndex(0).setString("USER TITLE")
-        initial_count = target_page.getCount()
+        original_shapes = [target_page.getByIndex(i) for i in range(target_page.getCount())]
 
         source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
         assert source_doc is not None
         orig_copy_prop = shape_clone.copy_prop
 
-        def fail_size(src_shape, dst_shape, prop_name):
+        def fail_size(dst_shape, src_shape, prop_name):
             if prop_name == "Size":
                 raise RuntimeError("forced Size failure")
-            return orig_copy_prop(src_shape, dst_shape, prop_name)
+            return orig_copy_prop(dst_shape, src_shape, prop_name)
 
         shape_clone.copy_prop = fail_size
         try:
@@ -255,13 +257,16 @@ def test_failed_copy_keeps_target_shapes_uno(ctx, doc):
             close_scratch_document(source_doc)
 
         assert result.get("status") == "error", result
-        assert target_page.getCount() == initial_count
+        after_shapes = [target_page.getByIndex(i) for i in range(target_page.getCount())]
+        assert len(after_shapes) == len(original_shapes)
+        assert all(uno_same(after, orig) for after, orig in zip(after_shapes, original_shapes))
         assert target_page.getByIndex(0).getString() == "USER TITLE"
 
 
 @native_test
 def test_import_pptx_slide_to_odp_leaves_no_document_open_uno(ctx):
     if sys.platform == "win32":
+        # Leftover hidden Impress loads hang on Windows.
         raise unittest.SkipTest("skipped on win32")
     with tempfile.TemporaryDirectory(prefix="wa_pptx_slide_leak_") as tmp_dir:
         tmp = Path(tmp_dir)
