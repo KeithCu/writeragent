@@ -463,6 +463,8 @@ def test_tool_plot_insert_is_one_undo_step_uno(ctx, doc):
         titles_before = list(um.getAllUndoActionTitles())
         _insert_image_result_on_sheet_impl(p0, doc=doc, image_index=0, image_count=2)
         assert list(um.getAllUndoActionTitles()) == titles_before
+        assert draw_page.getCount() == 2
+        assert draw_page.getByIndex(0).getPropertyValue("Name").endswith("@4,4")
     finally:
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))

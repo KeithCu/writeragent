@@ -913,6 +913,8 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
         ("''q", _spill.SpillCell(0, 0, "s", "'q"), True),
         ("'123", _spill.SpillCell(0, 0, "s", "123"), True),
         ("123", _spill.SpillCell(0, 0, "s", "123"), False),
+        ("9" * 400, _spill.SpillCell(0, 0, "s", "9" * 400), True),
+        ("１２３", _spill.SpillCell(0, 0, "s", "１２３"), True),
         ("=#VALUE!", _spill.SpillCell(0, 0, "err", 519), True),
         ("=#ERR511!", _spill.SpillCell(0, 0, "err", 521), True),
         ("#N/A", _spill.SpillCell(0, 0, "err", 32767), True),

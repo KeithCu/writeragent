@@ -74,7 +74,7 @@ _ERROR_LITERAL_RE = re.compile(r"=#[A-Z0-9/]+[!?]?|#N/A|=NA\(\)")
 
 # How getFormulaArray writes a VALUE cell (always English General, lcl_GetInputString in
 # sc/source/ui/unoobj/cellsuno.cxx). Text that looks like a number gets a leading apostrophe there.
-_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?(?:E[+-]\d+)?")
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?(?:E[+-]\d+)?", re.ASCII)
 
 
 def _matches_stored_value(formula: str, rec: SpillCell) -> bool:
@@ -89,10 +89,13 @@ def _matches_stored_value(formula: str, rec: SpillCell) -> bool:
             and math.isclose(float(formula), float(rec.value), rel_tol=1e-14)
         )
     if rec.kind == "s":
-        # Calc stores every line break as \n and always quotes number-like text, so an unquoted
-        # number is one the user typed.
+        # Calc stores every line break as \n, and quotes number-like text of up to 308 characters
+        # (ImpSvNumberInputScan::IsNumberFormat, svl/source/numbers/zforfind.cxx:3848), so a shorter
+        # unquoted number is one the user typed.
         text = str(rec.value or "").replace("\r\n", "\n").replace("\r", "\n")
-        return formula == f"'{text}" or (formula == text and _NUMBER_RE.fullmatch(text) is None)
+        return formula == f"'{text}" or (
+            formula == text and (len(text) > 308 or _NUMBER_RE.fullmatch(text) is None)
+        )
     return rec.kind == "err" and _ERROR_LITERAL_RE.fullmatch(formula) is not None
 
 

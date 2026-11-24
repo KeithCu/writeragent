@@ -863,7 +863,7 @@ def test_py_spill_keeps_user_edits_uno(ctx, doc):
         code = "result = [[1, '123', chr(39) + 'q', 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
         origin_cell = sheet.getCellByPosition(0, 0)
         origin_cell.setFormula(f'=PY("{code}")')
-        grid = [[1, "123", "'q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True]]
+        grid = [[1, "123", "'q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True, "9" * 400]]
         perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
         rec = st.spills[(sheet.Name, 0, 0)]
 
@@ -873,7 +873,7 @@ def test_py_spill_keeps_user_edits_uno(ctx, doc):
         hidden_key = formats.queryKey(";;;", locale, True)
         if hidden_key == -1:
             hidden_key = formats.addNew(";;;", locale)
-        sheet.getCellRangeByPosition(1, 0, 7, 0).setPropertyValue("NumberFormat", int(hidden_key))
+        sheet.getCellRangeByPosition(1, 0, 8, 0).setPropertyValue("NumberFormat", int(hidden_key))
 
         origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
         assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
