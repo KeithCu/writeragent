@@ -340,6 +340,25 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     return default
 
 
+def parse_html_fragment_list(text: str) -> list[Any] | None:
+    """The list in a ``content`` string that is a serialized list of HTML fragments, else None.
+
+    safe_json_loads also repairs prose: '[TODO] <p>x</p>' becomes ['TODO']. Only valid JSON, or text
+    whose first and last items are quoted, is read as a list; other bracketed text is document text.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("[") or "<" not in stripped:
+        return None
+    first = stripped[1:].lstrip()[:1]
+    last = stripped.removesuffix("]").rstrip().removesuffix(",").rstrip()[-1:]
+    quoted = first in ('"', "'") and last in ('"', "'")
+    if not quoted and not isinstance(safe_json_loads(stripped, strict=True), list):
+        return None
+    # Strict decides; the lenient load also repairs LaTeX escapes such as \times.
+    parsed = safe_json_loads(stripped)
+    return parsed if isinstance(parsed, list) else None
+
+
 def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
     """Safely parse a Python-style literal (e.g. from an LLM) without using ast.literal_eval.
     Supports scalars (bool, None, number, string) and simple JSON-compatible lists/dicts.
