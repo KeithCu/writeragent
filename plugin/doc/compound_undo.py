@@ -143,9 +143,11 @@ class WriterCompoundUndo:
         """Roll back the undo context if it is the top action on the undo stack.
 
         An empty group leaves no entry (``SfxUndoManager::ImplLeaveListAction``),
-        so unchanged titles set ``left_no_entry = True`` and return False. Inside
-        an outer group the titles never change, so ``left_no_entry`` is meaningful
-        only for the outermost group.
+        so unchanged titles set ``left_no_entry = True`` and return False. At a full
+        undo stack, ``EnterListAction`` drops the oldest entry on entry and
+        ``ImplLeaveListAction`` does not restore it, so an empty group leaves
+        ``before[:-1]``. Inside an outer group the titles never change, so
+        ``left_no_entry`` is meaningful only for the outermost group.
         """
         if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
             return False
@@ -153,7 +155,10 @@ class WriterCompoundUndo:
             # Direct read kept so read failures land in self.rollback_error for ROLLBACK_FAILED rather than returning None.
             raw = self._undo_manager.getAllUndoActionTitles()
             after = tuple(raw or ())
-            if after == self._titles_before:
+            # EnterListAction drops the oldest entry when the undo stack is at its step limit
+            # (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx), and
+            # ImplLeaveListAction removes an empty group without restoring it, leaving before[:-1].
+            if after in (self._titles_before, self._titles_before[:-1]):
                 self.left_no_entry = True
                 return False
             if after and after[0] == self._title:

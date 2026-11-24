@@ -694,3 +694,22 @@ def test_nothing_landed_follows_the_undo_stack():
     outcome5 = commit_or_rollback(doc5, "Title", lambda: None)
     assert outcome5.rolled_back is False
     assert outcome5.nothing_landed is False
+
+    # Full undo stack: EnterListAction dropped the oldest entry, leaving before[:-1].
+    doc6, mgr6 = _mock_undo_doc(titles_seq=[("Title", "b", "c"), ("Title", "b")])
+    outcome6 = commit_or_rollback(doc6, "Title", lambda: (_ for _ in ()).throw(ValueError("refused")))
+    assert outcome6.rolled_back is False
+    assert outcome6.nothing_landed is True
+    mgr6.undo.assert_not_called()
+
+
+def test_undo_step_or_rollback_full_stack_empty_group():
+    from plugin.doc.compound_undo import UndoStepOrRollback
+
+    doc, mgr = _mock_undo_doc(titles_seq=[("Title", "b", "c"), ("Title", "b")])
+    with pytest.raises(ValueError, match="refused"):
+        with UndoStepOrRollback(doc, "Title") as step:
+            raise ValueError("refused")
+    assert step.left_no_entry is True
+    assert step.rolled_back is False
+    mgr.undo.assert_not_called()

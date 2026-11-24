@@ -2911,10 +2911,10 @@ def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, d
 
     doc.setPropertyValue("RecordChanges", False)
 
-    for html, expected_texts in (
-        ("<p>Body</p>", ["Alpha", "Body", "Omega"]),
-        ("<h1>H</h1><p>b</p>", ["Alpha", "H", "b", "Omega"]),
-        ("<p>a</p><table><tr><td>c</td></tr></table>", ["Alpha", "a", "Omega"]),
+    for html, expected_texts, expected_styles, expected_tables in (
+        ("<p>Body</p>", ["Alpha", "Body", "Omega"], ["Standard", "Text body", "Standard"], 0),
+        ("<h1>H</h1><p>b</p>", ["Alpha", "H", "b", "Omega"], ["Standard", "Heading 1", "Text body", "Standard"], 0),
+        ("<p>a</p><table><tr><td>c</td></tr></table>", ["Alpha", "a", "Omega"], ["Standard", "Text body", "Standard"], 1),
     ):
         text = doc.getText()
         text.setString("")
@@ -2934,7 +2934,8 @@ def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, d
         insert_content_at_position(doc, ctx, html, "selection")
         paras = _body_paragraphs(doc)
         assert [p.getString() for p in paras] == expected_texts, html
-        assert paras[-1].getPropertyValue("ParaStyleName") == "Standard"
+        assert [p.getPropertyValue("ParaStyleName") for p in paras] == expected_styles, html
+        assert doc.getTextTables().getCount() == expected_tables, html
 
     # Blank Heading 1 document at position='beginning'
     text = doc.getText()
@@ -2945,3 +2946,31 @@ def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, d
     insert_content_at_position(doc, ctx, '<p data-lo-style="Textbody">b</p>', "beginning")
     paras = _body_paragraphs(doc)
     assert [p.getString() for p in paras] == ["b"]
+    assert [p.getPropertyValue("ParaStyleName") for p in paras] == ["Text body"]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_failed_insert_on_full_undo_stack_does_not_undo_prior_insert_uno(ctx: Any, doc: Any) -> None:
+    """An empty failing group on a full undo stack must not undo the previous insert with the same title."""
+    from unittest.mock import patch
+
+    import pytest
+    from plugin.writer.html_import import insert_content_at_position
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for _idx in range(105):
+        text.insertString(cur, "a", False)
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    insert_content_at_position(doc, ctx, "keep", "selection")
+    assert "keep" in doc.getText().getString()
+
+    with patch("plugin.writer.html_import._insert_inline", side_effect=RuntimeError("refused")):
+        with pytest.raises(RuntimeError, match="refused"):
+            insert_content_at_position(doc, ctx, "drop", "selection")
+
+    assert "keep" in doc.getText().getString()

@@ -1016,7 +1016,8 @@ def insert_content_at_position(
 ) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
 
-    The whole insert runs as one undo step and is rolled back on failure.
+    The whole insert runs as one undo step and is rolled back on failure, unless an outer
+    undo group is open, which then owns the rollback.
     When ``position == 'selection'`` and the insert point is a collapsed caret, inline
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
@@ -1170,15 +1171,16 @@ def insert_content_at_position(
             and cursor.isEndOfParagraph()
             and (recording or content_is_block(content))
         ):
-            # When recording, the import would reuse the empty paragraph's node, and Reject's join keeps that
+            # Recording: the import would reuse the empty paragraph's node, and Reject's join keeps that
             # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
             # into a fresh paragraph after it. After a trailing table the leftover stays: merged
             # into a non-empty follower, Reject would join the empty paragraph into that follower
-            # and lose it. Without recording the content takes the empty line, and the leftover
-            # would otherwise stay behind in the follow style of the paragraph
-            # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
+            # and lose it.
             if recording:
                 cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # Not recording: the content takes the empty line; the leftover would otherwise
+            # stay behind in the follow style of the paragraph
+            # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
             report = _import_and_drop_leftover(
                 model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=not recording
             )
