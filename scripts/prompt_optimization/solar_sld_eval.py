@@ -28,7 +28,7 @@ from oracles import (  # noqa: E402
     _solar_labeled_boxes,
     _solar_role_keys,
     check_oracle,
-    draw_connector_count,
+    draw_connectors,
     draw_nodes,
     parse_json_export,
 )
@@ -36,7 +36,7 @@ from oracles import (  # noqa: E402
 SOLAR_SLD_TASK_ID = "solar_sld_gen"
 _STRING_FAILURE = (
     "solar_sld_gen requires the headless LO backend; "
-    "the string simulator does not export production connector nodes"
+    "the string simulator has no connector routing or page layout"
 )
 _WANT_BOXES = 10
 _WANT_CONNECTORS = 9
@@ -205,7 +205,7 @@ def score_solar_sld_example(
     data = parse_json_export(final_document or "") or {}
     nodes = draw_nodes(data)
     boxes = len(_solar_labeled_boxes(nodes))
-    connectors = draw_connector_count(data, nodes)
+    connectors = len(draw_connectors(nodes))
     soft: list[str] = []
     if boxes != _WANT_BOXES and boxes >= _SOLAR_BOX_FLOOR:
         soft.append(

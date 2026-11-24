@@ -156,7 +156,8 @@ _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
     "properties": {
         "field": {"type": "integer", "description": "0-based column index within range (leftmost column = 0)."},
         "operator": {"type": "string", "enum": list(FILTER_OPERATOR2_LABELS), "description": "LibreOffice FilterOperator2 (see enum)."},
-        "value": {"type": "string", "description": ("Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. Otherwise set is_numeric when comparing numbers.")},
+        # A JSON number without is_numeric is a numeric comparison in parse_sheet_filter_criterion.
+        "value": {"type": ["string", "number"], "description": ("Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. Otherwise set is_numeric when comparing numbers.")},
         "is_numeric": {"type": "boolean", "description": "If true, value is NumericValue; else StringValue."},
         "connection": {"type": "string", "enum": ["AND", "OR"], "description": ("Combines with previous criterion only. Omit on first item. Case-insensitive AND/OR.")},
     },

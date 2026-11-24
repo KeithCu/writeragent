@@ -572,7 +572,7 @@ class ImageList(ToolWriterImageBase):
     name: str | None = "image_list"
     description: str = (
         "List all images/graphic objects in the document with name, dimensions, title, and description."
-        " On Writer, an entry includes page (0-based, first page = 0) when its page is known."
+        " On Writer, an entry includes page (0-based: the user's page 2 is page=1) when its page is known."
         " shape_index is the object's draw-page index on Writer (what shape_delete takes);"
         " Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."
     )
@@ -1094,7 +1094,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                             list(image_mark.STYLES),
                             "highlight = translucent yellow over the text (default); box = red outline around it; underline = red line under it.",
                         ),
-                        "color": {"type": "string", "description": "Optional '#RRGGBB' or color name instead of the style's color."},
+                        "color": visual_helpers.color_param("Optional '#RRGGBB' or color name instead of the style's color."),
                     },
                     "required": ["box"],
                 },

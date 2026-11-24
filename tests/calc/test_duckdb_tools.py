@@ -736,6 +736,28 @@ def test_execute_sheet_identity_preloads_used_range(mock_resolve, mock_run, mock
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_table_headers_false_string_coerced(mock_resolve, mock_run, mock_exec, mock_read):
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok", "total_rows": 1}
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.side_effect = _grid_for_requested_range
+
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model()
+    res = _run(
+        ctx,
+        sql="SELECT * FROM t",
+        tables={"t": {"sheet": "Actuals", "headers": "false"}},
+    )
+    assert res["status"] == "ok"
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert pre["t"]["headers"] is False
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_named_range_identity(mock_resolve, mock_run, mock_exec, mock_read):
     mock_resolve.return_value = "/tmp/project"
     mock_run.return_value = {"status": "ok"}

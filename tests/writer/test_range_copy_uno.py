@@ -88,3 +88,38 @@ def test_copy_flow_into_xtext_clones_para_table_para_structure_uno(ctx: Any, doc
         else:
             structure.append(f"Paragraph:{el.getString()}")
     assert structure == ["Paragraph:one", "TextTable", "Paragraph:after"], structure
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_drops_multi_para_deletion_and_handles_wholly_struck_uno(ctx: Any, doc: Any) -> None:
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    standard = page_styles.getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    header = standard.getPropertyValue("HeaderText")
+    strike_across_paragraphs(doc, header)
+
+    copy_page_style(doc, "Standard", "ClonedPartial")
+    cloned_header = page_styles.getByName("ClonedPartial").getPropertyValue("HeaderText")
+    assert "gone" not in cloned_header.getString()
+    assert "Keep" in cloned_header.getString()
+    assert "After" in cloned_header.getString()
+
+    # Wholly struck header: clones without raising and is empty.
+    standard.setPropertyValue("FooterIsOn", True)
+    footer = standard.getPropertyValue("FooterText")
+    footer.setString("AllStruck")
+    f_cur = footer.createTextCursor()
+    f_cur.gotoStart(False)
+    f_cur.gotoEnd(True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        f_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    copy_page_style(doc, "Standard", "ClonedEmptyFooter")
+    cloned_footer = page_styles.getByName("ClonedEmptyFooter").getPropertyValue("FooterText")
+    assert cloned_footer.getString().strip() == ""

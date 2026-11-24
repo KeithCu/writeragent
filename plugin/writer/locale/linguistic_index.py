@@ -33,7 +33,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.writer.locale.stop_words import stop_words_for_snowball
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_elements
+from plugin.doc.text_helpers import DeletionState, get_string_without_tracked_deletions, iter_elements
 
 log = logging.getLogger("writeragent.writer.index")
 
@@ -202,10 +202,11 @@ class IndexService(ServiceBase):
             except Exception:  # noqa: S110 - not every document model exposes all three
                 pass
         enum = doc.getText().createEnumeration()
+        state = DeletionState()
         for el in iter_elements(enum):
             if not el.supportsService("com.sun.star.text.Paragraph"):
                 continue
-            if not get_string_without_tracked_deletions(el).strip():
+            if not get_string_without_tracked_deletions(el, state).strip():
                 continue
             try:
                 loc = el.getPropertyValue("CharLocale")
@@ -246,11 +247,12 @@ class IndexService(ServiceBase):
         idx.language = lang
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
+        state = DeletionState()
 
         for el in iter_elements(enum):
             para_i = len(idx.para_texts)
             if el.supportsService("com.sun.star.text.Paragraph"):
-                text = get_string_without_tracked_deletions(el)
+                text = get_string_without_tracked_deletions(el, state)
                 idx.para_texts.append(text)
                 for t in raw_tokens(text):
                     if t not in stop_words:

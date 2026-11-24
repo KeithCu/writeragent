@@ -30,6 +30,7 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
 from plugin.calc.formula_dialect import make_cell_address, to_api
+from plugin.doc.visual_helpers import color_param
 
 from com.sun.star.awt import FontWeight
 
@@ -157,8 +158,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition in Calc syntax (e.g. 'A1>100' or 'AND($A1>1;$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
-            "bg_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
-            "font_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
+            "bg_color": color_param("Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."),
+            "font_color": color_param("Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."),
             "bold": {"type": "boolean", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
         },
         "required": ["range", "operator"],

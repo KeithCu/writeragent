@@ -15,6 +15,7 @@ from typing import Any
 
 from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import (
+    DeletionState,
     build_heading_tree,
     get_string_without_tracked_deletions,
     iter_elements,
@@ -131,11 +132,12 @@ def _get_writer_sections(doc: Any) -> list[str]:
             elif current_title and current_title != "Introduction / preamble":
                 sections.append(current_title)
 
+        state = DeletionState()
         para_index = 0
         for el in iter_elements(enum):
             try:
                 if el.supportsService("com.sun.star.text.Paragraph"):
-                    ptext = get_string_without_tracked_deletions(el) or ""
+                    ptext = get_string_without_tracked_deletions(el, state) or ""
                     if para_index in heading_levels:
                         # Flush previous section
                         _flush()

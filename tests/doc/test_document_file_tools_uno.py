@@ -401,8 +401,6 @@ def test_document_export_csv_sheet_refuses_locked_target_uno(ctx, doc):
             assert f.read().replace("\r\n", "\n") == "sheet2-data\n"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
 class _SpyInteractionHandler(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
     def __init__(self) -> None:
         self.called = 0

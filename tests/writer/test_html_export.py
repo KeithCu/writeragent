@@ -84,7 +84,7 @@ def _run_range_export(
     source.getText.return_value = text
 
     if portions_fn is None:
-        def portions_fn(element, truncated_out=None):
+        def portions_fn(element, truncated_out=None, state=None):
             yield (_Portion(), "Hello")
 
     export_kwargs = {"side_effect": export_side_effect} if export_side_effect is not None else {"return_value": xhtml}
@@ -94,7 +94,7 @@ def _run_range_export(
         stack.enter_context(patch("plugin.writer.html_export._visible_portions", side_effect=portions_fn))
         stack.enter_context(patch("plugin.writer.html_export._element_overlaps", return_value=True))
         stack.enter_context(
-            patch("plugin.writer.html_export._trim_to_source", side_effect=lambda t, el, para_text, src: (0, len(para_text)))
+            patch("plugin.writer.html_export._trim_to_source", side_effect=lambda t, el, para_text, src, opened: (0, len(para_text)))
         )
         stack.enter_context(patch("plugin.writer.html_export.starts_at_or_after", return_value=False))
         stack.enter_context(patch("plugin.writer.range_copy.paint_direct_formatting"))
@@ -345,7 +345,7 @@ def test_range_offset_failure_is_not_a_successful_slice():
     temp = MagicMock()
     temp.getText.return_value = MagicMock()
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -409,9 +409,9 @@ def test_offset_window_slices_by_running_offset():
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=side_effects):
         past_end, window = _offset_window(text, 2, 8)
         e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
-        assert window(e1, "Hello", []) == ([], (2, 5))
-        assert window(e2, "World", []) == ([], (0, 2))
-        assert window(e3, "Next", []) == ([], None)
+        assert window(e1, "Hello", [], False) == ([], (2, 5))
+        assert window(e2, "World", [], False) == ([], (0, 2))
+        assert window(e3, "Next", [], False) == ([], None)
         assert past_end(e1) is False
 
 
@@ -427,13 +427,13 @@ def test_offset_window_adds_one_after_table_unless_collapsed():
     gap.isCollapsed.return_value = False
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="AlphaT"):
         _past_end, window = _offset_window(text, 7, 11)
-        assert window(MagicMock(), "Beta", [table]) == ([], (0, 4))
+        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
 
     # When the table opens the document, the gap is collapsed and nothing is added.
     gap.isCollapsed.return_value = True
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
         _past_end, window = _offset_window(text, 1, 5)
-        assert window(MagicMock(), "Beta", [table]) == ([], (0, 4))
+        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
 
 
 def test_offset_window_table_inclusion_boundaries():
@@ -448,28 +448,28 @@ def test_offset_window_table_inclusion_boundaries():
     gap.isCollapsed.return_value = False
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
         _past_end, window = _offset_window(text, 5, 8)
-        assert window(MagicMock(), "Alpha", []) == ([], None)
-        assert window(MagicMock(), "Beta", [table]) == ([table], (0, 1))
+        assert window(MagicMock(), "Alpha", [], False) == ([], None)
+        assert window(MagicMock(), "Beta", [table], False) == ([table], (0, 1))
 
     # Range that is exactly the paragraph before or after excludes the table.
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
         _past_end, window = _offset_window(text, 0, 5)
-        assert window(MagicMock(), "Alpha", []) == ([], (0, 5))
-        assert window(MagicMock(), "Beta", [table]) == ([], None)
+        assert window(MagicMock(), "Alpha", [], False) == ([], (0, 5))
+        assert window(MagicMock(), "Beta", [table], False) == ([], None)
 
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=["", "AlphaT"]):
         _past_end, window = _offset_window(text, 7, 11)
-        assert window(MagicMock(), "Alpha", []) == ([], None)
-        assert window(MagicMock(), "Beta", [table]) == ([], (0, 4))
+        assert window(MagicMock(), "Alpha", [], False) == ([], None)
+        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
 
     # Leading table is included only with start 0.
     gap.isCollapsed.return_value = True
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
         _past_end, window = _offset_window(text, 0, 5)
-        assert window(MagicMock(), "Beta", [table]) == ([table], (0, 4))
+        assert window(MagicMock(), "Beta", [table], False) == ([table], (0, 4))
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
         _past_end, window = _offset_window(text, 1, 5)
-        assert window(MagicMock(), "Beta", [table]) == ([], (0, 4))
+        assert window(MagicMock(), "Beta", [table], False) == ([], (0, 4))
 
 
 @pytest.mark.parametrize(
@@ -490,13 +490,13 @@ def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, state=None):
         yield (_Portion(), "Hello")
 
     with (
         patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source, opened: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
@@ -514,7 +514,7 @@ def test_trim_to_source_does_not_swallow_get_start():
     element = MagicMock()
     element.getStart.side_effect = _DisposedException("disposed")
     with pytest.raises(_DisposedException):
-        _trim_to_source(MagicMock(), element, "Hello", MagicMock())
+        _trim_to_source(MagicMock(), element, "Hello", MagicMock(), False)
 
 
 def test_range_export_does_not_read_para_style_on_a_table():
@@ -522,7 +522,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
     table = MagicMock()
     table.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextTable"
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, state=None):
         if element is not table:
             yield (_Portion(), "Hello")
 
