@@ -32,6 +32,7 @@ from .calc_functions_util import (
     match_criteria,
     npf_result,
     orient_columns,
+    require_samples,
     serial_to_date,
     yearfrac,
 )
@@ -563,11 +564,7 @@ def _regression_inputs(
         raise ValueError
     raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
     const = as_nonzero(raw_const)
-    # CalculateRGPRKP (interpr5.cxx) needs at least one sample per coefficient:
-    # K slopes plus the intercept when const is on. Fewer samples have no unique
-    # fit, so Calc shows an error (LINEST(5;3) is Err:504) and so does this.
-    if data_x.shape[0] < data_x.shape[1] + int(const):
-        raise ValueError
+    require_samples(data_x.shape[0], data_x.shape[1], const)
     return data_y, data_x, const
 
 
@@ -792,7 +789,7 @@ def mode(*args: Any) -> Any:
         return float("nan")
     counts = Counter(arr.tolist())
     best = max(counts.values())
-    # No repeat is #N/A. na() is float nan, which isna() already treats as #N/A.
+    # No repeat is #VALUE! in Calc (ScModalValue, interpr3.cxx); this returns a plain NaN (#NUM!).
     if best < 2:
         return float("nan")
     # Tie-break is the lowest value, the first run after ScModalValue sorts.

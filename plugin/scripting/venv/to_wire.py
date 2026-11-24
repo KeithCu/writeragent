@@ -370,7 +370,9 @@ def to_wire(
                 seen.discard(oid)
 
         # 9. Scalars
-        if isinstance(val, HOST_PICKLE_LEAF_TYPES):
+        # np.str_, np.bytes_, and np.complex128 subclass the leaf types but pickle as numpy globals;
+        # the .item() step below converts them to builtins.
+        if isinstance(val, HOST_PICKLE_LEAF_TYPES) and not (np_mod is not None and isinstance(val, np_mod.generic)):
             return val
 
         if isinstance(val, datetime.datetime):
@@ -392,7 +394,8 @@ def to_wire(
 
         if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
             try:
-                plain = val.item()
+                np_val: Any = val
+                plain = np_val.item()
             except Exception:
                 plain = val
             if plain is not val and not isinstance(plain, np_mod.generic):

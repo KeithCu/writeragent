@@ -166,19 +166,21 @@ class NativePythonCellEditorDialog:
         try:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
+            data_text = get_control_text(self._ctrl("DataEdit")).strip()
             outcome = editor.apply_cell_save(
                 self._doc,
                 self._cell,
                 parsed_parts=self._parsed_parts,
                 new_code=str(get_control_text(self._ctrl("CodeEdit")) or ""),
                 save_as_plain=save_as_plain,
-                data_binding_text=get_control_text(self._ctrl("DataEdit")).strip(),
+                data_binding_text=data_text,
                 code_cell=self._code_cell,
                 code_ref=self._code_ref,
             )
             if outcome.get("type") == "error":
                 self._set_status(str(outcome.get("message") or _("Error")))
                 return
+            self._parsed_parts = editor.parts_after_save(self._parsed_parts, outcome, data_text)
             self._dirty = False
             if isinstance(outcome.get("code"), str) or isinstance(outcome.get("data_binding"), str):
                 self._loading = True
