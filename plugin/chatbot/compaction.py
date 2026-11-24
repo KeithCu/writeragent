@@ -683,7 +683,7 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
 
 def messages_for_llm(session: Any) -> list[dict[str, Any]]:
     """Live messages[0] + summary pair + tail (view stubs). Does not mutate session messages, but may clear session.compaction if stale."""
-    messages = getattr(session, "messages", None) or []
+    messages = session.messages
     if not messages:
         return []
     # Drop stale compaction if first_kept_index is out of range or anchored object drifted
