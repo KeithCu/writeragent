@@ -326,6 +326,14 @@ class DelegateToSubagent(ToolBase):
         "required": ["domain", "task"],
     }
 
+    def enum_options(self, key: str, enum: list[Any], caller: str | None) -> list[Any]:
+        # The enum accepts chat-tier domains so execute() can answer DOMAIN_CHAT_ONLY;
+        # an MCP client's option list leaves them out.
+        if key != "domain" or caller != "mcp":
+            return enum
+        hidden = chat_tier_domains()
+        return [d for d in enum if d not in hidden]
+
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """Return the schema with the domain enum for *doc_type*; every app's domains when it is unknown.
 
@@ -379,14 +387,14 @@ class DelegateToSubagent(ToolBase):
             return _WRITER_DELEGATE_DESCRIPTION
         return self.description
 
-    def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
+    def domains_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> list[str]:
         """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
 
         Narrow domains by probed UNO services, not doc_type—Draw-only docs must not see Impress-only toolsets.
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
         agent_label = self.agent_label_for(uno_services=uno_services)
-        return sorted({e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)})
+        return sorted({e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services, for_mcp=for_mcp)})
 
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str:
         """Return the app-specific description narrowed to *uno_services*.
@@ -403,10 +411,7 @@ class DelegateToSubagent(ToolBase):
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
-            domains = self.domains_for_services(uno_services)
-            hidden = chat_tier_domains()
-            domains = [d for d in domains if d not in hidden]
-            return _format_draw_delegate_description(domains)
+            return _format_draw_delegate_description(self.domains_for_services(uno_services, for_mcp=True))
         return _WRITER_DELEGATE_DESCRIPTION
 
     def is_async(self) -> bool:
@@ -501,7 +506,7 @@ class DelegateToSubagent(ToolBase):
             services = ctx.uno_services_supported
             known = {e["domain"] for e in get_specialized_domain_catalog(agent_label=None)}
             if services and domain in known:
-                available = self.domains_for_services(services)
+                available = self.domains_for_services(services, for_mcp=ctx.caller == "mcp")
                 if domain not in available:
                     return self._tool_error(
                         f"Specialized domain '{domain}' does not support the current document. Use one of details.available.",

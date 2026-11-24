@@ -285,7 +285,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                      ``"specialized_control"`` (hidden from default lists via
                      ``exclude_tiers``). A tool reached only by a delegate
                      domain, a sidebar mode, or a ``wa.*`` script (for example
-                     ``web_research``) uses ``"unlisted"``, which is on no chat
+                     ``web_research`` or ``brainstorming_search_web``) uses ``"unlisted"``, which is on no chat
                      or MCP tool list, cannot be called over MCP, and is run by
                      name by host code. Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
@@ -346,7 +346,11 @@ class ToolBase(_ToolErrorMixin, ABC):
         """Tool description for the LLM; override when ``get_parameters`` varies by doc type."""
         return self.description or ""
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[bool, str | None]:
+    def enum_options(self, key: str, enum: list[Any], caller: str | None) -> list[Any]:
+        """Enum values a validation error lists for *caller*; override when some are hidden from it."""
+        return enum
+
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[bool, str | None]:
         """Validate arguments against ``parameters`` schema.
 
         Returns:
@@ -368,7 +372,8 @@ class ToolBase(_ToolErrorMixin, ABC):
                     continue
                 enum = prop.get("enum")
                 if isinstance(enum, list) and enum and value not in enum:
-                    return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
+                    shown = self.enum_options(key, enum, caller)
+                    return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in shown)}"
                 if not value_matches_type(value, prop.get("type")):
                     return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
@@ -592,7 +597,7 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
         common_details["doc_type"] = doc_type
 
     # Validate parameters
-    ok, err = tool.validate(doc_type=doc_type, **kwargs)
+    ok, err = tool.validate(doc_type=doc_type, caller=caller, **kwargs)
     if not ok:
         # "Missing required parameter: index" is exactly when the agent sent the value
         # under another name (paragraph_index): show which names were dropped.
