@@ -295,7 +295,7 @@ There is **no** single shared converter. Live implementations:
 | `url_utils.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
 | sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. Stay local (no UNO). |
 
-`resolve_document_by_url` compares `normalize_doc_url(model.getURL())` to the request. A request of `file:/home/a.odt` will **not** match an open `file:///home/a.odt` unless something else repaired it first. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
+`resolve_document_by_url` compares `_doc_identity_url(model.getURL())` to `_doc_identity_url(url)`, which repairs `file:/` to `file:///` and unifies `file:` percent-encoding before `normalize_doc_url`. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
 
 Tests: `tests/doc/test_document.py` (`normalize_doc_url` trailing slash), `tests/doc/test_text_helpers.py` (`file:/` repair + `get_document_path`).
 
