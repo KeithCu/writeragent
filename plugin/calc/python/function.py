@@ -203,7 +203,7 @@ def finalize_python_return(
 
 
 def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
-    """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
+    """Run *code* in the user venv and return a Calc-compatible scalar, matrix, or error string."""
     with background_if_dummy_thread("python_addin"):
         with sync_host_dispatch():
             with bind_formula_locate_memo():

@@ -592,7 +592,7 @@ Full tables, decision rationale, and author/LLM summary: **[Empty cells vs NaN](
 `=PY()` supports both **dynamic auto-spill** from a single cell and **matrix (array) formulas** over a selected block. Every argument after `code` is an input (`data` / `ranges`); there is no special index argument.
 
 - **Auto-spill (Enter, recommended):** Enter a single formula returning a 1D list or 2D grid, e.g. `=PY("result = [sp.prime(x) for x in range(1000, 1006)]")`. When `scripting.python_auto_spill` is enabled (default), Calc spills the result into neighbouring cells automatically.
-- **Matrix / array block (Ctrl+Shift+Enter):** Select the output range (e.g. `A1:A6`), enter `=PY("result = [sp.prime(x) for x in range(1000, 1006)]")`, and confirm with **Ctrl+Shift+Enter** (curly braces `{=…}`). Calc evaluates the add-in once for the block and `=PY()` returns a native `[][]any` UNO matrix (`matrix_result`), populating every cell in the block; cells beyond the result length show `#N/A`.
+- **Matrix / array block (Ctrl+Shift+Enter):** Select the output range (e.g. `A1:A6`), enter `=PY("result = [sp.prime(x) for x in range(1000, 1006)]")`, and confirm with **Ctrl+Shift+Enter** (curly braces `{=…}`). Calc evaluates the add-in once for the block and `=PY()` returns a native UNO matrix (`matrix_result`), populating every cell in the block; cells beyond the result length show `#N/A`. (Desktop renders a flat list as an N×1 column whereas Collabora Online renders it as a 1×N row, so portable vertical array blocks should return `[[x] for x in …]`.)
 - **Scalar return (Enter):** e.g. `=PY("result = 3 ** 8")` or `=PY("result = str([2, 3, 5])")`.
 
 #### Dynamic auto-spill {#dynamic-auto-spill}

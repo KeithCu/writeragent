@@ -460,7 +460,7 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
     with patch("uno.Any", side_effect=lambda t, v: (t, v)):
         val = finalize_python_return(_cell(ctx, "df_spill", doc), payload)
 
-    assert val == ("[][]any", (("Region", "Channel"), ("North", "Search"), ("South", "Email")))
+    assert val == ("[][]string", (("Region", "Channel"), ("North", "Search"), ("South", "Email")))
     assert sheet.getCellByPosition(1, 0).getString() == "Channel"
     assert sheet.getCellByPosition(0, 1).getString() == "North"
     assert sheet.getCellByPosition(1, 1).getString() == "Search"
@@ -880,6 +880,47 @@ def test_lone_numeric_arg_is_input_not_index(monkeypatch: pytest.MonkeyPatch) ->
 
     assert out == ("[][]any", ((5.0,), (10.0,), (15.0,)))
     assert seen[0]["data"] == [[5.0]]
+
+
+def test_finalize_python_return_located_array_skips_spill_and_returns_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A uniquely located {=PY()} array block suppresses auto-spill and returns the full matrix."""
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    sheet = doc.getSheets().getByName("Sheet1")
+    formula_cell = sheet.getCellByPosition(0, 0)
+    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _k: True)
+    spill_calls: list[Any] = []
+    monkeypatch.setattr(_function, "prepare_auto_spill", lambda *a, **k: spill_calls.append(a))
+    with (
+        patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=(sheet, formula_cell, (0, 0))),
+        patch("uno.Any", side_effect=lambda t, v: (t, v)),
+    ):
+        monkeypatch.setattr(_function, "cell_is_matrix", lambda _s, _c: True)
+        out = _function.finalize_python_return(_cell(ctx, "unique_arr", doc), [10, 20, 30])
+    assert out == ("[][]any", ((10.0,), (20.0,), (30.0,)))
+    assert spill_calls == []
+
+
+def test_matrix_result_shapes_and_types() -> None:
+    """matrix_result handles empty, 1x1 scalars, all-text [][]string, ragged mixed [][]any, errors, and nested lists."""
+    with patch("uno.Any", side_effect=lambda t, v: (t, v)):
+        assert _addin_values.matrix_result([]) == ""
+        assert _addin_values.matrix_result([[]]) == ""
+        assert _addin_values.matrix_result([[42]]) == 42.0
+        assert _addin_values.matrix_result(["North"]) == "North"
+        assert _addin_values.matrix_result(["North", "South"]) == ("[][]string", (("North",), ("South",)))
+        assert _addin_values.matrix_result([["a", "b"], ["c"]]) == ("[][]string", (("a", "b"), ("c",)))
+        assert _addin_values.matrix_result([[1, "a"], [2]]) == ("[][]any", ((1.0, "a"), (2.0,)))
+
+        err_res = _addin_values.matrix_result(["#N/A", "#DIV/0!"])
+        assert err_res[0] == "[][]any"
+        assert _addin_values.nan_error_code(err_res[1][0][0]) == 0x7FFF
+        assert _addin_values.nan_error_code(err_res[1][1][0]) == 532
+
+        nested_res = _addin_values.matrix_result([[[1, 2], 3]])
+        assert nested_res[0] == "[][]any"
+        assert _addin_values.nan_error_code(nested_res[1][0][0]) == 519
+        assert nested_res[1][0][1] == 3.0
 
 
 def test_build_cell_context_without_doc_does_not_guess_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:

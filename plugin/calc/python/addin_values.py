@@ -209,14 +209,37 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
 
 
+def _matrix_cell_value(cell: Any) -> float | str:
+    val = py_addin_cell_value(cell)
+    if isinstance(val, (float, str)):
+        return val
+    # Nested sequences have no cell representation in Calc matrices; surface #VALUE! instead of a blank.
+    return calc_formula_error_double(_ERR_VALUE)
+
+
 def matrix_result(result: list[Any] | tuple[Any, ...]) -> Any:
-    """Wrap a list or 2D grid as a UNO ``[][]any`` matrix for Calc's add-in bridge."""
+    """Wrap a list or 2D grid for Calc's add-in bridge.
+
+    Calc evaluates ``{=PY()}`` once per array block (``ScInterpreter::ScExternal``,
+    ``sc/source/core/tool/interpr4.cxx``), and a bare Python tuple of tuples fails
+    with ``#VALUE!`` because PyUNO needs an explicit ``uno.Any`` type. A 1x1 grid
+    returns a scalar so Calc interns text, and an all-text grid uses ``[][]string``
+    so ``ScUnoAddInCall::SetResult`` (``sc/source/core/tool/addincol.cxx``) interns
+    via ``mrDoc.GetSharedStringPool().intern``. Mixed grids use ``[][]any``; note
+    that ``ScSequenceToMatrix::CreateMixedMatrix`` (``sc/source/core/tool/rangeseq.cxx``)
+    stores ``svl::SharedString(aUStr)`` with null ``mpDataIgnoreCase``, so Calc
+    string equality (``=``, ``COUNTIF``) on text cells in a mixed block fails.
+    """
     grid = result_as_spill_grid(result)
     if not grid or not any(grid):
         return ""
-    rows = tuple(tuple(py_addin_cell_value(cell) for cell in row) for row in grid)
+    rows = tuple(tuple(_matrix_cell_value(cell) for cell in row) for row in grid)
+    if len(rows) == 1 and len(rows[0]) == 1:
+        return rows[0][0]
     # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
     uno_any = getattr(uno, "Any")
+    if all(isinstance(cell, str) for row in rows for cell in row):
+        return uno_any("[][]string", rows)
     return uno_any("[][]any", rows)
 
 

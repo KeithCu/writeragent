@@ -22,7 +22,7 @@ WriterAgent / LibrePy is running in production as a desktop extension for LibreO
        cells = _cells_beside_images(result)
        if cells is None:
            return _("Image inserted") if len(images) == 1 else _("Images inserted")
-       return finalize_python_return(cell_ctx, cells, index_arg=index_arg, data_token=data_token)
+       return finalize_python_return(cell_ctx, cells)
    ```
    When a smaller plot count is returned on recalc, higher plot slots on the cell are removed.
 3. **Smart Sizing & Geometry Snapping ([`plugin/calc/python/image_egress.py`](../../plugin/calc/python/image_egress.py)):**
