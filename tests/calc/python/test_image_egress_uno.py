@@ -527,3 +527,115 @@ def test_image_note_joins_formula_undo_step_uno(ctx, doc):
         b3.setFormula("")
         d1.setFormula("")
         um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_new_plot_stands_beside_its_cell_uno(ctx, doc):
+    """A new slot 0 stands just inside the cell's far edge in both LTR and RTL, anchored to the formula cell."""
+    from plugin.calc.calc_utils import get_cell_geometry
+    from plugin.calc.python.image_egress import _PLOT_EDGE_INSET, _anchored_plot_slots, _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    orig_layout = int(sheet.getPropertyValue("TableLayout"))
+    payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+
+    try:
+        for rtl in (False, True):
+            while draw_page.getCount():
+                draw_page.remove(draw_page.getByIndex(0))
+            sheet.setPropertyValue("TableLayout", 1 if rtl else 0)
+            b3 = sheet.getCellByPosition(1, 2)
+            controller.select(b3)
+            _insert_image_result_on_sheet_impl(payload, doc=doc, image_index=0, image_count=1)
+            slots = _anchored_plot_slots(sheet, b3)
+            assert len(slots) == 1
+            shape = slots[0][0]
+            cell_pos, cell_size = get_cell_geometry(sheet, b3)
+            shape_pos = shape.getPosition()
+            shape_size = shape.getSize()
+            if rtl:
+                near_edge = int(shape_pos.X) + int(shape_size.Width)
+                far_edge = int(cell_pos.X)
+                assert far_edge <= near_edge <= far_edge + _PLOT_EDGE_INSET
+            else:
+                near_edge = int(shape_pos.X)
+                far_edge = int(cell_pos.X) + int(cell_size.Width)
+                assert far_edge - _PLOT_EDGE_INSET <= near_edge <= far_edge
+            assert _cell_address_key(shape.getPropertyValue("Anchor")) == _cell_address_key(b3)
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        sheet.setPropertyValue("TableLayout", orig_layout)
+
+
+@native_test
+@with_native_doc("calc")
+def test_beside_plot_follows_cut_paste_and_xlsx_uno(ctx, doc):
+    """A beside-cell plot follows Cut/Paste of its formula and survives LTR XLSX reload."""
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _anchored_plot_slots, _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = controller.getFrame()
+    um = doc.getUndoManager()
+
+    code = "result = 'cut_paste_xlsx_probe'"
+    formula = f'=PY("{code}")'
+    payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+    b3 = sheet.getCellByPosition(1, 2)
+    f9 = sheet.getCellByPosition(5, 8)
+    tmpdir = tempfile.mkdtemp(prefix="wa-plot-xlsx-")
+    reloaded = None
+
+    try:
+        b3.setFormula(formula)
+        _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+
+        controller.select(b3)
+        dispatcher.executeDispatch(frame, ".uno:Cut", "", 0, ())
+        controller.select(f9)
+        dispatcher.executeDispatch(frame, ".uno:Paste", "", 0, ())
+
+        _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+        assert len(_anchored_plot_slots(sheet, f9)) == 1
+
+        xlsx_path = os.path.join(tmpdir, "plot_beside.xlsx")
+        xlsx_url = uno.systemPathToFileUrl(xlsx_path)
+        save_prop = PropertyValue()
+        save_prop.Name = "FilterName"
+        save_prop.Value = "Calc MS Excel 2007 XML"
+        doc.storeToURL(xlsx_url, (save_prop,))
+
+        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        hidden_prop = PropertyValue()
+        hidden_prop.Name = "Hidden"
+        hidden_prop.Value = True
+        reloaded = desktop.loadComponentFromURL(xlsx_url, "_blank", 0, (hidden_prop,))
+        reloaded_sheet = reloaded.getSheets().getByIndex(0)
+        reloaded_f9 = reloaded_sheet.getCellByPosition(5, 8)
+        assert len(_anchored_plot_slots(reloaded_sheet, reloaded_f9)) == 1
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        for cell in (b3, f9):
+            cell.setFormula("")
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        if um is not None:
+            um.clear()
+        for entry in os.listdir(tmpdir):
+            os.remove(os.path.join(tmpdir, entry))
+        os.rmdir(tmpdir)

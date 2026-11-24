@@ -2120,6 +2120,8 @@ def test_strip_image_payloads() -> None:
     res_dict = strip_image_payloads({"a": None, "b": image})
     assert res_dict == {"a": None, "b": "<image>"}
 
+    assert strip_image_payloads([1, image, {"a": image}], placeholder=None) == [1, None, {"a": None}]
+
 
 def test_strip_image_payloads_cycle_shared_subtree_and_colliding_keys() -> None:
     """A cyclic result is bounded, not RecursionError; 1 vs '1' keys refuse to drop a value."""

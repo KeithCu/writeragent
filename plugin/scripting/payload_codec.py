@@ -563,9 +563,9 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
     return images[0] if images else None
 
 
-# strip_image_payloads substitutes "<image>" placeholders without removing list slots or dict keys.
-def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
-    """Return result with image payloads replaced by '<image>', preserving structure.
+# strip_image_payloads substitutes a placeholder (default "<image>") without removing list slots or dict keys.
+def strip_image_payloads(obj: Any, *, placeholder: Any = "<image>", _depth: int = 0) -> Any:
+    """Return result with image payloads replaced by *placeholder*, preserving structure.
 
     Same depth cap as ``find_image_payloads``: a cycle or a very deep tree stops
     at ``_MAX_IMAGE_DEPTH`` and returns that subtree unchanged instead of raising
@@ -574,16 +574,16 @@ def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     """
     # Depth cap and wire_str_key prevent RecursionError on cyclic trees and silent loss of colliding dict keys.
     if is_image_payload(obj):
-        return "<image>"
+        return placeholder
     if _depth > _MAX_IMAGE_DEPTH:
         return obj
     if isinstance(obj, (list, tuple)):
-        return [strip_image_payloads(x, _depth=_depth + 1) for x in obj]
+        return [strip_image_payloads(x, placeholder=placeholder, _depth=_depth + 1) for x in obj]
     if isinstance(obj, dict):
         used: set[str] = set()
         out: dict[str, Any] = {}
         for key, value in obj.items():
-            out[wire_str_key(key, used)] = strip_image_payloads(value, _depth=_depth + 1)
+            out[wire_str_key(key, used)] = strip_image_payloads(value, placeholder=placeholder, _depth=_depth + 1)
         return out
     return obj
 
