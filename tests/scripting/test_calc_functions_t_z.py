@@ -595,6 +595,8 @@ def test_text_and_trend_shared_helpers_unchanged():
 
 
 def test_xmatch_miss_and_bad_mode_nan_payload():
+    from plugin.scripting.venv.calc_functions_util import NA_NAN
+
     miss = calc.xmatch(9, [1, 2])
     assert math.isnan(miss)
     assert _nan_low32(miss) == 0x7FFF
@@ -603,7 +605,17 @@ def test_xmatch_miss_and_bad_mode_nan_payload():
     assert math.isnan(bad_mode)
     assert _nan_low32(bad_mode) == 0
 
+    bad_mode_na_lookup = calc.xmatch(NA_NAN, [1, 2], match_mode=9)
+    assert math.isnan(bad_mode_na_lookup)
+    assert _nan_low32(bad_mode_na_lookup) == 0
+
     plain_nan_lookup = calc.xmatch(float("nan"), [1, 2])
     assert math.isnan(plain_nan_lookup)
     assert _nan_low32(plain_nan_lookup) == 0
+
+
+def test_xlookup_invalid_match_mode_returns_value_error():
+    for mode in (9, -2, 3):
+        assert calc.xlookup(1, [1, 2], [10, 20], match_mode=mode) == "#VALUE!"
+        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", match_mode=mode) == "#VALUE!"
 

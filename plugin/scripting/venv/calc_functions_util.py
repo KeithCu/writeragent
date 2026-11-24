@@ -15,7 +15,8 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
-   NA_NAN shows #N/A (na, xmatch miss, textsplit padding).
+   NA_NAN shows #N/A (na, xmatch miss, textsplit padding), and NESTED_ARRAY_NAN shows
+   Err:533 (filter with no match and no if_empty).
 3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!"). The add-in shows that
    error. Used where the cell must show a token other than #NUM! and the helper catches its own
    parse errors (lookup, text, array and regression helpers).
@@ -39,9 +40,15 @@ import numpy as np
 
 from .coerce import LO_ERROR_TOKENS, is_missing_value
 
-# 0x7FFF is FormulaError::NotAvailable; GetDoubleErrorValue (include/formula/errorcodes.hxx)
-# reads the low 32 bits. It is an ordinary NaN in Python; the worker does not import plugin.calc.
-NA_NAN: float = struct.unpack("d", struct.pack("Q", 0x7FF8000000007FFF))[0]
+def formula_error_nan(code: int) -> float:
+    """Quiet NaN carrying a LibreOffice FormulaError code in its low bits (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+    return struct.unpack("d", struct.pack("Q", 0x7FF8000000000000 | code))[0]
+
+
+# 0x7FFF is FormulaError::NotAvailable, 533 is FormulaError::NestedArray. They are ordinary NaNs in Python;
+# the worker does not import plugin.calc.
+NA_NAN: float = formula_error_nan(0x7FFF)
+NESTED_ARRAY_NAN: float = formula_error_nan(533)
 
 
 def require_samples(n: int, k: int, const: bool) -> None:

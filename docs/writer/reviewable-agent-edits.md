@@ -107,6 +107,13 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
+* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`) are
+  recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
+  resolves them, and omitted from `ChangeRecord` so `wait_for_review` neither waits for them nor
+  reports them in `review.changes`. Both the link deletion and insertion are authored
+  `WriterAgent` (not `WriterAgent (deletions)`). When the user records changes with review off,
+  the link redlines are still authored `WriterAgent` so they do not merge with the user's own
+  redlines across a paragraph mark.
 
 ### Surgical word-level edits
 
@@ -271,7 +278,7 @@ resolve-all returns user-facing messages when verification fails.
 When the user turns on Track Changes > Record while agent review is Off, operations that Writer cannot natively record are either flagged (`style_unreviewed: true`) or left undone with a reason:
 
 * **Character resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`) before resetting it. `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
-* **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` (`removeTextContent`) leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
+* **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
 * **Paragraph `apply_style` (`SwUnoCursorHelper::makeRedline`):** Applying a paragraph style while `RecordChanges` is on temporarily turns recording off so the `Char*` restore does not create `Format` redlines whose Reject drops the run's formatting, then records one `ParagraphFormat` redline per changed non-empty paragraph (authored as the current office user) carrying `ParaStyleName`, direct paragraph properties, and `NumberingRules`. If the paragraph already has a `ParagraphFormat` redline, no second one is added so Reject restores the state before both changes.
 * **Known paths that still bypass recording:** `frame_delete`, chart/OLE insert/delete, `shape_delete`, `form_delete_control` (the four deletes return `tracked: false` with a `warning` when recording or review is on; `index_delete_toc_entry` is recorded), picture properties/replace, table formatting/merge/split, `index_update_all`, page break, hyperlink on existing text, and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
 

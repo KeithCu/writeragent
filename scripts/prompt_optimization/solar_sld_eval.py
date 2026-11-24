@@ -26,10 +26,10 @@ from oracles import (  # noqa: E402
     _SOLAR_BOX_FLOOR,
     _SOLAR_CONN_FLOOR,
     _flatten_draw_nodes,
-    _solar_connectors,
     _solar_labeled_boxes,
     _solar_role_keys,
     check_oracle,
+    draw_connectors,
     parse_json_export,
 )
 
@@ -93,7 +93,7 @@ def _counts(doc: str) -> tuple[int, int]:
         else []
     )
     boxes = len(_solar_labeled_boxes(nodes))
-    connectors = len(_solar_connectors(nodes))
+    connectors = len(draw_connectors(nodes))
     if connectors == 0:
         raw = data.get("connections")
         if isinstance(raw, list):

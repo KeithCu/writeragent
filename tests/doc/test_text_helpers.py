@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.doc.text_helpers import (
+    DeletionState,
     visible_portions,
     writer_char_count,
     apply_chapter_number,
@@ -320,6 +321,20 @@ def test_visible_portions_truncated_out_when_cap_hit():
     exhausted = []
     assert [c for _u, c in visible_portions(para, limit=3, truncated_out=exhausted)] == ["a", "b", "c"]
     assert exhausted == []
+
+
+def test_visible_portions_shared_deletion_state_skips_middle_paragraph():
+    p1 = _Paragraph([_Portion("keep "), _Portion(portion_type="Redline", redline_type="Delete", is_start=True), _Portion("del1")])
+    p2 = _Paragraph([_Portion("middle deleted")])
+    p3 = _Paragraph([_Portion("del3"), _Portion(portion_type="Redline", redline_type="Delete", is_start=False), _Portion(" after")])
+
+    state = DeletionState()
+    assert [c for _u, c in visible_portions(p1, state=state)] == ["keep "]
+    assert [c for _u, c in visible_portions(p2, state=state)] == []
+    assert [c for _u, c in visible_portions(p3, state=state)] == [" after"]
+
+    # Without state, p2 has no markers and yields its text unchanged.
+    assert [c for _u, c in visible_portions(p2)] == ["middle deleted"]
 
 
 def test_text_helpers_import_does_not_load_calc_analyzer():
