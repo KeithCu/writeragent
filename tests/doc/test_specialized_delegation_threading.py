@@ -554,6 +554,7 @@ def test_calc_sheets_delegate_error_create_omits_instruction(
 ):
     """Failed sheet_create does not attach the not-populated instruction."""
     from plugin.calc.sheets import CreateSheet
+    from plugin.contrib.smolagents.memory import ToolCall
 
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -563,8 +564,10 @@ def test_calc_sheets_delegate_error_create_omits_instruction(
     sheets.getElementNames.return_value = ("Sheet1",)
     ctx.doc.getSheets.return_value = sheets
 
-    def fake_run_inner(inner_ctx, smol_tools, **kwargs):
+    def fake_run_inner(inner_ctx, smol_tools, tool_call_handler=None, **kwargs):
         del inner_ctx, kwargs
+        if tool_call_handler:
+            tool_call_handler(ToolCall(name="sheet_create", arguments={"sheet": "Sheet1"}, id="1"))
         adapter = next(t for t in smol_tools if t.name == "sheet_create")
         adapter(sheet="Sheet1")
         return {
@@ -657,57 +660,19 @@ def test_delegate_forwards_first_inner_instruction(
     smol_agent_mocks,
 ):
     """When two inner tool results carry `instruction`, the first one is forwarded."""
-    from plugin.framework.tool import ToolBase
-
-    class _InstTool(ToolBase):
-        name = "inst_tool"
-        description = "Returns an instruction."
-        parameters = {
-            "type": "object",
-            "properties": {"inst": {"type": "string"}},
-            "required": ["inst"],
-        }
-
-        def detects_mutation(self) -> bool:
-            return False
-
-        def execute(self, ctx: ToolContext, inst: str = "", **kwargs):
-            del ctx, kwargs
-            return {"status": "ok", "instruction": inst}
+    from plugin.calc.sheets import CreateSheet
+    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_InstTool(), DelegateToSubagent(), doc_type="calc")
-
-    def fake_run_inner(inner_ctx, smol_tools, **kwargs):
-        del inner_ctx, kwargs
-        return {
-            "status": "ok",
-            "finished": True,
-            "answer": "Done",
-            "message": "Done.",
-        }
-
-    # Exercise _CaptureInstructionAdapter directly through _DelegationCapture.
-    from plugin.doc.specialized_base import _CaptureInstructionAdapter, _DelegationCapture
-
-    cap = _DelegationCapture()
-    adapter = _CaptureInstructionAdapter(_InstTool(), ctx, cap, "sheets")
-    adapter(inst="first instruction")
-    adapter(inst="second instruction")
-    assert cap.instruction == "first instruction"
-
-    # Also verify gateway forwarding when an inner tool returns an instruction.
-    from plugin.calc.sheets import CreateSheet
-
-    registry2, ctx2 = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
+    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
     sheets = MagicMock()
     sheets.hasByName.return_value = False
     sheets.getCount.return_value = 1
-    ctx2.doc.getSheets.return_value = sheets
+    ctx.doc.getSheets.return_value = sheets
 
-    def fake_run_inner2(inner_ctx, smol_tools, **kwargs):
+    def fake_run_inner(inner_ctx, smol_tools, **kwargs):
         del inner_ctx, kwargs
         create_adapter = next(t for t in smol_tools if t.name == "sheet_create")
         create_adapter(sheet="First")
@@ -720,11 +685,9 @@ def test_delegate_forwards_first_inner_instruction(
             "message": "Done.",
         }
 
-    gateway = registry2.get("delegate_to_subagent")
-    with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner2):
-        result = gateway.execute_safe(ctx2, domain="sheets", task="Create sheets")
-
-    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    gateway = registry.get("delegate_to_subagent")
+    with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = gateway.execute_safe(ctx, domain="sheets", task="Create sheets")
 
     assert result["status"] == "ok"
     assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION

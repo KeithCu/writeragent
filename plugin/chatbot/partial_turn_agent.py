@@ -60,7 +60,9 @@ class PartialTurnToolCallingAgent(ToolCallingAgent):
         for i, call in enumerate(requested.values(), 1):
             output = outputs.get(call.id)
             if output is not None:
-                # Vendored Tool classes do not all define is_final_answer_tool.
+                # A tool can end a session without being this agent's final_answer_tool_name
+                # (e.g. PPT-Master's ppt_master_finished), so its ToolOutput.is_final_answer is
+                # False; vendored Tool classes do not all define is_final_answer_tool.
                 if output.is_final_answer or getattr(self.tools[call.name], "is_final_answer_tool", False):
                     lines.append(f"Call {i} ({call.name}) was not accepted because this turn failed.")
                 else:

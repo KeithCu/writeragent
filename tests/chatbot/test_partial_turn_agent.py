@@ -223,3 +223,36 @@ def test_successful_multicall_turn_matches_base_observations():
     obs = partial.memory.steps[1].observations
     assert obs == base.memory.steps[1].observations
     assert "Call 1" not in obs
+
+
+def test_secondary_finish_tool_is_not_accepted_when_turn_fails():
+    class _SecondaryFinishTool(Tool):
+        name = "secondary_finish"
+        description = "Secondary finish."
+        inputs = {}
+        output_type = "string"
+        is_final_answer_tool = True
+
+        def forward(self) -> str:
+            return "secondary-finished-payload"
+
+    seen: list[str] = []
+
+    def _gen(messages, **kwargs):
+        del kwargs
+        seen.append(_flatten(messages))
+        if len(seen) == 1:
+            return _assistant_msg(
+                ("secondary_finish", {}, "c1"),
+                ("no_such_tool", {}, "c2"),
+            )
+        return _assistant_msg(("final_answer", {"answer": "done"}, "c3"))
+
+    model = MagicMock()
+    model.generate.side_effect = _gen
+    agent = _make_agent(model, _SecondaryFinishTool(), _FinalTool())
+
+    assert agent.run("t") == "done"
+    req2 = seen[1]
+    assert "Call 1 (secondary_finish) was not accepted because this turn failed." in req2
+    assert "secondary-finished-payload" not in req2
