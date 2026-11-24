@@ -14,14 +14,11 @@
 
 New features and bugfixes **must include tests**.
 - **No change-detector tests:** Do not assert on prompt or tool-description prose, log text, static config or catalog constants, removed-feature lists, signatures/exports already enforced by type checkers, or exact mock call order/choreography, unless the test cites a real bug. Keep structural guards (section order, uniqueness, routing) and bug-regression tests.
-- **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Match the source module name (e.g. `foo.py` -> `test_foo.py`) and add new cases to the matching `test_` file.
-- **UNO / LibreOffice:** Collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (`foo.py` -> `test_foo_uno.py`).
+- **Unit:** `tests/`, pytest, when logic can be mocked. Match the source module name (e.g. `foo.py` -> `test_foo.py`) and add new cases to the matching `test_` file.
+- **UNO / LibreOffice:** Collocated `*_uno.py` files run by `testing_runner.py` (not pytest; GitHub CI runs them on every PR)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (`foo.py` -> `test_foo_uno.py`).
 - **Enumerations:** All `XEnumeration` walks (portions, paragraphs, annotations, desktop components) must use `enum_has_more` (`plugin/framework/uno_context.py`) because `not enum.hasMoreElements()` does not terminate on mock objects.
-- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need failure output to understand a bug; assume the tree is already green. After edits, run `make test-bot` and `make typecheck` before each commit (incremental on changed Python files; `make typecheck-full` takes ~1 minute—wait for it rather than polling). Run `make test-full` **only for large refactors** or cross-cutting changes.
-- **Inspect UNO directly:** When unsure of UNO API behavior, do not guess or add speculative fallbacks—run a quick `@native_test` (see `tests/chatbot/test_hamburger_menu_uno.py` as an example) against live LibreOffice:
-  ```bash
-  .venv/bin/python plugin/testing_runner.py tests/chatbot/test_hamburger_menu_uno.py
-  ```
+- **Execution Policy (the one testing rule):** **Do not run tests or `make typecheck` before starting work** unless you need failure output to understand a bug; assume the tree is already green. After edits, run `make test-bot`, then `make typecheck`, one at a time in the foreground (never in a background or polling loop); both must pass before each commit. `make test-bot` already picks the unit tests for your changes (changed test files, tests named after a changed module, tests that import it, and tests that name a changed data file), so do not also run those tests with pytest. Do not run whole test packages, `make pytest`, `make test`, `make test-full` or `make test-uno`, and do not run existing `*_uno.py` tests: GitHub CI runs them.
+- **Inspect UNO directly:** When unsure of UNO API behavior, do not guess or add speculative fallbacks—write a throwaway `@native_test` probe (see `tests/chatbot/test_hamburger_menu_uno.py` as an example) and run only that file against an isolated LibreOffice (pool coders: `pipeline/uno-probe.sh <file>`; elsewhere `.venv/bin/python plugin/testing_runner.py <file>`). Probes check LibreOffice behaviour; they are not a substitute for CI's UNO run.
 
 ---
 
@@ -46,9 +43,9 @@ Explain the code that is here **now** for a reader who does not know this projec
 
 | Command | When to use |
 |---------|-------------|
-| `make typecheck` | Run before each commit with targeted tests (incremental; `CI=true` or `TYPECHECK_FULL=1` for full). Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
-| `make test-bot` | Incremental pytest on changed files/modules (run with `make typecheck` before each commit). |
-| `make test` | Incremental typecheck + incremental pytest + incremental UNO tests. |
+| `make typecheck` | Run after `make test-bot`, before each commit (incremental; `CI=true` or `TYPECHECK_FULL=1` for full). Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
+| `make test-bot` | Unit tests for your uncommitted changes (xdist; full suite when `conftest.py`, a shared test helper, `Makefile` or `pyproject.toml` changed). Run before each commit, then `make typecheck`. |
+| `make test` | Incremental typecheck + pytest + UNO tests, for a human run before release work; agents use `make test-bot` + `make typecheck`. |
 | `make build` | Produce `build/WriterAgent.oxt` only (no install). |
 | `make deploy` | Build + install WriterAgent OXT; **restart LibreOffice** (or `make deploy writer/calc/draw/impress` to launch). |
 | `make build-core` / `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); `deploy-core` **removes WriterAgent**. |
