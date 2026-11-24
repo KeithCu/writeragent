@@ -181,3 +181,30 @@ def test_get_surroundings_frames_include_text_boxes_uno(ctx, doc):
     assert as_char_box_name in by_name, by_name
     assert by_name[as_char_box_name]["paragraph_index"] == 2
     assert page_box_name not in by_name, by_name
+
+
+@native_test
+@with_native_doc("writer")
+def test_surroundings_hides_tracked_deletions_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    p2_cur = text.createTextCursorByRange(paras[2])
+    p2_cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    tool = NavSurroundings()
+    mock_ctx = MockContext(doc, ctx)
+    res0 = tool.execute(mock_ctx, locator="paragraph:2", radius=0, include=["paragraphs"])
+    assert res0.get("status") == "ok", res0
+    assert [(p["text"], p["outline_level"]) for p in res0["paragraphs"]] == [("", 0)]
+
+    res1 = tool.execute(mock_ctx, locator="paragraph:2", radius=1, include=["paragraphs"])
+    assert res1.get("status") == "ok", res1
+    texts = [p["text"] for p in res1["paragraphs"]]
+    assert all("gone" not in t for t in texts), texts
+    assert texts == ["Start ", "", "Tail"]

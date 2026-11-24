@@ -403,3 +403,32 @@ def test_surroundings_reraises_disposed_annotation():
     with pytest.raises(DocumentDisposedError):
         prox.get_surroundings(doc, "paragraph:0", radius=5, include=["comments"])
 
+
+def test_surroundings_hides_struck_text_and_zeroes_struck_heading_level():
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    p0 = FakeUnoPara([
+        FakeUnoPortion("Text", "Start "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "gone1"),
+    ], OutlineLevel=0)
+    h1_struck = FakeUnoPara([FakeUnoPortion("Text", "gone2")], OutlineLevel=1)
+    p2 = FakeUnoPara([
+        FakeUnoPortion("Text", "gone3 "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "Tail"),
+    ], OutlineLevel=0)
+
+    doc, prox = _nav_stack([p0, h1_struck, p2])
+    redlines = MagicMock()
+    redlines.hasElements.return_value = True
+    redlines.createEnumeration.return_value = FakeUnoEnum([])
+    doc.getRedlines = lambda: redlines
+
+    res = prox.get_surroundings(doc, "paragraph:1", radius=1, include=["paragraphs"])
+    assert res["paragraphs"] == [
+        {"para_index": 0, "text": "Start ", "outline_level": 0},
+        {"para_index": 1, "text": "", "outline_level": 0},
+        {"para_index": 2, "text": "Tail", "outline_level": 0},
+    ]
+

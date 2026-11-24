@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.paragraph_search import paragraph_entries
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements, live_paragraph_text, paragraph_deletion_flags
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
@@ -260,13 +260,17 @@ class ProximityService(ServiceBase):
         if "paragraphs" in include:
             if not bookmark_map:
                 bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc, para_ranges=para_ranges)
+            window = para_ranges[start_idx : end_idx + 1]
+            flags = paragraph_deletion_flags(doc, window)
             paragraphs = []
-            for i in range(start_idx, end_idx + 1):
-                el = para_ranges[i]
+            for i, (el, starts_deleted) in enumerate(zip(window, flags, strict=True), start_idx):
                 if not el.supportsService("com.sun.star.text.Paragraph"):
                     continue
                 level = el.getPropertyValue("OutlineLevel")
-                text = el.getString()
+                text = live_paragraph_text(el, starts_deleted)
+                if text is None:
+                    # Wholly struck: the heading tree counts it as body too. The entry keeps its para_index.
+                    level, text = 0, ""
                 entry = {"para_index": i, "text": text[:200], "outline_level": level}
                 bm = bookmark_map.get(i)
                 if bm:
