@@ -8,6 +8,7 @@ without clipboard transferables or XHTML filter roundtrips.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
@@ -440,17 +441,26 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     return best_effort(insert, "_copy_field_into failed", False)
 
 
-def clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> int:
+def clone_graphics(
+    host: Any,
+    dest_doc: Any,
+    dest_text: Any,
+    cursor: Any,
+    deletions: TrackedDeletions | None = None,
+) -> int:
     """Clone the graphics anchored at *host* (a paragraph or a Frame portion) at *cursor*.
 
     A paragraph lists its AT_PARAGRAPH graphics, a Frame portion its AT_CHARACTER and
     AS_CHARACTER ones (``SwXParagraph`` / ``SwXTextPortion::createContentEnumeration``).
+    When *deletions* is given, graphics that Accept All would remove are skipped.
     Returns how many cursor steps the clones take: one per AS_CHARACTER graphic.
     """
     steps = 0
     contents = uno_read(lambda: host.createContentEnumeration("com.sun.star.text.TextContent"), None)
     for shape in iter_elements(contents):
         if not supports_service(shape, "com.sun.star.text.TextGraphicObject"):
+            continue
+        if deletions is not None and deletions.removes_anchored(shape):
             continue
 
         def clone_one() -> bool:
@@ -744,13 +754,24 @@ def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
         log.debug("range copy: paragraph break failed: %s", exc)
 
 
+def _struck_paragraph_state(para: Any, state: DeletionState) -> DeletionState | None:
+    """The state after *para* when a pending deletion leaves no text of it, else None.
+
+    *state* is left as it was, so a live paragraph can still be walked with it.
+    """
+    after = replace(state)
+    for _unused in visible_portions(para, state=after):
+        pass
+    return after if after.strikes_text(para, state.in_delete) else None
+
+
 def _copy_xtext_by_portions(
     src_doc: Any,
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
 ) -> None:
-    """Copy paragraphs/fields without the view transferable.
+    """Copy paragraphs/fields without the view transferable, leaving out tracked deletions.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
     view is on the first page (``FirstIsShared=False``).
@@ -761,6 +782,10 @@ def _copy_xtext_by_portions(
     Without the style, the export would report ``Standard`` for a ``Header`` paragraph,
     and every inherited margin and font would come back as a hand-set ``data-lo-para``
     override (same rule as range export, see ``_copy_properties``).
+
+    Wholly struck paragraphs are skipped so they do not reappear as live blank
+    paragraphs on a round trip; any surviving logo anchored to one moves to the
+    preceding paragraph.
     """
     style_cache: dict[str, Any] = {}
     dest_text = dest_doc.getText()
@@ -772,15 +797,23 @@ def _copy_xtext_by_portions(
     except Exception:
         dest_text.setString(src_text.getString())
         return
-    state = TrackedDeletions(src_doc).state_at(src_text)
+    deletions = TrackedDeletions(src_doc)
+    state = deletions.state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
+        is_table = supports_service(el, "com.sun.star.text.TextTable")
         # A table inside an open deletion or with all rows marked deleted is struck whole.
-        if supports_service(el, "com.sun.star.text.TextTable") and table_is_struck(src_doc, el, state):
+        if is_table and table_is_struck(src_doc, el, state):
+            continue
+        if not is_table and deletions and (after := _struck_paragraph_state(el, state)) is not None:
+            # No paragraph of its own: a blank one would come back as live text on the next write.
+            # A logo that Accept keeps moves to the paragraph before it.
+            state = after
+            clone_graphics(el, dest_doc, dest_text, dest_cursor, deletions)
             continue
         if not fresh:
             begin_next_paragraph(dest_text, dest_cursor)
-        fresh = supports_service(el, "com.sun.star.text.TextTable")
+        fresh = is_table
         if fresh:
             copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
             continue
@@ -796,7 +829,7 @@ def _copy_xtext_by_portions(
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
-        clone_graphics(el, dest_doc, dest_text, dest_cursor)
+        clone_graphics(el, dest_doc, dest_text, dest_cursor, deletions)
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
@@ -804,7 +837,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
 
     Used by page-style clone. Does not select the source, does not use the
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
-    Tracked deletions are left out. Returns how many fields were inserted.
+    Tracked deletions (including wholly struck paragraphs and graphics that Accept All
+    removes) are left out. Returns how many fields were inserted.
 
     The walk copies inside the live document without selecting, clipboard transfer,
     or in-process XHTML/ODF export — that export path could corrupt soffice when
@@ -826,15 +860,23 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
-    state = TrackedDeletions(doc).state_at(src_text)
+    deletions = TrackedDeletions(doc)
+    state = deletions.state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
+        is_table = supports_service(el, "com.sun.star.text.TextTable")
         # A table inside an open deletion or with all rows marked deleted is struck whole.
-        if supports_service(el, "com.sun.star.text.TextTable") and table_is_struck(doc, el, state):
+        if is_table and table_is_struck(doc, el, state):
+            continue
+        if not is_table and deletions and (after := _struck_paragraph_state(el, state)) is not None:
+            # No paragraph of its own: a blank one would come back as live text on the next write.
+            # A logo that Accept keeps moves to the paragraph before it.
+            state = after
+            clone_graphics(el, doc, dest_text, cursor, deletions)
             continue
         if not fresh:
             begin_next_paragraph(dest_text, cursor)
-        fresh = supports_service(el, "com.sun.star.text.TextTable")
+        fresh = is_table
         if fresh:
             # copy_table also clones cell graphics.
             copy_table(el, doc, dest_text, cursor, None)
@@ -856,7 +898,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
                     continue
                 copy_text_run(portion, dest_text, cursor, chunk)
         _copy_para_properties_to_end(dest_text, cursor, el)
-        clone_graphics(el, doc, dest_text, cursor)
+        clone_graphics(el, doc, dest_text, cursor, deletions)
 
     return fields_copied
 

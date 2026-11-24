@@ -1346,7 +1346,7 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         html_import.raise_if_hidden_section(ctx.doc)
-        html_import.raise_if_protected_start(ctx.doc)
+        html_import.raise_if_protected_sections(ctx.doc)
         content = params.content
         plain = params.plain
         has_table = params.has_table

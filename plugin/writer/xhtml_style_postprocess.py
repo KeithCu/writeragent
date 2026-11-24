@@ -688,13 +688,9 @@ def expand_tracked_deletions(fodt: str) -> str | None:
 # which odf2xhtml leaks into HTML as literal "display:condition; ".
 _HIDDEN_SECTION_DISPLAY_RE = re.compile(
     r'(<text:section\b[^<>]*?)\s+text:display="(?:none|condition)"([^<>]*>)',
-    re.IGNORECASE,
 )
 
 
 def show_hidden_sections(fodt: str) -> str:
     """Strip ``text:display="none|condition"`` from ``<text:section>`` open tags in flat ODF."""
-    # crosshair: off
-    if not fodt or "text:display" not in fodt:
-        return fodt
     return _HIDDEN_SECTION_DISPLAY_RE.sub(r"\1\2", fodt)

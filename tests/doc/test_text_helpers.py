@@ -1649,6 +1649,66 @@ def test_visible_portions_abort_on_unreadable_inner_portion():
     assert chunks == ["a"]
 
 
+def test_visible_portions_unreadable_container_enum_respects_abort():
+    from plugin.doc.text_helpers import DeletionState, iter_portions, visible_portions
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    class _BadContainerPortion(FakeUnoPortion):
+        def getPropertyValue(self, name: str):
+            if name == "ContentControl":
+                raise RuntimeError("broken container")
+            return super().getPropertyValue(name)
+
+    para = FakeUnoPara([
+        FakeUnoPortion("Text", "before "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        _BadContainerPortion("ContentControl", ""),
+        FakeUnoPortion("Text", "after"),
+    ])
+    abort_state = DeletionState()
+    assert [c for _p, c in visible_portions(para, abort_on_portion_error=True, state=abort_state)] == ["before "]
+    assert abort_state.in_delete is False
+
+    skip_state = DeletionState()
+    assert [c for _p, c in visible_portions(para, abort_on_portion_error=False, state=skip_state)] == ["before "]
+    p_ok = FakeUnoPortion("Text", "a")
+    assert list(iter_portions(FakeUnoEnum([p_ok, _BadContainerPortion("ContentControl", ""), FakeUnoPortion("Text", "b")]))) == [
+        (p_ok, "Text")
+    ]
+
+
+def test_flat_portions_next_element_error_and_disposal():
+    import pytest
+    from plugin.doc.text_helpers import _flat_portions
+    from plugin.framework.errors import DocumentDisposedError
+    from tests.testing_utils import FakeUnoPortion
+
+    class _FlakyEnum:
+        def __init__(self, fail_with: Exception):
+            self._step = 0
+            self._fail_with = fail_with
+
+        def hasMoreElements(self) -> bool:
+            return self._step < 2
+
+        def nextElement(self):
+            self._step += 1
+            if self._step == 1:
+                raise self._fail_with
+            return FakeUnoPortion("Text", "ok")
+
+    items = list(_flat_portions(_FlakyEnum(RuntimeError("transient"))))
+    assert items[0] == (None, None)
+    assert items[1][1] == "Text"
+
+    class _DisposedError(Exception):
+        pass
+
+    _DisposedError.__name__ = "DisposedException"
+    with pytest.raises(DocumentDisposedError):
+        list(_flat_portions(_FlakyEnum(_DisposedError("gone"))))
+
+
 def test_visible_point_in_paragraph():
     from plugin.doc.text_helpers import visible_point_in_paragraph
     from tests.testing_utils import FakeUnoPara, FakeUnoPortion
@@ -1855,3 +1915,70 @@ def test_reset_direct_char_formatting_reads_language_from_start():
 
     cursor.setPropertiesToDefault.assert_called_once_with(("CharWeight", "CharLocale"))
     assert cursor_vals == start_langs
+
+
+def test_strikes_text_true_when_anchored_content_keeps_strikes_paragraph_false():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    def _text(s: str):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
+        p.getString.return_value = s
+        return p
+
+    portions = [_marker(True), _text("struck"), _marker(False)]
+    p_enum = MagicMock()
+    p_enum.hasMoreElements.side_effect = [True, True, True, False]
+    p_enum.nextElement.side_effect = portions
+
+    content_enum = MagicMock()
+    content_enum.hasMoreElements.return_value = True
+
+    para = MagicMock()
+    para.createEnumeration.return_value = p_enum
+    para.createContentEnumeration.return_value = content_enum
+    para.getString.return_value = "struck"
+
+    state = DeletionState()
+    list(visible_portions(para, state=state))
+    assert state.strikes_text(para, False) is True
+    assert state.strikes_paragraph(para, False) is False
+def test_reset_direct_char_formatting_uses_given_language():
+    from plugin.doc.text_helpers import reset_direct_char_formatting
+
+    def _prop(name, attrs=0):
+        p = MagicMock()
+        p.Name = name
+        p.Attributes = attrs
+        return p
+
+    info = MagicMock()
+    info.getProperties.return_value = [_prop("CharWeight"), _prop("CharLocale")]
+
+    at_start = MagicMock()
+    at_start.getPropertyValue.side_effect = lambda name: {"CharLocale": "en-US", "CharLocaleAsian": "", "CharLocaleComplex": ""}[name]
+
+    cursor_vals = {"CharLocale": None, "CharLocaleAsian": None, "CharLocaleComplex": None}
+
+    def _cursor_set(name, val):
+        cursor_vals[name] = val
+
+    cursor = MagicMock()
+    cursor.getPropertySetInfo.return_value = info
+    cursor.getPropertyValue.side_effect = lambda name: cursor_vals[name]
+    cursor.setPropertyValue.side_effect = _cursor_set
+    cursor.getText.return_value.createTextCursorByRange.return_value = at_start
+
+    given = {"CharLocale": "fr-FR", "CharLocaleAsian": "zh-CN", "CharLocaleComplex": "he-IL"}
+    reset_direct_char_formatting(cursor, given)
+
+    assert cursor_vals == given
+    at_start.getPropertyValue.assert_not_called()

@@ -145,20 +145,8 @@ def _dispatch_world_tool(
     verbose: bool,
     python_tool_domain: str | None = None,
 ) -> str:
-    if name == SPECIALIZED_FINISH:
-        args = safe_json_loads(raw_args)
-        if not isinstance(args, dict):
-            args = {}
-        return json.dumps(
-            {
-                "status": "ok",
-                "finished": True,
-                "answer": args.get("answer"),
-                "message": "Specialized task complete. Normal toolset restored.",
-            },
-            ensure_ascii=False,
-        )
-    if backend == "string":
+    # workflow_finished is pure validation and never needs soffice.
+    if backend == "string" or name == SPECIALIZED_FINISH:
         if verbose:
             print(
                 f"  [Tool] {name} args={raw_args[:500]!r}"

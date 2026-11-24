@@ -28,6 +28,7 @@ _RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.D
 _RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
 _RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_LEADING_WS_OR_TAGS_RE = re.compile(r"(?:\s|<[^>]+>)*")
 _RUBY_UNDER_RE = re.compile(r"ruby-position\s*:\s*under", re.IGNORECASE)
 RUBY_TOKEN_RE = re.compile(r"\[\[WA-RUBY:([a-zA-Z0-9]+):(\d+)\]\]")
 
@@ -289,16 +290,18 @@ def ruby_placeholders(html: str, nonce: str) -> tuple[str, list[ImportRubySpan]]
         rt_m = _RT_RE.search(inner)
         reading = _visible_html_text(rt_m.group(1) if rt_m else "").strip()
         base_html = _ruby_base_html(inner)
-        base = _visible_html_text(base_html).strip()
+        # Strip ASCII whitespace only: StarWriter keeps U+00A0 from &nbsp; in body text.
+        base = _visible_html_text(base_html).strip(" \t\r\n")
         is_above = _RUBY_UNDER_RE.search(attrs) is None
         if not base or not reading:
             return base_html
         idx = len(spans)
         spans.append(ImportRubySpan(base, reading, is_above))
         token = f"{ruby_token_prefix(nonce)}{idx}]]"
-        # Place the token after leading whitespace so HTML whitespace collapsing
-        # around the block behaves the same as without the token.
-        ws_len = len(base_html) - len(base_html.lstrip())
+        # Place the token after leading whitespace and opening tags so it sits right
+        # before the first visible character (and leading whitespace still collapses).
+        lead = _LEADING_WS_OR_TAGS_RE.match(base_html)
+        ws_len = lead.end() if lead else 0
         return base_html[:ws_len] + token + base_html[ws_len:]
 
     return _RUBY_BLOCK_RE.sub(_replace, html), spans

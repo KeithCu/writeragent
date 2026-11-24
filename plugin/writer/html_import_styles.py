@@ -502,7 +502,7 @@ def normalize_character_references(text: str) -> str:
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
-    Every write entry point runs this once, before measuring ruby offsets or importing.
+    Every write entry point runs this once, before importing.
     """
     return text.replace("\\n", "\n").replace("\\t", "\t")
 

@@ -21,7 +21,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, Iterator
 
 
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
@@ -31,6 +31,7 @@ from plugin.doc.text_helpers import (
     clear_direct_numbering,
     go_right,
     iter_elements,
+    language_at_start,
     live_selection_range,
     normalize_linebreaks as _normalize,
     reset_direct_char_formatting,
@@ -324,37 +325,8 @@ def raise_if_no_table_added(added: int | None) -> None:
         raise ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")
 
 
-def raise_if_hidden_section(model: Any) -> None:
-    """Refuse full_document when the document has any hidden section.
-
-    A full read returns hidden section text, and importing that HTML back
-    creates a visible section instead.
-    """
-    sections = uno_read(lambda: model.getTextSections(), None)
-    if sections is None:
-        return
-    count = uno_read(lambda: sections.getCount(), 0)
-    if not isinstance(count, int) or count <= 0:
-        return
-    hidden_names: list[str] = []
-    for i in range(count):
-        sec = uno_read(lambda: sections.getByIndex(i), None)
-        if sec is None:
-            continue
-        if not uno_read(lambda: section_own_shown(sec), True):
-            name = uno_read(lambda: str(sec.getName() or ""), "")
-            hidden_names.append(name or f"#{i}")
-    if hidden_names:
-        names = ", ".join(repr(n) for n in hidden_names)
-        raise ToolExecutionError(
-            f"Document has hidden sections ({names}) that target='full_document' would delete; "
-            "nothing was changed. Show them first with section_set_visibility, or edit with another target.",
-            code="HIDDEN_SECTION",
-        )
-
-
 def _sections_at(cursor: Any) -> list[Any]:
-    """Return the TextSection chain at *cursor*, innermost first."""
+    """Return the TextSection chain at *cursor* (a cursor, paragraph or table), innermost first."""
     out: list[Any] = []
     section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
     # Service check instead of `is not None`: a mock's getParentSection() never returns None.
@@ -365,30 +337,58 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
-def raise_if_protected_start(model: Any) -> None:
-    """Refuse full_document when the document opens with a protected non-index section."""
-    text = uno_read(lambda: model.getText(), None)
-    if text is None:
-        return
-    cursor = uno_read(lambda: text.createTextCursor(), None)
-    if cursor is None:
-        return
-    cursor.gotoStart(False)
-    for section in _sections_at(cursor):
-        sec: Any = section
-        # Index sections (such as TOCs) are protected by default; refusing them would
-        # block full_document on every document that opens with a TOC.
-        if (
-            uno_read(lambda: sec.getPropertyValue("IsProtected") is True, False)
-            and uno_read(lambda: sec.getPropertyValue("DocumentIndex"), None) is None
-        ):
-            sec_name = uno_read(lambda: sec.getName(), "")
-            named = f" ({sec_name!r})" if sec_name else ""
-            raise ToolExecutionError(
-                f"Document starts with a protected section{named}; nothing was changed. "
-                "Unprotect it first with section_set_protection, or edit with another target.",
-                code="PROTECTED_LEADING_SECTION",
-            )
+def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(name, section)`` for each text section outside headers and footers.
+
+    Checking the anchor text's implementation name (``SwXHeadFootText``) rather
+    than ``TextSection`` handles table-only body sections whose anchor text is
+    ``SwXBodyText``.
+    """
+    sections = model.getTextSections()
+    for name in sections.getElementNames():
+        section = sections.getByName(name)
+        if section.getAnchor().getText().getImplementationName() != "SwXHeadFootText":
+            yield name, section
+
+
+def raise_if_hidden_section(model: Any) -> None:
+    """Refuse full_document when the document has any hidden body section.
+
+    A full read returns hidden section text, and importing that HTML back
+    creates a visible section instead. Also ``SwXTextCursor::gotoStart``
+    (``sw/source/core/unocore/unoobj.cxx``) skips a leading hidden section,
+    leaving it in place while overwriting what follows.
+    """
+    hidden_names = [
+        name for name, sec in _iter_body_sections(model)
+        if not section_own_shown(sec)
+    ]
+    if hidden_names:
+        names = ", ".join(repr(n) for n in hidden_names)
+        raise ToolExecutionError(
+            f"Document has hidden sections ({names}) that target='full_document' would delete or skip over; "
+            "nothing was changed. Show them first with section_set_visibility, or edit with another target.",
+            code="HIDDEN_SECTION",
+        )
+
+
+def raise_if_protected_sections(model: Any) -> None:
+    """Refuse full_document when it would delete a protected body section.
+
+    Index sections (such as TOCs) are protected by default; refusing them would
+    block ``full_document`` on every document with a TOC.
+    """
+    names = [
+        name for name, section in _iter_body_sections(model)
+        if section.getPropertyValue("IsProtected") and section.getPropertyValue("DocumentIndex") is None
+    ]
+    if names:
+        raise ToolExecutionError(
+            "Document has protected section(s) %s and target='full_document' replaces the whole document; "
+            "nothing was changed. Unprotect them first with section_set_protection, or edit with another target."
+            % ", ".join(repr(n) for n in names),
+            code="PROTECTED_SECTION",
+        )
 
 
 def _insert_mixed_or_plain_html(
@@ -1251,9 +1251,10 @@ def replace_full_document(
 ) -> html_import_styles.WriteReport:
     """Clear the document and insert *content*.
 
-    Leading tables are out of reach of the body cursor (``SwXTextCursor::gotoStart``
-    steps past them); ``_edit_full_document`` deletes them first with
-    ``delete_leading_tables``.
+    Leading tables outside sections are out of reach of the body cursor
+    (``SwXTextCursor::gotoStart`` steps past them), so ``_edit_full_document``
+    deletes them first with ``delete_leading_tables``; tables inside a leading
+    section go with the section.
     """
     with image_placeholders.keep_placeholder_images(model, content, pre_swapped=kept_images) as swapped:
         content = html_import_styles.normalize_character_references(swapped)
@@ -1262,49 +1263,63 @@ def replace_full_document(
         cursor = text.createTextCursor()
         recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
-        sections = _sections_at(cursor)
-        if sections:
-            # Place the new paragraph before the outermost leading section (sections[-1]).
-            # Inline on purpose: a held SwXParagraph breaks later enumeration (SwXParagraph::attachToText).
-            with record_changes.record_changes(model, False):
-                text.insertTextContentBefore(model.createInstance("com.sun.star.text.Paragraph"), sections[-1])
-            if not recording:
-                page_style = cursor.getPropertyValue("PageDescName")
-                page_number = cursor.getPropertyValue("PageNumberOffset")
-                cursor.gotoStart(False)  # outside the section so it is deleted whole; recorded mode keeps cursor inside because selecting from the new paragraph deletes nothing when the doc is only a section
+        # Read before the delete: without recording, setString("") leaves one paragraph with the
+        # last old paragraph's character formatting.
+        language = language_at_start(cursor)
+        # Leading tables outside sections are already deleted or struck (delete_leading_tables).
+        # A table inside a section counts as the start: gotoStart would step past that section.
+        first = next(
+            (
+                el for el in iter_elements(text.createEnumeration())
+                if not _uno_service_true(el, "com.sun.star.text.TextTable") or _sections_at(el)
+            ),
+            None,
+        )
+        leading = _sections_at(first)
+        cursor.gotoEnd(False)
+        trailing = _sections_at(cursor) if recording else []
+        # The deletion has to start and end outside any section: a section is removed only when it is
+        # enclosed whole, and SwRangeRedline::HasValidRange (sw/source/core/doc/docredln.cxx) rejects a
+        # recorded deletion whose ends lie in different sections, so nothing or only part is struck.
+        # Only a recorded deletion needs the trailing paragraph because an untracked delete joins
+        # across section boundaries (SwContentNode::CanJoinNext, node.cxx). Untracked, because
+        # LibreOffice cannot track a paragraph next to a section boundary; Reject keeps these
+        # paragraphs. Created inline: a held SwXParagraph breaks later enumeration
+        # (SwXParagraph::attachToText).
+        with record_changes.record_changes(model, False):
+            if leading and first is not None:
+                page_style = first.getPropertyValue("PageDescName")
+                page_number = first.getPropertyValue("PageNumberOffset")
+                text.insertTextContentBefore(model.createInstance("com.sun.star.text.Paragraph"), leading[-1])
                 if page_style:
+                    cursor.gotoStart(False)
                     cursor.setPropertyValue("PageDescName", page_style)
                     cursor.setPropertyValue("PageNumberOffset", page_number)
+            if trailing:
+                text.insertTextContentAfter(model.createInstance("com.sun.star.text.Paragraph"), trailing[-1])
+        cursor.gotoStart(False)
         cursor.gotoEnd(True)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
-        if not recording:
-            _drop_absorb_paragraph_props(cursor)
-            # Character formatting left on the emptied paragraph would become direct formatting on every imported paragraph.
-            reset_direct_char_formatting(cursor)
-            return _import_and_drop_leftover(model, ctx, cursor, content)
-        # In review mode the deleted text stays in place, and an import at
-        # its start takes the character formatting of the first old
-        # paragraph as direct formatting -- a document opening with an 18pt
-        # bold heading comes back 18pt bold throughout (reproduced live;
-        # the data-lo-style pass then keeps it as a "hand-set" override).
-        # Import into a fresh empty paragraph opened before the deleted
-        # text, then drop that paragraph if it is left over empty
-        # (`_drop_leftover_paragraph`). When sections is non-empty,
-        # insertTextContentBefore already created that fresh paragraph.
-        if not sections:
-            text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
+        if recording:
+            # In review mode the deleted text stays in place, and an import at
+            # its start takes the character formatting of the first old
+            # paragraph as direct formatting -- a document opening with an 18pt
+            # bold heading comes back 18pt bold throughout (reproduced live;
+            # the data-lo-style pass then keeps it as a "hand-set" override).
+            # Import into a fresh empty paragraph opened before the deleted
+            # text, then drop that paragraph if it is left over empty
+            # (`_drop_leftover_paragraph`).
+            text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
             cursor.goLeft(1, False)
-        # Untracked: the fresh absorb paragraph is new, so a recorded reset
-        # would add a FORMAT redline; the deleted paragraph below keeps its
-        # direct props for Reject.
+        # Untracked: the fresh paragraph is new, so a recorded reset would add a FORMAT redline; the
+        # struck text below keeps its direct props for Reject. Character formatting left on the
+        # paragraph would become direct formatting on every imported paragraph.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
-            reset_direct_char_formatting(cursor)
+            reset_direct_char_formatting(cursor, language)
         return _import_and_drop_leftover(model, ctx, cursor, content)
-
-
 
 
 def replace_single_range_with_content(
@@ -1462,15 +1477,30 @@ def replace_xtext_with_html(
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
+        elements = list(iter_elements(text_obj.createEnumeration()))
         if not record_changes.is_recording_changes(model):
             # Explicit table removal keeps the remaining paragraph's style, whereas
             # SwXText::setString alone resets it to Standard.
-            for el in list(iter_elements(text_obj.createEnumeration())):
+            for el in elements:
                 if _uno_service_true(el, "com.sun.star.text.TextTable"):
                     text_obj.removeTextContent(el)
-        # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-        # around tables so every shape clears, including table-only headers.
-        text_obj.setString("")
+            text_obj.setString("")
+        elif elements and (
+            _uno_service_true(elements[0], "com.sun.star.text.TextTable")
+            or _uno_service_true(elements[-1], "com.sun.star.text.TextTable")
+        ):
+            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
+            # around tables, needed when the region starts or ends with a table because a text
+            # cursor cannot span across it. While recording, that helper stays as a struck empty
+            # paragraph. Do not remove the helper with dispose(): a later Undo aborts LibreOffice.
+            text_obj.setString("")
+        else:
+            # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+            # starts and ends with a paragraph, so Reject All restores the structure without extras.
+            cursor = text_obj.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)

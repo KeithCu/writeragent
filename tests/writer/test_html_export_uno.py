@@ -1843,6 +1843,7 @@ def test_full_export_includes_hidden_and_conditional_sections_uno(ctx, doc):
     assert html_to_search_text(full_html).strip() == html_to_search_text(range_html).strip()
     assert "hid" in full_html and "cond" in full_html
     assert doc.getTextSections().getByName("PlainHid").getPropertyValue("IsVisible") is False
+    assert doc.getTextSections().getByName("CondHid").getPropertyValue("IsVisible") is False
     assert doc.isModified() is False
 
 

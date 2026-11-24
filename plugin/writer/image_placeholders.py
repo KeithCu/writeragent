@@ -21,11 +21,11 @@ import re
 import uuid
 from typing import Any, Generator, NamedTuple, NoReturn
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .range_copy import GRAPHIC_LAYOUT_PROPS, table_is_all_deleted
-from .record_changes import is_recording_changes, redline_kinds_covering
+from .record_changes import is_recording_changes
 
 log = logging.getLogger("writeragent.writer")
 
@@ -289,9 +289,10 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
 
 def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     """True when the edit removed *original*: missing from getGraphicObjects() or disposed
-    (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
-    a pending tracked deletion (review on). Anything else is still in place and must not be
-    duplicated, e.g. a search replace of the text of the paragraph a picture is anchored to."""
+    (review off), or Accept All would remove it under a pending tracked deletion (review on).
+    Anything else stays in place and must not be duplicated, e.g. a search replace of the text
+    of the paragraph a picture is anchored to.
+    """
     # hasByName is tested before getAnchor() because a deleted graphic can remain in
     # getGraphicObjects with a null anchor that crashes SwXFrame::getSwAnchor.
     try:
@@ -309,54 +310,16 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         return True
     if not is_recording_changes(model):
         return False
-    point = anchor
-    if getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_PARAGRAPH":
-        # A paragraph-anchored picture goes only when its paragraph goes: when the break that
-        # ends it is deleted. A search replace deletes the paragraph's text, not the paragraph.
-        try:
-            point = anchor.getText().createTextCursorByRange(anchor.getStart())
-            point.gotoEndOfParagraph(False)
-            if not point.goRight(1, True):
-                if not uno_read(
-                    lambda: anchor.getText().supportsService("com.sun.star.text.CellProperties") is True,
-                    False,
-                ):
-                    return False  # the last paragraph has no break: it stays
-                # A cell's last paragraph has no trailing break; restore only when the whole
-                # table is struck (not on a search-replace inside the cell).
-                table = uno_read(lambda: point.getPropertyValue("TextTable"), None)
-                return table is not None and table_is_all_deleted(model, table)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            return False
-    elif getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_CHARACTER":
-        try:
-            anchor_text = anchor.getText()
-            end_check = anchor_text.createTextCursorByRange(anchor.getStart())
-            if not end_check.goRight(1, False):
-                # IsDestroyFrameAnchoredAtChar (sw/source/core/undo/undobj.cxx:1716-1728)
-                # destroys a char-anchored fly at the deletion end only when rStart and
-                # rEnd are in different nodes (a multi-paragraph Delete redline).
-                para_start = anchor_text.createTextCursorByRange(anchor.getStart())
-                para_start.gotoStartOfParagraph(False)
-                for rl in iter_elements(model.getRedlines().createEnumeration()):
-                    if str(rl.getPropertyValue("RedlineType")) != "Delete":
-                        continue
-                    rl_start = rl.getPropertyValue("RedlineStart")
-                    rl_end = rl.getPropertyValue("RedlineEnd")
-                    try:
-                        if (
-                            uno_same(rl_start.getText(), anchor_text)
-                            and anchor_text.compareRegionStarts(rl_start, para_start) == 1
-                            and anchor_text.compareRegionEnds(point, rl_end) >= 0
-                        ):
-                            return True
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                return False
-        except Exception as exc:
-            reraise_if_disposed(exc)
-    return uno_read(lambda: "Delete" in redline_kinds_covering(model, point), False)
+    if TrackedDeletions(model).removes_anchored(original):
+        return True
+    if getattr(original.getPropertyValue("AnchorType"), "value", "") != "AT_PARAGRAPH":
+        return False
+    # A table the edit deletes whole takes its cells' pictures; no deletion covers the cell text.
+    table = uno_read(
+        lambda: anchor.getText().createTextCursorByRange(anchor.getStart()).getPropertyValue("TextTable"),
+        None,
+    )
+    return table is not None and table_is_all_deleted(model, table)
 
 
 def _find_marker(model: Any, search: Any) -> Any:

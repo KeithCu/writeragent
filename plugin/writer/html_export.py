@@ -727,17 +727,8 @@ def _range_to_content_via_temp_doc(
 
 def _has_section_display(model: Any) -> bool:
     """True when any text section has IsVisible=False (LO writes ``text:display``)."""
-    sections = uno_read(lambda: model.getTextSections(), None)
-    if sections is None:
-        return False
-    count = uno_read(lambda: sections.getCount(), 0)
-    if not isinstance(count, int) or count <= 0:
-        return False
-    for i in range(count):
-        sec = uno_read(lambda: sections.getByIndex(i), None)
-        if sec is not None and not uno_read(lambda: bool(sec.getPropertyValue("IsVisible")), True):
-            return True
-    return False
+    sections = model.getTextSections()
+    return any(not sections.getByIndex(i).getPropertyValue("IsVisible") for i in range(sections.getCount()))
 
 
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:

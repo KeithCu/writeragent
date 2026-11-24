@@ -939,7 +939,7 @@ def test_full_document_leading_sections_uno(ctx, doc):
     outer_sec.setPropertyValue("IsProtected", True)
     res_prot = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
     assert res_prot.get("status") == "error", res_prot
-    assert res_prot.get("code") == "PROTECTED_LEADING_SECTION", res_prot
+    assert res_prot.get("code") == "PROTECTED_SECTION", res_prot
     assert "Keep" in text.getString() and "protected" in text.getString()
 
     # 2. Nested visible leading sections are replaced outside; PageDescName/PageNumberOffset preserved; undo restores.
@@ -997,6 +997,7 @@ def test_full_document_leading_sections_uno(ctx, doc):
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         assert "Accepted" in text.getString()
         assert "Original2" not in text.getString()
+        assert doc.getTextSections().getCount() == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1100,3 +1101,369 @@ def test_linked_picture_round_trip_uno(ctx, doc):
         assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/aschar"
     finally:
         os.unlink(img_path)
+
+
+def _body_para_strings(doc) -> list[str]:
+    from plugin.doc.text_helpers import iter_elements
+
+    return [
+        el.getString()
+        for el in iter_elements(doc.getText().createEnumeration())
+        if el.supportsService("com.sun.star.text.Paragraph")
+    ]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_refuses_protected_middle_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for idx, word in enumerate(("Head", "Middle", "Tail")):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, word, False)
+    els = list(iter_elements(text.createEnumeration()))
+    sec_cur = text.createTextCursorByRange(els[1].getStart())
+    sec_cur.gotoRange(els[1].getEnd(), True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtMid")
+    sec.setPropertyValue("IsProtected", True)
+    text.insertTextContent(sec_cur, sec, True)
+    els = list(iter_elements(text.createEnumeration()))
+    assert els[-1].getPropertyValue("TextSection") is None
+    before_body = text.getString()
+
+    for rec in (False, True):
+        doc.setPropertyValue("RecordChanges", rec)
+        res = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PROTECTED_SECTION", res
+        assert "ProtMid" in res.get("message", "")
+        assert text.getString() == before_body
+    doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_refuses_protected_table_only_leading_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    text.setString("")
+    text.insertString(text.getEnd(), "cover", False)
+    text.insertControlCharacter(text.getEnd(), 0, False)
+    text.insertString(text.getEnd(), "body", False)
+    els = list(iter_elements(text.createEnumeration()))
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtTblSec")
+    scur = text.createTextCursorByRange(els[0].getStart())
+    scur.gotoRange(els[0].getEnd(), True)
+    text.insertTextContent(scur, sec, True)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("Cell")
+    sec.setPropertyValue("IsProtected", True)
+    list(iter_elements(text.createEnumeration()))[1].dispose()
+
+    els = list(iter_elements(text.createEnumeration()))
+    assert els[0].supportsService("com.sun.star.text.TextTable")
+    assert els[0].getPropertyValue("TextSection") is not None
+    assert els[1].getPropertyValue("TextSection") is None
+
+    for rec in (False, True):
+        doc.setPropertyValue("RecordChanges", rec)
+        res = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PROTECTED_SECTION", res
+        assert "ProtTblSec" in res.get("message", "")
+        assert tbl.getCellByName("A1").getString() == "Cell"
+    doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_refuses_protected_section_in_table_cell_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    text.setString("")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getStart(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    cell.setString("InCell")
+    ccur = cell.createTextCursor()
+    ccur.gotoStart(False)
+    ccur.gotoEnd(True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtCellSec")
+    sec.setPropertyValue("IsProtected", True)
+    cell.insertTextContent(ccur, sec, True)
+
+    for rec in (False, True):
+        doc.setPropertyValue("RecordChanges", rec)
+        res = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PROTECTED_SECTION", res
+        assert "ProtCellSec" in res.get("message", "")
+        assert cell.getString() == "InCell"
+    doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_allows_protected_header_section_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("HeaderIsOn", True)
+    htext = style.getPropertyValue("HeaderText")
+    htext.setString("HeaderText")
+    hcur = htext.createTextCursor()
+    hcur.gotoStart(False)
+    hcur.gotoEnd(True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtHeaderSec")
+    sec.setPropertyValue("IsProtected", True)
+    htext.insertTextContent(hcur, sec, True)
+
+    doc.getText().setString("BodyOld")
+    res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+    assert res.get("status") == "ok", res
+    assert doc.getText().getString().strip() == "BodyNew"
+    assert doc.getTextSections().hasByName("ProtHeaderSec")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_allows_hidden_footer_section_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("FooterIsOn", True)
+    ftext = style.getPropertyValue("FooterText")
+    ftext.setString("FooterText")
+    fcur = ftext.createTextCursor()
+    fcur.gotoStart(False)
+    fcur.gotoEnd(True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("HidFooterSec")
+    sec.setPropertyValue("IsVisible", False)
+    ftext.insertTextContent(fcur, sec, True)
+
+    doc.getText().setString("BodyOld")
+    res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+    assert res.get("status") == "ok", res
+    assert doc.getText().getString().strip() == "BodyNew"
+    assert doc.getTextSections().hasByName("HidFooterSec")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_recorded_leading_section_page_style_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _setup_cover() -> None:
+        _clear_body(doc)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("Cover")
+        text.insertTextContent(text.getStart(), sec, False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "CoverText", False)
+        cur.gotoStart(False)
+        cur.setPropertyValue("PageDescName", "First Page")
+        cur.setPropertyValue("PageNumberOffset", 7)
+
+    # Accept keeps page style and offset and removes the section.
+    _setup_cover()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = tool.execute(tctx, target="full_document", content="<p>N1</p>")
+        assert res.get("status") == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert _body_para_strings(doc)[0] == "N1"
+        c = text.createTextCursor()
+        c.gotoStart(False)
+        assert c.getPropertyValue("PageDescName") == "First Page"
+        assert c.getPropertyValue("PageNumberOffset") == 7
+        assert doc.getTextSections().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Reject restores old paragraphs with one leading empty paragraph.
+    _setup_cover()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res2 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
+        assert res2.get("status") == "ok", res2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _body_para_strings(doc) == ["", "CoverText", ""]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_recorded_leading_toc_accept_removes_index_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    _clear_body(doc)
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    text.insertTextContent(text.getStart(), toc, False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = tool.execute(tctx, target="full_document", content="<p>N1</p><p>N2</p>")
+        assert res.get("status") == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getDocumentIndexes().getCount() == 0
+        assert _body_para_strings(doc) == ["N1", "N2", ""]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_recorded_trailing_section_is_struck_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _setup_trailing() -> None:
+        _clear_body(doc)
+        cur = text.createTextCursor()
+        text.insertString(cur, "head", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "body", False)
+        text.insertControlCharacter(cur, 0, False)
+        tail_start = cur.getStart()
+        text.insertString(cur, "tail", False)
+        scur = text.createTextCursorByRange(tail_start)
+        scur.gotoRange(cur.getEnd(), True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("TailSec")
+        text.insertTextContent(scur, sec, True)
+
+    _setup_trailing()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = tool.execute(tctx, target="full_document", content="<p>N1</p>")
+        assert res.get("status") == "ok", res
+        doc.getUndoManager().undo()
+        assert _body_para_strings(doc) == ["head", "body", "tail"]
+        assert doc.getTextSections().getCount() == 1
+
+        res2 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
+        assert res2.get("status") == "ok", res2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _body_para_strings(doc) == ["head", "body", "tail", ""]
+        assert doc.getTextSections().getCount() == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _setup_trailing()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res3 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
+        assert res3.get("status") == "ok", res3
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert _body_para_strings(doc) == ["N1", ""]
+        assert doc.getTextSections().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Track Changes off also removes the trailing section.
+    _setup_trailing()
+    res4 = tool.execute(tctx, target="full_document", content="<p>Off</p>")
+    assert res4.get("status") == "ok", res4
+    assert doc.getTextSections().getCount() == 0
+    assert _body_para_strings(doc) == ["Off"]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _setup_tbl_sec() -> None:
+        _clear_body(doc)
+        text.insertString(text.getEnd(), "cover", False)
+        text.insertControlCharacter(text.getEnd(), 0, False)
+        text.insertString(text.getEnd(), "body", False)
+        els = list(iter_elements(text.createEnumeration()))
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("LeadTblSec")
+        scur = text.createTextCursorByRange(els[0].getStart())
+        scur.gotoRange(els[0].getEnd(), True)
+        text.insertTextContent(scur, sec, True)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        tbl.getCellByName("A1").setString("Cell")
+        list(iter_elements(text.createEnumeration()))[1].dispose()
+
+        els = list(iter_elements(text.createEnumeration()))
+        assert els[0].supportsService("com.sun.star.text.TextTable")
+        assert els[0].getPropertyValue("TextSection") is not None
+        assert els[1].getPropertyValue("TextSection") is None
+
+    # Recorded Accept leaves no table and no section.
+    _setup_tbl_sec()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = tool.execute(tctx, target="full_document", content="<p>New</p>")
+        assert res.get("status") == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getTextTables().getCount() == 0
+        assert doc.getTextSections().getCount() == 0
+        assert "New" in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Recorded Reject restores the table with its cell text and the section.
+    _setup_tbl_sec()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res2 = tool.execute(tctx, target="full_document", content="<p>New</p>")
+        assert res2.get("status") == "ok", res2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getTextTables().getCount() == 1
+        assert doc.getTextSections().getCount() == 1
+        assert doc.getTextTables().getByIndex(0).getCellByName("A1").getString() == "Cell"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Track Changes off: result is only the new text, and Undo restores table and section.
+    _setup_tbl_sec()
+    res3 = tool.execute(tctx, target="full_document", content="<p>Off</p>")
+    assert res3.get("status") == "ok", res3
+    assert doc.getTextTables().getCount() == 0
+    assert doc.getTextSections().getCount() == 0
+    assert _body_para_strings(doc) == ["Off"]
+    doc.getUndoManager().undo()
+    assert doc.getTextTables().getCount() == 1
+    assert doc.getTextSections().getCount() == 1
+    assert doc.getTextTables().getByIndex(0).getCellByName("A1").getString() == "Cell"

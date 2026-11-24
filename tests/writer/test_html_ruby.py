@@ -156,7 +156,7 @@ def test_ruby_placeholders_noop():
 def test_ruby_placeholders_padded_base_keeps_token_after_leading_ws():
     html = "<p>a<ruby>\n  <b>漢字</b>\n  <rt>かんじ</rt></ruby></p>"
     clean, spans = ruby_placeholders(html, "n1")
-    assert clean == f"<p>a\n  {ruby_token_prefix('n1')}0]]<b>漢字</b>\n  </p>"
+    assert clean == f"<p>a\n  <b>{ruby_token_prefix('n1')}0]]漢字</b>\n  </p>"
     assert spans == [ImportRubySpan("漢字", "かんじ", True)]
 
 
@@ -165,3 +165,18 @@ def test_ruby_placeholders_empty_reading_drops_token():
     clean, spans = ruby_placeholders(html, "n1")
     assert clean == "<p>漢字</p>"
     assert spans == []
+
+
+def test_ruby_placeholders_skips_leading_tags_and_nbsp():
+    pfx = ruby_token_prefix("n1")
+    clean1, spans1 = ruby_placeholders("a<ruby><b> 漢字</b><rt>かんじ</rt></ruby>", "n1")
+    assert clean1 == f"a<b> {pfx}0]]漢字</b>"
+    assert spans1 == [ImportRubySpan("漢字", "かんじ", True)]
+
+    clean2, spans2 = ruby_placeholders("<ruby><rb>\n 漢字\n</rb><rt>かんじ</rt></ruby>", "n1")
+    assert clean2 == f"<rb>\n {pfx}0]]漢字\n</rb>"
+    assert spans2 == [ImportRubySpan("漢字", "かんじ", True)]
+
+    clean3, spans3 = ruby_placeholders("<ruby>&nbsp;漢字<rt>かんじ</rt></ruby>", "n1")
+    assert clean3 == f"{pfx}0]]&nbsp;漢字"
+    assert spans3 == [ImportRubySpan("\u00a0漢字", "かんじ", True)]

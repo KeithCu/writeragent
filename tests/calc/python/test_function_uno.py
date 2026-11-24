@@ -422,6 +422,10 @@ def test_py_addin_token_formula_errors(ctx, doc):
                 ("result=calc.xlookup(1,[1],[2],'m',9)", 504),
                 ("result=calc.growth([1,2],[1,2,3])", 502),
                 ("result=calc.textafter('abc','z')", 32767),
+                ("result=calc.edate(calc.na(),1)", 32767),
+                ("result=calc.averagea([1,'#DIV/0!'])", 532),
+                ("result=calc.sumif([1,1],1,[2,'#REF!'])", 524),
+                ("result=calc.aggregate(9,4,[1,'#DIV/0!'])", 532),
             ]
             for offset, (helper_code, _expected) in enumerate(helper_cases):
                 sheet.getCellByPosition(0, 5 + offset).setFormula(f'=PY("{helper_code}")')
