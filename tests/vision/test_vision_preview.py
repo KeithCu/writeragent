@@ -393,6 +393,58 @@ def test_run_vision_insert_reports_image_kept():
     assert status == "Inserted: 3 characters. Image kept because LibreOffice cannot record deleting it as a tracked change."
 
 
+def test_run_vision_insert_reports_image_deleted():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]},
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+    ):
+        status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
+
+    assert status == "Inserted: 3 characters. Source images deleted: 1."
+
+
+def test_run_vision_insert_partial_error_includes_deleted_note():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch(
+            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
+            return_value={
+                "status": "error",
+                "code": "IMAGE_NOT_FOUND",
+                "message": "OCR failed for Img2 (missing); 1 of 2 images completed.",
+                "individual_results": [res1],
+            },
+        ),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+    ):
+        with pytest.raises(ToolExecutionError) as exc_info:
+            run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
+
+    assert "Source images deleted: 1." in str(exc_info.value)
+
+
 def test_run_vision_insert_counts_only_images_with_text():
     ctx = MagicMock()
     doc = MagicMock()

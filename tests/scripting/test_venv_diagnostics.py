@@ -398,6 +398,142 @@ def test_vision_optional_ocr_engines_listed_never_missing():
 
 
 @pytest.mark.parametrize(
+    ("backend", "packages", "expect_ready", "expected_lines", "absent_lines"),
+    [
+        pytest.param(
+            "easyocr",
+            {"docling": "present", "easyocr": "present", "css_inline": "present"},
+            True,
+            ("OCR: ready (Docling)", "OCR engine: easyocr"),
+            ("Missing (OCR):",),
+            id="easyocr_present",
+        ),
+        pytest.param(
+            "easyocr",
+            {"docling": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: easyocr", "Missing (OCR): easyocr", "uv pip install easyocr"),
+            (),
+            id="easyocr_missing",
+        ),
+        pytest.param(
+            "rapidocr_torch",
+            {"docling": "present", "rapidocr": "present", "torch": "present", "css_inline": "present"},
+            True,
+            ("OCR: ready (Docling)", "OCR engine: rapidocr_torch"),
+            ("Missing (OCR):",),
+            id="rapidocr_torch_present",
+        ),
+        pytest.param(
+            "rapidocr_torch",
+            {"docling": "present", "rapidocr": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: rapidocr_torch", "Missing (OCR): torch", "uv pip install torch"),
+            (),
+            id="rapidocr_torch_missing",
+        ),
+        pytest.param(
+            "tesseract",
+            {"docling": "present", "tesseract": "present", "css_inline": "present"},
+            True,
+            ("OCR: ready (Docling)", "OCR engine: tesseract"),
+            ("Missing (OCR):",),
+            id="tesseract_present",
+        ),
+        pytest.param(
+            "tesseract",
+            {"docling": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: tesseract", "Missing (OCR): tesseract", "Install the Tesseract OCR program"),
+            ("uv pip install",),
+            id="tesseract_missing",
+        ),
+        pytest.param(
+            "nemotron",
+            {"docling": "present", "nemotron_ocr": "present", "css_inline": "present"},
+            True,
+            ("OCR: ready (Docling)", "OCR engine: nemotron"),
+            ("Missing (OCR):",),
+            id="nemotron_present_no_error",
+        ),
+        pytest.param(
+            "nemotron",
+            {
+                "docling": "present",
+                "nemotron_ocr": "present",
+                "css_inline": "present",
+                _NEMOTRON_RUNTIME_ERROR_KEY: "Nemotron OCR requires CUDA",
+            },
+            False,
+            ("OCR: not ready", "OCR engine: nemotron", "Nemotron OCR cannot start in this venv: Nemotron OCR requires CUDA"),
+            ("uv pip install",),
+            id="nemotron_runtime_error",
+        ),
+        pytest.param(
+            "ocrmac",
+            {"docling": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: ocrmac", "Missing (OCR): ocrmac", "Apple Vision OCR runs only on macOS"),
+            ("uv pip install",),
+            id="ocrmac_absent",
+        ),
+        pytest.param(
+            "bogus_engine",
+            {"docling": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: bogus_engine", "This OCR engine is not known to WriterAgent."),
+            ("Missing (OCR):", "uv pip install"),
+            id="unknown_engine",
+        ),
+        pytest.param(
+            "rapidocr_paddle",
+            {"docling": "present", "rapidocr": "present", "css_inline": "present"},
+            False,
+            ("OCR: not ready", "OCR engine: rapidocr_paddle", "Missing (OCR): paddle"),
+            (),
+            id="rapidocr_paddle_missing_listed_once",
+        ),
+    ],
+)
+def test_vision_readiness_by_ocr_backend(backend, packages, expect_ready, expected_lines, absent_lines):
+    report = ProbeReport(
+        version="3.12.0",
+        packages=packages,
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+                ocr_backend=backend,
+            )
+        ],
+    )
+    if expect_ready:
+        assert report.collect_missing_keys() == []
+    msg = report.render(include_install_footer=True)
+    for fragment in expected_lines:
+        assert fragment in msg
+    for fragment in absent_lines:
+        assert fragment not in msg
+    if backend == "rapidocr_paddle":
+        optional_lines = [line for line in msg.splitlines() if line.startswith("Optional (not installed):")]
+        assert all("paddle" not in line.replace("paddleocr", "") for line in optional_lines)
+
+
+def test_attach_external_probes_vision_uses_configured_ocr_backend():
+    from plugin.scripting.venv_diagnostics import _attach_external_probes
+
+    report = ProbeReport(version="3.12.0")
+    with (
+        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.merge_vision_params", return_value={"ocr_backend": "easyocr"}),
+    ):
+        group = _attach_external_probes("/x/python", report, "vision", "Vision Libraries")
+    assert group.ocr_backend == "easyocr"
+
+
+@pytest.mark.parametrize(
     ("packages", "expect_tts_hint", "expect_whisper_hint", "expect_no_mic_hint"),
     [
         pytest.param(
@@ -774,6 +910,10 @@ def test_probe_scripts_compile_and_ui_probe_round_trips():
     vision_parsed = _parse_probe_stdout(vision_proc.stdout)
     assert vision_parsed is not None
     assert set(_OCR_ENGINE_KEYS) <= set(vision_parsed)
+    from plugin.vision.vision_common import OCR_BACKENDS, ocr_module_package
+
+    expected_engine_pkgs = {ocr_module_package(e) for row in OCR_BACKENDS.values() for e in row.modules}
+    assert expected_engine_pkgs <= set(vision_parsed)
 
 
 def test_run_json_probe_keeps_payload_on_nonzero_exit():
@@ -919,14 +1059,15 @@ def test_ocr_engine_probe_reports_broken_tesseract():
 
 
 @pytest.mark.parametrize(
-    ("raises", "broken_import", "expected"),
+    ("raises", "broken_pipeline", "broken_v2", "expected"),
     [
-        (RuntimeError("Nemotron OCR requires Python 3.12."), False, "Nemotron OCR requires Python 3.12."),
-        (None, True, "nemotron_ocr.inference.pipeline_v2"),
-        (None, False, None),
+        (RuntimeError("Nemotron OCR requires Python 3.12."), False, False, "Nemotron OCR requires Python 3.12."),
+        (None, True, False, "nemotron_ocr.inference.pipeline"),
+        (None, False, True, "nemotron_ocr.inference.pipeline_v2"),
+        (None, False, False, None),
     ],
 )
-def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_import, expected):
+def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_pipeline, broken_v2, expected):
     import types
 
     class _FakeNemotronOcrModel:
@@ -941,6 +1082,8 @@ def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_import, 
     nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
     nemo_root = types.ModuleType("nemotron_ocr")
     nemo_inf = types.ModuleType("nemotron_ocr.inference")
+    nemo_ckpt = types.ModuleType("nemotron_ocr.inference.pipeline")
+    nemo_ckpt.CHECKPOINT_FILES = ()  # type: ignore[attr-defined]
     nemo_pipe = types.ModuleType("nemotron_ocr.inference.pipeline_v2")
     nemo_pipe.NemotronOCRV2 = object  # type: ignore[attr-defined]
 
@@ -954,7 +1097,8 @@ def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_import, 
                 "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
                 "nemotron_ocr": nemo_root,
                 "nemotron_ocr.inference": nemo_inf,
-                "nemotron_ocr.inference.pipeline_v2": None if broken_import else nemo_pipe,
+                "nemotron_ocr.inference.pipeline": None if broken_pipeline else nemo_ckpt,
+                "nemotron_ocr.inference.pipeline_v2": None if broken_v2 else nemo_pipe,
             },
         ),
     ):

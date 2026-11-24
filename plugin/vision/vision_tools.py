@@ -60,7 +60,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Sub-agent / async tools run off the UI thread; use ctx.doc_type (no UNO) here.
-        # Do not marshal this whole call: venv OCR can take ~120s and would freeze the UI.
+        # Do not marshal this whole call: venv OCR can take minutes and would freeze the UI.
         # run_and_insert_vision_for_selection marshals only the UNO export/insert parts.
         if ctx.doc_type not in _VISION_DOC_TYPES:
             return self._tool_error(

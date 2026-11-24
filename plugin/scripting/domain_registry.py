@@ -137,7 +137,7 @@ class DomainWiring:
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
         if self.format_ok_kind == "vision":
             if insert_outcome == "empty":
-                status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
+                status_ok = _("Vision '{helper}' completed. No text detected. (took {time})").format(
                     helper=helper, time=formatted_time
                 )
             else:
@@ -157,6 +157,12 @@ class DomainWiring:
                     status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
                         helper=helper, time=formatted_time
                     )
+                # Lazy for weight: only vision runs load plugin.vision.
+                from plugin.vision.vision_egress import source_image_note
+
+                note = source_image_note([insert_outcome])
+                if note:
+                    status_ok += " " + note
         elif self.format_ok_kind == "rows":
             status_ok = _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
                 domain=self.display_label, helper=helper, rows=insert_outcome or 0, time=formatted_time

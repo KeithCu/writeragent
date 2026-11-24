@@ -14,8 +14,27 @@ from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_egress import (
     insert_vision_result,
     is_vision_result,
+    source_image_note,
     vision_html_from_result,
 )
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "expected"),
+    [
+        ([], ""),
+        (["inserted", "empty"], ""),
+        (["image_deleted"], "Source images deleted: 1."),
+        (["image_deleted", "image_deleted", "empty"], "Source images deleted: 2."),
+        (["image_kept"], "Image kept because LibreOffice cannot record deleting it as a tracked change."),
+        (
+            ["image_deleted", "image_kept"],
+            "Source images deleted: 1. Image kept because LibreOffice cannot record deleting it as a tracked change.",
+        ),
+    ],
+)
+def test_source_image_note(outcomes, expected):
+    assert source_image_note(outcomes) == expected
 
 
 def test_is_vision_result_ok():
