@@ -66,6 +66,7 @@ def test_list_branch_uno_files_omits_deleted_uno_tests(tmp_path: Path) -> None:
 
 
 def test_main_print_files_and_skip_when_probe_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("SKIP_UNO", raising=False)
     _init_repo(tmp_path)
     _touch(tmp_path, "tests/writer/test_new_uno.py")
     _git(tmp_path, "checkout", "-b", "feature")
