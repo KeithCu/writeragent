@@ -516,6 +516,15 @@ def test_na_nan_spill_and_round_trip() -> None:
     assert high_rec.kind == "err"
     assert high_rec.error_code == 519
 
+    for code in (1, 505, 529, 534, 537, 999, 1954):
+        unpub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
+        assert unpub_rec.error_code == 503
+        assert unpub_rec.registry_value == 503
+        assert unpub_rec.calc_value == ""
+    for code in (502, 533):
+        pub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
+        assert pub_rec.error_code == code
+
     na_bits = struct.unpack("Q", struct.pack("d", NA_NAN))[0]
     calc_bits = struct.unpack("Q", struct.pack("d", addin_values.calc_formula_error_double(addin_values.ERR_NA)))[0]
     assert na_bits == calc_bits
