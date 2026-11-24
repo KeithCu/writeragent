@@ -185,3 +185,101 @@ def test_insert_formula_display_block_centered_and_keeps_alignment(ctx: Any, doc
             assert paragraphs[0].getPropertyValue("ParaAdjust") == initial_adjust
             assert paragraphs[2].getPropertyValue("ParaAdjust") == initial_adjust  # Right (not 0)
 
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_formula_inserts_reject_and_accept_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    text.setString("hello")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        # Formula-only insert -> Reject removes it.
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        insert_writer_math_formula(doc, cur, "x^2", display_block=False)
+        assert _embed_count(doc) == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _embed_count(doc) == 0
+        assert text.getString() == "hello"
+
+        # Inline formula with surrounding text -> Accept keeps "pre" / Frame / "post" order.
+        text.setString("")
+        cur = text.createTextCursor()
+        html_import.replace_single_range_with_content(doc, cur, "<p>pre \\(a + b\\) post</p>", ctx)
+        assert _embed_count(doc) == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert _embed_count(doc) == 1
+        para = text.createEnumeration().nextElement()
+        portions = []
+        pe = para.createEnumeration()
+        while enum_has_more(pe):
+            p = pe.nextElement()
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Frame":
+                portions.append("Frame")
+            elif p.getString():
+                portions.append(p.getString())
+        assert [p.strip() for p in portions] == ["pre", "Frame", "post"], portions
+
+        # Display formula -> Reject removes it.
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        insert_writer_math_formula(doc, cur, "c = d", display_block=True)
+        assert _embed_count(doc) == 2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _embed_count(doc) == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_content_inline_math_keeps_space_after_formula_uno(ctx: Any, doc: Any) -> None:
+    from plugin.app import get_services, get_tools
+    from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    ctx_tool = ToolContext(doc, ctx, "writer", get_services(), "test")
+
+    for rec in (False, True):
+        text.setString("")
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            res = get_tools().execute(
+                "apply_content",
+                ctx_tool,
+                content=r"<p>pre \(x\) post</p>",
+                target="end",
+            )
+            assert res.get("status") == "ok", res
+            para_portions = []
+            te = text.createEnumeration()
+            while enum_has_more(te):
+                para = te.nextElement()
+                if not para.supportsService("com.sun.star.text.Paragraph"):
+                    continue
+                portions = []
+                pe = para.createEnumeration()
+                while enum_has_more(pe):
+                    p = pe.nextElement()
+                    ptype = p.getPropertyValue("TextPortionType")
+                    if ptype == "Frame":
+                        portions.append("Frame")
+                    elif p.getString():
+                        portions.append(p.getString())
+                if "Frame" in portions:
+                    para_portions = portions
+                    break
+            assert "Frame" in para_portions, (rec, text.getString())
+            frame_idx = para_portions.index("Frame")
+            assert para_portions[frame_idx + 1 :] == [" post"], para_portions
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert _embed_count(doc) == 0
+                assert text.getString() == ""
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+

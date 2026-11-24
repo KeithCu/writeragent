@@ -8,6 +8,7 @@ Writer: named text tables (table_list / getCellByName), plus Writer-only cell me
 (table_merge_cells / table_split_cell). Draw: TableShape on a page (page + shape index, or
 shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked changes).
 """
+import itertools
 import logging
 from typing import Any, Callable
 
@@ -17,6 +18,7 @@ from plugin.doc.text_helpers import (
     KeepViewSelection,
     TrackedDeletions,
     get_string_without_tracked_deletions,
+    iter_elements,
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
@@ -25,7 +27,7 @@ from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
-from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import cells_all_tracked_deleted, supports_service, writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
@@ -38,6 +40,8 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
+# LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
+_UNO_TABLE_COLUMN_SUM = 10000
 
 
 def _tables(doc: Any) -> Any:
@@ -248,14 +252,7 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
         return False
     if after > before:
         return True
-    deletions = TrackedDeletions(doc)
-    has_raw = False
-    for cell in cells:
-        if uno_read(cell.getString, ""):
-            has_raw = True
-        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
-            return False
-    return has_raw
+    return cells_all_tracked_deleted(cells, doc)
 
 
 def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:
@@ -277,7 +274,14 @@ def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str)
     )
 
 
-def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
+def _delete_writer_table_tracked(
+    doc: Any,
+    uno_ctx: Any,
+    table: Any,
+    name: str,
+    *,
+    pending_insertion: bool = False,
+) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
     Removing a table with removeTextContent (or removing every row) while change
@@ -297,6 +301,10 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     each anchor with tracking on gives every row its Delete redline so
     accepting removes the whole table, while Reject keeps the anchor as
     LibreOffice's own Delete Table does.
+
+    When *pending_insertion* is true, LibreOffice takes the caller's own
+    pending text back outright and leaves an empty shell that belongs to the
+    same pending insertion; removing that shell finishes the deletion cleanly.
 
     Fails closed: if the caret cannot land, the redline scan is unreliable, or
     no deletion is recorded, this raises instead of reporting an unreviewable
@@ -349,29 +357,172 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     if _deletion_recorded(doc, before, cells):
         return
     if doc.getTextTables().hasByName(name):
+        if pending_insertion:
+            _remove_writer_table(doc, table, name, _not_nested())
+            return
         raise RuntimeError("the tracked delete did not run, so the table was left in place")
     raise RuntimeError("the table was removed but no tracked change was recorded")
+
+
+def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
+    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
+    if any("." in name for name in positions):
+        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
+        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+    rows = table.getRows()
+    n_rows = int(rows.getCount())
+    edges: list[list[int]] = []
+    for r_idx in range(n_rows):
+        seps = rows.getByIndex(r_idx).getPropertyValue("TableColumnSeparators")
+        edges.append([0, *(int(s.Position) for s in seps), _UNO_TABLE_COLUMN_SUM])
+    if not edges or idx < 0 or idx + 1 >= len(edges[0]):
+        return []
+    lo, hi = edges[0][idx], edges[0][idx + 1]
+    mid = (lo + hi) // 2
+    first, last = lo, hi
+    picked: set[tuple[int, int]] = set()
+    for r_idx, row_edges in enumerate(edges):
+        for c_idx in range(len(row_edges) - 1):
+            left, right = row_edges[c_idx], row_edges[c_idx + 1]
+            if right <= lo:
+                continue
+            hit = (
+                (left >= lo or right >= mid or right - lo > lo - left)
+                if right <= hi
+                else (left <= mid or right - hi < hi - left)
+            )
+            if hit:
+                picked.add((c_idx, r_idx))
+                first = min(first, left)
+                last = max(last, right)
+            if right >= hi:
+                break
+    for r_idx, row_edges in enumerate(edges):
+        for c_idx in range(len(row_edges) - 1):
+            left, right = row_edges[c_idx], row_edges[c_idx + 1]
+            # 1-unit slack accounts for rounding of relative TableColumnSeparators positions.
+            if left >= first - 1 and right <= last + 1:
+                picked.add((c_idx, r_idx))
+    return [name for name, pos in positions.items() if pos in picked]
+
+
+def _band_cell_names(table: Any, axis: str, idx: int) -> list[str]:
+    """Cell names in row or column *idx* of *table*."""
+    positions = {
+        name: pos
+        for name in _writer_named_cells(table)
+        if (pos := writer_cell_position(name)) is not None
+    }
+    if axis == "row":
+        in_row = [(pos[0], name) for name, pos in positions.items() if pos[1] == idx]
+        in_row.sort()
+        return [name for _col, name in in_row]
+    return _column_band_cells(table, positions, idx)
+
+
+def _row_start_spanning_cell(table: Any, idx: int) -> tuple[str, int] | None:
+    """First cell starting in row *idx* whose RowSpan exceeds 1, or ``None``.
+
+    sw/source/core/table/swnewtable.cxx:SwTable::PrepareDelBoxes transfers only the
+    remaining span to the covered box below, so deleting the start row drops its content.
+    SwTable::CreateSelection also grows the selection by an edge box's span, so a tracked
+    delete would mark the rows below for deletion too.
+    """
+    for name in _band_cell_names(table, "row", idx):
+        row_span = int(table.getCellByName(name).getPropertyValue("RowSpan"))
+        if row_span > 1:
+            return name, row_span
+    return None
+
+
+def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
+    """Return leading *names* whose own creation is a pending Insert redline.
+
+    ``SwXRedline::getPropertyValue`` (``sw/source/core/unocore/unoredline.cxx``)
+    exposes ``RedlineStart`` as the table object (``SwNodeType::Table``) only
+    when the table itself was inserted; typed text inside an existing cell
+    starts in that cell instead.
+    """
+    if not names:
+        return set()
+    pos = {name: idx for idx, name in enumerate(names)}
+    pending: set[str] = set()
+
+    def _on_item(redline: Any) -> bool:
+        if uno_read(lambda: redline.getPropertyValue("RedlineType"), None) != "Insert":
+            return True
+        start = uno_read(lambda: redline.getPropertyValue("RedlineStart"), None)
+        if start is None or not uno_read(
+            lambda: supports_service(start, "com.sun.star.text.TextTable"), False
+        ):
+            return True
+        start_name = uno_read(start.getName, None)
+        if start_name not in pos:
+            return True
+        i = pos[start_name]
+        j = len(names)
+        end = uno_read(lambda: redline.getPropertyValue("RedlineEnd"), None)
+        if end is not None and uno_read(
+            lambda: supports_service(end, "com.sun.star.text.TextTable"), False
+        ):
+            end_name = uno_read(end.getName, None)
+            if end_name in pos:
+                j = pos[end_name]
+        pending.update(names[i:j])
+        return True
+
+    scan_redlines(doc, _on_item)
+    return pending
+
+
+def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
+    """Delete leading body TextTables before a full-document replace.
+
+    Body ``gotoStart`` (``sw/source/core/unocore/unoobj.cxx:SwXTextCursor::gotoStart``)
+    steps past leading tables, so ``replace_full_document`` would leave them behind.
+    """
+    tables = list(
+        itertools.takewhile(
+            lambda el: supports_service(el, "com.sun.star.text.TextTable"),
+            iter_elements(doc.getText().createEnumeration()),
+        )
+    )
+    if not tables:
+        return
+    if not uno_read(lambda: is_recording_changes(doc), False):
+        # Reverse order: a deleted table passes its page style to the paragraph
+        # after it, not to a following table.
+        for table in reversed(tables):
+            _remove_writer_table(doc, table, table.getName(), _not_nested())
+        return
+    # Compute pending insertions once before any removal, because deleting one
+    # table can shift the redline start off the next table node.
+    names = [table.getName() for table in tables]
+    pending = _pending_insertions(doc, names)
+    for table, name in zip(tables, names):
+        # One change per table: a redline end inside a cell and one in the body
+        # cannot share a review anchor.
+        session.record_mutation(
+            lambda t=table, n=name: _delete_writer_table_tracked(
+                doc, uno_ctx, t, n, pending_insertion=n in pending
+            )
+        )
 
 
 def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: str, idx: int) -> None:
     """Delete one Writer row or column as a tracked change via ``.uno:DeleteRows`` / ``.uno:DeleteColumns``."""
     band = table.getRows() if axis == "row" else table.getColumns()
     check_table_band(band, "delete", idx, axis)
-    band_names: list[str] = []
-    target_cell: str | None = None
-    for cell_name in _writer_named_cells(table):
-        pos = writer_cell_position(cell_name)
-        if pos is None:
-            continue
-        col_idx, row_idx = pos
-        if (row_idx == idx) if axis == "row" else (col_idx == idx):
-            band_names.append(cell_name)
-        if (axis == "row" and col_idx == 0 and row_idx == idx) or (
-            axis == "column" and col_idx == idx and row_idx == 0
-        ):
-            target_cell = cell_name
-    if target_cell is None:
+    band_names = _band_cell_names(table, axis, idx)
+    if not band_names:
         raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+    if axis == "row":
+        target_cell = band_names[0]
+    else:
+        col_target = next((n for n in band_names if writer_cell_position(n) == (idx, 0)), None)
+        if col_target is None:
+            raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+        target_cell = col_target
 
     err_msg = (
         "LibreOffice did not record deleting this %s as a tracked change, so it was left in place. "
@@ -467,19 +618,15 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Scan ``getCellNames()`` (``_writer_named_cells`` says why) and keep names on
-    that row or column. Column index uses the Writer base-52 parser, not
-    spreadsheet ``parse_a1``.
+    Cell names renumber per row after a merge, so a column is found from row
+    geometry rather than column index alone.
     """
     hosted: list[str] = []
-    for cell_name in _writer_named_cells(table):
-        pos = writer_cell_position(cell_name)
-        if pos is None:
-            continue
-        col_idx, row_idx = pos
-        if (row_idx if axis_arg == "row" else col_idx) != idx:
-            continue
-        cell = uno_read(lambda: table.getCellByName(cell_name), FAILED)
+    for cell_name in _band_cell_names(table, axis_arg, idx):
+        def _read_cell(c: str = cell_name) -> Any:
+            return table.getCellByName(c)
+
+        cell = uno_read(_read_cell, FAILED)
         if cell is not FAILED:
             hosted.extend(cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))
@@ -712,6 +859,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
+        "refuses to delete a row in which a cell spanning several rows starts; "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
@@ -770,6 +918,21 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
+                if axis_arg == "row":
+                    spanning = _row_start_spanning_cell(table, idx)
+                    if spanning is not None:
+                        cell_name, row_span = spanning
+                        split_hint = (
+                            "Split it with table_split_cell (direction='rows', parts=%d)" % row_span
+                            if row_span <= 20
+                            else "Split it repeatedly with table_split_cell (direction='rows')"
+                        )
+                        return self._tool_error(
+                            "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
+                            "so its content would be deleted too. %s, move the content to keep into a lower row, "
+                            "then delete the row." % (cell_name, row_span, split_hint),
+                            code="ROW_HAS_SPANNING_CELL",
+                        )
             if insert:
                 edit_table_band(band, action, idx, axis_arg)
                 tracked = False

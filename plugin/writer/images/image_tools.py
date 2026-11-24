@@ -35,7 +35,7 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import execute_dispatch, get_ctx
-from plugin.writer.record_changes import is_recording_changes
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
 
 log = logging.getLogger(__name__)
 
@@ -420,29 +420,6 @@ def cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
         return host, clone_text_range(vc)
 
 
-def _insert_content(model: Any, host: Any, cursor: Any, content: Any) -> None:
-    """Insert *content* into *host* at *cursor*, recording an Insert redline when tracking is on."""
-    # insertTextContent adds no redline, but text inside an Insert redline belongs to it;
-    # deleting our own insertion removes it outright. Do not position from graphic.getAnchor():
-    # its end maps before the picture, so deleting the tail marker would delete the picture.
-    if not is_recording_changes(model):
-        host.insertTextContent(cursor, content, False)
-        return
-    span = host.createTextCursorByRange(cursor.getStart())
-    host.insertString(span, "xx", True)  # two recorded characters, one on each side
-    try:
-        middle = host.createTextCursorByRange(span.getStart())
-        middle.goRight(1, False)
-        host.insertTextContent(middle, content, False)
-    finally:
-        tail = host.createTextCursorByRange(span.getEnd())
-        tail.goLeft(1, True)
-        tail.setString("")
-        head = host.createTextCursorByRange(span.getStart())
-        head.goRight(1, True)
-        head.setString("")
-
-
 def _insert_embedded_at_writer_cursor(
     model: Any,
     img_path: str,
@@ -468,14 +445,14 @@ def _insert_embedded_at_writer_cursor(
     )
 
     if text_cursor is not None:
-        _insert_content(model, doc_text, text_cursor, image)
+        insert_recorded_content(model, doc_text, text_cursor, image)
         return image
 
     view_cursor = model.CurrentController.ViewCursor
 
     def insert_at_view(vc: Any) -> None:
         host, tc = cursor_for_writer_view(vc)
-        _insert_content(model, host, tc, image)
+        insert_recorded_content(model, host, tc, image)
 
     try:
         insert_at_view(view_cursor)
@@ -560,30 +537,37 @@ _FRAME_TITLE_HEIGHT_UNITS = 500
 # back on exception.
 def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, title: str, description: str) -> None:
     view_cursor = model.CurrentController.ViewCursor
+    recording = is_recording_changes(model)
     text_frame = model.createInstance("com.sun.star.text.TextFrame")
     frame_size = Size()
     frame_size.Width = width
     frame_size.Height = height + (_FRAME_TITLE_HEIGHT_UNITS if title else 0)
     text_frame.setSize(frame_size)
-    text_frame.setPropertyValue("AnchorType", AT_FRAME)
+    text_frame.setPropertyValue("AnchorType", AS_CHARACTER if recording else AT_FRAME)
 
     host, text_cursor = cursor_for_writer_view(view_cursor)
-    host.insertTextContent(text_cursor, text_frame, False)
+    insert_recorded_content(model, host, text_cursor, text_frame)
 
     frame_text = text_frame.getText()
     frame_cursor = frame_text.createTextCursor()
     try:
-        _insert_writer_graphic(
-            ctx,
-            model,
-            img_path,
-            width,
-            height,
-            title,
-            description,
-            text_cursor=frame_cursor,
-            text_container=frame_text,
-        )
+        # The frame's own character carries the Insert redline; a redline inside the
+        # frame would let Reject empty it.
+        with record_changes(model, False):
+            _insert_writer_graphic(
+                ctx,
+                model,
+                img_path,
+                width,
+                height,
+                title,
+                description,
+                text_cursor=frame_cursor,
+                text_container=frame_text,
+            )
+            if title:
+                end = frame_text.createTextCursorByRange(frame_text.getEnd())
+                frame_text.insertString(end, "\n" + title, False)
     except Exception:
         log.exception("_insert_frame: image insert failed; removing empty frame")
         try:
@@ -591,10 +575,6 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
         except Exception:
             log.exception("_insert_frame: could not remove empty frame")
         raise
-
-    if title:
-        end = frame_text.createTextCursorByRange(frame_text.getEnd())
-        frame_text.insertString(end, "\n" + title, False)
 
 
 def _calc_insert_cell(model: Any, page_index: int | None) -> tuple[Any, Any]:

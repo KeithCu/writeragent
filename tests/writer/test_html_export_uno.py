@@ -1065,6 +1065,111 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
 
 @native_test
 @with_native_doc("writer")
+def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import live_selection_range, selection_cursor_snapshot
+    from plugin.framework.errors import uno_read
+    from plugin.framework.uno_context import execute_dispatch, uno_same
+    from plugin.writer.html_export import document_to_content
+
+    def _reset_and_add_table(cell_text: str) -> Any:
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_text)
+        return tbl
+
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    def _ctrl_a_whole_doc(cell: Any, presses: int = 3) -> None:
+        controller.select(cell.getStart())
+        # In a non-empty cell, Ctrl+A expands: cell -> table -> (outer cell -> outer table ->) document.
+        for _ in range(presses):
+            execute_dispatch(ctx, controller, ".uno:SelectAll")
+        sel = live_selection_range(controller)
+        assert sel is not None and not uno_same(sel.getText(), text)
+
+    # [T, tail], [T, T, tail], [T, mid, T, tail], and nested leading table via Ctrl+A and snapshot.
+    cases = [
+        (["T0"], "tail", ["T0", "tail"]),
+        (["T0", "T1"], "tail", ["T0", "T1", "tail"]),
+    ]
+    for table_cells, tail, expected in cases:
+        text.setString("")
+        tables = [_reset_and_add_table(c) for c in table_cells]
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, tail, False)
+
+        _ctrl_a_whole_doc(tables[0].getCellByName("A1"))
+        html = document_to_content(doc, ctx, scope="selection")
+        for token in expected:
+            assert token in html, (expected, html)
+        snap = selection_cursor_snapshot(doc)
+        html_snap = document_to_content(doc, ctx, scope="selection", selection=snap)
+        for token in expected:
+            assert token in html_snap, (expected, html_snap)
+
+    # [T, mid, T, tail]
+    text.setString("")
+    t0 = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "mid", False)
+    _reset_and_add_table("T1")
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(t0.getCellByName("A1"))
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("T0", "mid", "T1", "tail"):
+        assert token in html, html
+
+    # Nested leading table
+    text.setString("")
+    outer = _reset_and_add_table("OUTER")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    cell_a1 = outer.getCellByName("A1")
+    cell_a1.insertTextContent(cell_a1.getEnd(), nested, False)
+    nested.getCellByName("A1").setString("INNER")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(nested.getCellByName("A1"), presses=5)
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("OUTER", "INNER", "tail"):
+        assert token in html, html
+
+    # ['BEFORE_PARA', T, 'tail'] with a body-text selection starting in T and ending in 'tail'
+    # exercises the SwXBodyText form of _table_start_range (SwCursor::IsSelOvr forbids
+    # Shift+Down from leaving a table, so pass the range directly).
+    from types import SimpleNamespace
+
+    text.setString("BEFORE_PARA")
+    tbl = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    body_sel = SimpleNamespace(
+        getText=lambda: text,
+        getStart=lambda: tbl.getCellByName("A1").getStart(),
+        getEnd=lambda: text.getEnd(),
+    )
+    assert uno_read(lambda: text.createTextCursorByRange(body_sel.getStart()), None) is None
+    html = document_to_content(doc, ctx, scope="selection", selection=body_sel)
+    assert "T0" in html and "tail" in html and "BEFORE_PARA" not in html, html
+
+    # In-cell selection unchanged.
+    cell_cur = tbl.getCellByName("A1").createTextCursor()
+    cell_cur.gotoStart(False)
+    cell_cur.gotoEnd(True)
+    controller.select(cell_cur)
+    html_cell = document_to_content(doc, ctx, scope="selection")
+    assert "T0" in html_cell and "tail" not in html_cell, html_cell
+
+
+@native_test
+@with_native_doc("writer")
 def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ruby_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
     from plugin.tests.testing_utils import strike_across_paragraphs
@@ -1098,6 +1203,175 @@ def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ru
     sel_html = document_to_content(doc, ctx, scope="selection")
     assert "gone" not in sel_html, sel_html
     assert "Tail" in sel_html and "After" in sel_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import re
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+
+    def _add_pic(target_text: Any, anchor_type: Any, name: str, at_end: bool = True) -> None:
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", anchor_type)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        cur = target_text.createTextCursor()
+        if at_end:
+            cur.gotoEnd(False)
+        else:
+            cur.gotoStart(False)
+        target_text.insertTextContent(cur, g, False)
+        g.setName(name)
+
+    def _img_ids(html: str) -> list[str]:
+        return re.findall(r'<(?:div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b', html)
+
+    try:
+        text = doc.getText()
+        controller = doc.getCurrentController()
+
+        # 1. Earlier picture shifts automatic names; range & selection keep real names across 3 anchors.
+        for anchor_type in (AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH):
+            tag = anchor_type.value
+            text.setString("intro")
+            _add_pic(text, AT_PARAGRAPH, f"EarlierPic_{tag}")
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertControlCharacter(cur, 0, False)
+            cur.gotoEnd(False)
+            text.insertString(cur, "one ", False)
+            _add_pic(text, anchor_type, f"PicA_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " two ", False)
+            _add_pic(text, anchor_type, f"PicB_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " three", False)
+
+            full_html = document_to_content(doc, ctx, scope="full", include_images=False)
+            full_ids = _img_ids(full_html)
+            assert f"PicA_{tag}" in full_ids and f"PicB_{tag}" in full_ids, full_html
+
+            # Range read covering the second paragraph.
+            full_str = text.getString()
+            p2_start = full_str.index("one")
+            range_html = document_to_content(
+                doc, ctx, scope="range", range_start=p2_start, range_end=len(full_str), include_images=False
+            )
+            assert _img_ids(range_html) == [f"PicA_{tag}", f"PicB_{tag}"], range_html
+
+            # Selection read over the second paragraph.
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoEnd(False)
+            sel_cur.gotoStartOfParagraph(True)
+            controller.select(sel_cur)
+            sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+            assert _img_ids(sel_html) == [f"PicA_{tag}", f"PicB_{tag}"], sel_html
+
+        # 2. Selection write-back keeps both pictures, off and recorded + Accept.
+        text.setString("")
+        text.insertString(text.getStart(), "one ", False)
+        _add_pic(text, AS_CHARACTER, "SelA")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, " two ", False)
+        _add_pic(text, AS_CHARACTER, "SelB")
+        cur.gotoEnd(False)
+        text.insertString(cur, " three", False)
+
+        sel_cur = text.createTextCursor()
+        sel_cur.gotoStart(False)
+        sel_cur.gotoEnd(True)
+        controller.select(sel_cur)
+        sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+        tctx = native_writer_tool_context(doc, ctx)
+        res = ApplyDocumentContent().execute(
+            tctx, target="selection", content=sel_html.replace("three", "THREE")
+        )
+        assert res.get("status") == "ok", res
+        assert doc.getGraphicObjects().getCount() == 2
+        after1 = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert re.search(r"one.*SelA.*two.*SelB.*THREE", after1, re.DOTALL), after1
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoStart(False)
+            sel_cur.gotoEnd(True)
+            controller.select(sel_cur)
+            sel_html2 = document_to_content(doc, ctx, scope="selection", include_images=False)
+            res2 = ApplyDocumentContent().execute(
+                tctx, target="selection", content=sel_html2.replace("one", "ONE")
+            )
+            assert res2.get("status") == "ok", res2
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 2
+            after2 = document_to_content(doc, ctx, scope="full", include_images=False)
+            assert re.search(r"ONE.*<img\b.*two.*<img\b.*THREE", after2, re.DOTALL), after2
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        # 3. Image-only first paragraph is included at range_start=0.
+        text.setString("")
+        _add_pic(text, AT_PARAGRAPH, "FirstParaPic", at_end=False)
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "after", False)
+        r0 = document_to_content(doc, ctx, scope="range", range_start=0, range_end=3, include_images=False)
+        assert "FirstParaPic" in _img_ids(r0), r0
+
+        # 4. Cell picture in range and selection reads (AS_CHARACTER and AT_PARAGRAPH).
+        text.setString("")
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        cell = tbl.getCellByName("A1")
+        cell.setString("cell")
+        _add_pic(cell, AT_PARAGRAPH, "CellPicPara")
+        _add_pic(cell, AS_CHARACTER, "CellPicInline")
+        r_cell = document_to_content(doc, ctx, scope="range", range_start=0, range_end=10, include_images=False)
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(r_cell)), r_cell
+        cell_cur = cell.createTextCursor()
+        cell_cur.gotoStart(False)
+        cell_cur.gotoEnd(True)
+        controller.select(cell_cur)
+        s_cell = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(s_cell)), s_cell
+
+        # 5. Formula paragraph with a picture in range and selection reads (_copy_formula_runs).
+        text.setString("")
+        math_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        math_obj.CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
+        text.insertTextContent(text.getStart(), math_obj, False)
+        math_obj.getEmbeddedObject().Formula = "x^2"
+        _add_pic(text, AS_CHARACTER, "FormulaPic")
+        r_math = document_to_content(doc, ctx, scope="range", range_start=0, range_end=5, include_images=False)
+        assert "FormulaPic" in _img_ids(r_math), r_math
+        sel_math = text.createTextCursor()
+        sel_math.gotoStart(False)
+        sel_math.gotoEnd(True)
+        controller.select(sel_math)
+        s_math = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert "FormulaPic" in _img_ids(s_math), s_math
+    finally:
+        os.unlink(img_path)
 
 
 @native_test
@@ -1284,4 +1558,3 @@ def test_full_html_struck_range_with_comment_stays_one_paragraph_uno(ctx, doc):
     p_texts = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
     assert len(p_texts) == 1, html
     assert "Keep" in p_texts[0] and "rest" in p_texts[0], html
-

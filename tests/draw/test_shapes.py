@@ -1114,6 +1114,7 @@ def test_delete_shape_group_child_and_page_shape():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
@@ -1140,6 +1141,7 @@ def test_shape_delete_by_name_and_index_wins():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = DeleteShape().execute(ctx, index=0, name="Target")
@@ -1181,6 +1183,7 @@ def test_shape_connect_group_align_distribute_by_name():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     ctx.ctx = MagicMock()
     ctx.active_page_index = 0
 

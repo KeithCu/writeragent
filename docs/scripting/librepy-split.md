@@ -230,7 +230,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) | LibrePy UNO add-in: `python()` (registers as `org.extension.writeragent.PythonFunction`) |
 | [`plugin/calc/python/addin_impl.py`](../../plugin/calc/python/addin_impl.py) | Shared `PythonFunction` class (WriterAgent `addin.py` and LibrePy both register it) |
 | [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py) | **WriterAgent only** — same add-in for the full OXT |
-| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, `finalize_python_return` |
+| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `execute_python_addin`, `finalize_python_return` |
 | [`plugin/calc/python/spill.py`](../../plugin/calc/python/spill.py) | Spill registry, orphan cleanup, deferred spill |
 | [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) | Value coercion, type conversion |
 | [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |

@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import html as html_mod
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -138,8 +138,8 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     undo_mgr.enterUndoContext.assert_called_once()
     undo_mgr.leaveUndoContext.assert_called_once()
     undo_mgr.undo.assert_called_once()
-    assert len(cursor.setString.call_args_list) == 1
-    assert cursor.setString.call_args_list[0].args == ("",)
+    assert len(text.setString.call_args_list) == 1
+    assert text.setString.call_args_list[0].args == ("",)
 
 
 def _undo_model():
@@ -227,7 +227,7 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     with pytest.raises(ToolExecutionError, match="Could not enter undo context"):
         replace_xtext_with_html(text, "<p>New</p>", model=model)
 
-    cursor.setString.assert_not_called()
+    text.setString.assert_not_called()
 
 
 
@@ -274,7 +274,10 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
          patch.object(html_import, "convert_latex_to_starmath", return_value=failed):
         html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "<p>antes \\(x\\) depois</p>")
     assert frag.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "[Math import failed] x", False)
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, "[Math import failed] x", False),
+        call(cursor, " ", False),
+    ]
     assert cursor.gotoRange.call_args.args == (parked.getStart.return_value, False)
     model.getText.assert_not_called()
 
@@ -532,6 +535,9 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
         def getString(self):
             return self._text
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             if self._boom is not None:
                 raise self._boom
@@ -542,6 +548,9 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()
@@ -593,6 +602,9 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
         def getString(self):
             return self._text
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             return _Enum(self._walk)
 
@@ -604,6 +616,9 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()
@@ -646,12 +661,18 @@ def test_trailing_paragraph_disposal_is_not_success():
         def getString(self):
             return ""
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             raise type("DisposedException", (Exception,), {})("gone")
 
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()
@@ -983,9 +1004,25 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
         {"kind": "mathml", "display_block": True, "snippet": "<math display='block'><mi>z</mi></math>", "ok": True},
     ]
     assert mock_formula.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(
-        cursor, "[Math import failed] y=2", False
-    )
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, " ", False),
+        call(cursor, "[Math import failed] y=2", False),
+    ]
+
+
+def test_mixed_math_does_not_insert_space_before_nbsp():
+    from types import SimpleNamespace
+    from plugin.writer import html_import
+
+    model, cursor = MagicMock(), MagicMock()
+    ok_tex = SimpleNamespace(ok=True, starmath="x", error_message=None)
+    with patch.object(html_import, "insert_html_fragment_at_cursor"), \
+         patch.object(html_import, "convert_latex_to_starmath", return_value=ok_tex), \
+         patch.object(html_import, "insert_writer_math_formula"):
+        html_import._insert_mixed_html_and_math_at_cursor(
+            model, MagicMock(), cursor, "<p>\\(x\\)\u00a0: post</p>"
+        )
+    cursor.getText.return_value.insertString.assert_not_called()
 
 
 def test_mixed_inserters_report_math_and_preserve_returns():
@@ -2210,3 +2247,56 @@ def test_drop_leftover_paragraph_ignores_markers_but_keeps_real_objects(portion_
         leftover.setString.assert_not_called()
 
 
+
+
+@pytest.mark.parametrize(("counts", "expected_added"), [([2, 2], 0), ([2, 3], 1)])
+def test_insert_mixed_or_plain_html_reports_tables_added(counts, expected_added):
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.getTextTables.return_value.getCount.side_effect = counts
+    cursor = MagicMock()
+    with (
+        patch.object(html_import, "insert_html_fragment_at_cursor"),
+        patch.object(html_import, "_drop_empty_paragraph_before_table"),
+        patch.object(html_import, "_apply_ruby_and_restore_fields"),
+    ):
+        rep = html_import._insert_mixed_or_plain_html(
+            model, MagicMock(), cursor, "<table><tr><td>x</td></tr></table>", apply_styles=False
+        )
+    assert rep.tables_added == expected_added
+
+
+def test_raise_if_no_table_added_and_table_count_disposed():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+    from plugin.writer import html_import
+
+    html_import.raise_if_no_table_added(None)
+    html_import.raise_if_no_table_added(1)
+    with pytest.raises(ToolExecutionError) as exc_info:
+        html_import.raise_if_no_table_added(0)
+    assert exc_info.value.code == "TABLE_INSERT_FAILED"
+
+    model = MagicMock()
+    model.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with pytest.raises(DocumentDisposedError):
+        html_import._table_count(model)
+
+
+def test_insert_content_at_position_selection_none_end_refuses():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    rng = MagicMock()
+    rng_text = rng.getText.return_value
+    rng_text.createTextCursorByRange.side_effect = [MagicMock(), None]
+
+    with (
+        patch.object(html_import, "_selection_is_draw_shape", return_value=False),
+        patch.object(html_import, "insert_html_fragment_at_cursor") as ins,
+    ):
+        with pytest.raises(ToolExecutionError) as exc_info:
+            html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
+    assert exc_info.value.code == "SELECTION_SPANS_TABLE"
+    ins.assert_not_called()

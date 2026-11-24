@@ -794,9 +794,11 @@ def test_image_delete_tracked_vs_untracked(tracked):
     assert res["deleted"] == "Pic"
     if tracked:
         assert res["tracked"] is True
+        assert res["pending_review"] is True
         assert "marked for deletion" in res["message"]
     else:
         assert "tracked" not in res
+        assert "pending_review" not in res
 
 
 def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
@@ -2348,4 +2350,58 @@ def test_image_tools_advertise_sheet_index_only_on_calc(tool_cls):
     assert "sheet_index" in tool.get_parameters(None)["properties"]
     assert "sheet_index" not in tool.get_parameters("writer")["properties"]
     assert "sheet_index" not in tool.get_parameters("draw")["properties"]
+
+
+def test_image_generate_pending_review_only_on_writer_insert():
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/gen.png"], None)
+
+    ctx_insert = TestingFactory.create_context(doc_type="writer")
+    with (
+        _patch_image_generate(svc),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        res_insert = ImageGenerate().execute(ctx_insert, prompt="a cat")
+    assert res_insert["status"] == "ok"
+    assert res_insert["pending_review"] is True
+
+    ctx_edit = TestingFactory.create_context(doc_type="writer")
+    target_obj = MagicMock()
+    target_obj.getSize.return_value = MagicMock(Width=6400, Height=4800)
+    graphic_model = MagicMock()
+    graphic_model.getPropertyValue.side_effect = (
+        lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
+    )
+    with (
+        _patch_image_generate(svc, selected=target_obj, graphic_model=graphic_model),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        res_edit = ImageGenerate().execute(ctx_edit, prompt="a dog")
+    assert res_edit["status"] == "ok"
+    assert "pending_review" not in res_edit
+    assert res_edit["tracked"] is False
+    assert "warning" in res_edit
+
+
+def test_image_replace_warns_untracked_only_when_recording(tmp_path):
+    img_file = tmp_path / "new.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+    graphic = MagicMock()
+
+    for rec, expect_warn in ((True, True), (False, False)):
+        ctx = TestingFactory.create_context(doc_type="writer")
+        ctx.doc.getPropertyValue = lambda key, _r=rec: _r if key == "RecordChanges" else None
+        with (
+            patch("plugin.writer.images.images._resolve_graphic", return_value=(graphic, None)),
+            patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+            patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+        ):
+            res = ImageReplace().execute(ctx, name="Image1", path=str(img_file))
+        assert res["status"] == "ok"
+        if expect_warn:
+            assert res["tracked"] is False
+            assert "warning" in res
+        else:
+            assert "tracked" not in res
+            assert "warning" not in res
 

@@ -611,3 +611,114 @@ def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ct
     assert doc.getTextTables().getCount() == 1
     assert "Replace me" not in doc.getText().getString()
 
+
+@native_test
+@with_native_doc("writer")
+def test_inline_review_accept_and_reject_multi_cell_change_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.review_scan import is_agent_token
+    from plugin.writer.specialized.tables import TableDelete, TableInsert
+
+    text = doc.getText()
+    text.setString("User keeps this")
+    doc.setPropertyValue("RecordChanges", True)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(4, True)
+    cur.setString("")
+    doc.setPropertyValue("RecordChanges", False)
+    assert _redline_count(doc) == 1
+
+    prev = get_config("doc.agent_edit_review_mode")
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(tctx, rows=2, columns=2, data=[["a", "b"], ["c", "d"]])["table_name"]
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = TableDelete().execute(tctx, name=t_name)
+        assert res["status"] == "ok" and res["pending_review"] is True
+        comments = [
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+            for i in range(doc.getRedlines().getCount())
+        ]
+        tok = next(c for c in comments if is_agent_token(c))
+        res_rej, _after = resolve_agent_change(doc, ctx, tok, accept=False)
+        assert res_rej.status == ResolveStatus.RESOLVED, res_rej
+        assert doc.getTextTables().hasByName(t_name)
+        assert _redline_count(doc) == 1  # user's redline preserved
+
+        res2 = TableDelete().execute(tctx, name=t_name)
+        assert res2["status"] == "ok"
+        resolved, _msg = resolve_all_with_feedback(doc, ctx, True)
+        assert resolved == 1
+        assert not doc.getTextTables().hasByName(t_name)
+        assert _redline_count(doc) == 1  # user's redline preserved
+
+        # Row delete + column delete + cursor entry point + one undo step.
+        save({"doc.agent_edit_review_mode": "off"})
+        t2_name = TableInsert().execute(tctx, rows=3, columns=3, data=[["a", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]])["table_name"]
+        save({"doc.agent_edit_review_mode": "record"})
+        from plugin.writer.inline_review import resolve_change_at_cursor
+        from plugin.writer.specialized.tables import ManageTableStructure
+
+        res_row = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t2_name, index=1)
+        assert res_row["status"] == "ok" and res_row["pending_review"] is True
+        t2 = doc.getTextTables().getByName(t2_name)
+        doc.getCurrentController().getViewCursor().gotoRange(t2.getCellByName("A2").getStart(), False)
+        um = doc.getUndoManager()
+        undo_before = len(um.getAllUndoActionTitles())
+        cur_ok, cur_msg = resolve_change_at_cursor(doc, ctx, accept=True)
+        assert cur_ok is True, (cur_ok, cur_msg)
+        assert len(um.getAllUndoActionTitles()) == undo_before + 1
+        assert t2.getRows().getCount() == 2
+
+        res_col = ManageTableStructure().execute_safe(tctx, action="delete", axis="column", name=t2_name, index=1)
+        assert res_col["status"] == "ok" and res_col["pending_review"] is True
+        col_comments = [
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+            for i in range(doc.getRedlines().getCount())
+        ]
+        col_tok = next(c for c in col_comments if is_agent_token(c))
+        col_res, _after2 = resolve_agent_change(doc, ctx, col_tok, accept=False)
+        assert col_res.status == ResolveStatus.RESOLVED, col_res
+        assert t2.getColumns().getCount() == 3
+        assert _redline_count(doc) == 1  # user's redline preserved
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.specialized.tables import ManageTableStructure, TableInsert
+
+    prev = get_config("doc.agent_edit_review_mode")
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        for accept in (True, False):
+            save({"doc.agent_edit_review_mode": "off"})
+            doc.getText().setString("")
+            t_name = TableInsert().execute(
+                tctx,
+                rows=4,
+                columns=2,
+                data=[["r0a", "r0b"], ["r1a", "r1b"], ["r2a", "r2b"], ["r3a", "r3b"]],
+            )["table_name"]
+            save({"doc.agent_edit_review_mode": "record"})
+            r0 = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t_name, index=0)
+            r2 = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t_name, index=2)
+            assert r0["status"] == "ok" and r2["status"] == "ok"
+            changes = agent_changes(doc)
+            assert len(changes) == 2, changes
+
+            res, _after = resolve_agent_change(doc, ctx, changes[0]["token"], accept=accept)
+            assert res.status == ResolveStatus.RESOLVED, res
+            left = agent_changes(doc)
+            assert len(left) == 1 and left[0]["token"] == changes[1]["token"], left
+            expected_rows = 3 if accept else 4
+            assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+

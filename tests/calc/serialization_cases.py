@@ -23,7 +23,7 @@ from typing import Any, Literal
 from plugin.scripting.payload_codec import BINARY_MIN_CELLS
 
 SheetName = Literal["normal", "multi", "mixed", "grid", "nan", "errors"]
-CaseMode = Literal["scalar", "matrix_index", "matrix_session", "ingress_only", "error"]
+CaseMode = Literal["scalar", "matrix", "ingress_only", "error"]
 
 # No float() wrapper: inline =PYTHON("float(...)") breaks Calc's formula parser (#NAME?)
 # on XLSX import; np.sum/max return values coerce via to_calc_compatible on egress.
@@ -318,7 +318,7 @@ def all_serialization_cases() -> list[SerializationCase]:
             description="Return data×2 — INDEX oracle per cell",
             input_grid=g4,
             code=_GRID_DOUBLE_CODE,
-            mode="matrix_index",
+            mode="matrix",
             matrix_rows=4,
             matrix_cols=4,
             calc_oracle="MULT2",
@@ -331,7 +331,7 @@ def all_serialization_cases() -> list[SerializationCase]:
             description="Echo input grid — INDEX identity round-trip",
             input_grid=g4,
             code="data",
-            mode="matrix_index",
+            mode="matrix",
             matrix_rows=4,
             matrix_cols=4,
             calc_oracle="IDENTITY",

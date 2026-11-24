@@ -1114,26 +1114,6 @@ def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none():
     assert isinstance(data, bytes)
 
 
-def test_insert_content_cleans_up_placeholders_when_insert_raises():
-    model = MagicMock()
-    model.getPropertyValue.return_value = True
-    host = MagicMock()
-    span = MagicMock(name="span")
-    middle = MagicMock(name="middle")
-    tail = MagicMock(name="tail")
-    head = MagicMock(name="head")
-    host.createTextCursorByRange.side_effect = [span, middle, tail, head]
-    host.insertTextContent.side_effect = RuntimeError("insert boom")
-    cursor = MagicMock()
-
-    with pytest.raises(RuntimeError, match="insert boom"):
-        image_tools._insert_content(model, host, cursor, MagicMock())
-
-    host.insertString.assert_called_once_with(span, "xx", True)
-    tail.setString.assert_called_once_with("")
-    head.setString.assert_called_once_with("")
-
-
 def test_insert_image_into_header_footer_reports_layout_changed():
     style = MagicMock()
     props = {"HeaderIsOn": False, "HeaderIsDynamicHeight": False, "HeaderText": MagicMock()}

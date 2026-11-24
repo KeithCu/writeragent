@@ -30,17 +30,19 @@ def commit_or_rollback_mutation(
     rollback_msg: str,
     *,
     code: str = "TOOL_EXECUTION_ERROR",
+    session: Any | None = None,
     **extra_error: Any,
 ) -> dict[str, Any] | None:
     """Run mutate inside an undo transaction and turn a failure into a tool error.
 
     ``code`` is the error code used when mutate fails or the wrapper itself fails.
     ``extra_error`` keys (for example ``deleted=0``) sit at the top level of that error.
+    ``session`` is a review session whose records are dropped on rollback.
     Undo-manager problems use UNDO_UNAVAILABLE, and any ``UndoOutcome.error``
     (including UNDO_CONTEXT_LEAK and ROLLBACK_FAILED) is returned unchanged.
     """
     try:
-        outcome = commit_or_rollback(doc, undo_title, mutate)
+        outcome = commit_or_rollback(doc, undo_title, mutate, session=session)
     except UndoUnavailable:
         return tool._tool_error(undo_unavailable_msg, code="UNDO_UNAVAILABLE")
     except Exception as e:

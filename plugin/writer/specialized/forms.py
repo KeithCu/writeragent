@@ -30,8 +30,9 @@ from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from ..edit_review import flag_untracked_delete
-from ..html_import import insert_html_fragment_at_cursor
+from ..edit_review import flag_untracked_delete, run_in_review_session
+from ..html_import import insert_html_fragment_at_cursor, run_writer_mutation_with_optional_review
+from ..record_changes import insert_recorded_content, is_recording_changes
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.doc.text_helpers import clone_text_range, selected_text_range
@@ -39,7 +40,7 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
 from plugin.framework.config import get_api_config
-from plugin.framework.doc_type import is_calc, is_draw
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import format_error_payload, make_tool_error, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
@@ -234,13 +235,23 @@ def _form_page_cursors(doc: Any) -> _PageCursors | None:
 
 def _commit_form_batch(
     tool: Any,
-    doc: Any,
+    ctx: Any,
     title: str,
     mutate: Any,
     undo_message: str,
 ) -> dict[str, Any] | None:
+    doc = ctx.doc
     try:
-        outcome = commit_or_rollback(doc, title, mutate)
+        if is_writer(doc):
+            outcome = run_in_review_session(
+                doc,
+                ctx.ctx,
+                lambda review: commit_or_rollback(
+                    doc, title, lambda: review.record_mutation(mutate), session=review
+                ),
+            )
+        else:
+            outcome = commit_or_rollback(doc, title, mutate)
         outcome.raise_mutate_error()
         error = outcome.error
         if error is not None:
@@ -371,6 +382,8 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        if is_writer(ctx.doc):
+            return run_writer_mutation_with_optional_review(ctx.doc, ctx.ctx, lambda: _create_control(ctx, **kwargs))
         return _create_control(ctx, **kwargs)
 
 
@@ -475,6 +488,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             group_name = getattr(model, "Name", "") or ""
         shape.Name = name
 
+        recorded = False
         if is_calc(doc) or is_draw(doc):
             if dp is None:
                 return _no_form_draw_page_payload()
@@ -494,14 +508,19 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
                 anchor = doc.getCurrentController().getViewCursor()
             # The anchor's XText owns that range.
             host = anchor.getText()
-            host.insertTextContent(anchor, shape, False)
+            recorded = is_recording_changes(doc)
+            insert_recorded_content(doc, host, anchor, shape)
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "message": f"Created {control_type} control '{name}'",
             "control_name": shape.Name,
             "group_name": group_name,
         }
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
     except Exception as e:
         if is_disposal(e):
@@ -556,7 +575,7 @@ class FormCreate(ToolWriterFormBase):
 
         batch_err = _commit_form_batch(
             self,
-            doc,
+            ctx,
             "Form Create",
             mutate,
             "Cannot create form controls atomically (no usable undo context).",
@@ -564,7 +583,11 @@ class FormCreate(ToolWriterFormBase):
         if batch_err is not None:
             return batch_err
 
-        return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
+        result: dict[str, Any] = {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
+        if any(isinstance(r, dict) and r.get("tracked") for r in results):
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
     def _insert_space(self, ctx: Any) -> None:
         doc = ctx.doc
@@ -681,7 +704,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
         batch_err = _commit_form_batch(
             self,
-            doc,
+            ctx,
             "Form Generate",
             mutate,
             "Cannot generate form controls atomically (no usable undo context).",
@@ -689,7 +712,11 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         if batch_err is not None:
             return batch_err
 
-        return {"status": "ok", "message": "Form generation completed and inserted."}
+        result: dict[str, Any] = {"status": "ok", "message": "Form generation completed and inserted."}
+        if any(isinstance(r, dict) and r.get("tracked") for r in field_results):
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
     def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:
         doc = ctx.doc

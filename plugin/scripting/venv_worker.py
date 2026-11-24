@@ -30,7 +30,7 @@ from plugin.framework.constants import (
     WORKER_POOL_EMBEDDINGS,
 )
 from plugin.framework.child_runtime import Deadline
-from plugin.framework.warm_child import ChildSpec, Death, Lease, WarmChild
+from plugin.framework.warm_child import ChildSpec, Lease, WarmChild
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -350,9 +350,6 @@ class PythonWorkerManager:
         self._primed_generation = -1
         self._retired = False
 
-    def _on_worker_death(self, death: Death) -> None:
-        self._clear_host_state_after_worker_death()
-
     def _create_warm_child(self) -> WarmChild:
         spec = ChildSpec(
             name=f"venv:{self.pool}",
@@ -363,7 +360,7 @@ class PythonWorkerManager:
             # log_start_failure=False: a missing interpreter must stay OSError (systemd retry depends on it).
             log_start_failure=False,
         )
-        return WarmChild(spec, on_death=self._on_worker_death)
+        return WarmChild(spec)
 
     def _get_warm(self) -> WarmChild | None:
         if self._retired:
@@ -580,22 +577,12 @@ class PythonWorkerManager:
             if isinstance(session, dict):
                 log.warning("Python worker warm failed: %s", session.get("message"))
 
-    def _clear_host_state_after_worker_death(self) -> None:
-        """IPC is desynced after a kill; only the default pool feeds the Calc cache."""
-        if self.pool != WORKER_POOL_DEFAULT:
-            return
-        # function.py imports run_code_in_user_venv from this module at load.
-        from plugin.calc.python.function import clear_python_addin_cache
-
-        clear_python_addin_cache()
-
     def _err(self, code: str, message: str, **extra: Any) -> dict[str, Any]:
         return _worker_error(code, message, details={"exe": self.exe, **extra})
 
     def _fail_no_replay(self, code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
         """Kill the desynced worker and return an error without resending the request."""
         self._terminate_worker()
-        self._clear_host_state_after_worker_death()
         return self._err(code, message, **(details or {}))
 
     def _retry_after_kill(self, code: str, exc: BaseException) -> RetryWithNewLease:
@@ -605,7 +592,6 @@ class PythonWorkerManager:
         resend on the fresh child runs the script once.
         """
         self._terminate_worker()
-        self._clear_host_state_after_worker_death()
         return RetryWithNewLease(self._err(code, _worker_error_message(exc), attempt=2))
 
     def _fail_ipc_no_replay(self, exc: BaseException) -> dict[str, Any]:

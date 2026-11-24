@@ -642,3 +642,96 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert rc.source_style(model, "Nope", cache) is None
     assert rc.source_style(model, "", cache) is None
+
+
+def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import range_copy as rc
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    frame_portion = MagicMock()
+    frame_portion.getPropertyValue.side_effect = lambda k: "Frame" if k == "TextPortionType" else None
+
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([frame_portion])
+
+    src_cell = MagicMock()
+    src_cell.createEnumeration.side_effect = lambda: _Enum([para])
+    dest_cell = MagicMock()
+
+    with (
+        patch.object(rc, "visible_portions", return_value=[(frame_portion, "")]),
+        patch.object(rc, "_copy_math_or_text", return_value=""),
+        patch.object(rc, "clone_graphics", return_value=1) as clone,
+    ):
+        rc._copy_cell_xtext(src_cell, MagicMock(), dest_cell)
+        assert clone.call_count == 2
+        assert clone.call_args_list[0].args[0] is frame_portion
+        assert clone.call_args_list[1].args[0] is para
+
+
+def test_iter_nested_texts_walks_nested_tables():
+    from unittest.mock import MagicMock
+    from plugin.writer.range_copy import iter_nested_texts
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    inner_cell = MagicMock()
+    inner_cell.createEnumeration.return_value = _Enum([])
+    inner_tbl = MagicMock()
+    inner_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    inner_tbl.getCellNames.return_value = ["A1"]
+    inner_tbl.getCellByName.return_value = inner_cell
+
+    outer_cell = MagicMock()
+    outer_cell.createEnumeration.return_value = _Enum([inner_tbl])
+    outer_tbl = MagicMock()
+    outer_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    outer_tbl.getCellNames.return_value = ["A1"]
+    outer_tbl.getCellByName.return_value = outer_cell
+
+    root = MagicMock()
+    root.createEnumeration.return_value = _Enum([outer_tbl])
+    assert list(iter_nested_texts(root)) == [root, outer_cell, inner_cell]
+
+
+def test_clone_graphics_keeps_automatic_name_when_taken():
+    from unittest.mock import MagicMock
+    from plugin.writer.range_copy import clone_graphics
+
+    shape = MagicMock()
+    shape.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextGraphicObject"
+    shape.getName.return_value = "Image1"
+    shape.getPropertyValue.return_value = MagicMock(value="AT_PARAGRAPH")
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = shape
+    host = MagicMock()
+    host.createContentEnumeration.return_value = enum
+
+    clone = MagicMock()
+    dest_doc = MagicMock()
+    dest_doc.createInstance.return_value = clone
+    dest_doc.getGraphicObjects.return_value.hasByName.return_value = True
+
+    clone_graphics(host, dest_doc, MagicMock(), MagicMock())
+    clone.setName.assert_not_called()

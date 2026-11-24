@@ -11,7 +11,16 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.doc.text_helpers import FAILED, DeletionState, TrackedDeletions, iter_elements, visible_portions
+from plugin.framework.uno_context import enum_has_more
+from plugin.doc.text_helpers import (
+    FAILED,
+    DeletionState,
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
+    go_right,
+    iter_elements,
+    visible_portions,
+)
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -441,7 +450,7 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     return best_effort(insert, "_copy_field_into failed", False)
 
 
-def _clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> int:
+def clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> int:
     """Clone the graphics anchored at *host* (a paragraph or a Frame portion) at *cursor*.
 
     A paragraph lists its AT_PARAGRAPH graphics, a Frame portion its AT_CHARACTER and
@@ -460,13 +469,69 @@ def _clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> in
                 try:
                     clone.setPropertyValue(prop, shape.getPropertyValue(prop))
                 except Exception:
-                    log.debug("_clone_graphics: skip %s", prop)
+                    log.debug("clone_graphics: skip %s", prop)
             dest_text.insertTextContent(cursor, clone, False)
+            # Keep the source name when unused in dest_doc so exported placeholders carry the
+            # real name; a same-document clone (page-style copy) keeps its automatic name.
+            name = shape.getName()
+            if not dest_doc.getGraphicObjects().hasByName(name):
+                best_effort(lambda: clone.setName(name), "clone_graphics: refused graphic name")
             return shape.getPropertyValue("AnchorType").value == "AS_CHARACTER"
 
-        if best_effort(clone_one, "_clone_graphics: skipped a graphic", False):
+        if best_effort(clone_one, "clone_graphics: skipped a graphic", False):
             steps += 1
     return steps
+
+
+def clone_window_graphics(
+    para: Any,
+    portions: list[tuple[Any, str]],
+    dest_doc: Any,
+    dest_text: Any,
+    trim_start: int,
+    trim_end: int,
+) -> None:
+    """Clone graphics anchored in *para* whose offset falls within ``[trim_start, trim_end]``."""
+    frames: list[tuple[int, Any]] = []
+    offset = 0
+    for portion, chunk in portions:
+        if not chunk and uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "Frame":
+            if trim_start <= offset <= trim_end:
+                frames.append((offset, portion))
+        offset += len(chunk)
+    # Clone last-to-first so inserting an AS_CHARACTER graphic does not shift earlier offsets.
+    for frame_offset, portion in reversed(frames):
+        cursor = dest_text.createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.gotoStartOfParagraph(False)
+        if frame_offset > trim_start:
+            go_right(cursor, frame_offset - trim_start, False)
+        clone_graphics(portion, dest_doc, dest_text, cursor)
+    if trim_start == 0:
+        cursor = dest_text.createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.gotoStartOfParagraph(False)
+        clone_graphics(para, dest_doc, dest_text, cursor)
+
+
+def iter_nested_texts(text_obj: Any) -> Iterator[Any]:
+    """Yield *text_obj* and recursively every cell XText inside its tables.
+
+    Walks down from *text_obj* because a header/footer table's
+    ``getAnchor().getText()`` is None.
+    """
+    yield text_obj
+    enum = uno_read(lambda: text_obj.createEnumeration(), None)
+    if enum is None:
+        return
+    for el in iter_elements(enum):
+        if not supports_service(el, "com.sun.star.text.TextTable"):
+            continue
+        cell_names: tuple[str, ...] = uno_read(lambda: el.getCellNames(), ())
+        for cell_name in cell_names:
+            cell = uno_read(lambda: el.getCellByName(cell_name), None)
+            if cell is not None:
+                yield from iter_nested_texts(cell)
 
 
 def _copy_visible_portions(
@@ -483,7 +548,7 @@ def _copy_visible_portions(
 
     Tracked deletions are left out. Returns ``(portion, text)`` pairs where
     ``len(text)`` is the portion's cursor steps in the destination. Cells paint
-    each run as they go and skip graphics.
+    each run as they go.
     """
     copied: list[tuple[Any, str]] = []
     for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state):
@@ -503,8 +568,8 @@ def _copy_visible_portions(
             copied.append((portion, chunk))
         else:
             text = _copy_math_or_text(portion, para, dest_text, cursor, math_records)
-            if not text and kind == "Frame" and not in_cell:
-                text = OBJECT_REPLACEMENT * _clone_graphics(portion, dest_doc, dest_text, cursor)
+            if not text and kind == "Frame":
+                text = OBJECT_REPLACEMENT * clone_graphics(portion, dest_doc, dest_text, cursor)
             if text:
                 copied.append((portion, text))
     return copied
@@ -516,7 +581,7 @@ def _copy_cell_xtext(
     dest_cell: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
 ) -> None:
-    """Copy one table cell: text + fields. Images in cells are not copied here."""
+    """Copy one table cell: text, fields, and graphics."""
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
     dest_cursor = dest_cell.createTextCursor()
@@ -539,7 +604,11 @@ def _copy_cell_xtext(
             # Recreate the nested table inside dest_cell (same walk as body copy_table).
             copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
             continue
-        _copy_visible_portions(para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state)
+        _copy_visible_portions(
+            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state
+        )
+        dest_cursor.gotoEnd(False)
+        clone_graphics(para, dest_doc, dest_cell, dest_cursor)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -733,7 +802,7 @@ def _copy_xtext_by_portions(
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
-        _clone_graphics(el, dest_doc, dest_text, dest_cursor)
+        clone_graphics(el, dest_doc, dest_text, dest_cursor)
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
@@ -773,6 +842,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
+            # copy_table also clones cell graphics; page._copy_region_graphics
+            # handles only graphics anchored directly in src_text.
             copy_table(el, doc, dest_text, cursor, None)
             continue
         for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
@@ -791,6 +862,59 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
         _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied
+
+
+def cell_has_visible_text(cell: Any) -> bool:
+    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
+
+    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
+    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
+    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
+    read as visible.
+    """
+    para_enum = uno_read(cell.createEnumeration, None)
+    if para_enum is None:
+        return bool(uno_read(cell.getString, ""))
+    in_delete = False
+    while enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
+            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
+                return True
+            continue
+        portion_enum = uno_read(para.createEnumeration, None)
+        if portion_enum is None:
+            continue
+        while enum_has_more(portion_enum):
+            portion = portion_enum.nextElement()
+            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
+            if ptype == "Redline":
+                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
+                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
+                continue
+            if not in_delete and uno_read(portion.getString, ""):
+                return True
+    return False
+
+
+def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
+    """True when *cells* have some raw text and no cell has visible text left."""
+    deletions = TrackedDeletions(doc)
+    has_raw = False
+    for cell in cells:
+        if uno_read(cell.getString, ""):
+            has_raw = True
+        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
+            return False
+    return has_raw
+
+
+def table_is_all_deleted(doc: Any, table: Any) -> bool:
+    """True when every cell of *table* has lost all visible text (with some raw text)."""
+    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
+    if not names:
+        return False
+    return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
 
 
 # TextGraphicObject property list (shared with page._copy_region_graphics).
