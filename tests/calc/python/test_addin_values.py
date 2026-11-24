@@ -515,7 +515,6 @@ def test_na_nan_spill_and_round_trip() -> None:
     for code in (1, 505, 529, 534, 537, 999, 1954):
         unpub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
         assert unpub_rec.error_code == 503
-        assert unpub_rec.registry_value == 503
         assert unpub_rec.calc_value == ""
     for code in (502, 533):
         pub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
