@@ -180,3 +180,11 @@ def test_ruby_placeholders_skips_leading_tags_and_nbsp():
     clean3, spans3 = ruby_placeholders("<ruby>&nbsp;漢字<rt>かんじ</rt></ruby>", "n1")
     assert clean3 == f"{pfx}0]]&nbsp;漢字"
     assert spans3 == [ImportRubySpan("\u00a0漢字", "かんじ", True)]
+
+    clean4, spans4 = ruby_placeholders("<ruby>\u3000漢字<rt>かんじ</rt></ruby>", "n1")
+    assert clean4 == f"{pfx}0]]\u3000漢字"
+    assert spans4 == [ImportRubySpan("\u3000漢字", "かんじ", True)]
+
+    clean5, spans5 = ruby_placeholders("<ruby>\u00a0漢字<rt>かんじ</rt></ruby>", "n1")
+    assert clean5 == f"{pfx}0]]\u00a0漢字"
+    assert spans5 == [ImportRubySpan("\u00a0漢字", "かんじ", True)]
