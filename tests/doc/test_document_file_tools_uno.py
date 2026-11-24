@@ -9,6 +9,8 @@ import shutil
 import tempfile
 import zipfile
 
+import uno
+
 from plugin.doc.document_file_tools import DocumentExport, DocumentOpen, DocumentSave
 from plugin.framework.errors import UnoObjectError
 from plugin.framework.uno_context import (
@@ -232,8 +234,11 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
     try:
         sheets = doc.getSheets()
         s1 = sheets.getByIndex(0)
-        s1.getCellByPosition(0, 0).setValue(1234.5)
-        s1.getCellByPosition(0, 0).NumberFormat = doc.getNumberFormats().queryKey("$#,##0.00", s1.CharLocale, True)
+        cell = s1.getCellByPosition(0, 0)
+        cell.setValue(1234.5)
+        currency_fmt = uno.getConstantByName("com.sun.star.util.NumberFormat.CURRENCY")
+        cell.NumberFormat = doc.getNumberFormats().getStandardFormat(currency_fmt, s1.CharLocale)
+        assert cell.getString() != "1234.5"
 
         sheets.insertNewByName("Q1 2026 é", 1)
         s2 = sheets.getByIndex(1)
@@ -253,13 +258,13 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
         assert res2["status"] == "ok", res2
         assert os.path.isfile(out2)
         with open(out2, encoding="utf-8") as f:
-            assert "second-é" in f.read()
+            assert f.read().replace("\r\n", "\n") == "second-é\n"
 
         out3 = os.path.join(tmp_dir, "out3.csv")
         res3 = DocumentExport().execute(tool_ctx, path=out3, sheet="HiddenSheet")
         assert res3["status"] == "ok", res3
         with open(out3, encoding="utf-8") as f:
-            assert "hidden-val" in f.read()
+            assert f.read().replace("\r\n", "\n") == "hidden-val\n"
 
         assert not any("-" in name and name.endswith(".csv") for name in os.listdir(tmp_dir))
         assert doc.getURL() == path_to_file_url(ods_path)

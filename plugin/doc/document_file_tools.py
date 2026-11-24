@@ -160,6 +160,7 @@ def _sheet_required(doc: Any, filter_name: str) -> _FilterError | None:
     if filter_name not in _SINGLE_SHEET_FILTERS:
         return None
     sheets = doc.getSheets()
+    # LibreOffice's GetTableCount check includes hidden and leading-_ sheets, so count raw sheets here.
     count = sheets.getCount()
     if count <= 1:
         return None
@@ -417,11 +418,15 @@ class DocumentExport(ToolBase):
 
         sheet_number: int | None = None
         if sheet is not None:
+            # Copying over an open document's file makes its next store() fail with ERRCODE_ABORT
+            # or prompt in a visible window via SfxMedium::CheckFileDate (sfx2/source/doc/docfile.cxx).
             if resolve_document_by_url(ctx.ctx, url)[0] is not None:
                 return self._tool_error(
                     f"{path} is open in LibreOffice; export the sheet to a different path.",
                     code="PATH_IS_OPEN",
                 )
+            # Keep outside the try block so UnoObjectError (with available and similar sheet names)
+            # reaches execute_safe instead of becoming EXPORT_FAILED.
             sheet_number = CalcBridge(doc).get_sheet(sheet).getRangeAddress().Sheet + 1
 
         try:
