@@ -102,7 +102,6 @@ class _HarnessState:
         "leftover_open",
         "hidden_open_bitmap",
         "notebook_host",
-        "factory_seq",
         "math_ole_uids",
     )
 
@@ -112,7 +111,6 @@ class _HarnessState:
         self.leftover_open = 0
         self.hidden_open_bitmap = False
         self.notebook_host = False
-        self.factory_seq = 0
         self.math_ole_uids: set[str] = set()
 
 
@@ -257,38 +255,6 @@ def _windows_should_reuse_calc(ctx) -> bool:
     return _windows_leftover_open() > 0
 
 
-# CREATE|GLOBAL flags (8|55=63) and stable target names so Windows leftover
-# factory loads reuse existing named frames instead of stacking or hanging on _blank.
-_WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
-_WINDOWS_FACTORY_TARGET = "_wa_factory"
-_WINDOWS_CALC_FACTORY_TARGET = "_wa_scalc"
-_WINDOWS_DRAW_FACTORY_TARGET = "_wa_sdraw"
-_WINDOWS_IMPRESS_FACTORY_TARGET = "_wa_simpress"
-_WINDOWS_FACTORY_TARGETS = {
-    "private:factory/swriter": _WINDOWS_FACTORY_TARGET,
-    "private:factory/scalc": _WINDOWS_CALC_FACTORY_TARGET,
-    "private:factory/sdraw": _WINDOWS_DRAW_FACTORY_TARGET,
-    "private:factory/simpress": _WINDOWS_IMPRESS_FACTORY_TARGET,
-}
-
-
-def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[str, int]:
-    """Return (target, FrameSearchFlag) for a Windows factory load; reuse stable names when leftovers exist."""
-    if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
-        return "_blank", 0
-    if factory_url == "private:factory/swriter" and _windows_notebook_host():
-        return _WINDOWS_NOTEBOOK_HOST_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
-    target = _WINDOWS_FACTORY_TARGETS.get(factory_url)
-    if target is not None:
-        return target, _WINDOWS_FACTORY_SEARCH_FLAGS
-    _STATE.factory_seq += 1
-    return "_wa_factory_%s" % _STATE.factory_seq, _WINDOWS_FACTORY_SEARCH_FLAGS
-
-
-# Stable CREATE|GLOBAL name for Hidden .ipynb loads on Windows.
-_WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
-
-
 def note_windows_html_paste_leftover() -> None:
     """Mark leftover_open after ``insert_cell_html_rich`` skips close on Windows."""
     if sys.platform != "win32":
@@ -388,10 +354,6 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Separate win32 factory target for the notebook Writer pool.
-_WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
-
-
 def set_windows_notebook_host(on: bool) -> None:
     """Use a separate pooled Writer for notebook UNO suites so form-run state does not leak."""
     _STATE.notebook_host = bool(on)
@@ -399,13 +361,6 @@ def set_windows_notebook_host(on: bool) -> None:
 
 def _windows_notebook_host() -> bool:
     return bool(_STATE.notebook_host)
-
-
-def windows_notebook_load_args() -> tuple[str, int]:
-    """Return (target, FrameSearchFlag) for Hidden Jupyter loads; reuse ``_wa_notebook`` on Windows because consecutive Hidden ``_blank`` hangs."""
-    if sys.platform != "win32":
-        return "_blank", 0
-    return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
 def _reraise_native_open_failure(
@@ -594,10 +549,9 @@ def _windows_should_skip_draw_family_close() -> bool:
     With a leftover paste Writer open, ``close_draw_family_doc`` on win32 can
     kill soffice during raw ``close(True)`` and abort the runner. Skip
     ``close_draw_family_doc`` on win32 only when ``_windows_leftover_open() > 0``.
-    Drop the proxy; named ``_wa_simpress`` / ``_wa_sdraw`` targets reuse instead
-    of stacking. Peer skip-close uses the same rule; suite-end recycle clears the
-    leftover Draw-family doc. Math OLE Draw still uses ``close_doc`` with its
-    own skip. Harness-only; not a product fix.
+    The caller drops the proxy and requests a suite-end recycle. Peer
+    skip-close uses the same rule. Math OLE Draw still uses ``close_doc``
+    with its own skip. Harness-only; not a product fix.
     """
     if sys.platform != "win32":
         return False
@@ -1174,21 +1128,19 @@ class TestingFactory:
         from plugin.testing_runner import probe_uno_bridge
 
         leftover_open = 0
-        target, flags = "_blank", 0
-        # On Windows, prepare the keeper frame and reuse stable CREATE|GLOBAL
-        # target names when leftover Writers exist; skip unsafe cross-app or
-        # post-bitmap Hidden _blank loads.
+        # On Windows, count leftover Writers and reactivate the keeper frame
+        # before the load, then skip loads that hang: Draw/Impress with many
+        # leftovers, or any factory load with none after a system-bitmap failure.
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
-            target, flags = _windows_factory_load_args(factory_url, leftover_open)
             from plugin.testing_runner import _progress_verbose as _progress
 
             _progress(
-                "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
-                % (leftover_open, factory_url, target, flags)
+                "create_native_doc: windows factory leftover_open=%s url=%s"
+                % (leftover_open, factory_url)
             )
             skip_windows_cross_app_factory(factory_url, leftover_open)
-            if target == "_blank":
+            if leftover_open == 0:
                 skip_windows_hidden_open_after_bitmap(
                     "create_native_doc Hidden _blank"
                 )
@@ -1207,10 +1159,10 @@ class TestingFactory:
                 from plugin.testing_runner import _progress_verbose as _progress
 
                 _progress(
-                    "create_native_doc: load start url=%s target=%s flags=%s"
-                    % (factory_url, target, flags)
+                    "create_native_doc: load start url=%s"
+                    % factory_url
                 )
-            doc = desktop.loadComponentFromURL(factory_url, target, flags, tuple(props))
+            doc = desktop.loadComponentFromURL(factory_url, "_blank", 0, tuple(props))
             if sys.platform == "win32" and leftover_open:
                 from plugin.testing_runner import _progress_verbose as _progress
 
@@ -1220,8 +1172,8 @@ class TestingFactory:
                 except Exception:
                     uid = ""
                 _progress(
-                    "create_native_doc: load done url=%s target=%s uid=%s"
-                    % (factory_url, target, uid or "-")
+                    "create_native_doc: load done url=%s uid=%s"
+                    % (factory_url, uid or "-")
                 )
         except Exception as exc:
             _reraise_native_open_failure(exc, factory_url, pre_open=pre_open)
