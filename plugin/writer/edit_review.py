@@ -1181,19 +1181,21 @@ def _is_blocking_redline(node: Any) -> bool:
 
 
 def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
-    """True when *text_range* contains, or lies wholly inside, a tracked Insert or Delete.
+    """True when *text_range* contains, or (if non-collapsed) lies wholly inside, a tracked Insert or Delete.
 
     A selection inside one change has no redline marker portions of its own, so
-    we first check ``redline_kinds_covering`` and then walk the range's elements
-    and portions. When the walk starts and then fails, the result is True:
-    ``setString`` must not run on a range we could not prove is free of
-    Insert/Delete redlines.
+    we first check ``redline_kinds_covering`` for non-collapsed ranges and then
+    walk the range's elements and portions. When the walk starts and then fails,
+    the result is True: ``setString`` must not run on a range we could not prove
+    is free of Insert/Delete redlines.
     """
+    # A collapsed caret selects nothing, and redline_kinds_covering is edge-inclusive,
+    # so checking it on a caret at either edge would refuse before "Select text first".
     cmp_val = uno_read(
         lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
         None,
     )
-    if type(cmp_val) is int and cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
+    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
         return True
     top = _open_enum(text_range)
     if top is None:

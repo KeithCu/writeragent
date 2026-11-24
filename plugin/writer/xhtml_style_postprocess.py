@@ -454,7 +454,8 @@ _CHANGED_REGION_RE = re.compile(
 )
 _DELETION_BODY_RE = re.compile(r"<text:deletion>(.*?)</text:deletion>", re.DOTALL)
 _CHANGE_ID_RE = re.compile(r'text:change-id="([^"]+)"')
-_REOPEN_SKIP_ATTR_RE = re.compile(r'\s+(?:text:start-value|xml:id)="[^"]*"')
+_XML_ID_ATTR_RE = re.compile(r'\s+xml:id="[^"]*"')
+_START_VALUE_ATTR_RE = re.compile(r'\s+text:start-value="[^"]*"')
 
 
 def _deleted_paragraph_tags(deletion: str) -> list[tuple[str, str]]:
@@ -525,5 +526,9 @@ def split_deleted_breaks(fodt: str) -> str | None:
         for tag in tags:
             out.extend("</%s>" % n for n, _a in reversed(stack[top:]))
             stack[para] = tag
-            out.extend("<%s%s>" % (n, _REOPEN_SKIP_ATTR_RE.sub("", a)) for n, a in stack[top:])
+            for idx, (n, a) in enumerate(stack[top:], start=top):
+                cleaned = _XML_ID_ATTR_RE.sub("", a)
+                if idx != para:
+                    cleaned = _START_VALUE_ATTR_RE.sub("", cleaned)
+                out.append("<%s%s>" % (n, cleaned))
     return "".join(out) + fodt[pos:] if out else None

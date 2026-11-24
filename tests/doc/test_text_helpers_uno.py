@@ -250,9 +250,10 @@ def test_visible_range_text_from_inside_deletion_uno(ctx, doc):
     assert "gone" not in visible_range_text(doc, in_cur)
 
     # read_writer_text_slice starting mid-deletion (inside gone1).
-    start_off = len("Keep\nStart ")
-    assert "gone" not in read_writer_text_slice(doc, start_off, 25)
-    assert "Tail" in read_writer_text_slice(doc, start_off, 25)
+    start_off = len("Keep\nStart go")
+    mid_slice = read_writer_text_slice(doc, start_off, 25)
+    assert "gone" not in mid_slice and "ne1" not in mid_slice
+    assert "Tail" in mid_slice
 
 
 @native_test

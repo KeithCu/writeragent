@@ -469,6 +469,27 @@ def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
     )
 
 
+def test_split_deleted_breaks_deleted_heading_keeps_start_value():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    fodt = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p>d1</text:p><text:h text:style-name="H1" text:start-value="5" xml:id="h5">d2</text:h>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:h>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p>Start </text:p>'
+        '<text:h text:style-name="H1" text:start-value="5">Heading</text:h>'
+        '</office:text></office:body>'
+    )
+
+
 def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_format():
     from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
 
