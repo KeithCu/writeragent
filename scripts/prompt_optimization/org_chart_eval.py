@@ -23,9 +23,9 @@ if str(_HERE) not in sys.path:
 from oracles import (  # noqa: E402
     _ORG_CHART_BOX_FLOOR,
     _ORG_CHART_CONN_FLOOR,
-    _org_chart_connectors,
     _org_chart_labeled_boxes,
     check_oracle,
+    draw_connectors,
     parse_json_export,
 )
 
@@ -55,7 +55,7 @@ def _counts(doc: str) -> tuple[int, int]:
         [n for n in tree if isinstance(n, dict)] if isinstance(tree, list) else []
     )
     boxes = len(_org_chart_labeled_boxes(nodes))
-    connectors = len(_org_chart_connectors(nodes))
+    connectors = len(draw_connectors(nodes))
     if connectors == 0:
         raw = data.get("connections")
         if isinstance(raw, list):
