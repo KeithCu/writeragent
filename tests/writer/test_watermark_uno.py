@@ -363,3 +363,128 @@ def test_set_watermark_updates_inactive_first_and_even_headers_uno(ctx: Any, doc
     finally:
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+
+def _make_inactive_watermarks(doc: Any, ctx: Any) -> tuple[Any, Any]:
+    standard = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    standard.setPropertyValue("HeaderIsShared", False)
+    standard.setPropertyValue("FirstIsShared", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx)
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "ok", res
+
+    standard.setPropertyValue("HeaderIsShared", True)
+    standard.setPropertyValue("FirstIsShared", True)
+    assert any(
+        s.getName().startswith("PowerPlusWaterMarkObject")
+        and s.getAnchor() is not None
+        and s.getAnchor().getText() is None
+        for s in iter_draw_shapes(doc.getDrawPage())
+    )
+    return standard, tool_ctx
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_remove_watermark_undo_brings_back_no_copy_uno(ctx: Any, doc: Any) -> None:
+    standard, tool_ctx = _make_inactive_watermarks(doc, ctx)
+    text_body = doc.getText()
+    text_body.insertString(text_body.getEnd(), "hello", False)
+
+    rem = PageSetWatermark().execute(tool_ctx, text="")
+    assert rem["status"] == "ok", rem
+
+    undo_mgr = doc.getUndoManager()
+    assert undo_mgr.isUndoPossible() is False
+    assert undo_mgr.isRedoPossible() is False
+
+    standard.setPropertyValue("HeaderIsShared", False)
+    standard.setPropertyValue("FirstIsShared", False)
+    wm_shapes = [
+        s.getName()
+        for s in iter_draw_shapes(doc.getDrawPage())
+        if s.getName().startswith("PowerPlusWaterMarkObject")
+    ]
+    assert wm_shapes == [], wm_shapes
+    got = PageGetWatermark().execute(tool_ctx)
+    assert got["status"] == "ok", got
+    assert got["watermark"] is None
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_remove_watermark_with_all_headers_off_clears_undo_uno(ctx: Any, doc: Any) -> None:
+    import uno
+
+    _, tool_ctx = _make_inactive_watermarks(doc, ctx)
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    for style_name in page_styles.getElementNames():
+        page_styles.getByName(style_name).setPropertyValue("HeaderIsOn", False)
+
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    size = uno.createUnoStruct("com.sun.star.awt.Size")
+    size.Width = 1000
+    size.Height = 1000
+    shape.setSize(size)
+    doc.getDrawPage().add(shape)
+    shape.setName("PowerPlusWaterMarkObjectBody")
+
+    undo_mgr = doc.getUndoManager()
+    assert undo_mgr.isUndoPossible() is True
+
+    rem = PageSetWatermark().execute(tool_ctx, text="")
+    assert rem["status"] == "ok", rem
+    assert undo_mgr.getAllUndoActionTitles() == ()
+    assert not any(
+        s.getName().startswith("PowerPlusWaterMarkObject") for s in iter_draw_shapes(doc.getDrawPage())
+    )
+
+    text_body = doc.getText()
+    text_body.insertString(text_body.getEnd(), "after", False)
+    assert text_body.getString().endswith("after")
+    undo_mgr.undo()
+    assert not text_body.getString().endswith("after")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_remove_watermark_inside_open_undo_context_uno(ctx: Any, doc: Any) -> None:
+    _, tool_ctx = _make_inactive_watermarks(doc, ctx)
+    undo_mgr = doc.getUndoManager()
+    undo_mgr.enterUndoContext("outer")
+    try:
+        text_body = doc.getText()
+        text_body.insertString(text_body.getEnd(), "inside", False)
+        rem = PageSetWatermark().execute(tool_ctx, text="")
+        assert rem["status"] == "ok", rem
+    finally:
+        undo_mgr.leaveUndoContext()
+
+    assert undo_mgr.isUndoPossible() is False
+    assert not any(
+        s.getName().startswith("PowerPlusWaterMarkObject") for s in iter_draw_shapes(doc.getDrawPage())
+    )
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_remove_watermark_keeps_picture_removal_undoable_uno(ctx: Any, doc: Any) -> None:
+    standard, tool_ctx = _make_inactive_watermarks(doc, ctx)
+    header_text = standard.getPropertyValue("HeaderText")
+    pic = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
+    header_text.insertTextContent(header_text.getStart(), pic, False)
+    pic.setName("WordPictureWatermark1")
+
+    rem = PageSetWatermark().execute(tool_ctx, text="")
+    assert rem["status"] == "ok", rem
+    assert rem["picture_watermarks_removed"] == 1
+    assert "WordPictureWatermark1" not in [s.getName() for s in iter_draw_shapes(doc.getDrawPage())]
+
+    undo_mgr = doc.getUndoManager()
+    while undo_mgr.isUndoPossible():
+        undo_mgr.undo()
+
+    names = [s.getName() for s in iter_draw_shapes(doc.getDrawPage())]
+    assert names == ["WordPictureWatermark1"]

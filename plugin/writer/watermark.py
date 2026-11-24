@@ -30,7 +30,7 @@ import unohelper
 from com.sun.star.frame import XStatusListener
 
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
-from plugin.framework.errors import is_disposal, uno_read
+from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.uno_context import create_property_value, execute_dispatch, resolve_uno_context
 from .edit_review import flag_style_unreviewed
 from .search import iter_draw_shapes
@@ -373,7 +373,16 @@ class PageSetWatermark(ToolWriterPageBase):
         # shape with this prefix is one of those copies; on a verified set, update inactive copies
         # in place with the active watermark's text and look.
         if text == "":
-            _dispose_shapes(_watermark_shapes(ctx.doc, TEXT_WATERMARK_PREFIX))
+            if _dispose_shapes(_watermark_shapes(ctx.doc, TEXT_WATERMARK_PREFIX)):
+                # Each dispose records a "Delete frame" undo entry, and one Undo would bring a
+                # single stale copy back. Clear instead of locking undo around the dispose: when
+                # every header is off the dispatch leaves older entries on the stack, and deleting
+                # a frame with undo off leaves them pointing at freed memory
+                # (SwUndoInsLayFormat, sw/source/core/undo/undobj1.cxx). clear() refuses while an
+                # undo context is open (a streamed edit): the dispatch already marked the stack
+                # for clearing when a header is on (SfxUndoManager::ClearAllLevels), whereas with
+                # every header off the deletions stay in that open group.
+                best_effort(ctx.doc.getUndoManager().clear, "clear undo after watermark removal failed")
         else:
             _update_inactive_watermarks(ctx.doc, text)
 
