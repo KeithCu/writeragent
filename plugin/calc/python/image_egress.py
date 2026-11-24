@@ -387,7 +387,8 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
       together (row/column insertion or deletion above or left of them), so it matches.
     - Otherwise the anchor moved on its own (user drag, or columns inserted between the formula
       and slot k); the recorded owner keeps the plot unless another ``=PY()`` formula moved into
-      the shifted owner cell.
+      the shifted owner cell (this also covers an RTL sheet reloaded from XLSX, where the anchor
+      comes back one column nearer).
 
     If a plot is dragged so that the shifted owner lands on another ``=PY()`` formula, that
     formula claims it and the duplicate sweep removes the claimant's own plot if it appears later
@@ -436,7 +437,7 @@ def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_c
     A second shape for a slot that is already taken (for example a plot pasted from another
     workbook whose name did not collide under ``SdrObject::MakeNameUnique``) is never refreshed,
     because ``_resolve_slot`` uses the first one, so it is removed too. An in-document paste is
-    renamed (e.g. ``WriterAgentPlot 1``) and is never a slot.
+    renamed (e.g. ``WriterAgentPlot wa-plot:1,2@1, 1``) and is never a slot.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
@@ -951,7 +952,10 @@ def _insert_image_result_on_sheet_impl(
                             "could not record the plot insert for undo",
                         )
                 else:
-                    _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
+                    # Refreshing a dragged plot rewrites Name with the new anchor, which also
+                    # records an undo entry (SdrObject::SetName in svx/source/svdraw/svdobj.cxx:753).
+                    with undo_lock(doc, hide=False):
+                        _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
             finally:
                 # Only a caller that passes image_count owns the slot family. =PY() and
                 # insert_plots_and_report (python_run_script, plot_data) pass it and

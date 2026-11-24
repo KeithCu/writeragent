@@ -860,10 +860,10 @@ def test_py_spill_keeps_user_edits_uno(ctx, doc):
     st = WorkbookState.for_doc(doc)
     assert st is not None
     try:
-        code = "result = [[1, '123', 'q', 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
+        code = "result = [[1, '123', \"'q\", 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
         origin_cell = sheet.getCellByPosition(0, 0)
         origin_cell.setFormula(f'=PY("{code}")')
-        grid = [[1, "123", "q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True]]
+        grid = [[1, "123", "'q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True]]
         perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
         rec = st.spills[(sheet.Name, 0, 0)]
 

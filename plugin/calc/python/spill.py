@@ -89,9 +89,10 @@ def _matches_stored_value(formula: str, rec: SpillCell) -> bool:
             and math.isclose(float(formula), float(rec.value), rel_tol=1e-14)
         )
     if rec.kind == "s":
-        # Calc stores every line break as \n.
+        # Calc stores every line break as \n and always quotes number-like text, so an unquoted
+        # number is one the user typed.
         text = str(rec.value or "").replace("\r\n", "\n").replace("\r", "\n")
-        return formula in (text, f"'{text}")
+        return formula == f"'{text}" or (formula == text and _NUMBER_RE.fullmatch(text) is None)
     return rec.kind == "err" and _ERROR_LITERAL_RE.fullmatch(formula) is not None
 
 
