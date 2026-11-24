@@ -639,27 +639,41 @@ def test_math_tokens_across_soft_page_break_uno(ctx: Any, doc: Any) -> None:
 
     page_styles = doc.getStyleFamilies().getByName("PageStyles")
     std_page = page_styles.getByName("Standard")
-    std_page.setPropertyValue("Width", 6000)
-    std_page.setPropertyValue("Height", 6000)
-    for margin in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
-        std_page.setPropertyValue(margin, 500)
+    page_props = ("Width", "Height", "LeftMargin", "RightMargin", "TopMargin", "BottomMargin")
+    saved_page = {k: std_page.getPropertyValue(k) for k in page_props}
 
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    para_props = ("CharHeight", "ParaWidows", "ParaOrphans")
+    saved_para: list[tuple[Any, dict[str, Any]]] = []
     for style_name in ("Standard", "Text body"):
         if para_styles.hasByName(style_name):
             st = para_styles.getByName(style_name)
+            saved_para.append((st, {k: st.getPropertyValue(k) for k in para_props}))
+
+    try:
+        std_page.setPropertyValue("Width", 6000)
+        std_page.setPropertyValue("Height", 6000)
+        for margin in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
+            std_page.setPropertyValue(margin, 500)
+        for st, _saved in saved_para:
             st.setPropertyValue("CharHeight", 30.0)
             st.setPropertyValue("ParaWidows", 0)
             st.setPropertyValue("ParaOrphans", 0)
 
-    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
 
-    content = " ".join(rf"word\(x_{{{i}}}\)" for i in range(12))
-    res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
-    assert res.get("status") == "ok", res
-    math_objs = res.get("math_objects") or []
-    assert len(math_objs) == 12, res
-    assert all(m.get("ok") for m in math_objs), math_objs
-    assert _embed_count(doc) == 12
-    assert "[[WA-MATH" not in doc.getText().getString()
+        content = " ".join(rf"word\(x_{{{i}}}\)" for i in range(12))
+        res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
+        assert res.get("status") == "ok", res
+        math_objs = res.get("math_objects") or []
+        assert len(math_objs) == 12, res
+        assert all(m.get("ok") for m in math_objs), math_objs
+        assert _embed_count(doc) == 12
+        assert "[[WA-MATH" not in doc.getText().getString()
+    finally:
+        for k, v in saved_page.items():
+            std_page.setPropertyValue(k, v)
+        for st, saved in saved_para:
+            for k, v in saved.items():
+                st.setPropertyValue(k, v)
 
