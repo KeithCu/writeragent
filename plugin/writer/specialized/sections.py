@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import uno
 
-from plugin.doc.text_helpers import DeletionState, get_string_without_tracked_deletions, iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions, iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
 from plugin.framework.errors import ToolExecutionError, name_miss_details
@@ -328,7 +328,7 @@ class SectionRead(ToolWriterSectionBase):
 
         enum = anchor.createEnumeration()
         paragraphs = []
-        state = DeletionState()
+        state = TrackedDeletions(doc).state_at(anchor)
         for para in iter_elements(enum):
             if para.supportsService("com.sun.star.text.Paragraph"):
                 paragraphs.append(get_string_without_tracked_deletions(para, state))

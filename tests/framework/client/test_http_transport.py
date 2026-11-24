@@ -1048,4 +1048,22 @@ def test_transport_send_refused_connect_preserves_type_and_errno():
     assert transport.request_started is False
 
 
+def test_http_error_redacts_path_secret_in_details_and_message(caplog):
+    import logging
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    path = f"/s/{secret_uuid}/v1/chat/completions"
+    transport = LlmHttpTransport(lambda: "https://proxy.example", lambda: 5)
+    response = _status_response(404, body=f"Not found: {path}".encode("utf-8"))
+
+    with caplog.at_level(logging.ERROR, logger="plugin.framework.client"):
+        with pytest.raises(NetworkError) as exc_info:
+            transport.exchange("POST", path, b"{}", {}, sender=lambda *_a, **_kw: response)
+
+    assert secret_uuid not in str(exc_info.value)
+    assert secret_uuid not in exc_info.value.details["url"]
+    assert "<redacted>" in exc_info.value.details["url"]
+    assert secret_uuid not in caplog.text
+
+
 

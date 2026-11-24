@@ -33,11 +33,11 @@ from .calc_functions_util import (
     is_number,
     npf_result,
     parse_weekend,
+    round_sig,
     scipy_stats,
     serial_to_date,
     yearfrac,
 )
-from .coerce import is_missing_value
 
 
 __all__ = [
@@ -230,30 +230,21 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
     return _npf_call("nper", rate, pmt_val, pv_val, fv_val, type_val)
 
 
-def npv(rate: Any, *args: Any) -> float:
-    # Empty and non-numeric cells are skipped. Treating them as 0 consumes a discount period.
+def npv(rate: Any, *args: Any) -> float | str:
+    # ScNPV (interpr2.cxx): the first error among the cash flows is the result; blank and
+    # text cells are skipped without consuming a discount period.
     r = float(rate)
-    if r == -1.0:
-        return float("nan")
-    vals = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
-            # ScNPV: a NaN cash flow propagates rather than skipping like an empty blank.
-            if isinstance(v, (float, np.floating)) and math.isnan(float(v)):
-                return float("nan")
-            if v is None or is_missing_value(v) or isinstance(v, (bool, np.bool_)):
-                continue
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError, OverflowError):
-                continue
+            if is_calc_error(v):
+                return v.strip() if isinstance(v, str) else float(v)
     res = 0.0
     try:
-        for i, v in enumerate(vals):
+        for i, v in enumerate(extract_numeric_array(*args).tolist()):
             res += v / ((1 + r) ** (i + 1))
     except (ZeroDivisionError, OverflowError, ValueError):
         return float("nan")
-    return float(res)
+    return res
 
 
 # Whole-string decimal that rtl_math_stringToDouble accepts. Python float()
@@ -505,8 +496,9 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
-    # int(float("inf")) raises OverflowError, which the worker shows as #NUM!.
-    k = int(float(x))
+    # ScPoissonDist floors x with approxFloor (interpr3.cxx); math.floor(inf) raises OverflowError,
+    # which the worker shows as #NUM!.
+    k = math.floor(round_sig(float(x), 15))
     m = float(mean)
     # ScPoissonDist (interpr3.cxx) rejects mean <= 0 (tdf#105019).
     if k < 0 or m <= 0:

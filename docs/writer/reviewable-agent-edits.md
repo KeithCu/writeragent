@@ -42,7 +42,7 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete`, `form_delete_control` | No (`tracked: false` with a `warning` when recording or review is on) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, frames/charts/shapes insert, …) | No | No | No |
 
-Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
+Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
 before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
 The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.
@@ -233,7 +233,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
 1. **Inline resolve** — [`plugin/writer/inline_review.py`](../../plugin/writer/inline_review.py),
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
-   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
+   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak. Scratch documents are skipped (view registration is deferred via `run_after_scratch_loads` so `is_scratch_document` sees the registered `RuntimeUID`).
 2. **Review toolbar** — [`plugin/writer/review_view_attachment.py`](../../plugin/writer/review_view_attachment.py)
    (`refresh_review_toolbar`, dock-once): **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses

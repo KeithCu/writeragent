@@ -486,7 +486,41 @@ def test_save_failure_explains_refused_prompt(tmp_path):
     err_aborted_locked = _save_failure(prompts, RuntimeError("abort"), str(locked_target), "EXPORT_FAILED")
     assert err_aborted_locked.code == "FILE_LOCKED"
 
+    locked_link = tmp_path / "link.odt"
+    try:
+        os.symlink(locked_target, locked_link)
+    except OSError:
+        pass
+    else:
+        err_aborted_link = _save_failure(prompts, RuntimeError("abort"), str(locked_link), "EXPORT_FAILED")
+        assert err_aborted_link.code == "FILE_LOCKED"
+
     prompts.aborted = False
     err_fallback = _save_failure(prompts, RuntimeError("disk full"), "/tmp/a.odt", "SAVE_FAILED")
     assert err_fallback.code == "SAVE_FAILED"
     assert "Failed to write /tmp/a.odt: disk full" == err_fallback.message
+
+
+@pytest.mark.parametrize("via_symlink", [False, True])
+def test_document_export_sheet_refuses_locked_target(tmp_path, via_symlink):
+    doc = _make_calc_doc(("One", "Two"))
+    real_csv = tmp_path / "c.csv"
+    real_csv.write_text("keep\n", encoding="utf-8")
+    (tmp_path / ".~lock.c.csv#").write_text("Other,other,host,24.11.2026 10:00,file:///x;", encoding="utf-8")
+
+    target = real_csv
+    if via_symlink:
+        target = tmp_path / "link.csv"
+        try:
+            os.symlink(real_csv, target)
+        except OSError as exc:
+            pytest.skip(f"symlinks unsupported: {exc}")
+
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)):
+        res = DocumentExport().execute(_make_ctx(doc), path=str(target), sheet="One")
+
+    assert res["status"] == "error"
+    assert res["code"] == "FILE_LOCKED"
+    assert real_csv.read_text(encoding="utf-8") == "keep\n"
+    doc.storeToURL.assert_not_called()

@@ -239,14 +239,14 @@ def test_nan_cells_propagate_in_npv_sumsq_subtotal_sumifs():
     # na() is float nan. LibreOffice and Excel propagate that error through
     # NPV, SUMSQ, and SUBTOTAL's numeric functions, and through SUMIFS when
     # the row matches. COUNT skips it. COUNTA counts it. A non-matching
-    # SUMIFS row does not. None, text, bools, and the "#N/A" string stay
-    # on the old skip path. A split_grid blank is also nan and follows the
-    # error path; there is no blank bit to test here.
+    # SUMIFS row does not. None, text, and bools stay on the skip path
+    # (and the "#N/A" string is skipped in sumsq). A split_grid blank is
+    # also nan and follows the error path; there is no blank bit to test here.
     nan = float("nan")
     base = calc.npv(0.1, 100, 100)
     assert math.isnan(calc.npv(0.1, 100, nan, 100))
     assert math.isnan(calc.npv(0.1, nan))
-    assert abs(calc.npv(0.1, 100, "#N/A", 100) - base) < 1e-9
+    assert calc.npv(0.1, 100, "#N/A", 100) == "#N/A"
     assert abs(calc.npv(0.1, 100, True, 100) - base) < 1e-9
 
     assert math.isnan(calc.sumsq(nan))
@@ -527,6 +527,26 @@ def test_poisson_text_cumulative_flag():
     assert math.isclose(calc.poisson(2, 3, None), 0.22404180765538775)
     with pytest.raises(ValueError):
         calc.poisson(2, 2, "abc")
+
+
+def test_npv_error_propagation_and_text_skip():
+    import struct
+
+    assert calc.npv(0.1, "#N/A", "#DIV/0!") == "#N/A"
+    assert calc.npv(0.1, " Err:502 ", 100) == "Err:502"
+    assert math.isnan(calc.npv(-1, 5))
+    assert calc.npv(-1, "#N/A") == "#N/A"
+    assert math.isclose(calc.npv(0.1, "12", 5), 5 / 1.1)
+    na_res = calc.npv(0.1, 100, calc.na(), 100)
+    assert isinstance(na_res, float) and math.isnan(na_res)
+    assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
+
+
+def test_poisson_approx_floor():
+    assert math.isnan(calc.poisson(-0.5, 1))
+    assert math.isnan(calc.poisson(-1e-17, 1))
+    assert math.isclose(calc.poisson(2.9999999999999996, 1, 0), calc.poisson(3, 1, 0))
+    assert math.isclose(calc.poisson(2.9999999999, 1, 0), calc.poisson(2, 1, 0))
 
 
 def test_sort_flat_vector_index():

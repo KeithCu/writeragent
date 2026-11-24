@@ -24,7 +24,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
-    DeletionState,
+    TrackedDeletions,
     clone_text_range,
     get_string_without_tracked_deletions,
     iter_elements,
@@ -372,7 +372,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         # run before that split so the body clone is the visible text.
         clones: list[tuple[str, Any]] = []
         skipped_tables = 0
-        state = DeletionState()
+        state = TrackedDeletions(ctx.doc).state_at(elements[0])
         for el in elements:
             # A table is in this enumeration and has no ParaStyleName
             # (same fact as html_export._copy_window_to_scratch); do not add a table copier.

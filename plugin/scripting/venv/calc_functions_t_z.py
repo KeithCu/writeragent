@@ -28,6 +28,7 @@ from .calc_functions_util import (
     extract_numeric_array,
     format_quantized,
     is_calc_error,
+    number_text,
     parse_weekend,
     round_half_up,
     scipy_stats,
@@ -254,17 +255,11 @@ def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any
 def _textjoin_piece(val: Any) -> str:
     """Cell text for TEXTJOIN.
 
-    ScTextJoin_MS (interpr8.cxx) formats numbers with the general format
-    (GetString / NFGetInputLineString). str(1.0) is "1.0", so 1, 2, 3
-    joined as "1.0,2.0,3.0". A whole number prints without the trailing
-    ".0". Bool stays "True". header_label would also strip the text.
+    Numbers use Calc's General text (ScTextJoin_MS, interpr8.cxx), a bool is ``"True"``,
+    and any other value is ``str(val)``.
     """
     if isinstance(val, (float, np.floating)):
-        # float() of a float/np.floating does not raise.
-        number = float(val)
-        if math.isfinite(number) and number.is_integer():
-            return str(int(number))
-        return str(number)
+        return number_text(float(val))
     return str(val)
 
 

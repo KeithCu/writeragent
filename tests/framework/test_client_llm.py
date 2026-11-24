@@ -3607,3 +3607,20 @@ def test_adjust_image_body_for_rejection_cases(body, error_text, expected_presen
     for key, val in expected_present.items():
         assert new_data[key] == val
 
+
+def test_observe_provider_http_error_redacts_path_secret(client, caplog):
+    import logging
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    path = f"/s/{secret_uuid}/v1/chat/completions?key=sk-query"
+    resp = MagicMock()
+    resp.status = 404
+    resp.reason = "Not Found"
+
+    with caplog.at_level(logging.ERROR, logger="plugin.framework.client"):
+        client._observe_provider_http_error(resp, f"No route for {path}", path, b'{"model":"m"}')
+
+    assert secret_uuid not in caplog.text
+    assert "sk-query" not in caplog.text
+    assert "<redacted>" in caplog.text
+

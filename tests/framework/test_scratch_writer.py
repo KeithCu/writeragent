@@ -226,7 +226,7 @@ def isolated_scratch_registry(monkeypatch):
 
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
     return scratch_writer
 
 
@@ -281,7 +281,36 @@ def test_run_after_scratch_loads_defers_until_nested_loads_finish(isolated_scrat
 
     desktop.loadComponentFromURL.side_effect = _load
     sw.load_scratch_document(desktop, "private:factory/swriter")
-    assert observed == [(True, True)]
+    assert observed == [(True, True), (True, True)]
+
+
+def test_run_after_scratch_loads_dedups_and_isolates_failures(isolated_scratch_registry):
+    sw = isolated_scratch_registry
+    doc = _fake_uid_doc("203")
+    desktop = MagicMock()
+    calls: list[str] = []
+
+    def _raising() -> None:
+        calls.append("raising")
+        raise RuntimeError("report failed")
+
+    def _dup() -> None:
+        calls.append("dup")
+
+    def _after() -> None:
+        calls.append("after")
+
+    def _load(*_args):
+        sw.run_after_scratch_loads(_raising)
+        sw.run_after_scratch_loads(_dup)
+        sw.run_after_scratch_loads(_dup)
+        sw.run_after_scratch_loads(_after)
+        return doc
+
+    desktop.loadComponentFromURL.side_effect = _load
+    loaded = sw.load_scratch_document(desktop, "private:factory/swriter")
+    assert loaded is doc
+    assert calls == ["raising", "dup", "after"]
 
 
 def test_run_after_scratch_loads_runs_pending_report_on_failed_load(isolated_scratch_registry):

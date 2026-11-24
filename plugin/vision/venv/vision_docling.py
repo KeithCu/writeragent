@@ -567,6 +567,15 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
     # from RapidOcrModel.__init__ (_validate_rapidocr_model_size); it is a bad setting, so report INVALID_PARAM.
     if type(exc).__name__ == "RapidOcrModelSizeNotSupportedError":
         return error_result("INVALID_PARAM", str(exc), helper=helper)
+    # Docling raises docling.exceptions.AcceleratorDeviceNotAvailableError (a RuntimeError) from
+    # docling/utils/accelerator_utils.py decide_device when the requested cuda/mps/xpu device is not in this
+    # machine or PyTorch build. Docling's text suggests a command-line option, so name the setting to change.
+    if type(exc).__name__ == "AcceleratorDeviceNotAvailableError":
+        return error_result(
+            "INVALID_PARAM",
+            f"Docling cannot use the hardware set in vision.device: {exc}\nSet vision.device to auto, which uses a GPU only when Docling finds one.",
+            helper=helper,
+        )
     if isinstance(exc, ValueError):
         return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)

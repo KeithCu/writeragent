@@ -18,7 +18,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
 )
 from plugin.framework import keystore
-from plugin.framework.config import get_config, get_secret_config, save, secret_config_locked
+from plugin.framework.config import get_config, save, secret_config_field_text
 from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
@@ -135,7 +135,7 @@ def build_module_field_specs(
             ctrl_id = field_name
 
         is_password = schema.get("widget") == "password"
-        val = get_secret_config(config_key) if is_password else get_config(config_key)
+        val = secret_config_field_text(config_key) if is_password else get_config(config_key)
         # Provider options (when present) drive the dropdown; yaml options are the fallback.
         resolved_opts = _resolve_field_options(schema, config_key, ctx)
         val = _display_label_for_stored_value(resolved_opts, val)
@@ -145,10 +145,6 @@ def build_module_field_specs(
             field["help"] = _("Stored in: {where}").format(
                 where=secret_location_label(get_config(config_key))
             )
-            if not str(val) and secret_config_locked(config_key):
-                # Opened blank because the store is locked; apply_settings_result
-                # will not save the blank as a clear (see _left_blank_while_locked).
-                field["keyring_locked"] = True
         if resolved_opts:
             field["options"] = resolved_opts
 
