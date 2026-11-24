@@ -451,7 +451,7 @@ All section tools live in `sections.py` (`sections` domain); `ToolWriterStructur
 
 - **`section_set_password(name, password, current_password?)`**
   - Sets or clears `ProtectionKey` using `SvPasswordHelper::GetHashPassword` (SHA-1 of UTF-16LE code units) when writing, and accepts `CompareHashPassword`'s four variants (20-byte SHA-1 of UTF-8 / UTF-16LE / UTF-16BE, 32-byte SHA-256 of UTF-8) when checking `current_password`. Setting a non-empty password also sets `IsProtected = True`.
-  - Note: passwords are sent in tool-call arguments to the LLM or MCP client; chat history does not store them. Values of secret-named keys (`password`, `current_password`) are written to `writeragent_debug.log` as `<redacted>`. Prose and Python code that quote a password are not masked. Sub-agents do not print tool arguments to stdout.
+  - Note: passwords are sent in tool-call arguments to the LLM or MCP client; chat history does not store them. Values of secret-named keys (`password`, `current_password`) are written to `writeragent_debug.log` as `<redacted>` by both the host and the Python worker. Prose and Python code that quote a password are not masked. Sub-agents do not print tool arguments to stdout.
 
 - **`section_rename(name, new_name)`**
   - Renames a section (`section.setName(new_name)`), pre-checking for empty `new_name` and duplicate names (`SwXTextSection::setName` throws an empty `RuntimeException` on duplicates).

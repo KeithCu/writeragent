@@ -292,6 +292,9 @@ def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
         "if 'plugin.scripting.venv.venv_sandbox' in sys.modules:\n"
         "    sys.stderr.write('plugin.scripting.venv.venv_sandbox loaded during harness import\\n')\n"
         "    sys.exit(1)\n"
+        "if 'plugin.framework.config' in sys.modules:\n"
+        "    sys.stderr.write('plugin.framework.config loaded during harness import\\n')\n"
+        "    sys.exit(1)\n"
         "sys.exit(0)\n"
     )
 
@@ -387,6 +390,41 @@ def test_trusted_action_ignores_sandbox_policy() -> None:
         assert res == {"status": "ok", "result": {"status": "ok"}}
         mock_dispatch.assert_called_once()
         mock_run_code.assert_not_called()
+
+
+def test_worker_debug_log_masks_secret_arguments(tmp_path, monkeypatch) -> None:
+    import logging
+
+    from plugin.scripting.venv import worker_harness
+
+    log_path = tmp_path / "worker_debug.log"
+    monkeypatch.setenv("WRITERAGENT_DEBUG_LOG_PATH", str(log_path))
+
+    root = logging.getLogger()
+    saved_handlers = list(root.handlers)
+    saved_level = root.level
+    try:
+        worker_harness._init_logging()
+        worker_log = logging.getLogger("worker_harness")
+        worker_log.debug("args %s", {"name": "Sec", "password": "hunter2"})
+        try:
+            args = {"password": "hunter2"}
+            raise RuntimeError(f"bad args: {args!r}")
+        except RuntimeError:
+            worker_log.exception("failed")
+    finally:
+        for h in list(root.handlers):
+            if h not in saved_handlers:
+                root.removeHandler(h)
+                h.close()
+        root.setLevel(saved_level)
+
+    text = log_path.read_text(encoding="utf-8")
+    assert "hunter2" not in text
+    assert "<redacted>" in text
+    assert "Sec" in text
+    assert "[Worker]" in text
+
 
 
 
