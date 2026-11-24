@@ -938,3 +938,157 @@ def test_nested_live_table_keeps_deletion_recorded_false_uno(ctx, doc):
     before = _delete_redline_count(doc)
     assert before is not None
     assert _deletion_recorded(doc, before, [host_cell]) is False
+
+
+def _make_3x3_lettered_table(doc, name):
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(3, 3)
+    text = doc.getText()
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.setName(name)
+    for row in range(1, 4):
+        for col in "abc":
+            cell_name = f"{col.upper()}{row}"
+            tbl.getCellByName(cell_name).setString(f"{col}{row}")
+    return tbl
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_empty_tall_cell_row_delete_untracked_keeps_rows_below_uno(ctx, doc):
+    """Untracked row delete succeeds when a vertically merged cell is empty, unless it holds a frame."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    tbl = _make_3x3_lettered_table(doc, "UntrackedSpan")
+    tbl.getCellByName("A1").setString("")
+    tbl.getCellByName("A2").setString("")
+    merge_res = TableMergeCells().execute(tool_ctx, name="UntrackedSpan", cell_range="A1:A2")
+    assert merge_res["status"] == "ok", merge_res
+
+    del_res = ManageTableStructure().execute(
+        tool_ctx, action="delete", axis="row", name="UntrackedSpan", index=0
+    )
+    assert del_res["status"] == "ok", del_res
+    cells = TableGetCells().execute(tool_ctx, name="UntrackedSpan")
+    assert cells["cells"] == {"A1": "", "B1": "b2", "C1": "c2", "A2": "a3", "B2": "b3", "C2": "c3"}
+
+    # An at-paragraph TextFrame inside an otherwise empty spanning cell must keep the refusal.
+    tbl2 = _make_3x3_lettered_table(doc, "UntrackedFrameSpan")
+    tbl2.getCellByName("A1").setString("")
+    tbl2.getCellByName("A2").setString("")
+    merge2 = TableMergeCells().execute(tool_ctx, name="UntrackedFrameSpan", cell_range="A1:A2")
+    assert merge2["status"] == "ok", merge2
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setPropertyValue("AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH"))
+    a1 = tbl2.getCellByName("A1")
+    a1.insertTextContent(a1.getStart(), frame, False)
+    assert doc.getTextFrames().getCount() == 1
+
+    refused = ManageTableStructure().execute_safe(
+        tool_ctx, action="delete", axis="row", name="UntrackedFrameSpan", index=0
+    )
+    assert refused["status"] == "error"
+    assert refused["code"] == "ROW_HAS_SPANNING_CELL"
+    assert doc.getTextFrames().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, doc):
+    """Tracked row delete allows an empty interior span, refuses empty edge spans until split."""
+    from plugin.framework.config import get_config, save
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    prev_mode = get_config("doc.agent_edit_review_mode")
+    try:
+        # Interior empty span B1:B2: allowed while recording; reject restores, accept drops only row 0.
+        inner = _make_3x3_lettered_table(doc, "InnerSpan")
+        inner.getCellByName("B1").setString("")
+        inner.getCellByName("B2").setString("")
+        assert TableMergeCells().execute(tool_ctx, name="InnerSpan", cell_range="B1:B2")["status"] == "ok"
+        before_cells = TableGetCells().execute(tool_ctx, name="InnerSpan")["cells"]
+
+        doc.setPropertyValue("RecordChanges", True)
+        res_inner = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="InnerSpan", index=0
+        )
+        assert res_inner["status"] == "ok", res_inner
+        assert res_inner["tracked"] is True
+        doc.setPropertyValue("RecordChanges", False)
+
+        _reject_all_tables(doc, ctx)
+        assert TableGetCells().execute(tool_ctx, name="InnerSpan")["cells"] == before_cells
+
+        doc.setPropertyValue("RecordChanges", True)
+        res_inner2 = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="InnerSpan", index=0
+        )
+        assert res_inner2["status"] == "ok", res_inner2
+        doc.setPropertyValue("RecordChanges", False)
+        _accept_all_tables(doc, ctx)
+        assert TableGetCells().execute(tool_ctx, name="InnerSpan")["cells"] == {
+            "A1": "a2",
+            "B1": "",
+            "C1": "c2",
+            "A2": "a3",
+            "B2": "b3",
+            "C2": "c3",
+        }
+
+        # Empty edge spans A1:A2 and C1:C2: refused while recording, leaving 0 redlines.
+        for edge_name, edge_col in (("EdgeASpan", "A"), ("EdgeCSpan", "C")):
+            edge_tbl = _make_3x3_lettered_table(doc, edge_name)
+            edge_tbl.getCellByName(f"{edge_col}1").setString("")
+            edge_tbl.getCellByName(f"{edge_col}2").setString("")
+            assert (
+                TableMergeCells().execute(
+                    tool_ctx, name=edge_name, cell_range=f"{edge_col}1:{edge_col}2"
+                )["status"]
+                == "ok"
+            )
+            snapshot = TableGetCells().execute(tool_ctx, name=edge_name)["cells"]
+            doc.setPropertyValue("RecordChanges", True)
+            refused = ManageTableStructure().execute_safe(
+                tool_ctx, action="delete", axis="row", name=edge_name, index=0
+            )
+            doc.setPropertyValue("RecordChanges", False)
+            assert refused["status"] == "error"
+            assert refused["code"] == "ROW_HAS_SPANNING_CELL"
+            assert TableGetCells().execute(tool_ctx, name=edge_name)["cells"] == snapshot
+            assert doc.getRedlines().getCount() == 0
+
+        # Splitting EdgeASpan A1 into 2 rows lets tracked delete + Accept keep row 2.
+        assert TableSplitCell().execute(tool_ctx, name="EdgeASpan", cell="A1", direction="rows", parts=2)["status"] == "ok"
+        doc.setPropertyValue("RecordChanges", True)
+        ok_after_split = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="EdgeASpan", index=0
+        )
+        doc.setPropertyValue("RecordChanges", False)
+        assert ok_after_split["status"] == "ok", ok_after_split
+        _accept_all_tables(doc, ctx)
+        assert TableGetCells().execute(tool_ctx, name="EdgeASpan")["cells"] == {
+            "A1": "",
+            "B1": "b2",
+            "C1": "c2",
+            "A2": "a3",
+            "B2": "b3",
+            "C2": "c3",
+        }
+
+        # Review mode "record" with RecordChanges off must still refuse edge span inside _delete_band_tracked.
+        rec_edge = _make_3x3_lettered_table(doc, "ReviewEdgeSpan")
+        rec_edge.getCellByName("A1").setString("")
+        rec_edge.getCellByName("A2").setString("")
+        assert TableMergeCells().execute(tool_ctx, name="ReviewEdgeSpan", cell_range="A1:A2")["status"] == "ok"
+        rec_snapshot = TableGetCells().execute(tool_ctx, name="ReviewEdgeSpan")["cells"]
+        assert doc.getPropertyValue("RecordChanges") is False
+        save({"doc.agent_edit_review_mode": "record"})
+        refused_rec = ManageTableStructure().execute_safe(
+            tool_ctx, action="delete", axis="row", name="ReviewEdgeSpan", index=0
+        )
+        assert refused_rec["status"] == "error"
+        assert refused_rec["code"] == "ROW_HAS_SPANNING_CELL"
+        assert TableGetCells().execute(tool_ctx, name="ReviewEdgeSpan")["cells"] == rec_snapshot
+        assert doc.getRedlines().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev_mode})

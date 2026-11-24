@@ -294,7 +294,7 @@ def record_edits(payload: dict[str, Any], calls: Sequence[InnerToolCall]) -> Non
     The note is true on every exit because mutating is the tool kind; if no editing
     tool ran at all, the document is unchanged whether the run finished, stopped
     early, or failed. A nested delegation that failed after its own edits landed
-    reports them in ``edits``.
+    counts once, under the delegate tool's name; its inner tool names are not merged in.
     """
     payload["edits"] = dict(
         Counter(
@@ -319,11 +319,15 @@ def apply_inner_outcome(
     Mutates and returns payload so the main agent sees an accurate report of what tools
     ran, whether failures were recovered, and—on any exit (ok, incomplete, or error)—
     counts of successful editing-tool calls (`edits`) when `expect_edits` is true; on
-    error or incomplete, `edits` reports any edits that did land.
+    error or incomplete, `edits` reports any edits that did land. A payload that is
+    already an error gets only `edits` and the no-edit note.
     """
     unrecovered, recovered = partition_tool_errors(calls)
     if expect_edits:
         record_edits(payload, calls)
+    # A user stop or crash keeps its own status, code and message.
+    if payload.get("status") == "error":
+        return payload
     if unrecovered:
         # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
         messages = [_err_text(c.result) for c in unrecovered]
@@ -363,8 +367,8 @@ def start_inner_payload(
 ) -> dict[str, Any]:
     """Shape the inner loop's final answer into the payload apply_inner_outcome then grades.
 
-    An error dict (user stop, crash) is returned as the same object; the caller
-    keeps its status, code and message and may add edit counts. A dict with a
+    An error dict (user stop, crash) is returned as the same object; apply_inner_outcome
+    keeps its status, code and message and adds only edit counts. A dict with a
     status is copied. Anything else is the loop's plain text:
     {"status": "ok", "result": text} (None -> ""), plus "message": text_message
     when given. Every non-error payload gets "domains".
@@ -389,10 +393,6 @@ def normalize_inner_result(
 ) -> dict[str, Any]:
     """Map inner domain agent results to the standard specialized tool response payload."""
     payload = start_inner_payload(final_ans, domains)
-    if payload.get("status") == "error":
-        if expects_edits(domains):
-            record_edits(payload, calls)
-        return payload
     return apply_inner_outcome(
         payload,
         final_ans,
