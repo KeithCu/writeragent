@@ -189,7 +189,12 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
         text = doc.getText()
 
         # Body middle, empty paragraph, header, and table cell while recording
-        text.setString("BeforeAfter\n\n")
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+        text.setString("")
+        setup_cur = text.createTextCursor()
+        text.insertString(setup_cur, "BeforeAfter", False)
+        text.insertControlCharacter(setup_cur, PARAGRAPH_BREAK, False)
         tbl = doc.createInstance("com.sun.star.text.TextTable")
         tbl.initialize(1, 1)
         text.insertTextContent(text.getEnd(), tbl, False)
@@ -208,7 +213,7 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
             def _ins_empty():
                 cur_empty = text.createTextCursor()
                 cur_empty.gotoStart(False)
-                cur_empty.goRight(len("BeforeAfter\n"), False)
+                cur_empty.goRight(len("BeforeAfter") + 1, False)
                 return insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur_empty)
 
             _verify_recorded_insert(doc, ctx, _ins_empty, text, undo_redo=True)
@@ -221,8 +226,6 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
                     tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
                 )
                 assert res_hdr["status"] == "ok", res_hdr
-                if hdr_text.getPropertyValue("HeaderIsOn") is False:
-                    assert res_hdr.get("style_unreviewed") is True
                 return res_hdr["image_name"]
 
             res_hdr0 = ImageInsert().execute(

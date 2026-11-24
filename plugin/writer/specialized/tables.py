@@ -15,7 +15,7 @@ from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.text_helpers import FAILED, KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
-from plugin.framework.uno_context import execute_dispatch, resolve_uno_context, uno_same
+from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
@@ -232,6 +232,39 @@ def _delete_redline_count(doc: Any) -> int | None:
     return count if reliable else None
 
 
+def _cell_has_visible_text(cell: Any) -> bool:
+    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
+
+    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
+    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
+    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
+    read as visible.
+    """
+    para_enum = uno_read(cell.createEnumeration, None)
+    if para_enum is None:
+        return bool(uno_read(cell.getString, ""))
+    in_delete = False
+    while enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
+            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
+                return True
+            continue
+        portion_enum = uno_read(para.createEnumeration, None)
+        if portion_enum is None:
+            continue
+        while enum_has_more(portion_enum):
+            portion = portion_enum.nextElement()
+            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
+            if ptype == "Redline":
+                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
+                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
+                continue
+            if not in_delete and uno_read(portion.getString, ""):
+                return True
+    return False
+
+
 def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
     """True when a Delete redline was added or all visible text in *cells* became tracked-deleted.
 
@@ -247,7 +280,7 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
     for cell in cells:
         if uno_read(cell.getString, ""):
             has_raw = True
-        if uno_read(lambda: get_string_without_tracked_deletions(cell), "").strip("\n"):
+        if uno_read(lambda: _cell_has_visible_text(cell), True):
             return False
     return has_raw
 

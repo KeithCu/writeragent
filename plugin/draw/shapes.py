@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.i18n import _
 from plugin.writer.edit_review import flag_untracked_delete
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
@@ -1432,6 +1433,6 @@ class DeleteShape(_AnyDocumentShapeTool):
             result,
             ctx.doc,
             "shape",
-            message="This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user.",
+            message=_("This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
         )
         return result

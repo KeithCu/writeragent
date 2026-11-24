@@ -123,7 +123,7 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
 def flag_untracked_delete(
     result: dict[str, Any], doc: Any, what: str, *, message: str | None = None
 ) -> None:
-    """Flag a Writer deletion that LibreOffice cannot record as a tracked change."""
+    """Flag a Writer deletion that was not recorded as a tracked change."""
     if result.get("status") != "ok" or not is_writer(doc):
         return
     if not (review_recording_enabled() or is_recording_changes(doc)):

@@ -493,12 +493,24 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
     # Re-deleting an already marked row with a two-paragraph cell must succeed
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
     doc.getText().setString("")
     two_para_tbl = doc.createInstance("com.sun.star.text.TextTable")
     two_para_tbl.initialize(2, 2)
     text.insertTextContent(text.getEnd(), two_para_tbl, False)
     two_para_tbl.setName("TwoParaTbl")
-    two_para_tbl.getCellByName("A1").setString("first para\nsecond para")
+    a1_cell = two_para_tbl.getCellByName("A1")
+    a1_cur = a1_cell.createTextCursor()
+    a1_cell.insertString(a1_cur, "first para", False)
+    a1_cell.insertControlCharacter(a1_cur, PARAGRAPH_BREAK, False)
+    a1_cell.insertString(a1_cur, "second para", False)
+    para_count = 0
+    para_enum = a1_cell.createEnumeration()
+    while para_enum.hasMoreElements():
+        para_enum.nextElement()
+        para_count += 1
+    assert para_count == 2
     two_para_tbl.getCellByName("A2").setString("keep")
     doc.setPropertyValue("RecordChanges", True)
     try:
