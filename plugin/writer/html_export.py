@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterator, NamedTuple
 
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
+    DeletionState,
     get_string_without_tracked_deletions,
     get_writer_selection_positions,
     iter_elements,
@@ -190,7 +191,12 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
 _COPY_PORTION_LIMIT = 50000
 
 
-def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out: list[str] | None = None) -> Iterator[Any]:
+def _visible_portions(
+    para: Any,
+    limit: int = _COPY_PORTION_LIMIT,
+    truncated_out: list[str] | None = None,
+    state: DeletionState | None = None,
+) -> Iterator[Any]:
     """Visible portions for offset paint. Same walk as the text helper.
 
     Aborts on portion enum / type failure so later runs are not painted at a
@@ -203,7 +209,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
     """
     hit: list[int] = []
     yield from visible_portions(
-        para, abort_on_portion_error=True, limit=limit, truncated_out=hit
+        para, abort_on_portion_error=True, limit=limit, truncated_out=hit, state=state
     )
     if hit:
         msg = walk_cap_warning("text portions", hit[0], limit)
@@ -285,9 +291,10 @@ def _put_outline_urls(content: str, urls: list[str]) -> str:
 
 
 def _body_hyperlink_urls(model: Any) -> list[str]:
+    state = DeletionState()
     urls: list[str] = []
     for para in range_copy.iter_xtext_paragraphs(model.getText()):
-        urls.extend(_hyperlink_urls(list(_visible_portions(para))))
+        urls.extend(_hyperlink_urls(list(_visible_portions(para, state=state))))
     return urls
 
 
@@ -404,7 +411,9 @@ def _selection_cursor(model: Any, selection: Any | None = None) -> Any | None:
     return best_effort(select, "_selection_cursor failed")
 
 
-def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tuple[int, int]:
+def _trim_to_source(
+    text: Any, element: Any, para_text: str, source: Any, opened: bool
+) -> tuple[int, int]:
     """Visible-text window of *element* that lies inside *source*."""
     # getStart/getEnd and region comparisons run on ranges from the same text;
     # any failure raises to the outer handler so the slice does not guess.
@@ -417,18 +426,19 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
     if start_inside:
         cur = text.createTextCursorByRange(element.getStart())
         cur.gotoRange(source.getStart(), True)
-        trim_start = len(get_string_without_tracked_deletions(cur))
+        trim_start = len(get_string_without_tracked_deletions(cur, DeletionState(opened)))
     if end_inside:
         cur = text.createTextCursorByRange(element.getStart())
         cur.gotoRange(source.getEnd(), True)
-        trim_end = len(get_string_without_tracked_deletions(cur))
+        trim_end = len(get_string_without_tracked_deletions(cur, DeletionState(opened)))
     return trim_start, trim_end
 
 
-# (element, visible para text, tables just before it) -> (tables inside the window,
-# (trim_start, trim_end) in visible coordinates (_visible_portions, tracked deletions
-# removed) or None to skip the element). Tables are read whole.
-_Window = Callable[[Any, str, "list[Any]"], "tuple[list[Any], tuple[int, int] | None]"]
+# (element, visible para text, tables just before it, opened inside a tracked
+# deletion) -> (tables inside the window, (trim_start, trim_end) in visible
+# coordinates (_visible_portions, tracked deletions removed) or None to skip
+# the element). Tables are read whole.
+_Window = Callable[[Any, str, "list[Any]", bool], "tuple[list[Any], tuple[int, int] | None]"]
 
 
 def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _Window]:
@@ -436,7 +446,9 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
     def past_end(el: Any) -> bool:
         return starts_at_or_after(text, el.getStart(), source.getEnd())
 
-    def window(el: Any, para_text: str, tables: list[Any]) -> tuple[list[Any], tuple[int, int] | None]:
+    def window(
+        el: Any, para_text: str, tables: list[Any], opened: bool
+    ) -> tuple[list[Any], tuple[int, int] | None]:
         # A table has no getStart; its anchor is a point inside its first cell.
         # >= at start is needed because _TableStartRange.getStart() can be the table's own anchor.
         inside = [
@@ -446,7 +458,7 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
         ]
         if past_end(el) or not _element_overlaps(text, el, source):
             return inside, None
-        return inside, _trim_to_source(text, el, para_text, source)
+        return inside, _trim_to_source(text, el, para_text, source, opened)
 
     return past_end, window
 
@@ -464,12 +476,16 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
     walker.gotoStart(False)
     running = 0
     prev_end = -1
+    prev_opened = False
 
-    def window(el: Any, para_text: str, tables: list[Any]) -> tuple[list[Any], tuple[int, int] | None]:
-        nonlocal running, prev_end
+    def window(
+        el: Any, para_text: str, tables: list[Any], opened: bool
+    ) -> tuple[list[Any], tuple[int, int] | None]:
+        nonlocal running, prev_end, prev_opened
         gap = text.createTextCursorByRange(walker.getStart())
         gap.gotoRange(el.getStart(), True)
-        running += len(get_string_without_tracked_deletions(gap))
+        running += len(get_string_without_tracked_deletions(gap, DeletionState(prev_opened)))
+        prev_opened = opened
         # A range that ends at the start of the paragraph after a table enumerates without
         # that paragraph (SwXParagraphEnumerationImpl::IgnoreLastElement in
         # sw/source/core/unocore/unoobj2.cxx), so the break before it is not in the gap text.
@@ -548,6 +564,7 @@ def _copy_window_to_scratch(
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
 
+    state = DeletionState()
     tables: list[Any] = []
     need_break = False
     for el in iter_elements(enum):
@@ -563,11 +580,15 @@ def _copy_window_to_scratch(
         # Same _visible_portions walk as get_string_without_tracked_deletions so
         # paint offsets match the helper string. Still walk here (not just the
         # helper) because we need the portion objects to copy Char* properties.
-        portions = list(_visible_portions(el, truncated_out=walk_warnings))
+        opened = state.in_delete
+        portions = list(_visible_portions(el, truncated_out=walk_warnings, state=state))
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
 
-        inside, trim = window(el, para_text, tables)
+        inside, trim = window(el, para_text, tables, opened)
+        if opened:
+            # A table before a paragraph that starts inside a deletion is struck whole.
+            inside = []
         tables = []
         for table in inside:
             temp_cursor.gotoEnd(False)
@@ -577,8 +598,11 @@ def _copy_window_to_scratch(
             # placeholders named after the scratch clone, and a later write-back
             # (image_placeholders) would restore a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
+            table_state = DeletionState()
             for para in range_copy.iter_table_paragraphs(table):
-                copied_ruby.extend(html_ruby.ruby_spans_in_window(para, 0, len(para.getString())))
+                copied_ruby.extend(
+                    html_ruby.ruby_spans_in_window(para, 0, len(para.getString()), table_state)
+                )
             need_break = False
             added_any = True
         if done:
@@ -603,7 +627,9 @@ def _copy_window_to_scratch(
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
         # Collect source spans and rewrite the exported HTML after XHTML.
-        copied_ruby.extend(html_ruby.ruby_spans_in_window(el, trim_start, trim_end))
+        copied_ruby.extend(
+            html_ruby.ruby_spans_in_window(el, trim_start, trim_end, DeletionState(opened))
+        )
         added_any = True
 
     return (copied_ruby, math_records) if added_any else None
@@ -859,14 +885,11 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
+    state = DeletionState()
     for para in range_copy.iter_xtext_paragraphs(text_obj):
-        try:
-            portions = para.createEnumeration()
-        except Exception as e:
-            log.debug("extract_page_number_fields createEnumeration failed: %s", e)
-            continue
-        for portion, kind in range_copy.iter_portions(portions):
-            if kind == "TextField":
+        # Must skip the same fields as _copy_xtext_by_portions, or the count check skips attribute injection.
+        for portion, _unused in visible_portions(para, abort_on_portion_error=True, state=state):
+            if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
                     if field.supportsService("com.sun.star.text.textfield.PageNumber"):

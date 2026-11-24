@@ -436,8 +436,8 @@ class MonacoEditorApi:
     def request_scripts(self) -> None:
         _write_parent({"type": "request_scripts"})
 
-    def save_script(self, name: str, code: str, origin: str = "user") -> None:
-        _write_parent({"type": "save_script", "name": name, "code": code, "origin": origin})
+    def save_script(self, name: str, code: str, origin: str = "user", requested: bool = False) -> None:
+        _write_parent({"type": "save_script", "name": name, "code": code, "origin": origin, "requested": bool(requested)})
 
     def delete_script(self, name: str, origin: str = "user") -> None:
         _write_parent({"type": "delete_script", "name": name, "origin": origin})

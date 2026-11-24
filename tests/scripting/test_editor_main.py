@@ -392,3 +392,18 @@ def test_poll_messages_load_handles_missing_window_methods():
     assert len(batch) == 1
     assert bare.title == "Bare Window"
     assert bare.shown is True
+
+
+def test_save_script_sends_requested_flag(monkeypatch):
+    _reset_state()
+    written: list[dict[str, Any]] = []
+    monkeypatch.setattr(em, "_write_parent", lambda msg: written.append(dict(msg)))
+    api = em.MonacoEditorApi()
+
+    api.save_script("MyScript", "x = 1", "user", True)
+    api.save_script("MyScript", "x = 2")
+
+    assert written == [
+        {"type": "save_script", "name": "MyScript", "code": "x = 1", "origin": "user", "requested": True},
+        {"type": "save_script", "name": "MyScript", "code": "x = 2", "origin": "user", "requested": False},
+    ]

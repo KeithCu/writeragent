@@ -11,13 +11,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import enum_has_more
-from plugin.doc.text_helpers import (
-    FAILED,
-    get_string_without_tracked_deletions,
-    iter_elements,
-    visible_portions,
-)
+from plugin.doc.text_helpers import FAILED, DeletionState, iter_elements, visible_portions
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -35,13 +29,6 @@ def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, d
     ph = chr(0xE000 + len(records))
     records.append((ph, read_starmath(emb), display_block))
     return ph
-
-
-def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
-    try:
-        dest_text.insertString(cursor, el.getString() if el else "", False)
-    except Exception as exc:
-        log.debug("paragraph text fallback failed: %s", exc)
 
 
 def iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
@@ -519,6 +506,7 @@ def _copy_visible_portions(
     math_records: list[tuple[str, str, bool]] | None,
     *,
     in_cell: bool,
+    state: DeletionState,
     graphics: bool = False,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
@@ -528,7 +516,7 @@ def _copy_visible_portions(
     each run as they go; Frame graphics are cloned only when *graphics* is true.
     """
     copied: list[tuple[Any, str]] = []
-    for portion, chunk in visible_portions(para, abort_on_portion_error=True):
+    for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state):
         kind = portion.getPropertyValue("TextPortionType")
         if kind == "TextField":
             field = _portion_field(portion)
@@ -570,8 +558,12 @@ def _copy_cell_xtext(
     except Exception:
         dest_cell.setString(src_cell.getString())
         return
+    state = DeletionState()
     fresh = True
     for para in iter_elements(para_enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(para, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_cell, dest_cursor)
         fresh = supports_service(para, "com.sun.star.text.TextTable")
@@ -580,7 +572,14 @@ def _copy_cell_xtext(
             copy_table(para, dest_doc, dest_cell, dest_cursor, math_records, graphics=graphics)
             continue
         _copy_visible_portions(
-            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, graphics=graphics
+            para,
+            dest_doc,
+            dest_cell,
+            dest_cursor,
+            math_records,
+            in_cell=True,
+            state=state,
+            graphics=graphics,
         )
         if graphics:
             dest_cursor.gotoEnd(False)
@@ -756,8 +755,12 @@ def _copy_xtext_by_portions(
     except Exception:
         dest_text.setString(src_text.getString())
         return
+    state = DeletionState()
     fresh = True
     for el in iter_elements(enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_text, dest_cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
@@ -773,7 +776,7 @@ def _copy_xtext_by_portions(
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
         copied = _copy_visible_portions(
-            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, graphics=True
+            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state, graphics=True
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
@@ -785,7 +788,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
 
     Used by page-style clone. Does not select the source, does not use the
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
-    Returns how many fields were inserted.
+    Tracked deletions are left out. Returns how many fields were inserted.
 
     The walk copies inside the live document without selecting, clipboard transfer,
     or in-process XHTML/ODF export — that export path could corrupt soffice when
@@ -807,8 +810,12 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
+    state = DeletionState()
     fresh = True
     for el in iter_elements(enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
@@ -817,13 +824,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             # region text (page._copy_region_graphics); cell images are an open limit.
             copy_table(el, doc, dest_text, cursor, None)
             continue
-        try:
-            portions = el.createEnumeration()
-        except Exception:
-            _fallback_insert_para_text(dest_text, cursor, el)
-            _copy_para_properties_to_end(dest_text, cursor, el)
-            continue
-        for portion, kind in iter_portions(portions):
+        for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
+            kind = portion.getPropertyValue("TextPortionType")
             if kind == "TextField":
                 field = _portion_field(portion)
                 if field is None:
@@ -832,47 +834,32 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
                     fields_copied += 1
                 cursor.gotoEnd(False)
             elif kind == "Text":
-                chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
                 copy_text_run(portion, dest_text, cursor, chunk)
-            else:
-                continue
         _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied
 
 
 def cell_has_visible_text(cell: Any) -> bool:
-    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
+    """True when *cell* has any non-deleted text in its own paragraphs.
 
-    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
-    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
-    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
-    read as visible.
+    Shares one ``DeletionState`` across the cell's paragraphs so tracked
+    deletions spanning multiple paragraphs stay hidden. Nested tables are
+    skipped.
     """
     para_enum = uno_read(cell.createEnumeration, None)
     if para_enum is None:
         return bool(uno_read(cell.getString, ""))
-    in_delete = False
-    while enum_has_more(para_enum):
-        para = para_enum.nextElement()
+    state = DeletionState()
+    for para in iter_elements(para_enum):
         if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
-            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
-                return True
+            # A nested table that opens a deleted cell can leave the start marker unexposed,
+            # which would make the recorded-delete check fail.
             continue
-        portion_enum = uno_read(para.createEnumeration, None)
-        if portion_enum is None:
-            continue
-        while enum_has_more(portion_enum):
-            portion = portion_enum.nextElement()
-            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
-            if ptype == "Redline":
-                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
-                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
-                continue
-            if not in_delete and uno_read(portion.getString, ""):
-                return True
+        if any(chunk for _portion, chunk in visible_portions(para, state=state)):
+            return True
     return False
 
 

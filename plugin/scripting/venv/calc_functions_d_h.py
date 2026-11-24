@@ -26,16 +26,17 @@ from .calc_functions_util import (
     extract_numeric_array,
     finite_or_nan,
     format_quantized,
+    is_criteria_blank,
     match_criteria,
     npf_result,
-    require_samples,
     round_half_up,
     round_sig,
     scipy_stats,
     serial_to_date,
+    trend_fit,
     yearfrac,
 )
-from .coerce import header_label, is_missing_value
+from .coerce import header_label
 
 
 __all__ = [
@@ -245,7 +246,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         row = db_arr[r_idx]
         if not any(
             all(
-                is_missing_value(c) or match_criteria(row[crit_cols[j]], c)
+                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], c)
                 for j, c in enumerate(crit_arr[i])
             )
             for i in range(1, crit_arr.shape[0])
@@ -687,9 +688,9 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     # 0, the density. Calc requires the flag; the Python default 1 (cumulative)
     # is a convenience.
     cum = as_nonzero(c)
-    # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
-    # Excel EXPONDIST is #NUM! for both.
-    if x_val < 0 or lam <= 0:
+    # Lambda 0 would divide by zero, and Calc rejects lambda <= 0; a negative x is 0 in both forms,
+    # as in ScExpDist (interpr3.cxx), and scipy gives that.
+    if lam <= 0:
         return float("nan")
     if cum:
         return float(st.expon.cdf(x_val, scale=1.0 / lam))
@@ -884,8 +885,9 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     # ScGammaDist reads a fourth argument with GetBool (interpr3.cxx), so a blank
     # cell is 0, the density. Only an omitted flag is cumulative.
     cum = as_nonzero(c)
-    # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
-    if x_val < 0 or a <= 0 or b <= 0:
+    # A negative x is 0 in both forms (GetGammaDist, GetGammaDistPDF, interpr6.cxx);
+    # only the Excel-named GAMMA.DIST rejects it.
+    if a <= 0 or b <= 0:
         return float("nan")
     if cum:
         return float(st.gamma.cdf(x_val, a, scale=b))
@@ -939,38 +941,11 @@ def gestep(number: Any, step: Any = 0) -> float:
 
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
-        y = np.asarray(known_y, dtype=float).ravel()
+        y = np.asarray(known_y, dtype=float)
         # Excel/Calc GROWTH returns #NUM! when any known y is <= 0 or non-finite.
-        # Returning [] was wrong because Excel/Calc errors are string tokens, and
-        # non-finite values like inf were not caught by <= 0.
         if y.size and (not np.all(np.isfinite(y)) or np.any(y <= 0)):
             return "#NUM!"
-        if known_x is None:
-            x = np.arange(1, len(y) + 1, dtype=float)
-        else:
-            x = np.asarray(known_x, dtype=float).ravel()
-        # CheckMatrix (interpr5.cxx:2350-2373) refuses a scalar x against a vector y;
-        # numpy would broadcast it when const is FALSE, and this helper does not fit several x variables.
-        if x.size != y.size:
-            raise ValueError
-        if new_x is None:
-            new_x_arr = x
-        else:
-            new_x_arr = np.asarray(new_x, dtype=float).ravel()
-
-        y_log = np.log(y)
-        # GROWTH reads const the way TREND does; both are CalculateTrendGrowth (interpr5.cxx) with GetBool. A blank, 0, "0" or the text FALSE is false, and TRUE keeps the intercept. as_nonzero is that reading.
-        use_const = as_nonzero(const)
-        require_samples(y.size, 1, use_const)
-        if use_const:
-            coeffs = np.polyfit(x, y_log, 1)
-            res = np.exp(np.polyval(coeffs, new_x_arr))
-        else:
-            slope = np.sum(x * y_log) / np.sum(x * x)
-            res = np.exp(slope * new_x_arr)
-        return res.tolist()
-    # Broad except Exception returned [] on failures instead of #VALUE!.
-    # Narrow to expected conversion, linear algebra, and calculation exceptions.
+        return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 

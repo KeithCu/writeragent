@@ -28,7 +28,7 @@ from plugin.doc.document_research import (
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.doc.text_helpers import DeletionState, get_string_without_tracked_deletions
 from plugin.framework.errors import make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
@@ -118,12 +118,13 @@ def _grep_text_in_writer(
     # removed still matched. Grep is a read of the visible document;
     # this is the same helper other reads use. The search is already on
     # the main thread.
+    state = DeletionState()
     for para in para_ranges:
         if is_cancelled(cancel):
             break
         if para.supportsService("com.sun.star.text.Paragraph"):
-            para_texts.append(get_string_without_tracked_deletions(para))
-        elif para.supportsService("com.sun.star.text.TextTable"):
+            para_texts.append(get_string_without_tracked_deletions(para, state))
+        elif not state.in_delete and para.supportsService("com.sun.star.text.TextTable"):
             cell_texts = [
                 uno_read(lambda: get_string_without_tracked_deletions(para.getCellByName(name)), "")
                 for name in (para.getCellNames() or ())
