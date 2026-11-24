@@ -157,7 +157,9 @@ made in `record_preserve_replace` in
   across all body write paths, while `insert_html_after_paragraph` owns only the trailing
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
-  undo group, so a failed table insert rolls the edit back.
+  undo group, so a failed table insert rolls the edit back. `full_document` refuses a hidden
+  leading section (`HIDDEN_LEADING_SECTION`), and `selection` refuses a range starting in a table
+  and ending outside it (`SELECTION_SPANS_TABLE`).
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

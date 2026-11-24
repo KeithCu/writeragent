@@ -75,7 +75,9 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py`, `search.py` (`occurrence_range_or_error`), `comments.py`, `footnotes.py`, `page.py` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
-| `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
+| `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`html_import.py`) | None |
+| `SELECTION_SPANS_TABLE` | error | Selection starts in a table and ends outside it (`html_import.py`) | None |
+| `HIDDEN_LEADING_SECTION` | error | `full_document` on a document starting with a hidden section (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |

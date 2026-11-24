@@ -941,6 +941,265 @@ def test_header_table_cell_as_character_logo_round_trip_uno(ctx, doc):
     assert anchor_text.supportsService("com.sun.star.text.CellProperties")
 
 
+def _write_temp_png_file():
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(_PNG_BYTES)
+    return img_path
+
+
+def _insert_header_logo(doc, target_text, img_path, anchor_type, *, name="LogoPic", title="ti", desc="de", offset=0, link_url=""):
+    import uno
+
+    g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+    g.setPropertyValue("AnchorType", anchor_type)
+    g.setPropertyValue("Width", 500)
+    g.setPropertyValue("Height", 500)
+    if offset or anchor_type.value != "AS_CHARACTER":
+        g.setPropertyValue("HoriOrient", 0)
+        g.setPropertyValue("HoriOrientPosition", 500)
+        g.setPropertyValue("VertOrient", 0)
+        g.setPropertyValue("VertOrientPosition", offset)
+    cur = target_text.createTextCursor()
+    cur.gotoEnd(False)
+    target_text.insertTextContent(cur, g, False)
+    g.setName(name)
+    g.setPropertyValue("Title", title)
+    g.setPropertyValue("Description", desc)
+    if link_url:
+        g.setPropertyValue("HyperLinkURL", link_url)
+    return g
+
+
+@native_test
+def test_header_logo_roundtrip_matrix_uno(ctx):
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.tests.testing_utils import TestingFactory
+
+    img_path = _write_temp_png_file()
+    try:
+        for in_cell in (False, True):
+            for anchor_type in (AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH):
+                for include_images in (True, False):
+                    doc = TestingFactory.create_native_doc(ctx, "writer")
+                    try:
+                        style, _ = _style(doc)
+                        style.setPropertyValue("HeaderIsOn", True)
+                        header = style.getPropertyValue("HeaderText")
+                        if in_cell:
+                            tbl = doc.createInstance("com.sun.star.text.TextTable")
+                            tbl.initialize(1, 1)
+                            header.insertTextContent(header.getStart(), tbl, False)
+                            target = tbl.getCellByName("A1")
+                        else:
+                            target = header
+                        target.setString("abc")
+                        orig = _insert_header_logo(
+                            doc,
+                            target,
+                            img_path,
+                            anchor_type,
+                            name="BrandLogo",
+                            title="ti",
+                            desc="de",
+                            offset=300 if anchor_type == AT_PARAGRAPH else 0,
+                        )
+                        orig_pos = (orig.getPropertyValue("HoriOrientPosition"), orig.getPropertyValue("VertOrientPosition"))
+
+                        for _ in range(2):
+                            got = _get(doc, ctx, "header", include_images=include_images)
+                            assert got.get("status") == "ok", got
+                            res = _set(doc, ctx, "header", got["content"])
+                            assert res.get("status") == "ok", res
+
+                        assert doc.getTextFrames().getCount() == 0
+                        graphics = doc.getGraphicObjects()
+                        assert graphics.getCount() == 1
+                        pic = graphics.getByIndex(0)
+                        assert pic.getName() == "BrandLogo"
+                        assert pic.getPropertyValue("AnchorType") == anchor_type
+                        if anchor_type in (AT_PARAGRAPH, AT_CHARACTER):
+                            assert (pic.getPropertyValue("HoriOrientPosition"), pic.getPropertyValue("VertOrientPosition")) == orig_pos
+                        assert pic.getPropertyValue("Title") == "ti"
+                        assert pic.getPropertyValue("Description") == "de"
+                        if in_cell:
+                            assert pic.getAnchor().getText().supportsService("com.sun.star.text.CellProperties")
+                            assert doc.getTextTables().getByIndex(0).getCellByName("A1").getString().strip() == "abc"
+                        else:
+                            assert header.getString().strip() == "abc"
+
+                        doc.getUndoManager().undo()
+                        assert doc.getGraphicObjects().getCount() == 1
+                    finally:
+                        doc.close(True)
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_logo_recording_hyperlink_refusals_and_nested_scan_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from unittest.mock import patch
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer import html_import
+    from plugin.writer.page import _scan_region_content
+
+    img_path = _write_temp_png_file()
+    try:
+        style, _ = _style(doc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        header.setString("abc")
+        orig = _insert_header_logo(
+            doc, header, img_path, AT_PARAGRAPH, name="LinkLogo", link_url="https://example.com/logo"
+        )
+        orig_size = orig.getSize()
+
+        # Hyperlink and size survive round-trip.
+        got = _get(doc, ctx, "header", include_images=True)
+        assert _set(doc, ctx, "header", got["content"]).get("status") == "ok"
+        pic = doc.getGraphicObjects().getByIndex(0)
+        assert pic.getPropertyValue("HyperLinkURL") == "https://example.com/logo"
+        assert (pic.getSize().Width, pic.getSize().Height) == (orig_size.Width, orig_size.Height)
+
+        # Unknown src="" wrapper is refused and leaves header unchanged.
+        err_img = _set(doc, ctx, "header", '<p>changed</p><div id="NoSuchPic"><img src=""/></div>')
+        assert err_img.get("status") == "error"
+        assert header.getString().strip() == "abc"
+
+        # Failed table import inside header rolls back and leaves header unchanged.
+        with patch.object(html_import, "insert_html_fragment_at_cursor"):
+            err_tbl = _set(doc, ctx, "header", "<p>x</p><table><tr><td>c</td></tr></table>")
+        assert err_tbl.get("status") == "error"
+        assert err_tbl.get("code") == "TABLE_INSERT_FAILED", err_tbl
+        assert "Table insert produced no table in document." in err_tbl.get("message", ""), err_tbl
+        assert header.getString().strip() == "abc"
+
+        # Recording: Accept and Reject each leave one logo for AT_PARAGRAPH, AS_CHARACTER,
+        # AT_CHARACTER, and a cell original (fresh doc per case).
+        from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
+        from plugin.tests.testing_utils import TestingFactory
+
+        for rec_in_cell, rec_anchor in (
+            (False, AT_PARAGRAPH),
+            (False, AS_CHARACTER),
+            (False, AT_CHARACTER),
+            (True, AT_PARAGRAPH),
+        ):
+            rdoc = TestingFactory.create_native_doc(ctx, "writer")
+            try:
+                rstyle, _ = _style(rdoc)
+                rstyle.setPropertyValue("HeaderIsOn", True)
+                rheader = rstyle.getPropertyValue("HeaderText")
+                if rec_in_cell:
+                    tbl = rdoc.createInstance("com.sun.star.text.TextTable")
+                    tbl.initialize(1, 1)
+                    rheader.insertTextContent(rheader.getStart(), tbl, False)
+                    rec_target = tbl.getCellByName("A1")
+                else:
+                    rec_target = rheader
+                if rec_anchor == AT_CHARACTER:
+                    # Anchor mid-paragraph so Accept deletes it and _insert_copy runs.
+                    rec_target.setString("a")
+                    _insert_header_logo(
+                        rdoc, rec_target, img_path, rec_anchor, name=f"Rec_{rec_in_cell}_{rec_anchor.value}"
+                    )
+                    rcur = rec_target.createTextCursor()
+                    rcur.gotoEnd(False)
+                    rec_target.insertString(rcur, "bc", False)
+                else:
+                    rec_target.setString("abc")
+                    _insert_header_logo(
+                        rdoc, rec_target, img_path, rec_anchor, name=f"Rec_{rec_in_cell}_{rec_anchor.value}"
+                    )
+                rctrl = rdoc.getCurrentController()
+                rdoc.setPropertyValue("RecordChanges", True)
+                got_rec = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got_rec["content"].replace("abc", "def")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:AcceptAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, (
+                    rec_in_cell,
+                    rec_anchor,
+                    rdoc.getGraphicObjects().getCount(),
+                )
+
+                got_rej = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got_rej["content"].replace("def", "ghi")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:RejectAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, (
+                    rec_in_cell,
+                    rec_anchor,
+                    rdoc.getGraphicObjects().getCount(),
+                )
+            finally:
+                rdoc.close(True)
+
+        # Recorded AT_CHARACTER at the end of the last paragraph: 1-para header keeps the
+        # surviving original; 2-para header deletes it on Accept and keeps the restored copy.
+        for two_paras in (False, True):
+            rdoc = TestingFactory.create_native_doc(ctx, "writer")
+            try:
+                rstyle, _ = _style(rdoc)
+                rstyle.setPropertyValue("HeaderIsOn", True)
+                rheader = rstyle.getPropertyValue("HeaderText")
+                rcur = rheader.createTextCursor()
+                rcur.gotoStart(False)
+                rheader.insertString(rcur, "first", False)
+                if two_paras:
+                    rcur.gotoEnd(False)
+                    rheader.insertControlCharacter(rcur, 0, False)
+                    rcur.gotoEnd(False)
+                    rheader.insertString(rcur, "second", False)
+                _insert_header_logo(
+                    rdoc, rheader, img_path, AT_CHARACTER, name=f"EndChar_{two_paras}"
+                )
+                rctrl = rdoc.getCurrentController()
+                rdoc.setPropertyValue("RecordChanges", True)
+                got = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got["content"].replace("first", "FIRST")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:AcceptAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, two_paras
+            finally:
+                rdoc.close(True)
+
+        # Edge: wrapper copied from another region (body) creates a new logo in header and leaves body untouched.
+        header.setString("")
+        body = doc.getText()
+        body.setString("body")
+        _insert_header_logo(doc, body, img_path, AT_PARAGRAPH, name="BodyLogo")
+        from plugin.writer.html_export import document_to_content
+
+        body_html = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert _set(doc, ctx, "header", body_html).get("status") == "ok"
+        assert doc.getGraphicObjects().getCount() == 2
+
+        # Edge: unknown wrapper id WITH data imports inline and takes that name.
+        import base64
+
+        b64 = base64.b64encode(_PNG_BYTES).decode("ascii")
+        assert _set(doc, ctx, "header", f'<p><span id="FreshLogo"><img src="data:image/png;base64,{b64}"/></span></p>').get("status") == "ok"
+        assert doc.getGraphicObjects().hasByName("FreshLogo")
+
+        # Nested-cell logo appears in _scan_region_content / images list.
+        header.setString("")
+        outer = doc.createInstance("com.sun.star.text.TextTable")
+        outer.initialize(1, 1)
+        header.insertTextContent(header.getStart(), outer, False)
+        outer_cell = outer.getCellByName("A1")
+        _insert_header_logo(doc, outer_cell, img_path, AT_PARAGRAPH, name="OuterCellLogo")
+        inner = doc.createInstance("com.sun.star.text.TextTable")
+        inner.initialize(1, 1)
+        outer_cell.insertTextContent(outer_cell.getStart(), inner, False)
+        _insert_header_logo(doc, inner.getCellByName("A1"), img_path, AT_PARAGRAPH, name="InnerCellLogo")
+        scan = _scan_region_content(doc, header)
+        assert {"OuterCellLogo", "InnerCellLogo"}.issubset(scan["images"]), scan["images"]
+    finally:
+        os.unlink(img_path)
+
+
 @native_test
 @with_native_doc("writer")
 def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_uno(ctx, doc):

@@ -2228,3 +2228,56 @@ def test_drop_leftover_paragraph_ignores_markers_but_keeps_real_objects(portion_
         leftover.setString.assert_not_called()
 
 
+
+
+@pytest.mark.parametrize(("counts", "expected_added"), [([2, 2], 0), ([2, 3], 1)])
+def test_insert_mixed_or_plain_html_reports_tables_added(counts, expected_added):
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.getTextTables.return_value.getCount.side_effect = counts
+    cursor = MagicMock()
+    with (
+        patch.object(html_import, "insert_html_fragment_at_cursor"),
+        patch.object(html_import, "_drop_empty_paragraph_before_table"),
+        patch.object(html_import, "_apply_ruby_and_restore_fields"),
+    ):
+        rep = html_import._insert_mixed_or_plain_html(
+            model, MagicMock(), cursor, "<table><tr><td>x</td></tr></table>", apply_styles=False
+        )
+    assert rep.tables_added == expected_added
+
+
+def test_raise_if_no_table_added_and_table_count_disposed():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+    from plugin.writer import html_import
+
+    html_import.raise_if_no_table_added(None)
+    html_import.raise_if_no_table_added(1)
+    with pytest.raises(ToolExecutionError) as exc_info:
+        html_import.raise_if_no_table_added(0)
+    assert exc_info.value.code == "TABLE_INSERT_FAILED"
+
+    model = MagicMock()
+    model.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with pytest.raises(DocumentDisposedError):
+        html_import._table_count(model)
+
+
+def test_insert_content_at_position_selection_none_end_refuses():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    rng = MagicMock()
+    rng_text = rng.getText.return_value
+    rng_text.createTextCursorByRange.side_effect = [MagicMock(), None]
+
+    with (
+        patch.object(html_import, "_selection_is_draw_shape", return_value=False),
+        patch.object(html_import, "insert_html_fragment_at_cursor") as ins,
+    ):
+        with pytest.raises(ToolExecutionError) as exc_info:
+            html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
+    assert exc_info.value.code == "SELECTION_SPANS_TABLE"
+    ins.assert_not_called()

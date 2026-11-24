@@ -494,13 +494,16 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   in-cell table via `copy_table(..., dest_text=dest_cell, ...)` and recurses. Copy walks
   `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
   helper stays in this shipped file, not `specialized.tables`). Cell images are copied
-  for header/footer reads (`graphics=True`), not body range reads or page-style clones.
-- **`apply_content` refuses a host-cell wipe.** Search/replace and selection
-  clear raise if the range lives in a cell that hosts a nested table. Use
-  `table_set_cell` / `table_*`. `target='full_document'` is not policed (a full
-  rewrite is supposed to replace the document). Body search-replace is not treated as
-  a host-cell wipe just because the document has top-level tables.
-- **`apply_content` verifies table imports and rejects bad regex early.** Any insert/replace whose content contains `<table>` compares the table count before and after (zero for `target='full_document'`) and returns `TABLE_INSERT_FAILED` when no table appeared; a closed document is `DOCUMENT_DISPOSED`, not "no tables". The check runs inside the edit's undo group, so a failed table insert is rolled back, review redlines included, and the document is left as it was. `target='search'` with `regex=true` and a pattern LibreOffice's ICU engine rejects (checked with the `TextSearch2` service; Python-only syntax such as `(?P<name>...)` is rejected, `\p{Lu}` is accepted) returns `INVALID_REGEX` before any matching, the same code `dry_run` reports.
+  across body range reads, header/footer reads, and page-style clones.
+- **`apply_content` refuses a host-cell wipe, table-start selection, or hidden leading section.**
+  Search/replace and selection clear raise if the range lives in a cell that hosts a nested
+  table. Use `table_set_cell` / `table_*`. `target='full_document'` is not policed for
+  nested tables (a full rewrite is supposed to replace the document), but it refuses when the
+  document starts with a hidden section (`HIDDEN_LEADING_SECTION`) because the body cursor
+  skips over it. `target='selection'` refuses when the range starts in a table and ends
+  outside it (`SELECTION_SPANS_TABLE`). Body search-replace is not treated as a host-cell
+  wipe just because the document has top-level tables.
+- **`apply_content` verifies table imports and rejects bad regex early.** Any insert/replace whose content contains `<table>` compares the table count immediately around the HTML import (after any clearing) and returns `TABLE_INSERT_FAILED` when no table was added; a closed document is `DOCUMENT_DISPOSED`, not "no tables". The check runs inside the edit's undo group (and per match for `all_matches`, plus header/footer HTML writes), so a failed table insert is rolled back, review redlines included, and the document is left as it was. `target='search'` with `regex=true` and a pattern LibreOffice's ICU engine rejects (checked with the `TextSearch2` service; Python-only syntax such as `(?P<name>...)` is rejected, `\p{Lu}` is accepted) returns `INVALID_REGEX` before any matching, the same code `dry_run` reports.
 - **Math formula import failure reporting.** Any formula conversion failure across attempted math blocks leaves the literal fallback text in the document, reports `math_objects` at top level, and adds a `MATH_IMPORT_FAILED` warning diagnostic.
 - **Search needle normalization, exact-first ladder, and miss reporting.** Literal search returns top-level `normalized_old_content` (HTML stripped, horizontal whitespace collapsed, quotes and dashes preserved). Edit and anchor tools try exact case with exact quotes and dashes first; if nothing matches, they fall back to folded quotes and dashes (only when the needle has at least one letter or digit), then case-insensitive exact, then case-insensitive folded. Passing `case_sensitive` explicitly fixes the case level while keeping quote/dash folding; `regex=true` uses strict ICU matching with no folding. Spaces always fold because horizontal whitespace in the needle is already collapsed. An `old_content` spanning more than half the document body in cursor steps returns an error directing callers to `target='full_document'`. A search miss reports the closest matching passage across body, tables, text frames, headers, and footers, along with the first differing character.
 - **Nesting through a frame or section.** Discovery walks the host cell’s
@@ -518,7 +521,6 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   section (those are a different `XText`).
 - No surgical HTML rewrite of a host cell that keeps the inner table — the apply path
   refuses instead of trying to preserve through `setString("")`.
-- Cell images are omitted from body range reads and page-style clones (copied only for header/footer reads).
 
 ### 6.9 Feature: Structural Integrity & Object Preservation
 
@@ -701,7 +703,7 @@ For recent feature additions:
 - `[feature M many]` AutoText tools and richer multi-level TOC enhancement. (§ Domain, modules, and extended LO surface)
 - `[fidelity S few]` Text frame x/y positioning, image watermarks, and `embedded_edit` for the OLE domain. (§ Domain, modules, and extended LO surface)
 - `[fidelity S few]` Mail merge via email, labels and envelopes (only file and printer output exist). (§ Domain, modules, and extended LO surface)
-- `[fidelity M many]` Per-cell table formatting, surgical rewrite of a host cell that keeps its nested table, and copying cell images in body range reads / page-style clones. (§ Still open / out of scope)
+- `[fidelity M many]` Per-cell table formatting and surgical rewrite of a host cell that keeps its nested table. (§ Still open / out of scope)
 - `[fidelity S few]` Table-set-cell inside a frame or section within a host cell. (§ Still open / out of scope)
 - `[feature L many]` Tokenized placeholder protocol so whole-document rewrites keep images, shapes and OLE objects. (§ Strategy 1: Tokenized Placeholder Protocol (Recommended))
 - `[feature L many]` Batch Section Rewriting mode that applies one instruction per heading section with review or apply flow. (§ 8.1 Possible Feature: Batch Section Rewriting)

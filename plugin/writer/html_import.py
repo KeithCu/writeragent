@@ -283,6 +283,63 @@ def _apply_ruby_and_restore_fields(
         field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
 
 
+def _table_count(model: Any) -> int | None:
+    """Table count from model.getTextTables(); None when unreadable (a mock). Disposal propagates."""
+    # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
+    tables = uno_read(lambda: model.getTextTables(), None)
+    if tables is None:
+        return None
+    count = uno_read(lambda: tables.getCount(), None)
+    return count if isinstance(count, int) else None
+
+
+def raise_if_no_table_added(added: int | None) -> None:
+    """Raise TABLE_INSERT_FAILED when an import that carried a <table> added none."""
+    if added is not None and added <= 0:
+        raise ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")
+
+
+def raise_if_hidden_start(model: Any) -> None:
+    """Refuse full_document when the document opens with a hidden section.
+
+    SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) skips hidden
+    sections, so full_document would leave the hidden section in place and
+    overwrite only what follows it.
+    """
+    text = uno_read(lambda: model.getText(), None)
+    if text is None:
+        return
+    enum = uno_read(lambda: text.createEnumeration(), None)
+    if enum is None:
+        return
+    first = None
+    for el in iter_elements(enum):
+        if not _uno_service_true(el, "com.sun.star.text.TextTable"):
+            first = el
+            break
+    if first is None:
+        return
+    cursor = uno_read(lambda: text.createTextCursor(), None)
+    if cursor is None:
+        return
+    cursor.gotoStart(False)
+    if uno_read(lambda: text.compareRegionStarts(first.getStart(), cursor), None) != 1:
+        return
+    section = uno_read(lambda: first.getPropertyValue("TextSection"), None)
+    while section is not None:
+        cur_sec: Any = section
+        if not uno_read(lambda: cur_sec.getPropertyValue("IsVisible"), True):
+            break
+        section = uno_read(lambda: cur_sec.getParentSection(), None)
+    sec_name = uno_read(lambda: section.getName(), "") if section is not None else ""
+    named = f" ({sec_name!r})" if sec_name else ""
+    raise ToolExecutionError(
+        f"Document starts with a hidden section{named} that target='full_document' cannot reach; "
+        "nothing was changed. Show it first with section_set_visibility, or edit with another target.",
+        code="HIDDEN_LEADING_SECTION",
+    )
+
+
 def _insert_mixed_or_plain_html(
     model: Any,
     ctx: Any,
@@ -313,6 +370,7 @@ def _insert_mixed_or_plain_html(
     else:
         ruby_spans = []
     has_table = "<table" in clean.lower()
+    tables_before = _table_count(model) if has_table else None
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
     ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
@@ -330,6 +388,13 @@ def _insert_mixed_or_plain_html(
         math_entries = []
         single = ensure_html_linebreaks(clean)
         insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
+
+    tables_after = _table_count(model) if tables_before is not None else None
+    tables_added = (
+        tables_after - tables_before
+        if tables_before is not None and tables_after is not None
+        else None
+    )
 
     # Measure added_content before disposing the empty paragraph before a leading table:
     # afterwards a UNO cursor steps or skips over the table (SwUnoCursor::IsSelOvr,
@@ -370,6 +435,7 @@ def _insert_mixed_or_plain_html(
         style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
         math=math_entries,
         added_content=added_content,
+        tables_added=tables_added,
     )
 
 
@@ -934,7 +1000,18 @@ def insert_content_at_position(
                 cursor = _doc_end_cursor()
             else:
                 try:
-                    cursor = rng.getText().createTextCursorByRange(rng.getStart())
+                    rng_text = rng.getText()
+                    cursor = rng_text.createTextCursorByRange(rng.getStart())
+                    # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
+                    # returns null when an endpoint sits outside the cell's text; without this
+                    # check the document-end fallback below would append at the end of the doc.
+                    if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
+                        raise ToolExecutionError(
+                            "The selection starts in a table and ends outside it; nothing was "
+                            "changed. Use target='full_document' if the whole document is "
+                            "selected, otherwise target='search' with old_content.",
+                            code="SELECTION_SPANS_TABLE",
+                        )
                     if not hasattr(cursor, "insertDocumentFromURL"):
                         raise AttributeError("insertDocumentFromURL")
                     # A collapsed range is the user's caret.
@@ -1243,6 +1320,7 @@ def replace_xtext_with_html(
         raise ToolExecutionError("No text object to import into.")
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
+    expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
     expanded = html_import_styles.expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
@@ -1268,11 +1346,17 @@ def replace_xtext_with_html(
         # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
         # around tables so every shape clears, including table-only headers.
         text_obj.setString("")
+        tables_before = _table_count(model) if "<table" in prepared.lower() else None
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False,
         )
+        if tables_before is not None:
+            tables_after = _table_count(model)
+            raise_if_no_table_added(
+                tables_after - tables_before if tables_after is not None else None
+            )
         if "<table" in prepared.lower():
             with record_changes.record_changes(model, False):
                 _drop_empty_paragraph_before_table(text_obj, text_obj.getStart())
@@ -1310,6 +1394,9 @@ def replace_xtext_with_html(
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
+        # Restore last, after trailing-paragraph cleanup: the inline copy's Frame portion
+        # is what keeps a logo-only last paragraph from being removed above.
+        image_placeholders.restore_region_images(model, region_images)
 
     try:
         outcome = commit_or_rollback(model, title, mutate)

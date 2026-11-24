@@ -653,7 +653,8 @@ class WriteReport:
     ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
     outline hyperlinks updated after a heading rename, and ``stale_links`` lists
     ``|outline`` URLs on field-backed links that could not be rewritten as tracked changes
-    while recording. all_matches merges one report per match with ``extend``.
+    while recording. ``tables_added`` is internal (not reported): tables the import
+    added, or None when not measured. all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
@@ -664,6 +665,7 @@ class WriteReport:
     added_content: bool = True
     links_retargeted: int = 0
     stale_links: list[str] = field(default_factory=list)
+    tables_added: int | None = None
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)

@@ -509,7 +509,7 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
         tables_start, prev_end = prev_end + 1, para_start + len(para_text)
         tables_end = max(tables_start, para_start - 1)
         inside = tables if tables_start < end and tables_end >= start else []
-        if prev_end <= start or para_start >= end:
+        if prev_end < start or (para_text and prev_end == start) or para_start >= end:
             return inside, None
         return inside, (max(0, start - para_start), len(para_text) - max(0, prev_end - end))
 
@@ -520,11 +520,12 @@ def _copy_formula_runs(
     portions: list[tuple[Any, str]],
     trim_start: int,
     trim_end: int,
+    temp_doc: Any,
     temp_text: Any,
     temp_cursor: Any,
     math_records: list[tuple[str, str, bool]],
 ) -> None:
-    """Copy formula and text runs into *temp_text*, recording placeholders."""
+    """Copy formula, graphic, and text runs into *temp_text*, recording placeholders."""
     # Standalone formula: paragraph has no other visible text.
     display_block = not any(
         chunk.strip() and chunk != OBJECT_REPLACEMENT and not portion_math_embed(p)
@@ -542,6 +543,10 @@ def _copy_formula_runs(
             if run_start < trim_start or run_start > trim_end:
                 continue
             slice_text = range_copy.record_math_placeholder(math_records, emb, display_block=display_block)
+        elif not chunk and uno_read(lambda: p.getPropertyValue("TextPortionType"), "") == "Frame":
+            if trim_start <= run_start <= trim_end:
+                range_copy.clone_graphics(p, temp_doc, temp_text, temp_cursor)
+            continue
         else:
             if run_end <= trim_start or run_start >= trim_end:
                 continue
@@ -603,9 +608,9 @@ def _copy_window_to_scratch(
             temp_cursor.gotoEnd(False)
             if need_break:
                 range_copy.begin_next_paragraph(temp_text, temp_cursor)
-            # graphics=False: range reads with include_images=False would emit
-            # placeholders named after the scratch clone, and a later write-back
-            # (image_placeholders) would restore a different picture of that name.
+            # Range reads with include_images=False emit placeholders named after the clone;
+            # keeping the source name (when unused in temp_doc) prevents a later write-back
+            # (image_placeholders) from restoring a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
             for para, table_state in iter_table_paragraphs(table):
                 copied_ruby.extend(
@@ -629,8 +634,13 @@ def _copy_window_to_scratch(
             temp_cursor.setString(para_text)
             src_style = range_copy.source_style(model, style, style_cache) if applied else None
             range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
+            range_copy.clone_window_graphics(el, portions, temp_doc, temp_text, trim_start, trim_end)
         else:
-            _copy_formula_runs(portions, trim_start, trim_end, temp_text, temp_cursor, math_records)
+            _copy_formula_runs(
+                portions, trim_start, trim_end, temp_doc, temp_text, temp_cursor, math_records
+            )
+            if trim_start == 0:
+                range_copy.clone_graphics(el, temp_doc, temp_text, temp_cursor)
 
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.

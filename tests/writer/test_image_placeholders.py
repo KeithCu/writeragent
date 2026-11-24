@@ -239,3 +239,110 @@ def test_restore_image_placeholders_passes_name():
         image_placeholders._restore_image_placeholders(model, kept)
     mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
 
+
+
+def test_capture_region_images_unwraps_prefixes_and_refuses_unknown_empty():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    obj = MagicMock()
+    obj.getPropertyValue.side_effect = lambda p: MagicMock(value="AT_PARAGRAPH") if p == "AnchorType" else p
+    graphics = MagicMock()
+    graphics.hasByName.side_effect = lambda n: n == "Logo"
+    graphics.getByName.return_value = obj
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+    text_obj = MagicMock()
+
+    html = (
+        "\n<!--Next 'div' is emulating the top height of a draw:frame.-->\n"
+        '<div style="height:0.3cm;">&nbsp;</div>'
+        "\n<!--Next 'div' is a draw:frame. -->\n"
+        '<div id="Logo"><img src="" alt="L"/></div>'
+        '<div style="clear:both;">\xa0</div>'
+        '<img src="data:image/png;base64,AA==" alt="bare"/>'
+    )
+    swapped, images = image_placeholders.capture_region_images(model, text_obj, html)
+    assert len(images) == 1
+    assert images[0].name == "Logo"
+    assert images[0].no_data is True
+    assert "emulating the top height" not in swapped
+    assert "clear:both" not in swapped
+    assert f'<img name="{images[0].marker}" border="0"' in swapped
+    assert "data:image/png;base64," in swapped
+    assert '<img src="data:image/png;base64,AA==" alt="bare"/>' in swapped
+
+    prefix_placeholder = (
+        "\n<!--Next 'div' is emulating the top height of a draw:frame.-->\n"
+        '<div style="height:0.3cm;">&nbsp;</div>'
+        "\n<!--Next 'span' is a draw:frame. -->\n"
+        '<span id="Logo"><img src="" alt="L"/></span>'
+        '<div style="clear:both;">&nbsp;</div>'
+    )
+    assert image_placeholders._IMAGE_PLACEHOLDER_RE.sub("M", prefix_placeholder) == "M"
+
+    with pytest.raises(ToolExecutionError, match="Missing"):
+        image_placeholders.capture_region_images(model, text_obj, '<div id="Missing"><img src=""/></div>')
+
+
+def test_restore_region_images_raises_on_missing_marker():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    graphics = MagicMock()
+    graphics.hasByName.return_value = False
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+    item = image_placeholders._RegionImage("m1", "Logo", None, False, False)
+    with pytest.raises(ToolExecutionError, match="was lost"):
+        image_placeholders.restore_region_images(model, [item])
+
+
+def test_capture_placeholder_images_refuses_link_inside_wrapper():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    obj = MagicMock()
+    graphics = MagicMock()
+    graphics.hasByName.return_value = True
+    graphics.getByName.return_value = obj
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+
+    with pytest.raises(ToolExecutionError, match="without its data"):
+        image_placeholders.capture_placeholder_images(
+            model, '<div id="Logo"><a href="x"><img src=""/></a></div>'
+        )
+
+
+def test_restore_region_images_at_page_nodata_and_in_region_dispose():
+    from plugin.writer import image_placeholders
+
+    # AT_PAGE with no_data=True restores kept.graphic before setName.
+    imported_page = MagicMock()
+    graphics = MagicMock()
+    graphics.hasByName.return_value = True
+    graphics.getByName.return_value = imported_page
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+
+    kept_page = image_placeholders._KeptImage(
+        "m_page", "PageLogo", MagicMock(), "ORIG_GFX", MagicMock(value="AT_PAGE"), MagicMock(), {}
+    )
+    image_placeholders.restore_region_images(
+        model, [image_placeholders._RegionImage("m_page", "PageLogo", kept_page, True, False)]
+    )
+    assert imported_page.Graphic == "ORIG_GFX"
+    imported_page.setName.assert_called_once_with("PageLogo")
+
+    # in_region=True when _deleted_by_the_edit is False disposes imported copy.
+    imported_in = MagicMock()
+    graphics.getByName.return_value = imported_in
+    kept_in = image_placeholders._KeptImage(
+        "m_in", "InLogo", MagicMock(), "G", MagicMock(value="AT_PARAGRAPH"), MagicMock(), {}
+    )
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False):
+        image_placeholders.restore_region_images(
+            model, [image_placeholders._RegionImage("m_in", "InLogo", kept_in, False, True)]
+        )
+    imported_in.dispose.assert_called_once()
