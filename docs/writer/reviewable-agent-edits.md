@@ -163,8 +163,8 @@ made in `record_preserve_replace` in
   and footers (`PROTECTED_SECTION`), and places new content outside a leading section or TOC
   (while recording, a paragraph is added untracked before a leading section and after a trailing
   one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
-  refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`) or a non-text
-  selection (`SELECTION_NOT_TEXT`).
+  refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a non-text
+  selection, or a view with no caret such as Print Preview (`SELECTION_NOT_TEXT`).
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

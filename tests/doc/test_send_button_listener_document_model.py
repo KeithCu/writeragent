@@ -2,20 +2,7 @@
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock
-
-
-# When a real `uno` bridge/types-unopy is loaded, setup_uno_mocks may skip attaching
-# listener stubs; ensure imports used by panel → dialogs → listeners succeed.
-_awt = sys.modules.get("com.sun.star.awt")
-if _awt is not None and not hasattr(_awt, "XItemListener"):
-    class _Stub:
-        pass
-
-    for _name in ("XActionListener", "XItemListener", "XTextListener", "XWindowListener"):
-        if not hasattr(_awt, _name):
-            setattr(_awt, _name, _Stub)
 
 from plugin.chatbot.panel import SendButtonListener
 

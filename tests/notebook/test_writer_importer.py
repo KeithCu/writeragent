@@ -1856,6 +1856,22 @@ def test_fetch_remote_image_timeout_returns_none(monkeypatch):
     assert _fetch_remote_image("https://example.com/a.png", timeout=1.0) is None
 
 
+def test_fetch_remote_image_log_hides_url_secrets(monkeypatch, caplog):
+    import http.client
+    import logging
+    import urllib.request
+    from plugin.notebook.writer_importer import _fetch_remote_image
+
+    caplog.set_level(logging.DEBUG)
+
+    def raise_invalid(*_args, **_kwargs):
+        raise http.client.InvalidURL("URL can't contain control characters. '/a b?sig=hunter2'")
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_invalid)
+    assert _fetch_remote_image("https://u:hunter2@example.com/a b?sig=hunter2", timeout=1.0) is None
+    assert "hunter2" not in caplog.text
+
+
 def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch):
     ipynb = tmp_path / "two.ipynb"
     ipynb.write_text(
