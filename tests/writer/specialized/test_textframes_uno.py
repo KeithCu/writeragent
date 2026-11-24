@@ -88,3 +88,36 @@ def test_docx_text_box_listed_and_deleted_uno(ctx, doc):
             pass
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_delete_page_anchored_uno(ctx, doc):
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Body stays intact.", False)
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setPropertyValue("Size", Size(5000, 2000))
+    frame.setPropertyValue("AnchorType", AT_PAGE)
+    frame.setPropertyValue("AnchorPageNo", 1)
+    text.insertTextContent(cur, frame, False)
+    frame.setName("PageFrame")
+    frame.getText().setString("Page frame text")
+
+    assert frame.getAnchor() is None
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    deleted = FrameDelete().execute(tool_ctx, name="PageFrame")
+    assert deleted.get("status") == "ok", deleted
+    assert not doc.getTextFrames().hasByName("PageFrame")
+
+    doc.getUndoManager().undo()
+    assert doc.getTextFrames().hasByName("PageFrame")
+    restored = doc.getTextFrames().getByName("PageFrame")
+    assert restored.getText().getString() == "Page frame text"
+    assert restored.getPropertyValue("AnchorType") == AT_PAGE
+    assert text.getString() == "Body stays intact."
