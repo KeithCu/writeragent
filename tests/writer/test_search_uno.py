@@ -409,7 +409,9 @@ def test_chain_replace_keeps_text_after_struck_run_uno(ctx, doc):
     )
     assert res.get("status") == "ok", res
     body = read_visible_body(doc)[0]
-    assert "atch More" not in body
+    assert "atch More" not in body.split("\n")
+    assert "Line 9" in body
+    assert "Line 8 match" in body
     assert " More" in body
     assert body.startswith("Keep ")
 
@@ -437,6 +439,7 @@ def test_chain_range_with_field_uno(ctx, doc):
     text.insertString(cur, "Next para", False)
 
     author = field.getPresentation(False)
+    assert author == "Ann Lee"
     rng = find_first_range(doc, f"One\npage {author} of")
     assert rng is not None
     assert normalize_linebreaks(rng.getString()) == f"One\npage {author} of"

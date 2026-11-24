@@ -769,13 +769,17 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     """Visible text of *para*, or None when a tracked deletion strikes all of it.
 
-    Blank visible text alone does not mean struck: an empty heading reads "" and so does one
-    whose text is inside an inline content control (the portion's getString() is empty). It is
-    struck when it starts inside a deletion, or has raw text and a Delete marker.
+    Portions cannot read text inside an inline content control or metadata field
+    (``lcl_ExportHints`` in ``sw/source/core/unocore/unoportenum.cxx`` moves inner portions into a
+    child list), so the raw ``para.getString()`` read is used when no deletion touches the
+    paragraph. Blank visible text alone does not mean struck; it is struck when it starts inside a
+    deletion, or has raw text and a Delete marker.
     """
     state = DeletionState(starts_deleted)
     text = get_string_without_tracked_deletions(para, state)
-    if not text.strip() and (starts_deleted or (state.saw_delete and para.getString().strip())):
+    if not (starts_deleted or state.saw_delete):
+        return normalize_linebreaks(para.getString())  # nothing struck, so raw text is the visible text
+    if not text.strip() and (starts_deleted or para.getString().strip()):
         return None
     return text
 
@@ -872,6 +876,7 @@ def get_selection_text(model: Any) -> str | None:
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.WRITER:
+            # No view-cursor fallback: for cell, frame and shape selections SwXTextViewCursor::getString is empty (sw/source/uibase/uno/unotxvw.cxx).
             rng = selected_text_range(controller)
             if rng is not None:
                 return uno_call(lambda: visible_range_text(model, rng), "Get selection string")

@@ -1343,7 +1343,11 @@ def test_build_heading_tree_keeps_unseen_live_headings():
     model.getRedlines.return_value.hasElements.return_value = False
 
     tree = build_heading_tree(model)
-    assert [(c["text"], c["para_index"]) for c in tree["children"]] == [("", 0), ("", 1), ("After", 2)]
+    assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
+        ("Ctl Heading", 0),
+        ("Unreadable", 1),
+        ("After", 2),
+    ]
 
 
 def test_visible_point_in_paragraph():

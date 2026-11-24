@@ -432,3 +432,23 @@ def test_surroundings_hides_struck_text_and_zeroes_struck_heading_level():
         {"para_index": 2, "text": "Tail", "outline_level": 0},
     ]
 
+
+def test_surroundings_keeps_content_control_text_without_redlines():
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _CtlPara(FakeUnoPara):
+        def __init__(self, portions, raw_text: str, **props):
+            super().__init__(portions, **props)
+            self._raw_text = raw_text
+
+        def getString(self) -> str:
+            return self._raw_text
+
+    para = _CtlPara(
+        [FakeUnoPortion("Text", "Name: "), FakeUnoPortion("ContentControl", "")],
+        "Name: John",
+        OutlineLevel=0,
+    )
+    doc, prox = _nav_stack([para])
+    res = prox.get_surroundings(doc, "paragraph:0", radius=0, include=["paragraphs"])
+    assert res["paragraphs"] == [{"para_index": 0, "text": "Name: John", "outline_level": 0}]

@@ -208,3 +208,23 @@ def test_surroundings_hides_tracked_deletions_uno(ctx, doc):
     texts = [p["text"] for p in res1["paragraphs"]]
     assert all("gone" not in t for t in texts), texts
     assert texts == ["Start ", "", "Tail"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_surroundings_keeps_content_control_text_uno(ctx, doc):
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Name: John", False)
+    para = text.createEnumeration().nextElement()
+    ctl_cur = text.createTextCursorByRange(para.getStart())
+    ctl_cur.goRight(len("Name: "), False)
+    ctl_cur.gotoRange(para.getEnd(), True)
+    ctl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(ctl_cur, ctl, True)
+
+    res = NavSurroundings().execute(
+        MockContext(doc, ctx), locator="paragraph:0", radius=0, include=["paragraphs"]
+    )
+    assert res.get("status") == "ok", res
+    assert res["paragraphs"] == [{"para_index": 0, "text": "Name: John", "outline_level": 0}]
