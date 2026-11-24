@@ -378,11 +378,13 @@ class LlmHttpTransport:
         attempt: int = 1,
         secrets: list[str] | None = None,
         observe_http_error: HttpObserve | None = None,
+        error_source: str | None = None,
     ) -> None:
         """On non-200: retry 429/503/529 while attempts remain; else raise.
 
         Reads the error body once. ``observe_http_error`` is the chat 500
         diagnostic hook; catalog and speech omit it and still get redaction.
+        ``error_source`` labels the host in default error messages for non-LLM callers.
         A normal return means the caller should retry.
         """
         if is_cancelled(cancel):
@@ -405,7 +407,9 @@ class LlmHttpTransport:
                 st = int(response.status)
             except (TypeError, ValueError):
                 st = 500
-            message = format_http_error_response(st, str(getattr(response, "reason", "") or ""), err_body)
+            message = format_http_error_response(
+                st, str(getattr(response, "reason", "") or ""), err_body, source=error_source
+            )
         message = http_security.redact_secrets(message, wire_secrets)
         if not isinstance(message, str):
             message = str(message)
@@ -458,11 +462,16 @@ class LlmHttpTransport:
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
         max_bytes: int | None = None,
         on_bad_request: Callable[[bytes, BaseException], bytes | None] | None = None,
+        ok_statuses: frozenset[int] = frozenset({200}),
+        error_source: str | None = None,
     ) -> HttpResult:
         """Buffered request with the shared stop, timeout, retry, and redaction.
 
         ``parse_json`` uses :func:`parse_strict_json`. Truncated JSON raises
-        ``BAD_RESPONSE`` instead of becoming a repaired object.
+        ``BAD_RESPONSE`` instead of becoming a repaired object. Statuses in
+        ``ok_statuses`` are returned as a normal ``HttpResult`` (body read,
+        ``parse_json`` applied); the default is 200 only. ``error_source``
+        labels the host in default HTTP error messages.
 
         301/302/303/307/308 are followed up to ``_MAX_REDIRECTS`` hops.
         301/302/303 switch a non-GET to GET and drop the body. 307/308 keep
@@ -551,7 +560,7 @@ class LlmHttpTransport:
                     redirects_followed += 1
                     return "again", new_body
 
-            if status != 200:
+            if status not in ok_statuses:
                 attempt = budget.charge_send(status=True)
                 self.handle_http_status(
                     response,
@@ -564,6 +573,7 @@ class LlmHttpTransport:
                     attempt=attempt,
                     secrets=wire_secrets,
                     observe_http_error=observe_http_error,
+                    error_source=error_source,
                 )
                 if on_retry is not None:
                     on_retry()

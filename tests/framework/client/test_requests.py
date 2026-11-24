@@ -425,3 +425,55 @@ def test_sync_request_stop_aborts_blocked_getresponse():
 
     assert raised.value.code == "STOPPED"
     assert elapsed < 5.0
+
+
+def test_sync_request_ok_statuses_returns_result_without_raising():
+    url = "https://lite.duckduckgo.com/lite/"
+    with _patch_https(_response(202, b"<html>challenge</html>", "Accepted")):
+        result = sync_request(
+            url,
+            parse_json=False,
+            timeout=1,
+            include_meta=True,
+            ok_statuses=frozenset({200, 202}),
+        )
+    assert result.status == 202
+    assert result.body == b"<html>challenge</html>"
+
+    with _patch_https(_response(202, b"<html>challenge</html>", "Accepted")):
+        with pytest.raises(NetworkError) as raised:
+            sync_request(url, parse_json=False, timeout=1, include_meta=True)
+    assert raised.value.details["status"] == 202
+
+
+def test_sync_request_http_error_names_origin_not_ai_provider():
+    with _patch_https(_response(500, b"", "Internal Server Error")):
+        with pytest.raises(NetworkError) as raised:
+            sync_request("https://api.example/v1/models", timeout=1)
+    assert "from https://api.example" in str(raised.value)
+    assert "AI Provider" not in str(raised.value)
+
+
+def test_sync_request_fresh_connection_closes_pooled_socket():
+    import socket
+
+    conns = []
+
+    def _factory(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.sock = None
+
+        def _connect():
+            conn.sock = MagicMock(spec=socket.socket)
+
+        conn.connect.side_effect = _connect
+        conn.getresponse.return_value = _response(200, b"ok", "OK")
+        conns.append(conn)
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        sync_request("https://api.example/v1/a", parse_json=False, timeout=1)
+        sync_request("https://api.example/v1/b", parse_json=False, timeout=1, fresh_connection=True)
+
+    assert len(conns) == 2
+    conns[0].close.assert_called_once()
