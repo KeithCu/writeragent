@@ -88,7 +88,8 @@ def test_import_filter_uno_load_component(ctx):
     finally:
         # On Windows, raw close(True) here hangs the next Hidden load (GHA 34619751330),
         # and so does closing while leftover Writers are open (GHA 34646877587);
-        # close_doc skips the close in the second case.
+        # close_doc skips the close when leftovers are open, and with no leftovers it
+        # runs GC, settles, closes, and reactivates the keeper frame.
         TestingFactory.close_doc(doc)
 
 

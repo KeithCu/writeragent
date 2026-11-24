@@ -227,7 +227,15 @@ while leftover `_wa_calc_html` frames remain. `LoadEnv::impl_loadContent` in
 `framework/source/loadenv/loadenv.cxx` creates an unnamed frame for a named
 target miss, so `rich_html.py` now reuses its kept Writer via `_idle_writers`
 instead of a named frame.
-The harness target names recorded in the runs below (`_wa_factory`, `_wa_scalc`, `_wa_sdraw`, `_wa_simpress`, `_wa_notebook`, `_wa_notebook_host`) never matched a frame: `TargetHelper::isValidNameForFrame` (`framework/source/loadenv/targethelper.cxx`) rejects frame names that start with `_`, so each load made a new unnamed frame exactly like `_blank`. The harness loads everything with `_blank`, and the after-bitmap skip depends on `leftover_open == 0`.
+
+The harness target names recorded in this file (`_wa_factory`,
+`_wa_scalc`, `_wa_sdraw`, `_wa_simpress`, `_wa_notebook`,
+`_wa_notebook_host`) never matched a frame:
+`TargetHelper::isValidNameForFrame`
+(`framework/source/loadenv/targethelper.cxx`) rejects frame names that
+start with `_`, so each load made a new unnamed frame exactly like
+`_blank`. The harness loads everything with `_blank`, and the
+after-bitmap skip depends on `leftover_open == 0`.
 
 GHA 34599838644 (`afae5938`, swriter-only named target): Linux PR CI
 34599725706 green. Windows `workflow_dispatch` never reached
@@ -639,7 +647,7 @@ branch: `os=windows-latest`, `ci_debug=true`. Look for
 `-`) and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc),
 `document_research_uno: store budget via active start/done` (no
-`create budget calc` / no leftover `scalc`),
+`create budget calc` / no leftover `scalc` factory load),
 `copied budget for hidden open` then `open_document_for_read done err=-`
 or `windows hidden bitmap` / Hidden-open `TEST end … SKIP` after
 system bitmap (no 30s hang on the next sibling open) **or**

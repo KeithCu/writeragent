@@ -307,6 +307,7 @@ def test_create_native_doc_windows_prepares_before_factory_load(
     assert calls == ["prepare", "prepare"]
     args = desktop.loadComponentFromURL.call_args.args
     assert args[0] == expected_url
+    assert args[1:3] == ("_blank", 0)
 
 
 def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
