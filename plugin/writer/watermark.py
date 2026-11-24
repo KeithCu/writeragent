@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from com.sun.star.frame import XStatusListener
 
-from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.uno_context import create_property_value, execute_dispatch, resolve_uno_context
 from .edit_review import flag_style_unreviewed
@@ -289,10 +289,9 @@ class PageSetWatermark(ToolWriterPageBase):
                 "maximum": 100,
                 "description": "Transparency percentage (0-100). Omit to keep current (default 50).",
             },
-            "color": {
-                "type": "string",
-                "description": "Color as '#rrggbb', 'rgb(...)', or a color name. Omit to keep current (default '#c0c0c0').",
-            },
+            "color": color_param(
+                "Color as '#rrggbb', 'rgb(...)', or a color name. Omit to keep current (default '#c0c0c0')."
+            ),
         },
         "required": ["text"],
     }

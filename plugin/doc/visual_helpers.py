@@ -246,18 +246,24 @@ def _pack_rgb(r: int, g: int, b: int) -> int | None:
     return None
 
 
-def parse_color_to_uno_int(color_val: Any) -> int | None:
-    """Convert hex, named, rgb()/rgba(), int, or RGB tuple/list to a UNO RGB int.
+def color_param(description: str) -> dict[str, Any]:
+    """JSON-schema colour property. The union keeps an RGB integer an integer:
+    coerced to text, 255 would read as the hex shorthand #225555."""
+    return {"type": ["string", "integer"], "description": description}
 
-    Returns ``None`` when *color_val* is falsy or unparseable. Integers are masked
-    to 24-bit RGB. Callers that only accept strings (e.g. Calc ``set_style``) should
-    reject non-strings before calling this.
+
+def parse_color_to_uno_int(color_val: Any) -> int | None:
+    """Convert hex, named, rgb()/rgba(), non-negative int, or RGB tuple/list to a UNO RGB int.
+
+    Returns ``None`` when *color_val* is falsy, negative, or unparseable.
+    Non-negative integers are masked to 24-bit RGB. Negatives are not colours;
+    the style tools handle ``-1`` in ``style_color_to_uno``.
     """
     if isinstance(color_val, bool):
         # bool is a subclass of int; never treat True/False as colors.
         return None
     if isinstance(color_val, int):
-        return color_val & 0xFFFFFF
+        return color_val & 0xFFFFFF if color_val >= 0 else None
     if isinstance(color_val, (tuple, list)) and len(color_val) >= 3:
         try:
             r, g, b = int(color_val[0]), int(color_val[1]), int(color_val[2])

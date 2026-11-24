@@ -813,7 +813,7 @@ class _CalcProxy:
         """
         return _result(call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets))
 
-    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
+    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | int | None = None, font_color: str | int | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | int | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
         """Applies style and formatting to whole cell(s) or range(s). For mixed formatting inside one cell (e.g. one bold word), use insert_html.
 
         Args:
@@ -926,7 +926,7 @@ class _ChartProxy:
         """
         return _result(call_host_tool("chart_list", sheet=sheet, page=page))
 
-    def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str] | None = None, rows: builtins.list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: builtins.list[str] | None = None) -> _Item:
+    def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str] | None = None, rows: builtins.list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | int | None = None, colors: builtins.list[str] | None = None) -> _Item:
         """Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: data_range on Calc, or headers and rows on Writer/Draw/Impress). When name is set, update that chart if it exists. When it does not exist, create a chart with that name if chart_type and a valid data source are provided; otherwise the chart is not found. If the name is wrong but create fields are present, a new chart is created under that name rather than updating an existing chart — verify the name when editing.
 
         Args:
@@ -1047,7 +1047,7 @@ comment = _CommentProxy()
 class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
-    def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | None = None, font_color: str | None = None, bold: bool | None = None) -> _Item:
+    def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | int | None = None, font_color: str | int | None = None, bold: bool | None = None) -> _Item:
         """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
@@ -2048,7 +2048,7 @@ class _PageProxy:
         """
         return _result(call_host_tool("page_set_style_properties", style=style, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, first_is_shared=first_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout))
 
-    def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | None = None) -> _Item:
+    def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | int | None = None) -> _Item:
         """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: LibreOffice turns on the header of every page style and clears the undo history.
 
         Args:
@@ -2339,7 +2339,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_align", page=page, indices=indices, alignment=alignment))
 
-    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None) -> _Item:
+    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | int | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None) -> _Item:
         """Connect two shapes on the same page with a connector. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
@@ -2418,7 +2418,7 @@ class _ShapeProxy:
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
-    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
+    def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | int | None = None, fill_style: str | None = None, line_color: str | int | None = None, line_width: int | None = None, line_start: str | None = None, line_end: str | None = None, text_color: str | int | None = None, font_size: float | None = None, font_name: str | None = None, bold: bool | None = None, italic: bool | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, corner_radius: int | None = None, rotation_angle: float | None = None) -> _Item:
         """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:

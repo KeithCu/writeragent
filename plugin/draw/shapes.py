@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from plugin.calc.base import ToolCalcShapeBase
-from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
+from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, color_param, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import flag_untracked_delete
@@ -591,17 +591,16 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Background/Fill Color
     fill_color_set = False
-    if kwargs.get("fill_color"):
-        color_str = kwargs.get("fill_color")
-        color_str_l = (color_str or "").strip().lower()
-        if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
+    if kwargs.get("fill_color") not in (None, ""):
+        fill_color = kwargs["fill_color"]
+        if isinstance(fill_color, str) and fill_color.strip().lower() in ("none", "transparent") and hasattr(shape, "FillStyle"):
 
             def _clear_fill_color() -> None:
                 shape.setPropertyValue("FillStyle", _drawing_enum("FillStyle", "NONE"))
 
             _try(failed_props, "fill_color", _clear_fill_color)
         else:
-            color = parse_color_to_uno_int(color_str)
+            color = parse_color_to_uno_int(fill_color)
             if color is None:
                 failed_props.append("fill_color")
             else:
@@ -630,7 +629,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "fill_style", _apply_fill_style)
 
     # Line Color
-    if kwargs.get("line_color"):
+    if kwargs.get("line_color") not in (None, ""):
         color = parse_color_to_uno_int(kwargs["line_color"])
         if color is None:
             failed_props.append("line_color")
@@ -642,7 +641,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         _try(failed_props, "line_width", lambda: shape.setPropertyValue("LineWidth", int(kwargs["line_width"])))
 
     # Line Style (ensure border is visible when colored or sized)
-    if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
+    if (kwargs.get("line_color") not in (None, "") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
 
         def _apply_line_style() -> None:
             shape.setPropertyValue("LineStyle", _drawing_enum("LineStyle", "SOLID"))
@@ -660,7 +659,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Character properties (font, size, color, bold, italic)
     if (
-        kwargs.get("text_color")
+        kwargs.get("text_color") not in (None, "")
         or kwargs.get("font_size")
         or kwargs.get("font_name")
         or kwargs.get("bold") is not None
@@ -796,12 +795,12 @@ class UpsertShape(_AnyDocumentShapeTool):
             "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point)"},
             "text": {"type": "string", "description": "Text content"},
-            "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
+            "fill_color": color_param("Fill color. Hex (#FF0000) or name (red)"),
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
-            "line_color": {"type": "string", "description": "Line border color"},
+            "line_color": color_param("Line border color"),
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
             **_ARROWHEAD_PROPERTIES,
-            "text_color": {"type": "string", "description": "Text character color"},
+            "text_color": color_param("Text character color"),
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
             "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
@@ -1047,7 +1046,7 @@ class ConnectShapes(_AnyDocumentShapeTool):
             "start": {"type": ["integer", "string"], "description": "Index or Name of the starting shape."},
             "end": {"type": ["integer", "string"], "description": "Index or Name of the ending shape."},
             "page": DRAW_PAGE_PROPERTY,
-            "line_color": {"type": "string", "description": "Color of the connector line"},
+            "line_color": color_param("Color of the connector line"),
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
             **_ARROWHEAD_PROPERTIES,
         },
@@ -1320,7 +1319,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
                         "y": {"type": "integer"},
                         "width": {"type": "integer"},
                         "height": {"type": "integer"},
-                        "fill_color": {"type": "string"},
+                        "fill_color": color_param("Fill color. Hex (#FF0000) or name (red)"),
                     },
                     "required": ["id", "text"],
                 },
@@ -1332,7 +1331,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
                     "properties": {
                         "from": {"type": "string"},
                         "to": {"type": "string"},
-                        "line_color": {"type": "string"},
+                        "line_color": color_param("Color of the connector line"),
                         **_ARROWHEAD_PROPERTIES,
                     },
                     "required": ["from", "to"],
@@ -1407,7 +1406,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
         for node, box in zip(nodes, boxes):
             x, y, w, h = box
             create_kwargs = {"action": "create", "page": actual_idx, "shape_type": node.get("shape_type") or "rectangle", "x": x, "y": y, "width": w, "height": h, "text": node.get("text") or ""}
-            if node.get("fill_color"):
+            if node.get("fill_color") not in (None, ""):
                 create_kwargs["fill_color"] = node["fill_color"]
             result = _execute_upsert_shape(self, ctx, **create_kwargs)
             if isinstance(result, dict) and result.get("status") != "ok":

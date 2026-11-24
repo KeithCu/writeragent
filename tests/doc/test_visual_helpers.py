@@ -534,6 +534,8 @@ def test_parse_color_to_uno_int_invalid() -> None:
     assert visual_helpers.parse_color_to_uno_int("") is None
     assert visual_helpers.parse_color_to_uno_int("not-a-color") is None
     assert visual_helpers.parse_color_to_uno_int(True) is None
+    assert visual_helpers.parse_color_to_uno_int(-1) is None
+    assert visual_helpers.parse_color_to_uno_int(0x1AABBCC) == 0xAABBCC
     assert visual_helpers.parse_color_to_uno_int((1, 2)) is None
     assert visual_helpers.parse_color_to_uno_int("rgb(300, 0, 0)") is None
 

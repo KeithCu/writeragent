@@ -1352,4 +1352,15 @@ def test_calc_chart_edit_cross_sheet_data_range_from_host_sheet():
     chart_obj.setRanges.assert_called_once_with((addr,))
 
 
+def test_apply_chart_styling_bg_color_zero_black():
+    from plugin.calc.charts import _apply_chart_styling
+
+    bg = MagicMock()
+    chart_doc = MagicMock()
+    chart_doc.getPageBackground.return_value = bg
+    warnings = _apply_chart_styling(chart_doc, bg_color=0)
+    assert warnings == []
+    bg.setPropertyValue.assert_any_call("FillColor", 0)
+
+
 

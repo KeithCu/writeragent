@@ -54,7 +54,7 @@ from plugin.doc.text_helpers import (
     iter_elements_limited,
     record_walk_cap,
 )
-from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
     is_disposal,
     name_miss_details,
@@ -534,9 +534,9 @@ _CONDITIONAL_CONTEXTS = [
 ]
 
 _KNOWN_CHARACTER_PROPERTIES = {
-    "CharColor": {"type": "string", "description": "Main text color (hex string like '#FF0000' or '#0055A4'). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
-    "CharBackColor": {"type": "string", "description": "Background/highlight color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
-    "CharUnderlineColor": {"type": "string", "description": "Underline color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
+    "CharColor": color_param("Main text color (hex string like '#FF0000' or '#0055A4'). Hex, integer, or -1 / automatic / transparent for automatic or no fill."),
+    "CharBackColor": color_param("Background/highlight color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."),
+    "CharUnderlineColor": color_param("Underline color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."),
     "CharWeight": {"type": "number", "description": "Font weight (e.g., 100 for normal, 150 for bold)."},
     "CharHeight": {"type": "number", "description": "Font size in points."},
     "CharFontName": {"type": "string", "description": "Font family name (e.g., 'Arial')."},
@@ -559,7 +559,7 @@ _PARA_PROPERTY_SCHEMA = {
     "ParaRightMargin": {"type": "integer", "description": "Right margin, 1/100 mm."},
     "ParaFirstLineIndent": {"type": "integer", "description": "First line indent, 1/100 mm."},
     "ParaAdjust": enum_param(["left", "center", "right", "justify"], "Paragraph alignment: left, center, right, or justify."),
-    "ParaBackColor": {"type": "string", "description": "Paragraph background color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
+    "ParaBackColor": color_param("Paragraph background color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."),
     "ParaKeepTogether": {"type": "boolean", "description": "Keep lines of the paragraph together."},
     "ParaSplit": {"type": "boolean", "description": "Whether the paragraph is allowed to split across pages."}
 }

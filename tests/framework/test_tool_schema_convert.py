@@ -659,6 +659,8 @@ def test_coerce_enum_leaves_ambiguous_or_short():
         ({"type": "array", "items": {"type": ["integer", "string"]}}, ["3", 255], ["3", 255]),
         ({"type": "array", "items": {"type": "array"}}, "x", ["x"]),
         ({"type": "array", "items": {"type": "array"}}, [["1"]], [["1"]]),
+        ({"type": "array", "items": {"type": "array", "items": {"type": "integer"}}}, [["1"], "x"], [[1], "x"]),
+        ({"type": "array", "items": {"type": "string", "enum": ["print_area", "repeat_rows"]}}, ["Print Area"], ["print_area"]),
         ({"type": "array", "items": {"type": "object"}}, [{"a": "1"}], [{"a": "1"}]),
     ],
 )
@@ -680,3 +682,86 @@ def test_coerce_keeps_array_string_union_literal():
     out = coerce_call_args({"v": prop}, {"v": '["a","b"]'})
     assert out["v"] == '["a","b"]'
     assert isinstance(out["v"], str)
+
+
+def test_coerce_nested_objects_items_and_no_mutation():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    props = {
+        "then_by": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "column": {"type": "integer"},
+                    "ascending": {"type": "boolean"},
+                },
+            },
+        },
+        "connections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "line_end": {"type": "string", "enum": ["none", "arrow"]},
+                },
+            },
+        },
+    }
+    raw_item = {"column": "0", "ascending": "false", "extra": "keep"}
+    raw_then_by = [raw_item, '{"column": "1", "ascending": "true"}']
+    raw_conns = [{"line_end": "Arrow"}]
+    raw = {"then_by": raw_then_by, "connections": raw_conns}
+
+    out = coerce_call_args(props, raw)
+    assert out["then_by"] == [
+        {"column": 0, "ascending": False, "extra": "keep"},
+        {"column": 1, "ascending": True},
+    ]
+    assert type(out["then_by"][0]["column"]) is int
+    assert type(out["then_by"][0]["ascending"]) is bool
+    assert out["connections"] == [{"line_end": "arrow"}]
+    assert raw_item == {"column": "0", "ascending": "false", "extra": "keep"}
+    assert raw_then_by[1] == '{"column": "1", "ascending": "true"}'
+    assert raw_conns == [{"line_end": "Arrow"}]
+
+
+def test_coerce_color_properties_keep_integer():
+    from unittest.mock import MagicMock
+
+    from plugin.framework.tool import ToolRegistry
+    from plugin.framework.tool_schema import coerce_call_args
+
+    registry = ToolRegistry(MagicMock())
+    for pkg in ("plugin.calc", "plugin.draw", "plugin.writer"):
+        registry.auto_discover_package(pkg)
+
+    top_hits = 0
+    nested_hits = 0
+
+    def _walk(props: dict, depth: int) -> None:
+        nonlocal top_hits, nested_hits
+        for name, spec in props.items():
+            if not isinstance(spec, dict):
+                continue
+            if name.casefold().endswith("color"):
+                if depth == 0:
+                    top_hits += 1
+                else:
+                    nested_hits += 1
+                out = coerce_call_args({name: spec}, {name: 255})
+                assert out[name] == 255 and type(out[name]) is int, f"{name} coerced 255 to {out[name]!r}"
+            if isinstance(spec.get("properties"), dict):
+                _walk(spec["properties"], depth + 1)
+            items = spec.get("items")
+            if isinstance(items, dict) and isinstance(items.get("properties"), dict):
+                _walk(items["properties"], depth + 1)
+
+    for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=()):
+        params = tool.parameters if isinstance(tool.parameters, dict) else {}
+        props = params.get("properties")
+        if isinstance(props, dict):
+            _walk(props, 0)
+
+    assert top_hits >= 1
+    assert nested_hits >= 1

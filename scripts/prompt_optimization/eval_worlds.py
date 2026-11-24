@@ -28,7 +28,7 @@ from plugin.calc.manipulator import (
     _values_length_mismatch_message,
     parse_then_by,
 )
-from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.json_utils import parse_html_fragment_list
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -181,11 +181,9 @@ def range_cell_count(rng: str) -> int:
 def normalize_apply_content(content: Any) -> str:
     """Mirror ApplyDocumentContent list/string normalization (apply_document_content.py)."""
     if isinstance(content, str):
-        stripped = content.strip()
-        if stripped.startswith("[") and "<" in stripped:
-            parsed = safe_json_loads(stripped)
-            if isinstance(parsed, list):
-                content = parsed
+        parsed = parse_html_fragment_list(content)
+        if parsed is not None:
+            content = parsed
     if isinstance(content, list):
         content = "\n".join(str(x) for x in content)
     if isinstance(content, str):

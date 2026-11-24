@@ -66,7 +66,7 @@ from plugin.doc.text_helpers import (
     visible_portions,
 )
 from plugin.framework.uno_context import enum_has_more, uno_same
-from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
@@ -646,14 +646,26 @@ class ApplyDocumentContent(ToolBase):
         return raw, None
 
     @staticmethod
-    def _replacement_plain(content: Any) -> str:
-        """Visible text a search replace will insert, for outline-URL substitution."""
+    def _content_text(content: Any) -> tuple[str, str | None]:
+        """Normalize ``content`` (str, list[str], or serialized list) to one string, or ``("", error)``."""
+        if isinstance(content, str):
+            parsed = parse_html_fragment_list(content)
+            if parsed is not None:
+                content = parsed
         if isinstance(content, list):
-            content = "\n".join(str(part) for part in content)
-        text = "" if content is None else str(content)
-        if html_import.content_has_markup(text):
-            return html_import.plain_text_if_markup(text)
-        return html_import_styles.expand_escapes(text)
+            if any(not isinstance(x, str) for x in content):
+                return "", "content list items must be strings."
+            content = "\n".join(content)
+        if not isinstance(content, str):
+            return "", "content must be a string or a list of strings."
+        return content, None
+
+    @staticmethod
+    def _replacement_plain(content: str) -> str:
+        """Visible text a search replace will insert, for outline-URL substitution."""
+        if html_import.content_has_markup(content):
+            return html_import.plain_text_if_markup(content)
+        return html_import_styles.expand_escapes(content)
 
     def _read_outline_snapshot(self, found: Any, log_message: str) -> OutlineSnapshot:
         try:
@@ -985,11 +997,11 @@ class ApplyDocumentContent(ToolBase):
         override_err = self._override_not_replace(override, position)
         if override_err:
             return self._tool_error(override_err, code="INVALID_PARAM")
-        content = kwargs.get("content")
-        if isinstance(content, list):
-            content = "\n".join(str(part) for part in content)
+        content, content_err = self._content_text(kwargs.get("content", ""))
+        if content_err:
+            return self._tool_error(content_err, code="INVALID_PARAM")
         # Empty replacements delete the match without painting a put-back URL.
-        rewrites_outline = position == "replace" and str(content or "").strip() != ""
+        rewrites_outline = position == "replace" and content.strip() != ""
         edit_idx = 0 if occurrence is None else occurrence
 
         old_stripped = str(old_content).strip() if old_content is not None else ""
@@ -1011,7 +1023,7 @@ class ApplyDocumentContent(ToolBase):
 
         @functools.cache
         def _plain() -> str:
-            return self._replacement_plain(kwargs.get("content"))
+            return self._replacement_plain(content)
 
         def _match_snippet(found: Any) -> tuple[str, str]:
             try:
@@ -1315,22 +1327,9 @@ class ApplyDocumentContent(ToolBase):
                 "or use position='replace'.",
                 code="INVALID_PARAM")
 
-        # If the model serialized a list as a JSON string, parse it back so commas/brackets
-        # do not become literal document text.
-        if isinstance(content, str):
-            stripped = content.strip()
-            if stripped.startswith("[") and "<" in stripped:
-                parsed = safe_json_loads(stripped)
-                if isinstance(parsed, list):
-                    content = parsed
-
-        if isinstance(content, list):
-            if any(not isinstance(x, str) for x in content):
-                return self._tool_error("content list items must be strings.", code="INVALID_PARAM")
-            content = "\n".join(content)
-
-        if not isinstance(content, str):
-            return self._tool_error("content must be a string or a list of strings.", code="INVALID_PARAM")
+        content, content_err = self._content_text(content)
+        if content_err:
+            return self._tool_error(content_err, code="INVALID_PARAM")
 
         if target in ("beginning", "end", "selection") and content.strip() == "":
             return self._tool_error("content is empty; nothing was inserted.", code="INVALID_PARAM")

@@ -2506,3 +2506,26 @@ def test_core_calc_schema_defaults_match_runtime(tool_name, base_kwargs):
     assert omitted_res == explicit_res
     assert omitted_insp == explicit_insp
     assert omitted_manip == explicit_manip
+
+
+def test_set_style_integer_colors_and_negative_rejected():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator_cls.return_value.set_cell_style.return_value = {"styled_ranges": ["A1"]}
+        res = _tool("set_style").execute_safe(
+            ctx,
+            range=["A1"],
+            bg_color=255,
+            font_color=0,
+        )
+    assert res["status"] == "ok"
+    call_kw = manipulator_cls.return_value.set_cell_style.call_args.kwargs
+    assert call_kw["bg_color"] == 255
+    assert call_kw["font_color"] == 0
+
+    bad = _tool("set_style").execute_safe(ctx, range=["A1"], border_color=-1)
+    assert bad["status"] == "error"
+    assert bad["code"] == "INVALID_PARAM"
