@@ -913,8 +913,14 @@ def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header
             tool_ctx, style="Standard", region="header", content="<p>Header note</p>"
         )
         assert hdr_res["status"] == "ok", hdr_res
-        assert "style_unreviewed" not in hdr_res
+        assert hdr_res.get("style_unreviewed") is True  # first write turned header on / auto_height
         assert len(doc.getRedlines()) > before_hdr
+
+        hdr_res2 = PageSetHeaderFooterText().execute(
+            tool_ctx, style="Standard", region="header", content="<p>Header note 2</p>"
+        )
+        assert hdr_res2["status"] == "ok", hdr_res2
+        assert "style_unreviewed" not in hdr_res2
 
         para_res = ApplyStyle().execute(
             tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none"
@@ -926,3 +932,45 @@ def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header
         save({_FLAG: prev})
         if len(doc.getRedlines()):
             _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_append_abort_and_restore_uno(ctx, doc):
+    """abort_and_restore on WriterStreamedAppendSession collapses partial text when recording and stays plain when off."""
+    from plugin.writer.edit_review import WriterStreamedAppendSession
+
+    _reset(doc, ctx, "Orig.")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        sess = WriterStreamedAppendSession(doc, cur, "Orig.")
+        sess.append_chunk(" More")
+        sess.abort_and_restore()
+        assert doc.getPropertyValue("RecordChanges") is True
+        assert len(doc.getRedlines()) == 1
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "Orig."
+
+        cur2 = doc.getText().createTextCursor()
+        cur2.gotoStart(False)
+        cur2.gotoEnd(True)
+        sess2 = WriterStreamedAppendSession(doc, cur2, "Orig.")
+        sess2.append_chunk(" Kept")
+        sess2.abort_and_restore()
+        _accept_all(doc, ctx)
+        assert doc.getText().getString() == "Orig. Kept"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _reset(doc, ctx, "Orig.")
+    cur3 = doc.getText().createTextCursor()
+    cur3.gotoStart(False)
+    cur3.gotoEnd(True)
+    sess3 = WriterStreamedAppendSession(doc, cur3, "Orig.")
+    sess3.append_chunk(" Plain")
+    sess3.abort_and_restore()
+    assert len(doc.getRedlines()) == 0
+    assert doc.getText().getString() == "Orig. Plain"

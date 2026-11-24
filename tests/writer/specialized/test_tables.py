@@ -1113,11 +1113,20 @@ def test_table_delete_requires_name():
 # records redlines rather than silently removing the table via removeTextContent.
 
 class _TrackingCell:
-    def __init__(self, cells, name):
-        self._cells, self._name = cells, name
+    def __init__(self, table, cells, name):
+        self._table, self._cells, self._name = table, cells, name
 
     def getString(self):
         return self._cells.get(self._name, "")
+
+    def getEnd(self):
+        return SimpleNamespace(_table=self._table, _cell_name=self._name)
+
+    def createEnumeration(self):
+        text = self.getString()
+        if not text:
+            return FakeEnumeration([])
+        return FakeEnumeration([FakeParagraph(text)])
 
     def createTextCursor(self):
         cells, name = self._cells, self._name
@@ -1130,19 +1139,22 @@ class _TrackingCell:
 
 class _TrackingTable(FakeTable):
     def getCellByName(self, name):
-        return _TrackingCell(self._cells, name)
+        return _TrackingCell(self, self._cells, name)
 
 
 class _TrackingDoc(FakeWriterDoc):
     """RecordChanges on; .uno:DeleteTable behaves like Writer 26.2 (see tables.py)."""
 
-    def __init__(self, tables, *, redlines_per_delete=1, keep_table=True):
+    def __init__(self, tables, *, redlines_per_delete=1, keep_table=True, caret_lands=True):
         super().__init__(tables)
         self.redlines = 0
         self.dispatched = []
         self.selected = []
         self._redlines_per_delete = redlines_per_delete
         self._keep_table = keep_table
+        self._caret_lands = caret_lands
+        self._vc_table = None
+        self._vc_cell_name = None
         self.previous_selection = object()
 
     def getPropertyValue(self, name):
@@ -1150,18 +1162,37 @@ class _TrackingDoc(FakeWriterDoc):
         return True
 
     def getRedlines(self):
-        return SimpleNamespace(getCount=lambda: self.redlines)
+        items = [SimpleNamespace(getPropertyValue=lambda k: "Delete") for _ in range(self.redlines)]
+        return SimpleNamespace(
+            getCount=lambda: self.redlines,
+            createEnumeration=lambda: FakeEnumeration(items),
+        )
+
+    def _select(self, target):
+        self.selected.append(target)
+        if self._caret_lands and hasattr(target, "_table") and hasattr(target, "_cell_name"):
+            self._vc_table = target._table
+            self._vc_cell_name = target._cell_name
+
+    def _get_view_cursor(self):
+        if self._vc_table is None or self._vc_cell_name is None:
+            return SimpleNamespace(TextTable=None, Cell=None)
+        return SimpleNamespace(
+            TextTable=self._vc_table,
+            Cell=SimpleNamespace(CellName=self._vc_cell_name),
+        )
 
     def getCurrentController(self):
         return SimpleNamespace(
             getSelection=lambda: self.previous_selection,
-            select=self.selected.append,
+            select=self._select,
+            getViewCursor=self._get_view_cursor,
             getFrame=lambda: "frame",
         )
 
     def dispatch(self, command):
         self.dispatched.append(command)
-        table = self.selected[-1]
+        table = self._vc_table
         # Writer anchors each empty row with U+200D but records no redline for it.
         for name in table.getCellNames():
             if name.startswith("A") and not table._cells.get(name):
@@ -1231,6 +1262,22 @@ def test_tracked_delete_fails_closed_when_anchor_cleanup_records_nothing():
     res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error"
     assert "left in place" in res["message"]
+
+
+def test_tracked_delete_caret_did_not_land_refuses_without_dispatch():
+    table = _TrackingTable(2, 2, cells={"A1": "Item", "A2": "Other"}, name="T")
+    doc = _TrackingDoc({"T": table}, caret_lands=False)
+    res_table = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res_table["status"] == "error"
+    assert res_table["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+    assert doc.dispatched == []
+
+    res_row = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res_row["status"] == "error"
+    assert res_row["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+    assert doc.dispatched == []
 
 
 def test_record_table_deletions_accepts_a_bare_context():

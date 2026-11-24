@@ -9,18 +9,20 @@ Writer: named text tables (table_list / getCellByName), plus Writer-only cell me
 shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked changes).
 """
 import logging
-from typing import Any
+from typing import Any, Callable
 
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.text_helpers import FAILED, KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
-from plugin.framework.uno_context import resolve_uno_context, uno_same
+from plugin.framework.uno_context import execute_dispatch, resolve_uno_context, uno_same
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
+from plugin.writer.review_scan import scan_redlines
 
 from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
-from ..table_helpers import check_grid, edit_table_band, fill_table_cells, table_dims
+from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     cell_hosted_table_names,
     cell_plain_siblings,
@@ -212,40 +214,101 @@ def _nesting_for(doc: Any, table: Any, name: str) -> dict[str, Any]:
     return _writer_nesting(doc)[0].get(name, _not_nested())
 
 
+def _delete_redline_count(doc: Any) -> int:
+    """Count Delete redlines in *doc*.
+
+    Counting all redlines is unreliable here: deleting inside a pending
+    tracked insertion splits its Insert redline without recording a deletion.
+    """
+    count = 0
+
+    def _on_item(redline: Any) -> bool:
+        nonlocal count
+        if uno_read(lambda: redline.getPropertyValue("RedlineType"), None) == "Delete":
+            count += 1
+        return True
+
+    scan_redlines(doc, _on_item)
+    return count
+
+
+def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
+    """True when a Delete redline was added or all visible text in *cells* became tracked-deleted."""
+    if _delete_redline_count(doc) > before:
+        return True
+    has_raw = False
+    for cell in cells:
+        if uno_read(cell.getString, ""):
+            has_raw = True
+        if uno_read(lambda: get_string_without_tracked_deletions(cell), ""):
+            return False
+    return has_raw
+
+
+def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:
+    """Place the view cursor at the end of *cell_name* and confirm it landed in *name*.*cell_name*."""
+    controller.select(table.getCellByName(cell_name).getEnd())
+    # StopShellTimer flushes the pending shell switch so getViewCursor reflects the table cell.
+    controller.getSelection()
+    vc = controller.getViewCursor()
+    if vc is None:
+        return False
+    vc_table = uno_read(lambda: vc.TextTable, None)
+    vc_cell = uno_read(lambda: vc.Cell, None)
+    if vc_table is None or vc_cell is None:
+        return False
+    return (
+        uno_read(lambda: vc_table.getName(), None) == name
+        and uno_read(lambda: vc_cell.CellName, None) == cell_name
+    )
+
+
 def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
-    Removing the table with removeTextContent while change tracking
-    is on -- the agent's review mode records every edit -- produces
-    no redline. The table vanishes, the user has nothing to review
-    or reject, and tracked changes still pending inside it vanish
-    with it. Neither removeTextContent / dispose nor removing every
-    row is recorded (checked on LibreOffice 26.2: 0 redlines each
-    way). Selecting the table and running .uno:DeleteTable -- the
-    UI's own delete -- is recorded as a tracked deletion; the table
-    stays, struck through, until the change is accepted.
+    Removing a table with removeTextContent while change tracking is on
+    produces no redline. Placing the caret in a non-nested cell and
+    running ``.uno:DeleteTable`` records the deletion; the table stays,
+    struck through, until the change is accepted.
 
-    Empty rows need one more step. Writer records a row deletion as the deletion of the
-    row's text, and for a row with none it inserts a U+200D anchor into the row -- but
-    records no redline for it (26.2, via the API and via .uno:TrackChanges alike). So
-    accepting left the empty rows behind as a table, and an all-empty table recorded
-    nothing. Deleting each such anchor with tracking on gives every row its redline;
-    accepting then removes the whole table. Rejecting keeps the anchor in that empty cell,
-    as LibreOffice's own Delete Table does.
+    The caret is placed in a cell rather than selecting the table object,
+    and its landing is confirmed via the view cursor: ``SwXTextView::select``
+    (``unotxvw.cxx``) ignores ``GotoTable`` failures (e.g. hidden sections),
+    which would otherwise delete whichever table currently held the cursor.
 
-    Fails closed: without a new redline this raises instead of reporting an unreviewable
-    deletion as done.
+    Empty rows get a U+200D anchor from Writer without a redline; clearing
+    each anchor with tracking on gives every row its Delete redline so
+    accepting removes the whole table.
+
+    Fails closed: if the caret cannot land or no deletion is recorded, this
+    raises instead of reporting an unreviewable deletion as done.
     """
     controller = doc.getCurrentController()
     if controller is None:
         raise RuntimeError("no document view to delete the table through")
-    empty_cells = [n for n in table.getCellNames() if not table.getCellByName(n).getString()]
-    before = doc.getRedlines().getCount()
+    cell_names = list(table.getCellNames() or ())
+    cells = [table.getCellByName(n) for n in cell_names]
+    empty_cells = [n for n, c in zip(cell_names, cells) if not c.getString()]
+    target_cell = next(
+        (n for n, c in zip(cell_names, cells) if not cell_hosted_table_names(c)),
+        None,
+    )
+    if target_cell is None:
+        raise ToolExecutionError(
+            "LibreOffice could not place the cursor in table '%s' (it may be hidden), "
+            "so deleting it cannot be recorded; it was left in place." % name,
+            code="TABLE_DELETE_NOT_TRACKABLE",
+        )
+    before = _delete_redline_count(doc)
     # Leave the user's cursor where it was around the table selection and dispatch.
     with KeepViewSelection(controller):
-        controller.select(table)
-        helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
-        helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
+        if not _place_caret_in_cell(controller, table, name, target_cell):
+            raise ToolExecutionError(
+                "LibreOffice could not place the cursor in table '%s' (it may be hidden), "
+                "so deleting it cannot be recorded; it was left in place." % name,
+                code="TABLE_DELETE_NOT_TRACKABLE",
+            )
+        execute_dispatch(uno_ctx, controller, ".uno:DeleteTable")
         try:
             for cell_name in empty_cells:
                 cell = table.getCellByName(cell_name)
@@ -259,11 +322,60 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
                 raise
             log.debug("table_delete: could not clear an empty-row anchor", exc_info=True)
 
-    if doc.getRedlines().getCount() > before:
+    if _deletion_recorded(doc, before, cells):
         return
     if doc.getTextTables().hasByName(name):
         raise RuntimeError("the tracked delete did not run, so the table was left in place")
     raise RuntimeError("the table was removed but no tracked change was recorded")
+
+
+def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: str, idx: int) -> None:
+    """Delete one Writer row or column as a tracked change via ``.uno:DeleteRows`` / ``.uno:DeleteColumns``."""
+    band = table.getRows() if axis == "row" else table.getColumns()
+    check_table_band(band, "delete", idx, axis)
+    band_names: list[str] = []
+    target_cell: str | None = None
+    for cell_name in _writer_named_cells(table):
+        pos = writer_cell_position(cell_name)
+        if pos is None:
+            continue
+        col_idx, row_idx = pos
+        if (row_idx == idx) if axis == "row" else (col_idx == idx):
+            band_names.append(cell_name)
+        if (axis == "row" and col_idx == 0 and row_idx == idx) or (
+            axis == "column" and col_idx == idx and row_idx == 0
+        ):
+            target_cell = cell_name
+    if target_cell is None:
+        raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+
+    err_msg = (
+        "LibreOffice did not record deleting this %s as a tracked change, so it was left in place. "
+        "If the table or its text is a pending tracked insertion, the user must accept or reject that first."
+        % axis
+    )
+    controller = doc.getCurrentController()
+    if controller is None:
+        raise ToolExecutionError(err_msg, code="TABLE_DELETE_NOT_TRACKABLE")
+
+    band_cells = [table.getCellByName(n) for n in band_names]
+    before = _delete_redline_count(doc)
+    cmd = ".uno:DeleteRows" if axis == "row" else ".uno:DeleteColumns"
+    with KeepViewSelection(controller):
+        if not _place_caret_in_cell(controller, table, name, target_cell):
+            raise ToolExecutionError(err_msg, code="TABLE_DELETE_NOT_TRACKABLE")
+        execute_dispatch(uno_ctx, controller, cmd)
+
+    if not _deletion_recorded(doc, before, band_cells):
+        raise ToolExecutionError(err_msg, code="TABLE_DELETE_NOT_TRACKABLE")
+
+
+def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
+    """Run a Writer delete with optional review inside an undo rollback guard."""
+    # UndoStepOrRollback must stay outside the review session because undo cannot run
+    # while the session's undo context is still open.
+    with UndoStepOrRollback(doc, title):
+        return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
 
 
 def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
@@ -570,7 +682,8 @@ class ManageTableStructure(ToolWriterTableBase):
         "Insert or delete one table row or column. "
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
-        "Writer: refuses delete if the row/column hosts a nested table (that would destroy it)."
+        "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
+        "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
     parameters: dict[str, Any] | None = {
@@ -628,9 +741,32 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
-            edit_table_band(band, action, idx, axis_arg)
+            if insert:
+                edit_table_band(band, action, idx, axis_arg)
+                tracked = False
+            else:
+                uno_ctx = resolve_uno_context(ctx)
+
+                def _apply() -> bool:
+                    if uno_read(lambda: is_recording_changes(ctx.doc), False):
+                        _delete_band_tracked(ctx.doc, uno_ctx, table, name, axis_arg, idx)
+                        return True
+                    edit_table_band(band, action, idx, axis_arg)
+                    return False
+
+                tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))
             rows, cols = table_dims(table)
-            return {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
+            result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
+            if tracked:
+                label = "Row" if axis_arg == "row" else "Column"
+                result["tracked"] = True
+                result["pending_review"] = True
+                result["message"] = (
+                    "%s marked for deletion as a tracked change: it stays in the table, "
+                    "so later indexes do not shift, until the user accepts. Do not accept or reject it yourself."
+                    % label
+                )
+            return result
         except ValueError as ve:
             return self._tool_error(str(ve))
 
@@ -914,7 +1050,7 @@ class TableDelete(ToolWriterTableBase):
                 # be recorded, not silently applied.
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
 
-            tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply))
+            tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply))
             if tracked:
                 return {
                     "status": "ok",

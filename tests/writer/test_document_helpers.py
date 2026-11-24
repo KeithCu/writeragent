@@ -302,6 +302,19 @@ def test_writer_streamed_rewrite_session_empty_finish_fallback_when_undo_fails()
     assert doc.getPropertyValue("RecordChanges") is True
 
 
+def test_writer_streamed_append_session_abort_collapses_when_recording():
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    text_range.text = "Orig."
+    session = WriterStreamedAppendSession(doc, text_range, "Orig.")
+    session.append_chunk(" More")
+    with pytest.MonkeyPatch.context() as mp:
+        called = []
+        mp.setattr(session, "finish", lambda: called.append(True) or None)
+        session.abort_and_restore()
+    assert called == [True]
+
+
 def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
     """Whitespace the model sent is a real rewrite, not an empty result."""
     doc = _MockDoc(recording=True)

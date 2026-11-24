@@ -12,7 +12,7 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
-from plugin.writer.images.images import ImageDelete, ImageGetInfo, ImageList
+from plugin.writer.images.images import ImageDelete, ImageGetInfo, ImageInsert, ImageList
 from plugin.draw.shapes import DeleteShape
 from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
@@ -136,3 +136,98 @@ def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
             pass
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_image_insert_and_delete_tracked_uno(ctx, doc):
+    """Embedded image_insert records an Insert redline (Reject removes, Undo/Redo exact); Record mode tags comments."""
+    import shutil
+    import tempfile
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+
+    logo = _logo_path()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_logo = os.path.join(tmpdir, "logo.png")
+        shutil.copyfile(logo, tmp_logo)
+        tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        text = doc.getText()
+
+        # Body middle, empty paragraph, header, and table cell while recording
+        text.setString("BeforeAfter\n\n")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(6, False)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            g_mid = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur)
+            assert g_mid is not None
+            assert doc.getRedlines().getCount() == 1
+            assert "x" not in text.getString()
+
+            um = doc.getUndoManager()
+            um.undo()
+            assert doc.getRedlines().getCount() == 0
+            assert text.getString() == "BeforeAfter\n\n"
+            um.redo()
+            assert doc.getRedlines().getCount() == 1
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert text.getString() == "BeforeAfter\n\n"
+            assert doc.getGraphicObjects().getCount() == 0
+
+            # Empty paragraph insert
+            cur_empty = text.createTextCursor()
+            cur_empty.gotoEnd(False)
+            g_emp = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur_empty)
+            assert g_emp is not None
+            assert doc.getRedlines().getCount() == 1
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 0
+
+            # Header insert
+            res_hdr = ImageInsert().execute(
+                tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            )
+            assert res_hdr["status"] == "ok", res_hdr
+            assert res_hdr.get("style_unreviewed") is True
+            assert doc.getRedlines().getCount() >= 1
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+
+            # Cell insert (via view cursor, matching ImageInsert at cursor)
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getEnd(), tbl, False)
+            cell = tbl.getCellByName("A1")
+            doc.getCurrentController().getViewCursor().gotoRange(cell.getEnd(), False)
+            g_cell = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10)
+            assert g_cell is not None
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        # Record mode: image_insert and image_delete carry wa-review: comments
+        prev = get_config("doc.agent_edit_review_mode")
+        save({"doc.agent_edit_review_mode": "record"})
+        try:
+            res_ins = ImageInsert().execute(
+                tctx, path=tmp_logo, target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            )
+            assert res_ins["status"] == "ok" and res_ins.get("pending_review") is True
+            comments = [
+                doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+                for i in range(doc.getRedlines().getCount())
+            ]
+            assert any("wa-review:" in c for c in comments), comments
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+
+            res_del = ImageDelete().execute(tctx, name=res_ins["image_name"])
+            assert res_del["status"] == "ok" and res_del.get("tracked") is True
+            comments_del = [
+                doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+                for i in range(doc.getRedlines().getCount())
+            ]
+            assert any("wa-review:" in c for c in comments_del), comments_del
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        finally:
+            save({"doc.agent_edit_review_mode": prev})

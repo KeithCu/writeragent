@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.writer.edit_review import flag_untracked_delete
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -1426,4 +1427,6 @@ class DeleteShape(_AnyDocumentShapeTool):
                 raise
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
-        return {"status": "ok", "message": "Shape deleted", "page": actual_idx}
+        result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
+        flag_untracked_delete(result, ctx.doc, "shape")
+        return result

@@ -29,9 +29,9 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.doc.text_helpers import KeepViewSelection, iter_elements_limited
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
-from plugin.writer.inline_review import agent_self_resolution_block_reason, execute_dispatch
+from plugin.writer.inline_review import agent_self_resolution_block_reason
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
 from .specialized_base import WriterAgentSpecialTracking, enum_param

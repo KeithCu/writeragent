@@ -195,6 +195,7 @@ class TestWriterImageCursorConversion:
 
         model = MagicMock()
         model.getText.return_value = doc_text
+        model.getPropertyValue.return_value = False
         model.CurrentController = MagicMock()
         model.CurrentController.ViewCursor = view_cursor
         model.createInstance.return_value = create_result
@@ -1111,3 +1112,47 @@ def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none():
     mock_get_ctx.assert_called_once()
     gp.storeGraphic.assert_called_once()
     assert isinstance(data, bytes)
+
+
+def test_insert_content_cleans_up_placeholders_when_insert_raises():
+    model = MagicMock()
+    model.getPropertyValue.return_value = True
+    host = MagicMock()
+    span = MagicMock(name="span")
+    middle = MagicMock(name="middle")
+    tail = MagicMock(name="tail")
+    head = MagicMock(name="head")
+    host.createTextCursorByRange.side_effect = [span, middle, tail, head]
+    host.insertTextContent.side_effect = RuntimeError("insert boom")
+    cursor = MagicMock()
+
+    with pytest.raises(RuntimeError, match="insert boom"):
+        image_tools._insert_content(model, host, cursor, MagicMock())
+
+    host.insertString.assert_called_once_with(span, "xx", True)
+    tail.setString.assert_called_once_with("")
+    head.setString.assert_called_once_with("")
+
+
+def test_insert_image_into_header_footer_reports_layout_changed():
+    style = MagicMock()
+    props = {"HeaderIsOn": False, "HeaderIsDynamicHeight": False, "HeaderText": MagicMock()}
+
+    def get_prop(name):
+        return props[name]
+
+    def set_prop(name, val):
+        props[name] = val
+
+    style.getPropertyValue.side_effect = get_prop
+    style.setPropertyValue.side_effect = set_prop
+    style.getName.return_value = "Standard"
+    model = MagicMock()
+    with (
+        patch("plugin.writer.page.resolve_page_style", return_value=style),
+        patch("plugin.writer.images.image_tools._insert_embedded_at_writer_cursor", return_value=MagicMock()),
+    ):
+        first = image_tools.insert_image_into_header_footer(model, "/tmp/logo.png", "header")
+        second = image_tools.insert_image_into_header_footer(model, "/tmp/logo.png", "header")
+    assert first["layout_changed"] is True
+    assert second["layout_changed"] is False

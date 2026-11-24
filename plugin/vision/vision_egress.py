@@ -12,6 +12,7 @@ from typing import Any, Literal
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import execute_dispatch
 from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after_insert, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
@@ -111,9 +112,7 @@ def _dispatch_escape(controller: Any, ctx: Any) -> None:
     try:
         frame = controller.getFrame()
         if frame is not None and ctx is not None:
-            smgr = ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-            dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
+            execute_dispatch(ctx, controller, ".uno:Escape")
     except Exception as ex:
         reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: escape dispatch failed: %s", ex)

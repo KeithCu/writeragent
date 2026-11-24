@@ -31,9 +31,8 @@ from com.sun.star.frame import XStatusListener
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposal, uno_read
-from plugin.framework.uno_context import create_property_value, resolve_uno_context
+from plugin.framework.uno_context import create_property_value, execute_dispatch, resolve_uno_context
 from .edit_review import flag_style_unreviewed
-from .inline_review import execute_dispatch
 from .search import iter_draw_shapes
 from .specialized_base import ToolWriterPageBase
 

@@ -396,3 +396,212 @@ def test_table_split_cell_rows_and_unmerge_uno(ctx, doc):
     assert len(unmerged["cell_names"]) == 6
     cells2 = TableGetCells().execute(tool_ctx, name="Unmerge")
     assert cells2["cells"]["A3"] == ""
+
+
+def _accept_all_tables(doc, ctx):
+    from plugin.framework.uno_context import execute_dispatch
+
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+
+
+def _reject_all_tables(doc, ctx):
+    from plugin.framework.uno_context import execute_dispatch
+
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
+    """Row and column deletes while recording are tracked across full, empty, mixed, and colspan tables."""
+    from plugin.framework.config import get_config, save
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+
+    for case_idx, (axis, cells_init, idx) in enumerate([
+        ("row", {"A1": "r0a", "B1": "r0b", "A2": "r1a", "B2": "r1b"}, 0),
+        ("row", {"A1": "r0a", "B1": "r0b"}, 1),  # empty row
+        ("row", {"A1": "r0a", "A2": "r1a"}, 0),  # mixed (col B empty)
+        ("column", {"A1": "c0r0", "B1": "c1r0", "A2": "c0r1", "B2": "c1r1"}, 1),
+        ("column", {"A1": "c0r0", "A2": "c0r1"}, 1),  # empty col
+    ]):
+        doc.getText().setString("")
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(2, 2)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.setName(f"Band{case_idx}")
+        for k, v in cells_init.items():
+            tbl.getCellByName(k).setString(v)
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = ManageTableStructure().execute(
+                tool_ctx, action="delete", axis=axis, name=f"Band{case_idx}", index=idx
+            )
+            assert res["status"] == "ok", (axis, idx, res)
+            assert res["tracked"] is True and res["pending_review"] is True
+            assert doc.getRedlines().getCount() > 0
+
+            _reject_all_tables(doc, ctx)
+            assert doc.getRedlines().getCount() == 0
+            assert tbl.getRows().getCount() == 2 and tbl.getColumns().getCount() == 2
+            for k, v in cells_init.items():
+                assert tbl.getCellByName(k).getString() == v
+
+            res2 = ManageTableStructure().execute(
+                tool_ctx, action="delete", axis=axis, name=f"Band{case_idx}", index=idx
+            )
+            assert res2["status"] == "ok", res2
+            _accept_all_tables(doc, ctx)
+            assert doc.getRedlines().getCount() == 0
+            if axis == "row":
+                assert tbl.getRows().getCount() == 1
+            else:
+                assert tbl.getColumns().getCount() == 1
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    # Colspan column delete
+    doc.getText().setString("")
+    colspan_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    colspan_tbl.initialize(2, 3)
+    text.insertTextContent(text.getEnd(), colspan_tbl, False)
+    colspan_tbl.setName("ColspanTbl")
+    for n in colspan_tbl.getCellNames():
+        colspan_tbl.getCellByName(n).setString(n)
+    TableMergeCells().execute(tool_ctx, name="ColspanTbl", cell_range="A1:B1")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_cs = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="column", name="ColspanTbl", index=0
+        )
+        assert res_cs["status"] == "ok", res_cs
+        assert res_cs["tracked"] is True
+        _accept_all_tables(doc, ctx)
+        assert colspan_tbl.getColumns().getCount() == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Record mode restores RecordChanges=False
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        doc.getText().setString("")
+        rec_tbl = doc.createInstance("com.sun.star.text.TextTable")
+        rec_tbl.initialize(2, 2)
+        text.insertTextContent(text.getEnd(), rec_tbl, False)
+        rec_tbl.setName("RecTbl")
+        rec_tbl.getCellByName("A1").setString("keep")
+        rec_tbl.getCellByName("A2").setString("drop")
+        assert doc.getPropertyValue("RecordChanges") is False
+        res_rec = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="RecTbl", index=1
+        )
+        assert res_rec["status"] == "ok", res_rec
+        assert res_rec["tracked"] is True
+        assert doc.getPropertyValue("RecordChanges") is False
+        _accept_all_tables(doc, ctx)
+        assert rec_tbl.getRows().getCount() == 1
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
+    """Pending-insertion refusal, hidden-section refusal, and A1-nested table_delete."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+
+    # 1. Row whose text is a pending insertion -> error, text and redlines unchanged
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.setName("PendingText")
+    tbl.getCellByName("A1").setString("stay")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tbl.getCellByName("A2").setString("user_ins")
+        before_rl = doc.getRedlines().getCount()
+        err = ManageTableStructure().execute_safe(
+            tool_ctx, action="delete", axis="row", name="PendingText", index=1
+        )
+        assert err["status"] == "error" and err["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+        assert tbl.getCellByName("A2").getString() == "user_ins"
+        assert doc.getRedlines().getCount() == before_rl
+        _accept_all_tables(doc, ctx)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 2. Pending inserted table -> both band delete and table_delete fail and keep text
+    doc.getText().setString("")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ptbl = doc.createInstance("com.sun.star.text.TextTable")
+        ptbl.initialize(2, 2)
+        text.insertTextContent(text.getEnd(), ptbl, False)
+        ptbl.setName("PendingTbl")
+        ptbl.getCellByName("A1").setString("p1")
+        ptbl.getCellByName("A2").setString("p2")
+        before_rl = doc.getRedlines().getCount()
+        err_band = ManageTableStructure().execute_safe(
+            tool_ctx, action="delete", axis="row", name="PendingTbl", index=0
+        )
+        assert err_band["status"] == "error" and err_band["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+        assert ptbl.getCellByName("A1").getString() == "p1"
+        err_tbl = TableDelete().execute_safe(tool_ctx, name="PendingTbl")
+        assert err_tbl["status"] == "error"
+        assert ptbl.getCellByName("A1").getString() == "p1"
+        assert ptbl.getCellByName("A2").getString() == "p2"
+        _accept_all_tables(doc, ctx)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 3. Hidden section table + visible other table -> error, other table untouched, 0 redlines
+    doc.getText().setString("")
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setPropertyValue("IsVisible", False)
+    text.insertTextContent(text.getEnd(), sec, False)
+    hidden_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    hidden_tbl.initialize(1, 1)
+    sec_cur = sec.getAnchor().getText().createTextCursorByRange(sec.getAnchor().getStart())
+    sec.getAnchor().getText().insertTextContent(sec_cur, hidden_tbl, False)
+    hidden_tbl.setName("HiddenTbl")
+    hidden_tbl.getCellByName("A1").setString("hidden")
+
+    vis_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    vis_tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), vis_tbl, False)
+    vis_tbl.setName("VisibleTbl")
+    vis_tbl.getCellByName("A1").setString("keep me")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        err_hid = TableDelete().execute_safe(tool_ctx, name="HiddenTbl")
+        assert err_hid["status"] == "error" and err_hid["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+        assert doc.getRedlines().getCount() == 0
+        assert vis_tbl.getCellByName("A1").getString() == "keep me"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 4. Outer table whose A1 starts with a nested table -> outer table goes on Accept
+    doc.getText().setString("")
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("OuterA1")
+    a1 = outer.getCellByName("A1")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    a1.insertTextContent(a1.getStart(), inner, False)
+    inner.setName("InnerA1")
+    outer.getCellByName("B1").setString("outer_b1")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_outer = TableDelete().execute(tool_ctx, name="OuterA1")
+        assert del_outer["status"] == "ok" and del_outer["pending_review"] is True
+        _accept_all_tables(doc, ctx)
+        assert not doc.getTextTables().hasByName("OuterA1")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

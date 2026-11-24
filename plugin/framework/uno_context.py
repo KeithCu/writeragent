@@ -711,3 +711,16 @@ def property_arg(args: Any, name: str) -> Any:
         if hasattr(pv, "Name") and pv.Name == name:
             return pv.Value
     return None
+
+
+def execute_dispatch(ctx: Any, controller: Any, command: str, args: tuple[Any, ...] = ()) -> Any:
+    """Run one ``.uno:`` command on the controller's frame through DispatchHelper and return its result.
+
+    ``args`` is a tuple of ``com.sun.star.beans.PropertyValue`` passed to ``executeDispatch``.
+    Returns an empty Any (None) when no dispatcher handled it
+    (``framework/source/services/dispatchhelper.cxx DispatchHelper::executeDispatch``).
+    ``tracking_manage`` reads that on Calc.
+    """
+    return _create_service(ctx, "com.sun.star.frame.DispatchHelper").executeDispatch(
+        controller.getFrame(), command, "", 0, args
+    )

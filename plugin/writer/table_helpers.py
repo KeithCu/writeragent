@@ -9,6 +9,7 @@ Public surface:
 - ``check_grid``: Validate row/column counts for a 2D grid write.
 - ``fill_table_cells``: Validate and write a 2D grid into a table by column and row coordinates.
 - ``table_dims``: Return (rows, cols) dimensions of a table.
+- ``check_table_band``: Validate row/column index and last-member guard for band edits.
 - ``edit_table_band``: Insert or remove rows/columns on a table band.
 """
 
@@ -19,6 +20,7 @@ from typing import Any
 __all__ = [
     "set_cell_string",
     "check_grid",
+    "check_table_band",
     "edit_table_band",
     "fill_table_cells",
     "table_dims",
@@ -74,17 +76,24 @@ def table_dims(table: Any) -> tuple[int, int]:
     return int(table.getRows().getCount()), int(table.getColumns().getCount())
 
 
-def edit_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
-    """Insert or remove one row/column from a table's XTableRows or XTableColumns band."""
+def check_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
+    """Validate *idx* and last-member rules for inserting or deleting on *band*."""
     axis = "rows" if axis_label == "row" else "columns"
     count = int(band.getCount())
     if action == "insert":
         if idx > count:
             raise ValueError("index %d out of range (table has %d %s; use 0..%d)." % (idx, count, axis, count))
-        band.insertByIndex(idx, 1)
     else:
         if idx >= count:
             raise ValueError("index %d out of range (table has %d %s; use 0..%d)." % (idx, count, axis, count - 1))
         if count <= 1:
             raise ValueError("Cannot remove the last %s of a table." % axis[:-1])
+
+
+def edit_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
+    """Insert or remove one row/column from a table's XTableRows or XTableColumns band."""
+    check_table_band(band, action, idx, axis_label)
+    if action == "insert":
+        band.insertByIndex(idx, 1)
+    else:
         band.removeByIndex(idx, 1)
