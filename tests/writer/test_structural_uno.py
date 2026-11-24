@@ -284,7 +284,7 @@ def _red_pixel_count(ctx: Any, png: bytes) -> int:
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     """page_get_objects, image_get, nav_goto_page, and page:N locators all use 0-based pages."""
     from com.sun.star.awt import Point, Size
@@ -320,35 +320,38 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     obj0 = GetPageObjects().execute(tool_ctx, page=0)
     assert obj0.get("status") == "ok", obj0
     assert obj0.get("page") == 0, obj0
-    assert {s.get("name") for s in obj0.get("shapes") or []} == {"RedBox"}, obj0
+    assert [s.get("name") for s in obj0.get("shapes") or []] == ["RedBox"], obj0
 
     obj1 = GetPageObjects().execute(tool_ctx, page=1)
     assert obj1.get("status") == "ok", obj1
     assert obj1.get("page") == 1, obj1
-    assert obj1.get("shapes") == []
+    assert obj1.get("shapes") == [], obj1
 
     def _red_pixels(page_idx: int) -> int:
         res = GetImage().execute(tool_ctx, page=page_idx)
         assert res.get("status") == "ok", res
         return _red_pixel_count(ctx, base64.b64decode(res["_mcp_image"]["data"]))
 
-    assert _red_pixels(0) > 100
-    assert _red_pixels(1) == 0
+    red0 = _red_pixels(0)
+    assert red0 > 100, f"expected >100 red pixels on page 0, got {red0}"
+    red1 = _red_pixels(1)
+    assert red1 == 0, f"expected 0 red pixels on page 1, got {red1}"
 
     nav0 = NavGotoPage().execute(tool_ctx, page=0)
-    assert nav0 == {"status": "ok", "page": 0}
+    assert nav0 == {"status": "ok", "page": 0}, nav0
     vc = doc.getCurrentController().getViewCursor()
-    assert vc.getPage() == 1
+    assert vc.getPage() == 1, vc.getPage()
     nav_bad = NavGotoPage().execute(tool_ctx, page=2)
-    assert nav_bad.get("status") == "error"
-    assert "2 page(s)" in nav_bad.get("message", "")
-    assert vc.getPage() == 1
+    assert nav_bad.get("status") == "error", nav_bad
+    assert "2 page(s)" in nav_bad.get("message", ""), nav_bad
+    assert vc.getPage() == 1, vc.getPage()
 
     obj_bad = GetPageObjects().execute(tool_ctx, page=2)
-    assert obj_bad.get("status") == "error"
-    assert "2 page(s)" in obj_bad.get("message", "")
+    assert obj_bad.get("status") == "error", obj_bad
+    assert "2 page(s)" in obj_bad.get("message", ""), obj_bad
 
-    assert resolve_locator(doc, "page:1")["para_index"] == 1
+    loc1 = resolve_locator(doc, "page:1")
+    assert loc1["para_index"] == 1, loc1
     with unittest.TestCase().assertRaisesRegex(ToolExecutionError, r"2 page\(s\)"):
         resolve_locator(doc, "page:2")
 
