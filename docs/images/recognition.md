@@ -150,9 +150,9 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Related Settings key | Role |
 |---------------------|------|
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
-| `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). Hidden key `vision.worker_timeout_sec` still allows per-vision override. |
+| `scripting.python_exec_timeout` | User script limit only — Docling's budget is 300 s, or `document_timeout` + 60 s when that is larger (capped at 600); Paddle uses 120 s (see `scripting/client.py`). Hidden key `vision.worker_timeout_sec` still allows per-vision override. |
 
-At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout grows to `document_timeout` + 60 s (capped at 600) for Docling, and honors hidden key `vision.worker_timeout_sec` when set (explicit `worker_timeout_sec` wins; [`run_vision`](../../plugin/scripting/client.py)).
+At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Docling's budget is 300 s, or `document_timeout` + 60 s when that is larger (capped at 600), and honors hidden key `vision.worker_timeout_sec` when set (explicit `worker_timeout_sec` wins; [`run_vision`](../../plugin/scripting/client.py)).
 
 Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py); live preview job: [`vision_preview.py`](../../plugin/vision/vision_preview.py).
 
@@ -674,7 +674,7 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
-Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a later image fails: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, `individual_results`, and `deleted_images` (present on ok, partial, and error dicts only when at least one image was deleted after insert). The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, `inserted`, and `deleted_images` (when present) into `details`.
+Host multi-image OCR (`run_and_insert_vision_for_selection`) keeps going after a later image fails: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. `deleted_images` (names) is on ok and error results, only when at least one image was deleted after insert. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, `inserted`, and `deleted_images` (when present) into `details`.
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 
@@ -766,7 +766,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 | Success (Writer/Calc) | Insert **`html`** after each Writer graphic or cell below Calc anchor; status — *Inserted formatted HTML* |
 | HTML looks like plain body text | Check log for `insert_vision_result:`; redeploy extension; confirm `css-inline` in venv. Headings need post-inline augment (see [§10 HTML pipeline](#html-insert-pipeline-and-expectations)) |
 | Success (Calc) | Multi-cell report below anchor; status — *Wrote N rows* |
-| Timeout | Docling/Paddle use the long trusted budget (with paddle slightly lower); user `python_exec_timeout` unchanged. See scripting client resolver. |
+| Timeout | Docling's budget is 300 s, or `document_timeout` + 60 s when that is larger (capped at 600); Paddle uses 120 s. User `python_exec_timeout` unchanged. See [`run_vision`](../../plugin/scripting/client.py) / §2.5. |
 | Insert fails with “no text selection” while image is selected | Rare with current builds; report if `prepare_vision_writer_insert` raises before insert. |
 | OCR text inserted but image vanished | StarWriter HTML import at the graphic anchor can replace the image. Fixed: model-level paragraph break after the anchor, then collapse the view cursor before `insert_html_at_cursor`. |
 | Range selection deleted intervening text | Insert must not run while a multi-character selection is active. Fixed: discover graphic names first, collapse selection, insert by name after each graphic. |

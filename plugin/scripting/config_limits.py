@@ -34,16 +34,18 @@ VENV_IPC_WRITE_TIMEOUT_SEC = 10
 HOST_IPC_READ_GRACE_SEC = 2.0
 
 # Opt-in wall clock for helpers that call long_trusted_worker_timeout_sec():
-# SymPy (run_symbolic), spaCy (run_text_analytics), Docling vision, and
+# SymPy (run_symbolic), spaCy (run_text_analytics), Docling vision (floor;
+# grows with vision.document_timeout in client._resolve_vision_timeout_sec), and
 # embeddings / langdetect (via embeddings_worker_timeout_sec). There is no
 # prefix list. Paddle uses VISION_WORKER_TIMEOUT_SEC. LanguageTool and Vale
 # use their own constants below. Bypasses scripting.python_exec_timeout.
 LONG_TRUSTED_WORKER_TIMEOUT_SEC = 300
 
-# Paddle budget. Docling uses the long budget above (same 300s as the
-# vision.worker_timeout_sec schema default). client._resolve_vision_timeout_sec
-# treats that default as the engine budget; any other positive value overrides
-# both engines.
+# Paddle budget. Docling's budget is at least the long budget above (same 300s
+# as the vision.worker_timeout_sec schema default) and grows with
+# vision.document_timeout (see client._resolve_vision_timeout_sec).
+# client._resolve_vision_timeout_sec treats that default as the engine budget;
+# any other positive value overrides both engines.
 VISION_WORKER_TIMEOUT_SEC = 120
 DOCLING_WORKER_TIMEOUT_SEC = 300
 # Room for Docling import, model load and result mapping on top of

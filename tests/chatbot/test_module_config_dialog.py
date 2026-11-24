@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.module_config_dialog import (
     ModuleConfigDialog,
     get_module_config_dialog_id,
@@ -564,30 +566,33 @@ def test_close_during_run_job_cancels_and_drops_status():
     assert lbl_status.setText.call_args_list[-1].args == ("Running…",)
 
 
-def test_preview_text_result_clears_pane():
+@pytest.mark.parametrize(
+    ("outcome", "is_error", "expected_status"),
+    [
+        ("No text detected.", False, "No text detected."),
+        ("Select an image", True, "Select an image"),
+    ],
+)
+def test_preview_text_result_clears_pane(outcome, is_error, expected_status):
     from plugin.framework.errors import ToolExecutionError
 
-    for outcome_or_exc, expected_status in (
-        ("No text detected.", "No text detected."),
-        (ToolExecutionError("Select an image", code="NO_IMAGE_SELECTED"), "Select an image"),
+    def job(_ctx, _values, _cancel, _report):
+        if is_error:
+            raise ToolExecutionError(outcome, code="NO_IMAGE_SELECTED")
+        return outcome
+
+    dialog = _make_preview_dialog(job=job)
+    lbl_status = MagicMock()
+    with (
+        patch(
+            "plugin.chatbot.module_config_dialog.get_optional",
+            side_effect=lambda dlg, name: {"lbl_preview_status": lbl_status}.get(name),
+        ),
+        patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
+        patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
     ):
-        def job(_ctx, _values, _cancel, _report, _v=outcome_or_exc):
-            if isinstance(_v, Exception):
-                raise _v
-            return _v
+        dialog._start_job(dialog._preview_job, "preview")
 
-        dialog = _make_preview_dialog(job=job)
-        lbl_status = MagicMock()
-        with (
-            patch(
-                "plugin.chatbot.module_config_dialog.get_optional",
-                side_effect=lambda dlg, name: {"lbl_preview_status": lbl_status}.get(name),
-            ),
-            patch("plugin.chatbot.module_config_dialog.run_in_background", side_effect=lambda fn, **kw: fn()),
-            patch("plugin.chatbot.module_config_dialog.main.post", side_effect=lambda fn, *a: fn(*a)),
-        ):
-            dialog._start_job(dialog._preview_job, "preview")
-
-        dialog._pane.clear.assert_called_once()
-        dialog._pane.show.assert_not_called()
-        assert lbl_status.setText.call_args_list[-1].args == (expected_status,)
+    dialog._pane.clear.assert_called_once()
+    dialog._pane.show.assert_not_called()
+    assert lbl_status.setText.call_args_list[-1].args == (expected_status,)

@@ -689,3 +689,29 @@ def test_run_and_insert_partial_failure_preserves_deleted_images():
     assert result["partial"] is True
     assert result["deleted_images"] == ["Img1"]
 
+
+def test_run_and_insert_cancelled_after_delete_preserves_deleted_images():
+    from plugin.framework.send_cancellation import SendCancelled
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2"]
+
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
+        if params["image_name"] == "Img2":
+            raise SendCancelled("cancelled")
+        return _fake_run_vision(_ctx, _doc, helper=helper, params=params, cancel=cancel, on_exported=on_exported)
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert result["partial"] is True
+    assert result["deleted_images"] == ["Img1"]
+

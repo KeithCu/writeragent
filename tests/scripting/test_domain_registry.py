@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.scripting.domain_registry import (
     PICKER_WIRING,
@@ -176,38 +178,44 @@ def test_rps_spec_insert_forwards_return_value():
         assert wiring.insert(object(), object(), {}) is None
 
 
-def test_try_rps_post_venv_vision_empty_reports_not_inserted():
-    from unittest.mock import MagicMock
-
-
+@pytest.mark.parametrize("helper", ["extract_text", "extract_structure"])
+def test_try_rps_post_venv_vision_empty_reports_not_inserted(helper):
     from plugin.scripting.python_runner import try_rps_post_venv
 
     wiring = get_domain_wiring("vision")
     doc = MagicMock()
     doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
 
-    for helper in ("extract_text", "extract_structure"):
-        result_data = {
-            "status": "ok",
-            "helper": helper,
-            "full_text": "",
-            "tables": [],
-            "html": "<h1>image</h1><p></p>",
-            "metrics": {"line_count": 0, "block_count": 0, "table_count": 0},
-        }
-        out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
-        assert out is not None
-        assert "not inserted" in out["status_ok_text"]
-        assert "Inserted" not in out["status_ok_text"]
+    result_data = {
+        "status": "ok",
+        "helper": helper,
+        "full_text": "",
+        "tables": [],
+        "html": "<h1>image</h1><p></p>",
+        "metrics": {"line_count": 0, "block_count": 0, "table_count": 0},
+    }
+    out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
+    assert out is not None
+    assert "not inserted" in out["status_ok_text"]
+    assert "Inserted" not in out["status_ok_text"]
 
 
-def test_vision_format_ok_inserted_outcome_keeps_inserted_message():
+def test_try_rps_post_venv_vision_inserted_reports_inserted_message():
+    from plugin.scripting.python_runner import try_rps_post_venv
+
     wiring = get_domain_wiring("vision")
-    out = wiring.format_ok(
-        result={"helper": "extract_text", "html": "<p>hi</p>"},
-        t0=0.0,
-        insert_outcome="inserted",
-    )
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    result_data = {
+        "status": "ok",
+        "helper": "extract_text",
+        "full_text": "hello",
+        "html": "<p>hello</p>",
+        "metrics": {"line_count": 1},
+    }
+    with patch("plugin.vision.vision_egress.insert_vision_result", return_value="inserted"):
+        out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
+    assert out is not None
     assert "Inserted formatted HTML" in out["status_ok_text"]
 
 
