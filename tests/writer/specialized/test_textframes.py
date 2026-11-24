@@ -164,16 +164,16 @@ def test_frame_text_uses_visible_text(monkeypatch):
     seen = []
     monkeypatch.setattr(
         textframes,
-        "visible_range_text",
-        lambda _doc, text: seen.append(text) or "visible",
+        "get_string_without_tracked_deletions",
+        lambda text, _state: seen.append(text) or "visible",
     )
     frame = MagicMock()
-    assert textframes._frame_text(MagicMock(), frame) == "visible"
+    assert textframes._frame_text(frame, MagicMock()) == "visible"
     assert seen == [frame.getText()]
 
 
 def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame: "x" * 5000)
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions: "x" * 5000)
     frame = MagicMock()
     size = MagicMock()
     size.Width = 1000
@@ -212,7 +212,7 @@ def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
 
 
 def test_frame_get_info_body_anchor(monkeypatch):
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame: "visible")
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions: "visible")
     frame = MagicMock()
     size = MagicMock()
     size.Width = 1000
@@ -424,7 +424,7 @@ def _make_text_box_doc():
 def test_frame_list_includes_word_text_boxes(monkeypatch):
     from plugin.writer.specialized.textframes import FrameList
 
-    monkeypatch.setattr(textframes, "_frame_text", lambda doc, frame, limit=None: "text")
+    monkeypatch.setattr(textframes, "_frame_text", lambda frame, deletions, limit=None: "text")
     doc, _plain, _box, _box_shape, _dp = _make_text_box_doc()
     ctx = MagicMock(doc=doc)
 

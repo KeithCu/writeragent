@@ -170,9 +170,10 @@ def _export_xhtml(doc: Any) -> str:
 
 
 
-def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | None]:
-    """Export *doc* as flat ODF once and return ``(parents, overrides, has_ruby)``.
+def _autostyle_maps(doc: Any, fodt: str | None = None) -> tuple[dict[str, str], dict[str, str], bool | None]:
+    """Return ``(parents, overrides, has_ruby)`` from *doc*'s flat-ODF sidecar.
 
+    Exports *doc* as flat ODF when *fodt* is None; otherwise parses *fodt*.
     ``parents`` (Pn -> base style name) lets the read path recover an autostyle paragraph's real
     style name when the XHTML CSS fingerprint matches nothing. ``overrides`` (Pn -> CSS text) is
     the paragraph's DIRECT formatting, which the flattened XHTML cannot distinguish from inherited
@@ -186,9 +187,9 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
-        fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        parents, overrides = xhtml_post.parse_fodt_autostyles(fodt)
-        return (parents, overrides, "<text:ruby" in fodt)
+        sidecar = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION) if fodt is None else fodt
+        parents, overrides = xhtml_post.parse_fodt_autostyles(sidecar)
+        return (parents, overrides, "<text:ruby" in sidecar)
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
     return best_effort(read_maps, "_autostyle_maps: flat-ODF export failed", failed)
@@ -654,18 +655,18 @@ def _copy_window_to_scratch(
     return (copied_ruby, math_records) if added_any else None
 
 
-def _export_semantic(doc: Any, *, read_ruby: bool) -> tuple[str, bool | None]:
+def _export_semantic(doc: Any, *, read_ruby: bool, fodt: str | None = None) -> tuple[str, bool | None]:
     """Export *doc* as XHTML and convert to semantic HTML using flat-ODF autostyles.
 
-    The sidecar is a second full export. It runs when there are autostyles to
-    name, or when the caller needs the ruby flag (the full read skips a portion
-    walk with it). has_ruby is None when the sidecar did not run, and finish()
-    then walks portions itself. The function raises on export failure, and each
-    caller owns its fallback.
+    The sidecar is a second full export unless the caller already has *fodt*. It
+    runs when there are autostyles to name, or when the caller needs the ruby
+    flag (the full read skips a portion walk with it). has_ruby is None when the
+    sidecar did not run, and finish() then walks portions itself. The function
+    raises on export failure, and each caller owns its fallback.
     """
     xhtml = _export_xhtml(doc)
     if read_ruby or xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
-        parents, overrides, has_ruby = _autostyle_maps(doc)
+        parents, overrides, has_ruby = _autostyle_maps(doc, fodt)
     else:
         parents, overrides, has_ruby = {}, {}, None
     return xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides), has_ruby
@@ -747,19 +748,21 @@ def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
     tracked deletions cross a paragraph break or empty a paragraph, expand them
     in the flat-ODF sidecar and export a hidden copy instead.
     """
-    if not TrackedDeletions(model):
-        return _export_semantic(model, read_ruby=True)
-    expanded = xhtml_post.expand_tracked_deletions(_read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION))
-    if expanded is None:
-        return _export_semantic(model, read_ruby=True)
-    with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
-        copy = load_scratch_document(get_desktop(ctx), url)
-        if copy is None:
-            raise ToolExecutionError("Could not read the document (no scratch document).")
-        try:
-            return _export_semantic(copy, read_ruby=True)
-        finally:
-            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
+    fodt: str | None = None
+    if TrackedDeletions(model):
+        fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+        expanded = xhtml_post.expand_tracked_deletions(fodt)
+        if expanded is not None:
+            with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
+                copy = load_scratch_document(get_desktop(ctx), url)
+                if copy is None:
+                    raise ToolExecutionError("Could not read the document (no scratch document).")
+                try:
+                    # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
+                    return _export_semantic(copy, read_ruby=True)
+                finally:
+                    best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
+    return _export_semantic(model, read_ruby=True, fodt=fodt)
 
 
 def document_to_content(

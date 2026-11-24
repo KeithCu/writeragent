@@ -252,9 +252,15 @@ def get_document_context_for_chat(
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
                 tail_start = total - end_chars
-                start_excerpt = _inject_markers(text[:start_chars], 0, sel_start, sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]", struck)
+                # A selection across the omitted middle opens in the head and closes in the tail.
+                spans_gap = sel_start < start_chars and sel_end > tail_start
+                start_excerpt = _inject_markers(
+                    text[:start_chars], 0, sel_start, None if spans_gap else sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]", struck
+                )
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-                end_excerpt = _inject_markers(text[tail_start:], tail_start, sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "", struck)
+                end_excerpt = _inject_markers(
+                    text[tail_start:], tail_start, None if spans_gap else sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "", struck
+                )
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _writer_snapshot(
                     model,
@@ -286,20 +292,25 @@ def get_document_context_for_chat(
 def _inject_markers(
     excerpt_text: str,
     excerpt_start: int,
-    sel_start: int,
-    sel_end: int,
+    sel_start: int | None,
+    sel_end: int | None,
     prefix: str,
     suffix: str,
     struck: Sequence[int] = (),
 ) -> str:
-    """Insert selection and tracked-deletion markers at visible offsets in *excerpt_text*."""
+    """Insert selection and tracked-deletion markers at visible offsets in *excerpt_text*.
+
+    None means that selection end is marked in another window.
+    """
     visible_len = len(excerpt_text)
     markers: list[tuple[int, str]] = []
-    s = max(0, min(sel_start - excerpt_start, visible_len))
-    e = max(0, min(sel_end - excerpt_start, visible_len))
+    s = 0 if sel_start is None else max(0, min(sel_start - excerpt_start, visible_len))
+    e = visible_len if sel_end is None else max(0, min(sel_end - excerpt_start, visible_len))
     if not (s >= visible_len or e <= 0):
-        markers.append((s, "[SELECTION_START]"))
-        markers.append((e, "[SELECTION_END]"))
+        if sel_start is not None:
+            markers.append((s, "[SELECTION_START]"))
+        if sel_end is not None:
+            markers.append((e, "[SELECTION_END]"))
 
     in_window = [p - excerpt_start for p in struck if excerpt_start <= p <= excerpt_start + visible_len]
     if in_window:
