@@ -15,7 +15,7 @@ from plugin.tests.testing_utils import FakeUndoManager
 
 
 @pytest.fixture(autouse=True)
-def _reset_keeper(monkeypatch):
+def _reset_idle_writers(monkeypatch):
     import plugin.framework.scratch_writer as scratch_writer
     from plugin.calc import rich_html as rh
 
@@ -242,6 +242,30 @@ def test_nested_paste_gets_its_own_writer():
 
     assert desktop.loadComponentFromURL.call_count == 2
     assert len(rh._idle_writers) == 2
+
+
+def test_idle_writer_with_leftover_text_is_dropped():
+    from plugin.calc import rich_html as rh
+
+    calc_doc, cell, desktop, doc1, _calc_ctrl, _writer_ctrl = _cell_and_docs()
+    doc2, _ctrl2 = _make_hidden_writer("902")
+    desktop.loadComponentFromURL.side_effect = [doc1, doc2]
+
+    with (
+        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
+    ):
+        mock_bridge_cls.return_value.get_cell_by_address.return_value = cell
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
+
+        rh.insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>one</b>")
+        doc1.getText().getString.side_effect = lambda: "xleftover"
+        rh.insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>two</b>")
+
+    assert desktop.loadComponentFromURL.call_count == 2
+    doc1.close.assert_not_called()
+    assert rh._idle_writers == [doc2]
 
 
 def test_insert_cell_html_rich_empty_html_raises():

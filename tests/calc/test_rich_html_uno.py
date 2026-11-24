@@ -247,6 +247,13 @@ def test_paste_formatting_does_not_reach_the_next_paste_uno(ctx, doc):
         assert r1.get("status") == "ok", r1
         note_windows_html_paste_leftover()
 
+        if styled_html == "<ul><li>item</li></ul>":
+            r_right = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "F1", "html": "<p align='right'>r</p>"})
+            assert r_right.get("status") == "ok", r_right
+            right_cell = sheet.getCellByPosition(5, 0)
+            right_para = right_cell.getText().createEnumeration().nextElement()
+            assert int(right_para.getPropertyValue("ParaAdjust")) == 1
+
         plain_addr = f"E{row * 2 + 2}"
         r2 = _execute_calc_tool(doc, ctx, "insert_html", {"cell": plain_addr, "html": plain_text})
         assert r2.get("status") == "ok", r2
@@ -259,9 +266,3 @@ def test_paste_formatting_does_not_reach_the_next_paste_uno(ctx, doc):
         assert float(portion.getPropertyValue("CharHeight")) == 12.0
         assert int(portion.getPropertyValue("CharColor")) == -1
         assert int(para.getPropertyValue("ParaAdjust")) == 0
-
-    r_right = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "F1", "html": "<p align='right'>r</p>"})
-    assert r_right.get("status") == "ok", r_right
-    right_cell = sheet.getCellByPosition(5, 0)
-    right_para = right_cell.getText().createEnumeration().nextElement()
-    assert int(right_para.getPropertyValue("ParaAdjust")) == 1

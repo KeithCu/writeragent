@@ -52,7 +52,7 @@ def _create_nearby_test_env(ctx, active_doc):
 
     # GHA 34639913692: Hidden+ReadOnly load of this same storeAsURL path
     # raised ``Could not create system bitmap!`` then the next sibling
-    # open hung 30s. Product ``_wa_doc_research`` did not help.
+    # open hung 30s. Product named target did not help.
     # 34602219973 passed 3/3 when Budget lived on a *closed* factory
     # Calc — a URL this pooled component never owned. Copy so the
     # Hidden load is not the live document's recent URL. Do not open a
@@ -258,27 +258,35 @@ def test_research_read_stays_out_of_catalog_uno(ctx, doc):
         assert err is None
         assert doc_type == "draw"
         assert opened is True
+        assert is_scratch_document(model) is True
         uid = get_runtime_uid(model)
         assert uid
-        assert all("draw" not in types for types in seen_types)
         assert all(entry["uid"] != uid for entry in get_open_documents(ctx, doc))
+        close_document_research_document(model, opened_for_document_research=opened)
+        model = None
+        assert seen_types
+        assert all("draw" not in types for types in seen_types)
     finally:
         broadcaster.removeDocumentEventListener(listener)
         if model is not None:
             close_document_research_document(model, opened_for_document_research=opened)
-            assert is_scratch_document(model) is False
         _cleanup_nearby_test_env(temp_dir)
 
 
 @native_test
 @with_native_doc("calc")
 def test_research_read_never_adopts_an_open_document_uno(ctx, doc):
+    import unittest
     from unittest.mock import patch
 
     from plugin.doc.document_research import close_document_research_document
     from plugin.framework.uno_context import get_runtime_uid
 
-    skip_windows_hidden_open_after_bitmap("document_research Hidden open calc")
+    if sys.platform == "win32":
+        # GHA 34639913692: Hidden load of the pooled Calc's own storeAsURL path
+        # raises "Could not create system bitmap!" and hangs the next Hidden open.
+        raise unittest.SkipTest("Windows Hidden open of pooled Calc URL hits system bitmap error")
+
     temp_dir = tempfile.mkdtemp(prefix="wa_open_calc_")
     calc_path = os.path.join(temp_dir, "saved.ods")
     model = None

@@ -38,11 +38,16 @@ import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
 
-# Kept Writers are never closed, because a close after a paste can hang on Windows.
+# Kept Writers are never closed, because closing after a paste can hang on Windows:
+# close() can return and desktop.getComponents() then blocks while Calc holds the paste,
+# so deferred close is not an option.
 # They are reused via this list because a named frame target cannot find them:
 # LoadEnv::impl_loadContent (framework/source/loadenv/loadenv.cxx) creates an unnamed frame.
 # A list is used because SwHTMLParser::Show (sw/source/filter/html/swhtml.cxx) can
 # dispatch events and start a nested paste. Main thread only.
+# _GUARD_TEXT holds one character in the first paragraph that is never pasted; everything
+# after it is deleted on reuse and joins into that clean guard paragraph, whereas
+# setString("") keeps the first pasted paragraph's attributes.
 _GUARD_TEXT = "x"
 _PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _idle_writers: list[Any] = []
@@ -89,12 +94,13 @@ def _controller_get_transferable(controller: Any) -> Any:
 
 
 def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
-    """If SystemClipboard still owns *transferable*, replace it before closing the Writer.
+    """If SystemClipboard still owns *transferable*, replace it after the paste.
 
     SwXTextView.getTransferable() builds a SwTransferable bound to that Writer
-    shell (PrepareForCopy). On Windows the OLE clipboard can keep that owner
-    after insertTransferable, and closing the Writer then hangs. Touch the
-    clipboard only when it holds this object so a user copy is left alone.
+    shell (PrepareForCopy). The clipboard must not keep this Writer's
+    SwTransferable as owner after the paste (on Windows the OLE clipboard can
+    retain that owner after insertTransferable). Touch the clipboard only when
+    it holds this object so a user copy is left alone.
     """
     try:
         # Do not import chatbot for the clipboard; LibrePy ships this module.
@@ -174,9 +180,9 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             if not callable(ins):
                 raise ToolExecutionError("Calc controller does not support insertTransferable.")
             ins(transferable)
-        # Drop SystemClipboard's owner before any reuse when it still holds
-        # this Writer's SwTransferable. Do not gc.collect() here: a forced
-        # collection after that release can abort LibreOffice in the SdrObject destructor.
+        # The clipboard must not keep this Writer's SwTransferable as owner after the paste.
+        # Do not gc.collect() here: a forced collection after that release can abort
+        # LibreOffice in the SdrObject destructor.
         step = _step("release clipboard")
     except ToolExecutionError:
         raise

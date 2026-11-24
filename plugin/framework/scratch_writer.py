@@ -127,7 +127,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
 
     When *keep_chars* > 0, that many leading characters stay in place so a reused
     Writer keeps its first paragraph and deleted content cannot leave formatting
-    behind on the empty paragraph.
+    behind on the guard paragraph.
     """
     if doc is None:
         return False
