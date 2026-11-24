@@ -2336,12 +2336,11 @@ def test_replace_whole_paragraphs_works_without_styles_module(recording):
     rng = MagicMock()
     text_obj = rng.getText.return_value
     cursor = MagicMock()
-    following = MagicMock()
-    following.goRight.return_value = False
-    doomed = MagicMock()
-    text_obj.createTextCursorByRange.side_effect = [cursor, following, doomed]
+    second = MagicMock()
+    second.goRight.return_value = False
+    text_obj.createTextCursorByRange.side_effect = [cursor, second]
     cursor.getPropertySetInfo.return_value = None
-    doomed.getPropertySetInfo.return_value = None
+    second.getPropertySetInfo.return_value = None
 
     with (
         patch.dict(sys.modules, {"plugin.writer.styles": None}),

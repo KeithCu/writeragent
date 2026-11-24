@@ -1776,13 +1776,6 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         assert res["code"] == "ROLLBACK_FAILED"
 
 
-
-
-
-
-# --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
-
-
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import styles as st
 

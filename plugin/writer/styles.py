@@ -706,7 +706,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
 }
 
-# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (above) so the
+# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (in plugin.doc.text_helpers) so the
 # inspect set and the clear_direct wipe cannot drift.
 _PARA_PROPERTY_SCHEMA = {
     "ParaTopMargin": {"type": "integer", "description": "Top margin, 1/100 mm (1 inch = 2540)."},

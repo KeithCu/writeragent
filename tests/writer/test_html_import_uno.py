@@ -2550,6 +2550,11 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
         text.insertString(cur, "After", False)
 
         paras = _body_paragraphs(doc)
+        for idx in (0, 2):
+            neighbour = text.createTextCursorByRange(paras[idx])
+            neighbour.setPropertyValue("CharWeight", 150.0)
+            neighbour.setPropertyValue("ParaAdjust", 3)
+
         mid = text.createTextCursorByRange(paras[1])
         mid.setPropertyValue("CharWeight", 150.0)
         mid.setPropertyValue("CharHeight", 18.0)
@@ -2598,6 +2603,9 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                 paras = _body_paragraphs(doc)
                 assert paras[0].getString() == "Before"
                 assert paras[2].getString() == "After"
+                for idx in (0, 2):
+                    assert _first_text_portion_props(paras[idx])["weight"] == 150.0
+                    assert int(paras[idx].getPropertyValue("ParaAdjust")) == 3
                 mid = paras[1]
                 props = _first_text_portion_props(mid)
                 if mode == "reject":
@@ -2679,8 +2687,15 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
 
         doc.getUndoManager().redo()
         paras = _body_paragraphs(doc)
+        std_style = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard")
         assert paras[0].getString() == "Done"
-        assert _first_text_portion_props(paras[0])["weight"] == 100.0
+        redo_props = _first_text_portion_props(paras[0])
+        assert redo_props["weight"] == 100.0
+        assert redo_props["height"] == float(std_style.getPropertyValue("CharHeight"))
+        assert redo_props["color"] == -1
+        assert redo_props["lang"] == "pt"
+        assert int(paras[0].getPropertyValue("ParaLeftMargin")) == int(std_style.getPropertyValue("ParaLeftMargin"))
+        assert str(paras[0].getPropertyValue("ListLabelString") or "") == ""
 
         # 2. Only the first word formatted
         text.setString("")
@@ -2698,7 +2713,13 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
         doc.getUndoManager().undo()
         p0 = _body_paragraphs(doc)[0]
         assert p0.getString() == "Bold rest"
-        assert _first_text_portion_props(p0)["weight"] == 150.0
+        runs = []
+        enum = p0.createEnumeration()
+        while enum.hasMoreElements():
+            portion = enum.nextElement()
+            if str(portion.getPropertyValue("TextPortionType") or "") == "Text" and portion.getString():
+                runs.append((portion.getString(), float(portion.getPropertyValue("CharWeight"))))
+        assert runs == [("Bold", 150.0), (" rest", 100.0)]
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

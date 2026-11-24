@@ -1214,6 +1214,7 @@ def replace_full_document(
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
             _drop_absorb_paragraph_props(cursor)
+            # Character formatting left on the emptied paragraph would become direct formatting on every imported paragraph.
             reset_direct_char_formatting(cursor)
             return _import_and_drop_leftover(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
