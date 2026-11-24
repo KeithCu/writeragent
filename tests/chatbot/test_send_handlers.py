@@ -38,7 +38,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.audio_wav_path = None
         self._stt_inflight = False
         self._stt_kill = None
-        setattr(self, "session", MagicMock())
+        setattr(self, "session", MagicMock(messages=[]))
         setattr(self, "response_control", MagicMock())
         self._sidebar_mode = MagicMock()
         self.sidebar_mode_flags = SidebarModeFlags()

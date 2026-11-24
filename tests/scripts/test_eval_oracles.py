@@ -164,23 +164,6 @@ _FORMULA_PINNED_MAP = {
     f"D{_FORMULA_TOTAL_ROW}": _FORMULA_SUM,
 }
 _FORMULA_NO_TOTAL_ROWS = _FORMULA_GOOD_ROWS[:-1]
-_FLOW_GOOD = json.dumps(
-    {
-        "status": "ok",
-        "tree": [
-            {"type": "ellipse", "text": "Start", "connected_end": {"name": "shape_1", "text": "Process: user login"}},
-            {"type": "flowchart-process", "text": "Process: user login"},
-            {"type": "flowchart-decision", "text": "Decision: credentials valid?"},
-            {"type": "flowchart-terminator", "text": "End"},
-        ],
-        "connections": [
-            {"from_index": 0, "to_index": 1},
-            {"from_index": 1, "to_index": 2},
-            {"from_index": 2, "to_index": 3, "label": "Yes"},
-            {"from_index": 2, "to_index": 1, "label": "No"},
-        ],
-    }
-)
 _FLOW_LIVE_NODES: list[dict[str, object]] = [
     {"type": "EllipseShape", "text": "Start"},
     {"type": "CustomShape", "text": "Process: user login"},
@@ -530,7 +513,6 @@ _PY_BAD = json.dumps(
         ("tax_column", _TAX_GOOD),
         ("paste_table", _PASTE_GOOD),
         ("formula_table", _FORMULA_GOOD),
-        ("flowchart_gen", _FLOW_GOOD),
         ("flowchart_gen", _FLOW_LIVE),
         ("org_chart_gen", _ORG_GOOD),
         ("solar_sld_gen", _SOLAR_GOOD),
@@ -587,26 +569,6 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                 }
             ),
             "edge",
-        ),
-        (
-            "flowchart_gen",
-            json.dumps(
-                {
-                    "status": "ok",
-                    "tree": [
-                        {"type": "ellipse", "text": "Start"},
-                        {"type": "flowchart-process", "text": "Process: user login"},
-                        {"type": "flowchart-decision", "text": "Decision: credentials valid?"},
-                        {"type": "flowchart-terminator", "text": "End"},
-                    ],
-                    "connections": [
-                        {"from_index": 0, "to_index": 1},
-                        {"from_index": 1, "to_index": 2},
-                        {"from_index": 2, "to_index": 3, "label": "Yes"},
-                    ],
-                }
-            ),
-            "loop",
         ),
         (
             "flowchart_gen",
@@ -1049,34 +1011,30 @@ def test_flowchart_login_labels_pass_without_process_decision_words() -> None:
         {
             "status": "ok",
             "tree": [
+                {"type": "ellipse", "text": "Start"},
+                {"type": "rectangle", "text": "User Login"},
+                {"type": "diamond", "text": "Credentials valid?"},
+                {"type": "ellipse", "text": "End"},
                 {
-                    "type": "ellipse",
-                    "text": "Start",
-                    "connected_end": {"name": "shape_1", "text": "User Login"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape1", "text": "Start"},
+                    "connected_end": {"name": "Shape2", "text": "User Login"},
                 },
                 {
-                    "type": "rectangle",
-                    "text": "User Login",
-                    "connected_end": {"name": "shape_2", "text": "Credentials valid?"},
-                    "connected_start": {"name": "shape_0", "text": "Start"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape2", "text": "User Login"},
+                    "connected_end": {"name": "Shape3", "text": "Credentials valid?"},
                 },
                 {
-                    "type": "diamond",
-                    "text": "Credentials valid?",
-                    "connected_end": {"name": "shape_3", "text": "End"},
-                    "connected_start": {"name": "shape_1", "text": "User Login"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape3", "text": "Credentials valid?"},
+                    "connected_end": {"name": "Shape4", "text": "End"},
                 },
                 {
-                    "type": "ellipse",
-                    "text": "End",
-                    "connected_start": {"name": "shape_2", "text": "Credentials valid?"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape3", "text": "Credentials valid?"},
+                    "connected_end": {"name": "Shape2", "text": "User Login"},
                 },
-            ],
-            "connections": [
-                {"from_index": 0, "to_index": 1},
-                {"from_index": 1, "to_index": 2},
-                {"from_index": 2, "to_index": 3},
-                {"from_index": 2, "to_index": 1},
             ],
         }
     )
@@ -1190,20 +1148,67 @@ def test_judge_only_for_quality_tasks() -> None:
     assert not uses_llm_judge("tax_column", "structural")
 
 
-def test_solar_sld_grouped_tree_still_scores() -> None:
-    """Production get_tree may wrap the diagram in a GroupShape."""
-    doc = json.dumps(
+@pytest.mark.parametrize(
+    ("task_id", "raw_doc"),
+    [
+        ("flowchart_gen", _FLOW_LIVE),
+        ("org_chart_gen", _ORG_GOOD),
+        ("solar_sld_gen", _SOLAR_GOOD),
+    ],
+)
+def test_grouped_draw_tree_still_scores(task_id: str, raw_doc: str) -> None:
+    """Production get_tree may wrap the diagram in GroupShape / nested GroupShapes."""
+    items = json.loads(raw_doc)["tree"]
+    grouped = json.dumps(
         {
             "status": "ok",
             "tree": [
                 {
                     "type": "GroupShape",
-                    "children": json.loads(_SOLAR_GOOD)["tree"],
+                    "children": [
+                        {"type": "GroupShape", "children": items[:3]},
+                        *items[3:],
+                    ],
                 }
             ],
         }
     )
-    assert check_oracle("solar_sld_gen", doc) == []
+    assert check_oracle(task_id, grouped) == []
+
+
+def test_grouped_org_chart_soft_counts() -> None:
+    from org_chart_eval import score_org_chart_example
+
+    items = json.loads(_ORG_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    score = score_org_chart_example(grouped, backend="lo")
+    assert score.passed is True
+    assert score.box_count == 10
+    assert score.connector_count == 9
+    assert score.soft == []
+
+
+def test_grouped_solar_sld_soft_counts() -> None:
+    from solar_sld_eval import score_solar_sld_example
+
+    items = json.loads(_SOLAR_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    ungrouped_score = score_solar_sld_example(_SOLAR_GOOD, backend="lo")
+    grouped_score = score_solar_sld_example(grouped, backend="lo")
+    assert grouped_score.passed is True
+    assert grouped_score.box_count == ungrouped_score.box_count
+    assert grouped_score.connector_count == ungrouped_score.connector_count
+    assert grouped_score.soft == ungrouped_score.soft
 
 
 def test_solar_sld_main_service_panel_label() -> None:

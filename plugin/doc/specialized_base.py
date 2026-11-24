@@ -379,14 +379,17 @@ class DelegateToSubagent(ToolBase):
             return _WRITER_DELEGATE_DESCRIPTION
         return self.description
 
-    def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
+    def domains_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> list[str]:
         """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
 
         Narrow domains by probed UNO services, not doc_type—Draw-only docs must not see Impress-only toolsets.
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
         agent_label = self.agent_label_for(uno_services=uno_services)
-        return sorted({e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)})
+        return sorted({
+            e["domain"]
+            for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services, for_mcp=for_mcp)
+        })
 
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str:
         """Return the app-specific description narrowed to *uno_services*.
@@ -403,10 +406,7 @@ class DelegateToSubagent(ToolBase):
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
-            domains = self.domains_for_services(uno_services)
-            hidden = chat_tier_domains()
-            domains = [d for d in domains if d not in hidden]
-            return _format_draw_delegate_description(domains)
+            return _format_draw_delegate_description(self.domains_for_services(uno_services, for_mcp=True))
         return _WRITER_DELEGATE_DESCRIPTION
 
     def is_async(self) -> bool:
@@ -651,7 +651,7 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         patched = copy.deepcopy(schema)
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
-        domain_prop["enum"] = tool.domains_for_services(uno_services)
+        domain_prop["enum"] = tool.domains_for_services(uno_services, for_mcp="inputSchema" in patched)
         target = patched["function"] if "function" in patched else patched
         target["description"] = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
         if "inputSchema" in patched:

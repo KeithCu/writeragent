@@ -333,7 +333,7 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
     return t
 
 
-_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."}
+_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc."}
 _PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
 
 _CONTROL_PROPERTIES: dict[str, Any] = {

@@ -856,12 +856,12 @@ def get_eval_export(kind: str) -> str:
     return get_content_as_html() or ""
 
 
-def dspy_get_document_content(scope: str = "full", max_chars: int = None, start: int = None, end: int = None) -> str:
+def dspy_get_content(scope: str = "full", max_chars: int = None, start: int = None, end: int = None) -> str:
     """Read the LibreOffice document. Returns JSON with content."""
     return writer_get_content(scope, max_chars, start, end)
 
 
-def dspy_apply_document_content(content: str, old_content: str = "", all_matches: bool = False) -> str:
+def dspy_apply_content(content: str, old_content: str = "", all_matches: bool = False) -> str:
     """Modify the LibreOffice document. Content can be plain text or HTML. Returns JSON status."""
     return writer_apply_content(content, old_content, all_matches)
 
@@ -895,8 +895,8 @@ def with_logging(func, name):
 
 def get_tools_subset(names: list[str] | None = None):
     mapping = {
-        "get_content": dspy_get_document_content,
-        "apply_content": dspy_apply_document_content,
+        "get_content": dspy_get_content,
+        "apply_content": dspy_apply_content,
         "find_text": dspy_find_text,
     }
     if names is None:

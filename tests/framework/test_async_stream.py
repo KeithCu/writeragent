@@ -1046,7 +1046,7 @@ def test_stop_during_unlock_prompt_stops_and_sends_nothing(fake_keystore, locked
 
     endpoint = "https://openrouter.ai/api"
     fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
-    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    fw_config.save({"api_keys_by_endpoint": {endpoint: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = locked
 

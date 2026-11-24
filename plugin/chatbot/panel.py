@@ -741,13 +741,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.tool_loop_actions import running_turn
 
         turn = running_turn(self)
-        session = self.session
-        messages = getattr(session, "messages", None) if session is not None else None
-        if (
-            turn is None
-            or not isinstance(messages, list)
-            or turn.session is not session
-        ):
+        if turn is None or turn.session is not self.session:
             return
         with suppress_disposed("_append_response", logger=log):
             from plugin.framework.logging import note_activity

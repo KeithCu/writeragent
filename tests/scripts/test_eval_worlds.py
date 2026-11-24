@@ -9,6 +9,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
@@ -54,41 +56,239 @@ def test_search_in_document_offsets() -> None:
     assert found["ranges"]
 
 
+def _draw_boxes(*texts: str) -> DrawWorld:
+    draw = DrawWorld()
+    for i, text in enumerate(texts):
+        res = draw.shape_upsert(
+            action="create", shape_type="rectangle", text=text, x=1000 + 3000 * i, y=1000, width=2000, height=1000
+        )
+        assert res["index"] == i
+    return draw
+
+
 def test_draw_connect_tree() -> None:
     draw = DrawWorld()
     draw.shape_upsert(action="create", shape_type="ellipse", text="Start")
     draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process")
-    res = draw.shape_connect(start=0, end=1)
+    res = draw.shape_connect(start="Shape1", end="1")
     assert res["status"] == "ok"
-    tree = draw.get_tree()
-    assert tree["connections"]
-    nodes = tree["tree"]
-    assert any(n.get("connected_end") or n.get("connected_start") for n in nodes)
+    assert res["index"] == 2
+    assert res["name"] == "Shape3"
+    assert res["page"] == 0
+    nodes = draw.get_tree()["tree"]
+    assert len(nodes) == 3
+    assert nodes[2]["type"] == "ConnectorShape"
+    assert nodes[2]["connected_start"] == {"name": "Shape1", "text": "Start"}
+    assert nodes[2]["connected_end"] == {"name": "Shape2", "text": "Process"}
+
+    nxt = draw.shape_upsert(action="create", shape_type="rectangle", text="After")
+    assert nxt["index"] == 3
 
 
 def test_draw_connect_records_arrowheads() -> None:
-    draw = DrawWorld()
-    draw.shape_upsert(action="create", shape_type="ellipse", text="Start")
-    draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process")
+    draw = _draw_boxes("Start", "Process")
     res_end = draw.shape_connect(start=0, end=1, line_end="arrow", line_start=None)
     assert res_end["status"] == "ok"
-    assert draw.get_tree()["connections"][0] == {
-        "from_index": 0,
-        "to_index": 1,
-        "line_end": "arrow",
-    }
+    assert draw.get_tree()["tree"][2]["style"] == {"LineEndName": "Arrow"}
 
     res_start = draw.shape_connect(start=1, end=0, line_start="arrow", line_end="none")
     assert res_start["status"] == "ok"
-    assert draw.get_tree()["connections"][1] == {
-        "from_index": 1,
-        "to_index": 0,
-        "line_start": "arrow",
-    }
+    assert draw.get_tree()["tree"][3]["style"] == {"LineStartName": "Arrow"}
 
     res_bad = draw.shape_connect(start=0, end=1, line_end="triangle")
     assert res_bad["status"] == "error"
-    assert len(draw.get_tree()["connections"]) == 2
+    assert len(draw.get_tree()["tree"]) == 4
+
+
+@pytest.mark.parametrize("bad_end", [99, "9", "0.0", "Nope", "", True])
+def test_draw_connect_unknown_shape_changes_nothing(bad_end: object) -> None:
+    draw = _draw_boxes("Start", "Process")
+    res = draw.shape_connect(start=0, end=bad_end)
+    assert res["status"] == "error"
+    assert len(draw.get_tree()["tree"]) == 2
+
+
+def test_draw_connect_unknown_name_lists_page_names() -> None:
+    draw = _draw_boxes("Start", "Process")
+    res = draw.shape_connect(start=0, end="Shap1")
+    assert res["status"] == "error"
+    assert res["details"]["available"] == ["Shape1", "Shape2"]
+
+
+def test_draw_edit_updates_shape() -> None:
+    draw = DrawWorld()
+    draw.shape_upsert(action="create", shape_type="rectangle", text="Old", x=100, y=200, width=300, height=400)
+    draw.shape_upsert(action="create", shape_type="rectangle", text="Next")
+    draw.shape_connect(start=0, end=1)
+
+    res = draw.shape_upsert(action="edit", index=0, text="New", x=500, width=900)
+    assert res["status"] == "ok"
+    tree = draw.get_tree()["tree"]
+    assert tree[0]["text"] == "New"
+    assert tree[0]["geometry"] == {"x": 500, "y": 200, "width": 900, "height": 400}
+    assert tree[2]["connected_start"]["text"] == "New"
+
+    res_clear = draw.shape_upsert(action="edit", index=0, text="")
+    assert res_clear["status"] == "ok"
+    cleared = draw.get_tree()["tree"][0]
+    assert "text" not in cleared
+    assert cleared["fillable"] is True
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"index": "1"},
+        {"index": 1.0},
+        {"name": "Shape2"},
+        {"index": None, "name": " Shape2 "},
+    ],
+)
+def test_draw_edit_by_name_or_string_index(selector: dict[str, object]) -> None:
+    draw = _draw_boxes("One", "Two")
+    res = draw.shape_upsert(action="edit", x="700", **selector)
+    assert res["status"] == "ok"
+    assert res["index"] == 1
+    assert res["name"] == "Shape2"
+    assert draw.get_tree()["tree"][1]["geometry"]["x"] == 700
+
+
+def test_draw_names_are_unique() -> None:
+    draw = _draw_boxes("One", "Two")
+    dup_create = draw.shape_upsert(action="create", shape_type="rectangle", name="Shape1")
+    assert dup_create["status"] == "error"
+    assert dup_create["code"] == "INVALID_PARAM"
+
+    dup_rename = draw.shape_upsert(action="edit", index=1, name="Shape1")
+    assert dup_rename["status"] == "error"
+    assert dup_rename["code"] == "INVALID_PARAM"
+
+    renamed = draw.shape_upsert(action="edit", index=0, name="StartBox")
+    assert renamed["status"] == "ok"
+    assert renamed["name"] == "StartBox"
+
+    nxt = draw.shape_upsert(action="create", shape_type="rectangle")
+    assert nxt["name"] == "Shape3"
+
+    with pytest.raises(TypeError):
+        draw.shape_upsert(action="edit", index=1, name="Z", x="abc")
+    assert [n["name"] for n in draw.get_tree()["tree"]] == ["StartBox", "Shape2", "Shape3"]
+
+
+def test_draw_negative_span_reads_back_normalised() -> None:
+    draw = DrawWorld()
+    c_rect = draw.shape_upsert(action="create", shape_type="rectangle", x=6000, y=4000, width=-2000, height=-1000)
+    assert c_rect["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["geometry"] == {"x": 4000, "y": 3000, "width": 2000, "height": 1000}
+
+    c_line = draw.shape_upsert(action="create", shape_type="line", x=5000, y=9000, width=-2000, height=-1000)
+    assert c_line["status"] == "ok"
+    assert draw.get_tree()["tree"][1]["geometry"] == {"x": 3000, "y": 8000, "width": 2000, "height": 1000}
+
+    e_line = draw.shape_upsert(action="edit", index=1, width=-3000)
+    assert e_line["status"] == "ok"
+    assert draw.get_tree()["tree"][1]["geometry"] == {"x": 0, "y": 8000, "width": 3000, "height": 1000}
+
+
+def test_draw_group_is_a_tree_node() -> None:
+    draw = _draw_boxes("A", "B", "C", "D")
+    res = draw.shape_group(indices=[2, "Shape1"])
+    assert res["status"] == "ok"
+    assert res["index"] == 1
+    assert res["name"] == "Shape5"
+
+    tree = draw.get_tree()["tree"]
+    assert [n["name"] for n in tree] == ["Shape2", "Shape5", "Shape4"]
+    group = tree[1]
+    assert group["type"] == "GroupShape"
+    assert [(c["path_index"], c["name"]) for c in group["children"]] == [("1.0", "Shape1"), ("1.1", "Shape3")]
+
+    moved = draw.shape_upsert(action="edit", index=1, x=2000)
+    assert moved["status"] == "ok"
+    tree2 = draw.get_tree()["tree"]
+    assert [c["geometry"]["x"] for c in tree2[1]["children"]] == [2000, 8000]
+
+    edited_child = draw.shape_upsert(action="edit", index="1.1", text="C2")
+    assert edited_child["status"] == "ok"
+    assert draw.get_tree()["tree"][1]["children"][1]["text"] == "C2"
+
+    summary_idxs = [row["index"] for row in draw.get_draw_summary()["shapes"]]
+    assert summary_idxs == [0, 1, "1.0", "1.1", 2]
+
+
+def test_draw_group_rejects_bad_members() -> None:
+    draw = _draw_boxes("A", "B")
+    assert draw.shape_group(indices=[0, 1])["status"] == "ok"
+    draw.shape_upsert(action="create", shape_type="rectangle", text="C")
+    before = draw.get_tree()
+    for bad in (None, [0], [0, 9]):
+        res = draw.shape_group(indices=bad)
+        assert res["status"] == "error"
+        assert draw.get_tree() == before
+
+    dup = draw.shape_group(indices=[1, 1])
+    assert dup["status"] == "error"
+    assert "Duplicate" in dup["message"]
+    assert draw.get_tree() == before
+
+    nested = draw.shape_group(indices=["0.0", 1])
+    assert nested["status"] == "error"
+    assert "not a top-level shape" in nested["message"]
+    assert draw.get_tree() == before
+
+
+def test_draw_upsert_records_arrowheads() -> None:
+    draw = DrawWorld()
+    res = draw.shape_upsert(action="create", shape_type="line", line_end="arrow", line_start="none")
+    assert res["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineEndName": "Arrow"}
+
+    res_edit = draw.shape_upsert(action="edit", index=0, line_end="none", line_start="arrow")
+    assert res_edit["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
+
+    bad_create = draw.shape_upsert(action="create", shape_type="line", line_end="triangle")
+    assert bad_create["status"] == "error"
+    assert len(draw.get_tree()["tree"]) == 1
+
+    bad_edit = draw.shape_upsert(action="edit", index=0, line_end="triangle")
+    assert bad_edit["status"] == "error"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
+
+
+@pytest.mark.parametrize(
+    ("shape_type", "expected_type", "expected_preset"),
+    [
+        ("rectangle", "CustomShape", "rectangle"),
+        ("ellipse", "CustomShape", "ellipse"),
+        ("diamond", "CustomShape", "diamond"),
+        ("flowchart-connector", "CustomShape", "flowchart-connector"),
+        ("text", "TextShape", None),
+        ("line", "LineShape", None),
+        ("connector", "ConnectorShape", None),
+        ("EllipseShape", "EllipseShape", None),
+        ("com.sun.star.drawing.RectangleShape", "RectangleShape", None),
+    ],
+)
+def test_draw_node_types_match_production(
+    shape_type: str,
+    expected_type: str,
+    expected_preset: str | None,
+) -> None:
+    import oracles
+
+    draw = DrawWorld()
+    draw.shape_upsert(action="create", shape_type=shape_type, text="Node")
+    node = draw.get_tree()["tree"][0]
+    assert node["type"] == expected_type
+    assert node.get("custom_shape_type") == expected_preset
+
+    summary = draw.get_draw_summary()["shapes"][0]
+    assert summary["type"] == f"com.sun.star.drawing.{expected_type}"
+    assert summary.get("custom_shape_type") == expected_preset
+
+    if shape_type == "flowchart-connector":
+        assert oracles.is_draw_connector(node) is False
 
 
 def test_calc_py_dest_snapshot() -> None:

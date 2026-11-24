@@ -2006,11 +2006,11 @@ def _make_combo_ctrl(initial_text: str = ""):
 
 def test_sidebar_refresh_keeps_uncommitted_typed_text_and_follows_external_changes():
     from unittest.mock import MagicMock, patch
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
 
     endpoint = "https://openrouter.ai/api"
     save({"endpoint": endpoint, "text_model": "openai/gpt-oss-20b", "image_model": "google/gemini-2.5-flash-image"})
-    set_api_key_for_endpoint(endpoint, "sk-or-test")
+    save({"api_keys_by_endpoint": {endpoint: "sk-or-test"}})
 
     el = _thin_panel_element()
     text_ctrl = _make_combo_ctrl()
