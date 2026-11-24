@@ -869,7 +869,7 @@ _UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_P
 # schema uses the words and these maps hold the UNO integers (ParagraphAdjust).
 # START and END exist since LO 26.2; older SvxAdjustItem::PutValue
 # (editeng/source/items/paraitem.cxx) silently ignores 5 and 6, so the schema
-# does not offer them and para_adjust_to_uno refuses them there.
+# does not offer them and para_adjust_to_uno falls back to left/right there.
 _PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3, "start": 5, "end": 6}
 _PARA_ADJUST_FROM_INT = {
     0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify", 5: "start", 6: "end",
@@ -971,9 +971,8 @@ def para_adjust_to_uno(value: Any) -> int:
         key = value.strip().lower()
         if key in _PARA_ADJUST_TO_UNO:
             if key in ("start", "end") and not _has_paragraph_adjust(key.upper()):
-                raise ValueError(
-                    "ParaAdjust '%s' needs LibreOffice 26.2 or newer; use left, center, right or justify." % key
-                )
+                # Matches pre-26.2 ODF import (xmloff adjushdl.cxx); RTL paragraphs still get left, as old LO did.
+                return _PARA_ADJUST_TO_UNO["left" if key == "start" else "right"]
             return _PARA_ADJUST_TO_UNO[key]
     raise ValueError(
         "ParaAdjust must be one of left, center, right, justify "

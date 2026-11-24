@@ -898,13 +898,12 @@ def test_style_format_text_para_adjust_start_uno(ctx, doc):
 
     para = text.createEnumeration().nextElement()
     effective = para.getPropertyValue("ParaAdjust")
+    assert res["status"] == "ok", res
     if libreoffice_version(ctx) >= (26, 2):
-        assert res["status"] == "ok", res
         assert res["after"]["ParaAdjust"] == "start"
         assert effective == 5
     else:
-        assert res["status"] == "error", res
-        assert res["code"] == "INVALID_PARAM"
-        assert effective == 3
+        assert res["after"]["ParaAdjust"] == "left"
+        assert effective == 0
 
 
