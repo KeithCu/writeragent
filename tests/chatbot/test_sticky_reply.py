@@ -44,11 +44,15 @@ from plugin.contrib.smolagents.default_tools import FinalAnswerTool
     ],
 )
 def test_librarian_leave_flag_coercion(flag_value, expect_leave):
-    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
+    adapter = SmolToolAdapter(
+        StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN)),
+        MagicMock(),
+        safe=False,
+    )
     kwargs: dict = {"answer": "Bye"}
     if flag_value is not None:
         kwargs["switch_to_document_mode"] = flag_value
-    out = tool.execute(MagicMock(), **kwargs)
+    out = adapter.forward(**kwargs)
     if expect_leave:
         assert isinstance(out, dict)
         assert out["status"] == STATUS_SWITCH_MODE
@@ -111,8 +115,8 @@ def test_writing_plan_leave_drops_unused_plan_completed():
     props = (tool.parameters or {})["properties"]
     assert "plan_completed" not in props
     assert "writing_plan_finished" in props
-    leave = tool.execute(
-        MagicMock(),
+    adapter = SmolToolAdapter(tool, MagicMock(), safe=False)
+    leave = adapter.forward(
         answer="<p>All sections</p>",
         writing_plan_finished="yes",
         plan_completed=1,

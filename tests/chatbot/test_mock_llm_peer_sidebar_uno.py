@@ -54,6 +54,7 @@ def _setup_peer(ctx):
     init_config(ctx)
     # Point JSON at the mock before showing either deck; fold test flags into the
     # same start save so the single 2s OXT settle covers them too.
+    # librarian_invoked alone makes a new deck open in Chat, so the suite leaves the user's USER.md alone.
     _session = start_mock_sidebar_session(
         delay_ms=20,
         offline=True,
@@ -62,12 +63,6 @@ def _setup_peer(ctx):
             "chatbot.prompt_for_web_research": False,
         },
     )
-    from plugin.chatbot.memory import MemoryStore
-
-    try:
-        MemoryStore().write("# Test User Profile\n")
-    except Exception:
-        pass
 
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
 

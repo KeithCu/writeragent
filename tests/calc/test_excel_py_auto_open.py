@@ -436,25 +436,22 @@ def test_maybe_export_msgbox_on_failure(tmp_path: Path):
     )
     ctx = MagicMock()
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
+    from plugin.framework.uno_context import set_package_extension_id
 
     set_package_extension_id(EXTENSION_ID_LIBREPY)
-    try:
-        with (
-            patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
-            patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
-            patch(
-                "plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx",
-                side_effect=ValueError("boom"),
-            ),
-            patch("plugin.chatbot.dialogs.msgbox") as box,
-        ):
-            assert maybe_export_excel_py_on_save(ctx, doc) is False
-            box.assert_called_once()
-            assert box.call_args[0][1] == "LibrePy"
-            assert "boom" in box.call_args[0][2]
-    finally:
-        reset_package_extension_id_for_tests()
+    with (
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch(
+            "plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx",
+            side_effect=ValueError("boom"),
+        ),
+        patch("plugin.chatbot.dialogs.msgbox") as box,
+    ):
+        assert maybe_export_excel_py_on_save(ctx, doc) is False
+        box.assert_called_once()
+        assert box.call_args[0][1] == "LibrePy"
+        assert "boom" in box.call_args[0][2]
 
 
 def test_convert_uno_doc_to_excel_snapshot():
