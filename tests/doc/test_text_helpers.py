@@ -695,6 +695,26 @@ def test_read_visible_body_disposed():
         read_visible_body(model)
 
 
+def test_read_visible_body_measure_failure_returns_none_and_full_text():
+    from plugin.doc.text_helpers import read_visible_body
+
+    para = _Paragraph([_Portion("Hello world")])
+    para.getStart = lambda: "para_start"  # type: ignore[attr-defined]
+    para.getEnd = lambda: "para_end"  # type: ignore[attr-defined]
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([para])
+    body.compareRegionStarts.return_value = 0
+    body.createTextCursorByRange.side_effect = RuntimeError("cursor failed")
+    pos = MagicMock()
+    pos.getText.return_value = body
+    model = MagicMock()
+    model.getText.return_value = body
+
+    text, offsets = read_visible_body(model, [pos])
+    assert text == "Hello world"
+    assert offsets == [None]
+
+
 def test_get_document_length_non_writer_is_zero():
     from plugin.doc import text_helpers
 

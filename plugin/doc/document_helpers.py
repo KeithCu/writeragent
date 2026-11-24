@@ -261,11 +261,9 @@ def get_document_context_for_chat(
                     "Document length: %d characters.\n\n%s%s%s" % (total, start_excerpt, middle_note, end_excerpt),
                 )
 
-            excerpt = text[:max_context]
-            if total > max_context:
-                excerpt += "\n\n[... document truncated ...]"
+            note = "\n\n[... document truncated ...]" if total > max_context else ""
             # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-            excerpt = _inject_selection_markers(excerpt, 0, sel_start, sel_end, "[DOCUMENT START]\n", "")
+            excerpt = _inject_selection_markers(text[:max_context], 0, sel_start, sel_end, "[DOCUMENT START]\n", note)
             return _writer_snapshot(
                 model,
                 "Document length: %d characters.\n\n%s" % (total, excerpt),

@@ -724,6 +724,31 @@ def test_get_document_context_for_chat_selection_in_tail_none_and_capped():
     assert "[SELECTION_START]" + ("x" * 2000) + "[SELECTION_END]" in capped_out
 
 
+def test_get_document_context_for_chat_truncated_selection_markers():
+    from plugin.framework.doc_type import DocumentType
+
+    body = "0123456789abcdef"
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [12, 15])),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        past_out = get_document_context_for_chat(MagicMock(), max_context=10, include_end=False, include_selection=True)
+    assert "[SELECTION_START]" not in past_out
+    assert "[SELECTION_END]" not in past_out
+    assert "[... document truncated ...]" in past_out
+
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [7, 15])),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        across_out = get_document_context_for_chat(MagicMock(), max_context=10, include_end=False, include_selection=True)
+    assert "[DOCUMENT START]\n0123456[SELECTION_START]789[SELECTION_END]\n\n[... document truncated ...]" in across_out
+
+
 def test_document_context_end_document_markers():
     from plugin.framework.client.shim_helpers import snapshot_text
     from plugin.framework.doc_type import DocumentType

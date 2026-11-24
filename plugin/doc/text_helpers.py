@@ -569,8 +569,10 @@ def _table_visible_text(table: Any) -> str:
 
 def _visible_blocks(para_enum: Any, state: DeletionState) -> Iterator[tuple[Any, str, bool]]:
     """Yield (paragraph, visible text, opened inside a deletion) per element of a text
-    enumeration; paragraph is None for a table. A mid-walk error ends the walk with what was
-    read; disposal raises DocumentDisposedError."""
+    enumeration; paragraph is None for a table. One shared ``DeletionState`` covers the walk
+    because redline markers may be in an earlier paragraph. A mid-walk error ends the walk
+    with what was read (never falling back to ``getString()``, which would return deleted
+    text); disposal raises DocumentDisposedError."""
     try:
         for element in iter_elements(para_enum):
             opened = state.in_delete
@@ -754,6 +756,13 @@ def get_selection_text(model: Any) -> str | None:
 
 
 def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
+    """Measure visible characters from *para* start to *position*.
+
+    Measured per paragraph rather than from the document start because a range from the
+    document start to a paragraph after a table drops that paragraph and its break.
+    *opened* carries whether the paragraph began inside a deletion whose start marker was
+    in an earlier paragraph.
+    """
     lead = body.createTextCursorByRange(para.getStart())
     lead.gotoRange(position, True)
     return len(normalize_linebreaks(get_string_without_tracked_deletions(lead, DeletionState(opened))))
@@ -762,8 +771,10 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
 @main_thread_only
 def read_visible_body(model: Any, positions: Sequence[Any] = ()) -> tuple[str, list[int | None]]:
     """Visible body text (the get_content document_length space) and the visible offset of each
-    position in it; None for a position outside the body (table cell, frame, header, footnote).
-    Raises UnoObjectError / DocumentDisposedError."""
+    position in it; None for a position outside the body (table cell, frame, header, footnote)
+    or a position that cannot be measured. Walks the body rather than using ``CharacterCount``
+    (omits paragraph breaks) or cursor steps (fields and footnote anchors are one step but
+    several visible characters). Raises UnoObjectError / DocumentDisposedError."""
     if model is None:
         raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     body = uno_call(model.getText, "Get document text")
@@ -777,19 +788,20 @@ def read_visible_body(model: Any, positions: Sequence[Any] = ()) -> tuple[str, l
     for para, chunk, opened in _visible_blocks(uno_call(whole.createEnumeration, "Enumerate body"), DeletionState()):
         chunk = normalize_linebreaks(chunk)
         if pending and para is not None:
-            para_end = uno_call(para.getEnd, "Paragraph getEnd")
-            for i in [i for i, p in pending.items() if starts_at_or_after(body, para_end, p)]:
-                pos = pending.pop(i)
-                offsets[i] = start + uno_call(
-                    lambda: _visible_lead(body, para, pos, opened),
-                    "Measure position in paragraph",
-                )
+            para_end = uno_read(para.getEnd, None)
+            if para_end is not None:
+                for i in [i for i, p in pending.items() if starts_at_or_after(body, para_end, p)]:
+                    pos = pending.pop(i)
+                    lead = uno_read(lambda: _visible_lead(body, para, pos, opened), None)
+                    if lead is not None:
+                        offsets[i] = start + lead
         parts.append(chunk)
         start += len(chunk) + 1
     text = "\n".join(parts)
     for i in pending:
         # An empty last paragraph after a table is not enumerated
-        # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx).
+        # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx);
+        # a walk that stopped early or a failed compareRegionStarts also lands here.
         offsets[i] = len(text)
     return text, offsets
 
