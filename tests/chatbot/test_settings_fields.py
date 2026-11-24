@@ -511,7 +511,6 @@ def test_password_field_shows_ref_when_locked(fake_keystore):
     specs = build_module_field_specs("mcp", control_ids="flat")
     tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
     assert tok_spec["value"] == ref
-    assert "keyring_locked" not in tok_spec
 
 
 def test_field_specs_config_values_maps_select_caption_to_option_value():

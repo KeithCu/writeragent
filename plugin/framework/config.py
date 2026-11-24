@@ -765,6 +765,8 @@ def api_key_needs_keystore_read(endpoint: Any) -> bool:
 
 
 def _secret_field_text(name: str, raw: Any) -> str:
+    # Return the raw ref when the secret cannot be read: a blank field would be
+    # saved as a clear, so pressing OK for an unrelated setting would drop the saved secret.
     return _resolve_secret(name, raw) or str(raw or "")
 
 

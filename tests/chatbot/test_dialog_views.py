@@ -2409,16 +2409,20 @@ def test_settings_ok_adopts_connections_the_editor_checked():
 
 
 def test_ref_in_key_field_is_not_used_as_a_key() -> None:
-    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.chatbot.dialog_views import EndpointCombinedListener, SettingsDialog
 
     combo = MagicMock()
     combo.getText.return_value = "https://api.groq.com/openai/v1"
     api = MagicMock()
     api.getText.return_value = "keystore:deadbeef"
+    text_model = MagicMock()
+    text_model.getText.return_value = ""
 
     def get_optional_side_effect(dlg, name):
         if name == "api_key":
             return api
+        if name == "text_model":
+            return text_model
         return None
 
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
@@ -2427,13 +2431,30 @@ def test_ref_in_key_field_is_not_used_as_a_key() -> None:
         patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect),
         patch("plugin.chatbot.dialog_views.get_control_text", return_value="keystore:deadbeef"),
-        patch("plugin.chatbot.dialog_views.drop_non_text_models", return_value=[]) as mock_drop,
+        patch("plugin.chatbot.dialog_views.drop_non_text_models", return_value=[]),
         patch("plugin.chatbot.dialog_views.cached_image_models", return_value=[]),
-        patch("plugin.chatbot.dialog_views.populate_combobox_with_lru"),
+        patch("plugin.chatbot.dialog_views.populate_combobox_with_lru", return_value="") as mock_pop,
     ):
         assert listener._api_key_override() == ""
         listener._apply_dropdowns("https://api.groq.com/openai/v1", models=[])
-        assert mock_drop.call_args.kwargs["api_key_override"] == ""
+        assert mock_pop.call_args.kwargs["api_key_override"] == ""
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = MagicMock()
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect),
+        patch("plugin.chatbot.dialog_views.populate_combobox_with_lru") as mock_open_pop,
+        patch("plugin.chatbot.dialog_views.sync_mcp_config_snippet"),
+        patch.object(view, "_setup_audio_listeners"),
+    ):
+        view._populate_fields(
+            [
+                {"name": "api_key", "value": "keystore:deadbeef"},
+                {"name": "text_model", "value": "llama-3"},
+            ],
+            "https://api.groq.com/openai/v1",
+        )
+        assert mock_open_pop.call_args.kwargs["api_key_override"] == ""
 
 
 def test_endpoint_change_replaces_a_ref_in_the_key_field() -> None:

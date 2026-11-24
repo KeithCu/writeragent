@@ -1061,6 +1061,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             set_control_text(lbl_status, "")
 
     def _typed_api_key(self, ak_ctrl: Any) -> str:
+        """Field text, or '' when it holds a keystore ref (unreadable keys must never be sent)."""
         text = str(get_control_text(ak_ctrl) or "")
         return "" if keystore.is_ref(text) else text
 

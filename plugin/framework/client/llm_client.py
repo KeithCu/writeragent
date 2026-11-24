@@ -43,7 +43,6 @@ import collections
 import json
 import logging
 import re
-import urllib.parse
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
@@ -313,7 +312,8 @@ class LlmClient:
         request_model = request_model_from_body(body)
         api_key = str(self.config.get("api_key") or "").strip()
         secrets = [api_key, *secrets_from_target(path)]
-        # Never echo the API key or opaque path secrets in the log or error path.
+        # Never echo the key if a provider or proxy reflected it in the error
+        # text; a leftover ?key= or opaque path secret must not land in the log.
         safe_path = redact_secrets(public_target(path), [api_key])
         st_raw = getattr(response, "status", 500)
         try:
@@ -559,17 +559,11 @@ class LlmClient:
     def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self._get_shim().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
-        endpoint = self._endpoint()
-        if path.startswith("/"):
-            parsed = urllib.parse.urlparse(endpoint)
-            url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
-        else:
-            url = path
 
         # log.debug...
         log.debug("=== Image Request ===")
         # Path/query must not include API keys.
-        log.debug("URL: %s" % public_target(url))
+        log.debug("URL: %s" % public_target(path))
 
         # Persistent transport supports cancellation and 429/503 retries.
         try:
