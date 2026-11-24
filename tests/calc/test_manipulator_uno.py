@@ -257,10 +257,8 @@ def test_repeated_row_formula_warns_without_rewriting_uno(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_py_literal_newlines_are_repaired_on_write(ctx, doc):
-    from plugin.calc.python.function import clear_python_addin_cache
     from plugin.calc.python.workbook_state import WorkbookState
 
-    clear_python_addin_cache()
     try:
         sheet = doc.getCurrentController().getActiveSheet()
 

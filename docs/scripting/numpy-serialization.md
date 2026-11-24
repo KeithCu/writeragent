@@ -432,25 +432,15 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 | Child unpack | [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
+| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / `matrix_result` | Scalar or UNO `[][]any` matrix for Calc's add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
 **Fresh namespace every call** ([core strategy](../enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PY()` or `python_run_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
 
-### Matrix formula result session (IPC reduction) {#matrix-formula-result-session-ipc-reduction}
+### Matrix formula native return {#matrix-formula-result-session-ipc-reduction}
 
-Calc add-ins return **one scalar per evaluation**. A 1,000-row matrix formula would otherwise cause 1,000 IPC crossings and serialization pack taxes.
-
-WriterAgent implements a **Worker Result Session** cache ([`WorkerResultSession`](../../plugin/calc/python/function.py)):
-
-1. **First cell** in the range runs the full worker; the serialized list is cached on the **LibreOffice host**.
-2. **Remaining cells** with the same `code` + `data` signature bypass the worker and read by index from the host cache.
-3. **`ROW()-n` pattern:** pass `ROW()-n` as the 2nd argument so each cell pulls the correct list element regardless of Calc evaluation order.
-
-This caches **execution output** on the host — separate from the worker [**code hot cache**](#warm-worker-lifecycle) (AST parse + static policy only).
-
-**Benefits:** ~**99.9% IPC reduction** for large matrix columns; one subprocess + serialize cost per range per recalc pass. Author UX (Ctrl+Shift+Enter, `ROW()`): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
+Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as `uno.Any("[][]any", rows)`, so the block receives all elements in one worker call without a host result cache. Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 ### Multi-range wire format {#multi-range-wire-format}
 
@@ -502,7 +492,7 @@ Checklist (same legs the script runs):
 2b. **Vendored Codecs** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
 3. **Mmap** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.
-5. **Matrix formulas** — count worker invocations per recalc with and without `ROW()-1` index arg.
+5. **Matrix formulas** — verify one worker invocation per `{=PY()}` array block.
 6. **Cross-platform** — temp file delete on timeout ([`venv_worker.py`](../../plugin/scripting/venv_worker.py) process-tree kill: POSIX `killpg`, Windows `taskkill /T`), Windows path length, UTF-8 JSON for non-ASCII cells (keep JSON branch for mixed data).
 
 Record: cells/sec host→child, cells/sec child→host, bytes on wire, and whether timeout (`scripting.python_exec_timeout`) fires due to serialization alone.
@@ -576,7 +566,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_range`”, not 10⁵-element lists in `result`. |
-| **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`WorkerResultSession`](../../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
+| **`=PY()` matrix** | Use auto-spill from one cell or a `{=PY(code)}` array block (Ctrl+Shift+Enter) — one worker run returns the full matrix; avoid filled-down per-cell formulas each resending `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](../enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).

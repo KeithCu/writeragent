@@ -16,9 +16,6 @@ import uno
 from com.sun.star.table import CellAddress
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
-from plugin.calc.python.function import (
-    clear_python_addin_cache,
-)
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.spill import (
     SpillCell,
@@ -424,7 +421,6 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
     Calc-specific mapping is #VALUE! (519); ZeroDivisionError is #DIV/0! (532).
     """
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     try:
         value_cell = sheet.getCellByPosition(0, 0)
         div_cell = sheet.getCellByPosition(0, 1)
@@ -445,7 +441,6 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
     """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     try:
         cell = sheet.getCellByPosition(0, 0)
         cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
@@ -507,7 +502,6 @@ def _with_repo_venv_for_tests(ctx):
 def test_py_addin_token_formula_errors(ctx, doc):
     """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     cases = [("#DIV/0!", 532), ("#N/A", 32767)]
     with _with_repo_venv_for_tests(ctx):
         try:
@@ -542,7 +536,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
     """Spill neighbors: #N/A is written as void (error 32767), others as =#ERRxxx!."""
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [[1, '#VALUE!'], ['#N/A', '#DIV/0!']]"
     try:
         cell_a1 = sheet.getCellByPosition(0, 0)
@@ -610,7 +603,6 @@ def test_py_spill_neighbors_temporal_formats(ctx, doc):
     """Spill neighbors: temporal values get numeric serials and standard date/time/duration formats."""
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [['2026-08-08', 'PT30H'], ['2026-08-08T12:00:00', '12:30:00']]"
     try:
         cell_a1 = sheet.getCellByPosition(0, 0)

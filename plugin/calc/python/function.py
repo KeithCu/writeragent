@@ -9,17 +9,12 @@
 resolves the caller's workbook state, worker session, and ``FormulaOrigin`` /
 ``is_matrix`` once into a ``CellContext`` (carried into ``finalize_python_return``
 and ``spill``), the user venv runs the code, and ``finalize_python_return``
-shapes the result (scalar, a matrix cached in ``WorkerResultSession`` for the
-rest of the recalc, or a deferred spill). ``clear_python_addin_cache`` drops
-every workbook's matrix cache.
+shapes the result (scalar, a native ``[][]any`` matrix, or a deferred spill).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import hashlib
+from dataclasses import dataclass
 import logging
-import threading
-import time
 from typing import Any
 
 from plugin.calc.calc_addin_data import (
@@ -31,16 +26,13 @@ from plugin.calc.calc_addin_data import (
 )
 from plugin.calc.python.addin_values import (
     addin_result_for_worker_status,
-    flat_result_equal,
+    flatten_result_values,
     format_addin_error_for_display,
     helper_error_log_message,
     is_helper_error_dict,
-    result_as_spill_grid,
-    unwrap_single_cell,
-    coerce_index,
-    flatten_result_values,
-    is_scalar_index_arg,
+    matrix_result,
     py_addin_cell_value,
+    result_as_spill_grid,
 )
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_locator_cache import FormulaOrigin, bind_formula_locate_memo, locate_formula_cell_in_doc
@@ -66,66 +58,6 @@ from plugin.scripting.session_manager import calc_workbook_base_session_id, work
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
-
-_MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
-
-_PY_PASS_GAP_SEC = 2.0
-
-
-@dataclass(eq=False, slots=True)
-class WorkerResultSession:
-    """Caches one worker list result across multiple =PY() calls in a recalc pass."""
-
-    raw: Any
-    flat: tuple[Any, ...]
-    next_index: int = 0
-    timestamp: float = field(default_factory=time.monotonic)
-
-
-def _worker_data_token(worker_data: Any) -> str:
-    """Stable sha256 digest of worker data to identify matrix sessions."""
-    h = hashlib.sha256()
-    seen: set[int] = set()
-
-    def _walk(obj: Any) -> None:
-        if obj is None:
-            h.update(b"N")
-            return
-        if isinstance(obj, bool):
-            h.update(b"B1" if obj else b"B0")
-            return
-        if isinstance(obj, (int, float)):
-            h.update(b"F" + repr(obj).encode("ascii", "replace"))
-            return
-        if isinstance(obj, str):
-            h.update(b"S" + obj.encode("utf-8", "surrogatepass"))
-            return
-        if isinstance(obj, (bytes, bytearray)):
-            h.update(b"Y" + bytes(obj))
-            return
-        obj_id = id(obj)
-        if obj_id in seen:
-            h.update(b"cycle")
-            return
-        seen.add(obj_id)
-        try:
-            if isinstance(obj, dict):
-                h.update(b"D")
-                for k, v in sorted(obj.items(), key=lambda kv: str(kv[0])):
-                    _walk(str(k))
-                    _walk(v)
-                return
-            if isinstance(obj, (list, tuple)):
-                h.update(b"L")
-                for item in obj:
-                    _walk(item)
-                return
-            h.update(b"r" + repr(obj).encode("utf-8", "replace"))
-        finally:
-            seen.remove(obj_id)
-
-    _walk(worker_data)
-    return h.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,68 +134,6 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
     )
 
 
-def matrix_session_key(origin: FormulaOrigin, code: str, data_token: str | None) -> tuple[Any, ...]:
-    """Build the per-thread, per-cell matrix cache key for a located origin."""
-    # Nested tuple keeps k[1][3] == code and k[2] == data_token.
-    return (threading.get_ident(), (origin.sheet_name, origin.row, origin.col, code), data_token)
-
-
-def _expire_matrix_sessions(matrix: dict[tuple[Any, ...], WorkerResultSession], now: float) -> None:
-    stale = [
-        k for k, session in matrix.items()
-        if (now - session.timestamp) > _PY_PASS_GAP_SEC
-    ]
-    for k in stale:
-        matrix.pop(k, None)
-
-
-def scalar_for_list_result(
-    cell: CellContext,
-    result: Any,
-    *,
-    data_token: str | None = None,
-) -> float | str | bool:
-    """Return one Calc scalar per invocation when the worker produced a list."""
-    flat: tuple[Any, ...] = tuple(py_addin_cell_value(v) for v in flatten_result_values(result))
-    if not flat:
-        return ""
-    if cell.origin is None or cell.state is None:
-        return flat[0]
-    key = matrix_session_key(cell.origin, cell.code, data_token)
-    now = time.monotonic()
-
-    wb_state = cell.state
-
-    with _MATRIX_SCALAR_SESSIONS_LOCK:
-        _expire_matrix_sessions(wb_state.matrix, now)
-        state = wb_state.matrix.get(key)
-        if state is None or not flat_result_equal(state.flat, flat):
-            state = WorkerResultSession(result, flat, timestamp=now)
-            wb_state.matrix[key] = state
-        state.timestamp = now
-        idx = state.next_index
-        state.next_index = idx + 1
-        if state.next_index >= len(state.flat):
-            wb_state.matrix.pop(key, None)
-    return state.flat[idx]
-
-
-def clear_python_addin_cache() -> None:
-    """Clear formula result cache across all threads (e.g. on session reset or document reload)."""
-    with _MATRIX_SCALAR_SESSIONS_LOCK:
-        for state in WorkbookState.all_states():
-            state.matrix.clear()
-
-
-def clear_workbook_matrix_cache(doc: Any) -> None:
-    """Drop one workbook's cached =PY() list results (its init script changed). Other workbooks keep theirs."""
-    state = WorkbookState.known(doc)
-    if state is None:
-        return  # no state means nothing was cached for this workbook
-    with _MATRIX_SCALAR_SESSIONS_LOCK:
-        state.matrix.clear()
-
-
 def _record_py_diagnostic(
     code: str,
     res: dict[str, Any] | None,
@@ -302,14 +172,11 @@ def _record_py_diagnostic(
 def finalize_python_return(
     cell: CellContext,
     result: Any,
-    *,
-    index_arg: Any = None,
-    data_token: str | None = None,
-) -> float | str | bool | tuple[Any, ...]:
-    """Map worker result to a single value Calc's add-in bridge accepts."""
+) -> Any:
+    """Map worker result to a scalar or UNO ``[][]any`` matrix Calc's add-in bridge accepts."""
     result = result_to_calc_grid(result)
 
-    if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
+    if isinstance(result, (list, tuple)) and len(result) > 0:
         if get_config("scripting.python_auto_spill") and not cell.is_matrix:
             grid_to_spill = result_as_spill_grid(result)
             if grid_to_spill and grid_to_spill[0]:
@@ -317,7 +184,7 @@ def finalize_python_return(
                     if not cell.on_main:
                         if cell.doc is not None:
                             queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
-                        return py_addin_cell_value(grid_to_spill[0][0])
+                        return matrix_result(result)
 
                     if cell.origin is not None and cell.state is not None:
                         prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
@@ -330,14 +197,7 @@ def finalize_python_return(
                     log.exception("Error checking spill collision")
 
     if isinstance(result, (list, tuple)):
-        if index_arg is not None:
-            flat = flatten_result_values(result)
-            idx = coerce_index(index_arg)
-            if idx < 0 or idx >= len(flat):
-                return f"Error: index {idx} out of range (result length {len(flat)})"
-            return py_addin_cell_value(flat[idx])
-
-        return scalar_for_list_result(cell, result, data_token=data_token)
+        return matrix_result(result)
 
     return py_addin_cell_value(result)
 
@@ -376,9 +236,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         args = maybe_strip_geometric_eval_args(code, args, cell_ctx)
         py_data = calc_addin_args_from_split(args)
         is_multi = len(args) > 1
-        # Every argument is an input, as on Collabora Online. A lone numeric argument
-        # (the ROW()-1 form of a desktop matrix formula) also picks one element of a list result.
-        index_arg = unwrap_single_cell(py_data) if not is_multi and is_scalar_index_arg(py_data) else None
         max_cells = configured_python_max_data_cells()
         if py_data is not None:
             size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)
@@ -390,39 +247,25 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         else:
             worker_data = None
 
-        now = time.monotonic()
-        cached = None
-        data_token: str | None = None
-        if cell_ctx.origin is not None:
-            data_token = _worker_data_token(worker_data)
-            cache_key = matrix_session_key(cell_ctx.origin, code, data_token)
-            wb_state = cell_ctx.state
-            if wb_state is not None:
-                with _MATRIX_SCALAR_SESSIONS_LOCK:
-                    _expire_matrix_sessions(wb_state.matrix, now)
-                    cached = wb_state.matrix.get(cache_key)
-        if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
-            res = {"status": "ok", "result": cached.raw}
-        else:
-            session_id = cell_ctx.session_id
-            init_kwargs = cell_ctx.init_kwargs
+        session_id = cell_ctx.session_id
+        init_kwargs = cell_ctx.init_kwargs
 
-            log.debug(
-                "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
-                target_doc is not None,
-                session_id,
-                "init_script" in init_kwargs,
-                cell_ctx.on_main,
-                in_sync_host_dispatch(),
-            )
-            res = run_code_in_user_venv(
-                code,
-                data=worker_data,
-                bindings={"scoped_dir": cell_ctx.scoped_dir},
-                session_id=session_id,
-                python_tool_domain="",
-                **init_kwargs,
-            )
+        log.debug(
+            "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
+            target_doc is not None,
+            session_id,
+            "init_script" in init_kwargs,
+            cell_ctx.on_main,
+            in_sync_host_dispatch(),
+        )
+        res = run_code_in_user_venv(
+            code,
+            data=worker_data,
+            bindings={"scoped_dir": cell_ctx.scoped_dir},
+            session_id=session_id,
+            python_tool_domain="",
+            **init_kwargs,
+        )
         if res.get("status") == "ok":
             result = res.get("result")
             if isinstance(result, dict) and is_helper_error_dict(result):
@@ -447,8 +290,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 cells = _cells_beside_images(result)
                 if cells is None:
                     return _("Image inserted") if len(images) == 1 else _("Images inserted")
-                return finalize_python_return(cell_ctx, cells, index_arg=index_arg, data_token=data_token)
-            return finalize_python_return(cell_ctx, result, index_arg=index_arg, data_token=data_token)
+                return finalize_python_return(cell_ctx, cells)
+            return finalize_python_return(cell_ctx, result)
 
         raw_message = str(res.get("message") or res.get("error") or "")
         addin_cell = addin_result_for_worker_status(res)
