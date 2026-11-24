@@ -82,19 +82,19 @@ def _run_async(coro):
 # ---------------------------------------------------------------------------
 
 
-_CHROME_BROWSER: ManagedSubprocess | None = None
+_LOCAL_BROWSER: ManagedSubprocess | None = None
 # Browser-level URL of the current local browser. Written only by launch (under CdpRefCount.launch_lock) and teardown; browser_cdp only reads it, so a page visit can never start a browser.
 _CDP_ENDPOINT: str = ""
 
 
-def cleanup_local_chrome() -> None:
+def cleanup_local_browser() -> None:
     """Kill the locally spawned browser and drop it from quit-time registry."""
-    global _CHROME_BROWSER, _CDP_ENDPOINT
+    global _LOCAL_BROWSER, _CDP_ENDPOINT
     _CDP_ENDPOINT = ""
-    managed = _CHROME_BROWSER
+    managed = _LOCAL_BROWSER
     if managed is None:
         return
-    _CHROME_BROWSER = None
+    _LOCAL_BROWSER = None
     logger.info("Terminating local %s process...", managed.label)
     try:
         managed.kill_tree()
@@ -215,8 +215,8 @@ def _win32_minimized_startupinfo() -> Any:
 
 def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) -> ManagedSubprocess:
     """Launch a local browser process, register it for quit-time cleanup, and return its handle."""
-    global _CHROME_BROWSER
-    if _CHROME_BROWSER is not None and _CHROME_BROWSER.is_alive():
+    global _LOCAL_BROWSER
+    if _LOCAL_BROWSER is not None and _LOCAL_BROWSER.is_alive():
         raise RuntimeError("another local browser is already running for web research")
     # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
     popen_kw: dict[str, Any] = {}
@@ -230,12 +230,12 @@ def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) 
         stderr=subprocess.DEVNULL,
         **popen_kw,
     )
-    _CHROME_BROWSER = ManagedSubprocess.wrap_existing(
+    _LOCAL_BROWSER = ManagedSubprocess.wrap_existing(
         proc,
         label=label,
         register=True,
     )
-    return _CHROME_BROWSER
+    return _LOCAL_BROWSER
 
 
 def _query_browser_endpoint() -> str:
@@ -251,7 +251,7 @@ def _query_browser_endpoint() -> str:
         return ""
 
 
-def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
+def get_local_cdp_url(browser_type: str = "chrome") -> str:
     global _CDP_ENDPOINT
     # Do not clear on entry or failure: another run may still be using a live browser too busy to answer in 1 s.
     endpoint = _query_browser_endpoint()

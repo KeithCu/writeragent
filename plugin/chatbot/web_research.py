@@ -212,7 +212,7 @@ def _write_research_cache(
 
 
 @final
-class CdpRefCount:
+class LocalBrowserRefCount:
     """Shared local browser refcount and condition variable for page visits and teardown."""
 
     cond: threading.Condition
@@ -248,14 +248,14 @@ class CdpRefCount:
         """Count one execute() using the shared local browser.
 
         Waits out a teardown already in progress so this run does not attach to
-        a Chrome process that is about to be killed.
+        a browser process that is about to be killed.
         """
         with self.cond:
             start_wait = time.monotonic()
             while self.closing:
                 self.cond.wait(1.0)
                 if time.monotonic() - start_wait > self.timeout_seconds:
-                    raise RuntimeError("previous CDP browser still closing")
+                    raise RuntimeError("previous local browser still closing")
             self.runs += 1
 
     def finish(self) -> None:
@@ -276,11 +276,11 @@ class CdpRefCount:
             while self.visits_inflight > 0:
                 self.cond.wait(1.0)
                 if time.monotonic() - start_wait > self.timeout_seconds:
-                    log.warning("Timeout waiting for in-flight CDP visits to finish")
+                    log.warning("Timeout waiting for in-flight page visits to finish")
                     break
         try:
             web_research_firefox.close_firefox_bidi()
-            browser_cdp_tool.cleanup_local_chrome()
+            browser_cdp_tool.cleanup_local_browser()
             web_research_firefox.remove_pidfile()
         except Exception as exc:
             log.warning("Failed to clean up local browser process: %s", exc)
@@ -297,7 +297,7 @@ class CdpRefCount:
             self.cond.notify_all()
 
 
-_cdp_refcount = CdpRefCount()
+_browser_refcount = LocalBrowserRefCount()
 
 
 def _stop_checker_from_cancel(cancel: SendCancellation | None) -> Callable[[], bool] | None:
@@ -353,17 +353,17 @@ class CdpPageDriver:
         browser_cdp_tool.browser_cdp("Target.closeTarget", {"targetId": tab})
 
 
-def _begin_shared_browser(uno_ctx: Any, browser_type: str) -> BrowserPageDriver:
+def _begin_shared_browser(browser_type: str) -> BrowserPageDriver:
     """Attach this run to the process-wide local browser."""
-    with _cdp_refcount.launch_lock:
-        _cdp_refcount.run_enter()
+    with _browser_refcount.launch_lock:
+        _browser_refcount.run_enter()
         try:
             if browser_type == BIDI_BROWSER_TYPE:
                 return web_research_firefox.begin_firefox_bidi()
-            browser_cdp_tool.get_local_chrome_cdp_url(uno_ctx, browser_type)
+            browser_cdp_tool.get_local_cdp_url(browser_type)
             return CdpPageDriver()
         except Exception:
-            _cdp_refcount.finish()
+            _browser_refcount.finish()
             raise
 
 
@@ -387,7 +387,7 @@ class VisitWebpageBrowserTool(Tool):
 
         # Each visit opens and closes its own tab. Reusing the first page
         # tab meant two deep-research workers navigated the same document.
-        if not _cdp_refcount.visit_enter():
+        if not _browser_refcount.visit_enter():
             return "Error visiting webpage via browser: browser is closing"
         tab: str | None = None
         try:
@@ -414,7 +414,7 @@ class VisitWebpageBrowserTool(Tool):
                     lambda: self.driver.close_tab(tab),
                     f"visit_webpage: close_tab failed for {tab}",
                 )
-            _cdp_refcount.visit_leave()
+            _browser_refcount.visit_leave()
 
 
 def _resolve_web_research_window(client: Any) -> tuple[int, bool]:
@@ -847,7 +847,7 @@ class WebResearchTool(ToolBase):
 
             if browser_enabled:
                 try:
-                    browser = _begin_shared_browser(ctx.ctx, browser_type)
+                    browser = _begin_shared_browser(browser_type)
                     browser_held = True
                     log.info("Browser web research enabled (%s).", browser_type)
                 except Exception as e:
@@ -921,7 +921,7 @@ class WebResearchTool(ToolBase):
             return {**final_ans, **cache_fields}
         finally:
             if browser_held:
-                _cdp_refcount.finish()
+                _browser_refcount.finish()
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
 
 

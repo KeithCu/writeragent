@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, final
 
 from plugin.contrib.cdp.browser_cdp_tool import (
     browser_profile_dir,
-    cleanup_local_chrome,
+    cleanup_local_browser,
     find_browser_executable,
     spawn_local_browser,
 )
@@ -367,14 +367,14 @@ def connect_firefox_bidi(open_timeout: float) -> FirefoxBidiClient:
 def begin_firefox_bidi() -> FirefoxBidiClient:
     """Return a live Firefox BiDi client, launching Firefox if needed.
 
-    Caller must hold ``CdpRefCount.launch_lock``.
+    Caller must hold ``LocalBrowserRefCount.launch_lock``.
     """
     global _CLIENT
     if _CLIENT is not None:
         if not _CLIENT.closed:
             return _CLIENT
         close_firefox_bidi()
-        cleanup_local_chrome()
+        cleanup_local_browser()
         best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove dead pidfile")
 
     profile_dir = browser_profile_dir("firefox")

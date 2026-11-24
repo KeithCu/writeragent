@@ -292,7 +292,7 @@ def test_begin_relaunch_kills_dead_client_before_spawning_new_one(tmp_path, monk
     try:
         with (
             patch("websockets.sync.client.connect", side_effect=fake_connect),
-            patch("plugin.chatbot.web_research_firefox.cleanup_local_chrome", side_effect=fake_cleanup),
+            patch("plugin.chatbot.web_research_firefox.cleanup_local_browser", side_effect=fake_cleanup),
             patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
             patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
         ):
@@ -368,14 +368,14 @@ def test_finish_does_not_remove_pidfile_owned_by_another_process(tmp_path):
     pidfile = profile_dir / wrf._PIDFILE_NAME
     pidfile.write_text("98765\n999999\n", encoding="utf-8")
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     try:
-        wr._cdp_refcount.run_enter()
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome"):
-            wr._cdp_refcount.finish()
+        wr._browser_refcount.run_enter()
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser"):
+            wr._browser_refcount.finish()
         assert pidfile.exists()
     finally:
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
 
 
 def test_cmdline_args_matches_exact_profile_and_port():
