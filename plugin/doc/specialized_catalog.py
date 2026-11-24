@@ -37,7 +37,7 @@ _CHARTS_NEUTRAL_HINT = (
 
 _SHAPES_HINT = (
     f"{SHAPE_UNITS_RULE} "
-    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert or shape_connect.'
+    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert, shape_connect, or each shape_create_diagram connection.'
 )
 
 _INDEXES_HINT = "For a read-only table-of-contents request, report each entry's text and level (links only when asked)."

@@ -930,19 +930,21 @@ class ACPBackend(AgentBackend):
             # For slash commands, only send the command itself
             prompt_blocks.append({"type": "text", "text": user_message})
         else:
+            # Some agents concatenate text blocks with no separator, so our own blocks carry
+            # the blank line and the user's text is sent unchanged.
             if include_system and system_prompt:
-                prompt_blocks.append({"type": "text", "text": system_prompt})
+                prompt_blocks.append({"type": "text", "text": f"{system_prompt}\n\n"})
                 included_manual = True
             # Add document URL if provided
             if document_url:
-                prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}"})
+                prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}\n\n"})
             # User message
             prompt_blocks.append({"type": "text", "text": user_message})
             # Add document snapshot last if provided
             if document_context:
                 snap = snapshot_text(document_context)
                 if snap:
-                    prompt_blocks.append({"type": "text", "text": snap})
+                    prompt_blocks.append({"type": "text", "text": f"\n\n{snap}"})
 
         return prompt_blocks, included_manual
 

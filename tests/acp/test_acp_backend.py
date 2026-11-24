@@ -1836,7 +1836,7 @@ class TestSessionId:
             prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
             assert len(prompts) == 2
             second_texts = [block["text"] for block in prompts[1]]
-            assert "MANUAL" in second_texts
+            assert "MANUAL\n\n" in second_texts
 
             # Slash command after that normal send leaves flag True
             backend.send(queue=q, user_message="/compact", document_context="doc", document_url="file:///a.odt", system_prompt="MANUAL")
@@ -1871,7 +1871,7 @@ class TestSessionId:
             assert backend2._session_prompted is True
             prompts2 = [params["prompt"] for method, params in calls2 if method == "session/prompt"]
             assert len(prompts2) == 2
-            assert "MANUAL" in [b["text"] for b in prompts2[1]]
+            assert "MANUAL\n\n" in [b["text"] for b in prompts2[1]]
 
     def test_same_url_reuses_the_session_and_omits_the_manual(self):
         backend = _bare_backend()
@@ -1903,8 +1903,8 @@ class TestSessionId:
         assert (len(prompts)) == (2)
         first = [block["text"] for block in prompts[0]]
         second = [block["text"] for block in prompts[1]]
-        assert ("MANUAL") in (first)
-        assert ("MANUAL") not in (second)
+        assert ("MANUAL\n\n") in (first)
+        assert ("MANUAL\n\n") not in (second)
         assert any("doc-v1" in text for text in first)
         assert any("doc-v2" in text for text in second)
         assert "doc-v1" in first[-1]
@@ -1942,8 +1942,23 @@ class TestSessionId:
         prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
         assert (len(new_urls)) == (2)
         assert (len(prompts)) == (2)
-        assert ("MANUAL") in ([block["text"] for block in prompts[1]])
+        assert ("MANUAL\n\n") in ([block["text"] for block in prompts[1]])
         conn.stop.assert_not_called()
+
+    def test_prompt_blocks_carry_blank_line_separators_around_user_text(self):
+        from plugin.acp.acp_backend import snapshot_text
+
+        backend = _bare_backend()
+        blocks, included_manual = backend._build_prompt_blocks(
+            user_message="hello",
+            document_context="doc",
+            system_prompt="MANUAL",
+            document_url="file:///a.odt",
+            include_system=True,
+        )
+        assert included_manual is True
+        assert "hello" in [block["text"] for block in blocks]
+        assert "".join(block["text"] for block in blocks) == "MANUAL\n\nDocument URL: file:///a.odt\n\nhello\n\n" + snapshot_text("doc")
 
     def test_empty_and_missing_url_share_one_session(self):
         backend = _bare_backend()

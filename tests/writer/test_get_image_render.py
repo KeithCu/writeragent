@@ -406,15 +406,15 @@ def test_whole_float_page_is_coerced_to_int_before_execute():
 def test_execute_rejects_multiple_exclusive_modes():
     res1 = GetImage().execute(_tctx(FakeDrawDoc()), page=1, image="x")
     assert res1["status"] == "error"
-    assert "Pass only one" in res1["message"]
+    assert "at most one" in res1["message"]
 
     res2 = GetImage().execute(_tctx(FakeDrawDoc()), page=0, selection=True)
     assert res2["status"] == "error"
-    assert "Pass only one" in res2["message"]
+    assert "at most one" in res2["message"]
 
     res3 = GetImage().execute(_tctx(FakeDrawDoc()), image="Logo", selection=True)
     assert res3["status"] == "error"
-    assert "Pass only one" in res3["message"]
+    assert "at most one" in res3["message"]
 
 
 @pytest.mark.parametrize("bad_image", ["", "   "])
@@ -514,3 +514,21 @@ def test_writer_image_get_schema_names_no_draw_or_calc_read():
     text = tool.get_description("writer") + json.dumps(tool.get_parameters("writer"))
     for forbidden in ("shape_get_tree", "get_sheet_summary", "Draw", "Calc", "slide", "sheet_index"):
         assert forbidden not in text
+
+
+def test_calc_image_get_schema_excludes_page_and_non_calc_reads():
+    tool = GetImage()
+    before = copy.deepcopy(GetImage.parameters)
+    text = tool.get_description("calc") + json.dumps(tool.get_parameters("calc"))
+    for forbidden in ("page", "shape_get_tree", "get_content", "get_sheet_summary", "Draw", "Writer"):
+        assert forbidden not in text
+    assert "image_list" in text
+    assert "sheet_index" in text
+    assert GetImage.parameters == before
+
+
+def test_calc_execute_rejects_image_and_selection_without_mentioning_page():
+    res = GetImage().execute(_tctx(FakeDrawDoc(), doc_type="calc"), image="Logo", selection=True)
+    assert res["status"] == "error"
+    assert "at most one" in res["message"]
+    assert "page" not in res["message"]
