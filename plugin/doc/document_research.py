@@ -22,6 +22,7 @@ from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import page_preview_view_prop
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.framework.thread_guard import assert_main_thread, guard_uno
 from plugin.framework.uno_context import (
@@ -618,6 +619,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         load_props: list[Any] = [
             create_property_value("Hidden", True),
             create_property_value("ReadOnly", True),
+            page_preview_view_prop(),
         ]
         if os.path.splitext(path)[1].lower() in _HTML_EXTENSIONS:
             # Without FilterName, LibreOffice loads Writer/Web, which get_document_type reports as UNKNOWN.

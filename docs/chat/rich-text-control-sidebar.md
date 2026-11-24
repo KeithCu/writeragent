@@ -348,6 +348,8 @@ go through it. Every hidden scratch document is opened and closed through
 `load_scratch_document` / `close_scratch_document` in that module so it is excluded from the MCP
 document catalog by `RuntimeUID`.
 
+Scratch Writers from `new_blank_writer` load with `page_preview_view_prop()` (`ViewId=7`, `SwPagePreview`): closing a normal `SwView` clears Writer's global active-view pointer (`~SwViewGlueDocShell`), which causes LibreOffice's Manage Changes dialog (`SwRedlineAcceptDlg`) to dereference null and abort. Page-preview controllers have no `getViewCursor`. The Calc keeper in `plugin/calc/rich_html.py` keeps a normal `SwView` because it needs `getTransferable`.
+
 It does more than dedupe: `private:factory/swriter` honours the user's **default template**, and
 these callers append to the scratch doc and read the whole body back — so a firm whose default
 template is its petition model got that model's header glued into range reads and plain-text
