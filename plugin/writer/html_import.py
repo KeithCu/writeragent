@@ -370,8 +370,11 @@ def raise_if_hidden_start(model: Any) -> None:
 def raise_if_protected_sections(model: Any) -> None:
     """Refuse full_document when it would delete a protected section.
 
-    Index sections (such as TOCs) are protected by default, so they do not count.
-    Headers and footers are not part of the rewrite.
+    Index sections (such as TOCs) are protected by default; refusing them would
+    block ``full_document`` on every document with a TOC. Headers and footers
+    are not part of the rewrite; checking the anchor text's implementation name
+    (``SwXHeadFootText``) rather than ``TextSection`` handles table-only body
+    sections whose anchor text is ``SwXBodyText``.
     """
     sections = model.getTextSections()
     names = []
@@ -1250,7 +1253,8 @@ def replace_full_document(
         cursor = text.createTextCursor()
         recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
-        # Read before the delete: without recording, setString("") leaves the last old paragraph.
+        # Read before the delete: without recording, setString("") leaves one paragraph with the
+        # last old paragraph's character formatting.
         language = language_at_start(cursor)
         # Leading tables outside sections are already deleted or struck (delete_leading_tables).
         # A table inside a section counts as the start: gotoStart would step past that section.
@@ -1267,8 +1271,10 @@ def replace_full_document(
         # The deletion has to start and end outside any section: a section is removed only when it is
         # enclosed whole, and SwRangeRedline::HasValidRange (sw/source/core/doc/docredln.cxx) rejects a
         # recorded deletion whose ends lie in different sections, so nothing or only part is struck.
-        # Untracked, because LibreOffice cannot track a paragraph next to a section boundary; Reject
-        # keeps these paragraphs. Created inline: a held SwXParagraph breaks later enumeration
+        # Only a recorded deletion needs the trailing paragraph because an untracked delete joins
+        # across section boundaries (SwContentNode::CanJoinNext, node.cxx). Untracked, because
+        # LibreOffice cannot track a paragraph next to a section boundary; Reject keeps these
+        # paragraphs. Created inline: a held SwXParagraph breaks later enumeration
         # (SwXParagraph::attachToText).
         with record_changes.record_changes(model, False):
             if leading and first is not None:

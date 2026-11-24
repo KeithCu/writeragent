@@ -1113,23 +1113,27 @@ def _body_para_strings(doc) -> list[str]:
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_refuses_protected_middle_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
     tctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
-    text.insertString(cur, "Head", False)
-    text.insertControlCharacter(cur, 0, False)
-    sec_start = cur.getStart()
-    text.insertString(cur, "Middle", False)
-    sec_cur = text.createTextCursorByRange(sec_start)
-    sec_cur.gotoRange(cur.getEnd(), True)
+    for idx, word in enumerate(("Head", "Middle", "Tail")):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, word, False)
+    els = list(iter_elements(text.createEnumeration()))
+    sec_cur = text.createTextCursorByRange(els[1].getStart())
+    sec_cur.gotoRange(els[1].getEnd(), True)
     sec = doc.createInstance("com.sun.star.text.TextSection")
     sec.setName("ProtMid")
     sec.setPropertyValue("IsProtected", True)
     text.insertTextContent(sec_cur, sec, True)
-    text.insertControlCharacter(text.getEnd(), 0, False)
-    text.insertString(text.getEnd(), "Tail", False)
+    els = list(iter_elements(text.createEnumeration()))
+    assert els[-1].getPropertyValue("TextSection") is None
+    before_body = text.getString()
 
     for rec in (False, True):
         doc.setPropertyValue("RecordChanges", rec)
@@ -1137,25 +1141,39 @@ def test_full_document_refuses_protected_middle_section_uno(ctx, doc):
         assert res.get("status") == "error", res
         assert res.get("code") == "PROTECTED_SECTION", res
         assert "ProtMid" in res.get("message", "")
-        assert "Middle" in text.getString()
+        assert text.getString() == before_body
     doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_refuses_protected_table_only_leading_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
     tctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
     text = doc.getText()
     text.setString("")
+    text.insertString(text.getEnd(), "cover", False)
+    text.insertControlCharacter(text.getEnd(), 0, False)
+    text.insertString(text.getEnd(), "body", False)
+    els = list(iter_elements(text.createEnumeration()))
     sec = doc.createInstance("com.sun.star.text.TextSection")
     sec.setName("ProtTblSec")
-    text.insertTextContent(text.getStart(), sec, False)
+    scur = text.createTextCursorByRange(els[0].getStart())
+    scur.gotoRange(els[0].getEnd(), True)
+    text.insertTextContent(scur, sec, True)
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(1, 1)
-    text.insertTextContent(sec.getAnchor().getStart(), tbl, False)
+    text.insertTextContent(text.getStart(), tbl, False)
     tbl.getCellByName("A1").setString("Cell")
     sec.setPropertyValue("IsProtected", True)
+    list(iter_elements(text.createEnumeration()))[1].dispose()
+
+    els = list(iter_elements(text.createEnumeration()))
+    assert els[0].supportsService("com.sun.star.text.TextTable")
+    assert els[0].getPropertyValue("TextSection") is not None
+    assert els[1].getPropertyValue("TextSection") is None
 
     for rec in (False, True):
         doc.setPropertyValue("RecordChanges", rec)
@@ -1265,9 +1283,7 @@ def test_full_document_recorded_leading_section_page_style_uno(ctx, doc):
         res2 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res2.get("status") == "ok", res2
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-        paras = _body_para_strings(doc)
-        assert paras[0] == ""
-        assert "CoverText" in paras
+        assert _body_para_strings(doc) == ["", "CoverText", ""]
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1347,10 +1363,18 @@ def test_full_document_recorded_trailing_section_is_struck_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
+    # Track Changes off also removes the trailing section.
+    _setup_trailing()
+    res4 = tool.execute(tctx, target="full_document", content="<p>Off</p>")
+    assert res4.get("status") == "ok", res4
+    assert doc.getTextSections().getCount() == 0
+    assert _body_para_strings(doc) == ["Off"]
+
 
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
     from plugin.framework.uno_context import execute_dispatch
 
     tctx = native_writer_tool_context(doc, ctx)
@@ -1359,13 +1383,25 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
 
     def _setup_tbl_sec() -> None:
         _clear_body(doc)
+        text.insertString(text.getEnd(), "cover", False)
+        text.insertControlCharacter(text.getEnd(), 0, False)
+        text.insertString(text.getEnd(), "body", False)
+        els = list(iter_elements(text.createEnumeration()))
         sec = doc.createInstance("com.sun.star.text.TextSection")
         sec.setName("LeadTblSec")
-        text.insertTextContent(text.getStart(), sec, False)
+        scur = text.createTextCursorByRange(els[0].getStart())
+        scur.gotoRange(els[0].getEnd(), True)
+        text.insertTextContent(scur, sec, True)
         tbl = doc.createInstance("com.sun.star.text.TextTable")
         tbl.initialize(1, 1)
-        text.insertTextContent(sec.getAnchor().getStart(), tbl, False)
+        text.insertTextContent(text.getStart(), tbl, False)
         tbl.getCellByName("A1").setString("Cell")
+        list(iter_elements(text.createEnumeration()))[1].dispose()
+
+        els = list(iter_elements(text.createEnumeration()))
+        assert els[0].supportsService("com.sun.star.text.TextTable")
+        assert els[0].getPropertyValue("TextSection") is not None
+        assert els[1].getPropertyValue("TextSection") is None
 
     # Recorded Accept leaves no table and no section.
     _setup_tbl_sec()
@@ -1399,7 +1435,7 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
     assert res3.get("status") == "ok", res3
     assert doc.getTextTables().getCount() == 0
     assert doc.getTextSections().getCount() == 0
-    assert text.getString().strip() == "Off"
+    assert _body_para_strings(doc) == ["Off"]
     doc.getUndoManager().undo()
     assert doc.getTextTables().getCount() == 1
     assert doc.getTextSections().getCount() == 1
