@@ -277,3 +277,76 @@ def test_search_boolean_validates_params(mock_services, identity_stemmer):
         svc.search_boolean(doc, "apple", context_paragraphs=-1)
     res = svc.search_boolean(doc, "apple", max_results=1, context_paragraphs=0)
     assert res["total_found"] == 1
+
+
+def test_index_hides_multi_paragraph_tracked_deletions(mock_services, identity_stemmer):
+    class Portion:
+        def __init__(self, ptype, text="", *, redline_type=None, is_start=False):
+            self._ptype = ptype
+            self._text = text
+            self._redline_type = redline_type
+            self._is_start = is_start
+
+        def getPropertyValue(self, name):
+            if name == "TextPortionType":
+                return self._ptype
+            if name == "RedlineType":
+                return self._redline_type
+            if name == "IsStart":
+                return self._is_start
+            raise KeyError(name)
+
+        def getString(self):
+            return self._text
+
+    class Enum:
+        def __init__(self, items):
+            self._items = list(items)
+            self._i = 0
+
+        def hasMoreElements(self):
+            return self._i < len(self._items)
+
+        def nextElement(self):
+            item = self._items[self._i]
+            self._i += 1
+            return item
+
+    class Para:
+        def __init__(self, portions):
+            self._portions = list(portions)
+
+        def supportsService(self, name):
+            return name == "com.sun.star.text.Paragraph"
+
+        def createEnumeration(self):
+            return Enum(self._portions)
+
+        def getPropertyValue(self, name):
+            if name == "CharLocale":
+                loc = MagicMock()
+                loc.Language = "en"
+                return loc
+            raise KeyError(name)
+
+    paras = [
+        Para([
+            Portion("Text", "alpha "),
+            Portion("Redline", redline_type="Delete", is_start=True),
+            Portion("Text", "goneone"),
+        ]),
+        Para([Portion("Text", "gonetwo")]),
+        Para([
+            Portion("Text", "gonethree "),
+            Portion("Redline", redline_type="Delete", is_start=False),
+            Portion("Text", "omega"),
+        ]),
+    ]
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda _p: None
+    doc.getText.return_value.createEnumeration.side_effect = lambda: Enum(paras)
+
+    svc = IndexService(mock_services)
+    assert svc.search_boolean(doc, "gonetwo")["total_found"] == 0
+    assert svc.search_boolean(doc, "omega")["total_found"] == 1

@@ -465,7 +465,7 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
 
     monkeypatch.setattr(
         "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
-        lambda el: getattr(el, "text", ""),
+        lambda el, state=None: getattr(el, "text", ""),
     )
 
     class FakeEnum:
@@ -531,7 +531,7 @@ def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
 
     monkeypatch.setattr(
         "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
-        lambda el: getattr(el, "text", ""),
+        lambda el, state=None: getattr(el, "text", ""),
     )
 
     class FakeDoc:
@@ -1098,6 +1098,91 @@ def test_linguistic_profile_skips_empty_pos(monkeypatch: pytest.MonkeyPatch) -> 
 
     res = vta.analyze_text("some text")
     assert res["result"]["linguistic_profile"]["pos_proportions"] == {"NOUN": 1.0}
+
+
+def test_get_writer_sections_hides_multi_paragraph_tracked_deletions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
+
+    class Portion:
+        def __init__(self, ptype, text="", *, redline_type=None, is_start=False):
+            self._ptype = ptype
+            self._text = text
+            self._redline_type = redline_type
+            self._is_start = is_start
+
+        def getPropertyValue(self, name):
+            if name == "TextPortionType":
+                return self._ptype
+            if name == "RedlineType":
+                return self._redline_type
+            if name == "IsStart":
+                return self._is_start
+            raise KeyError(name)
+
+        def getString(self):
+            return self._text
+
+    class Enum:
+        def __init__(self, items):
+            self._items = list(items)
+            self._i = 0
+
+        def hasMoreElements(self):
+            return self._i < len(self._items)
+
+        def nextElement(self):
+            item = self._items[self._i]
+            self._i += 1
+            return item
+
+    class Para:
+        def __init__(self, portions, outline_level=0):
+            self._portions = list(portions)
+            self._outline_level = outline_level
+
+        def supportsService(self, name):
+            return name == "com.sun.star.text.Paragraph"
+
+        def createEnumeration(self):
+            return Enum(self._portions)
+
+        def getPropertyValue(self, name):
+            if name == "OutlineLevel":
+                return self._outline_level
+            raise KeyError(name)
+
+    p_head = Para([Portion("Text", "Heading One")], outline_level=1)
+    p1 = Para([
+        Portion("Text", "Visible start "),
+        Portion("Redline", redline_type="Delete", is_start=True),
+        Portion("Text", "deleted one"),
+    ])
+    p2 = Para([Portion("Text", "deleted middle paragraph")])
+    p3 = Para([
+        Portion("Text", "deleted tail "),
+        Portion("Redline", redline_type="Delete", is_start=False),
+        Portion("Text", "and visible ending that is long enough."),
+    ])
+
+    class Doc:
+        def getText(self):
+            return self
+
+        def createEnumeration(self):
+            return Enum([p_head, p1, p2, p3])
+
+        def getRedlines(self):
+            class _Redlines:
+                def hasElements(self):
+                    return True
+
+            return _Redlines()
+
+    sections = ta._get_writer_sections(Doc())
+    assert len(sections) == 1
+    assert "Visible start" in sections[0]
+    assert "visible ending" in sections[0]
+    assert "deleted" not in sections[0]
 
 
 

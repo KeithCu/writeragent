@@ -796,3 +796,44 @@ def test_header_table_round_trip_adds_no_paragraph_uno(ctx, doc):
     paras = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
     texts = [re.sub(r"<[^>]+>", "", p).strip() for p in paras]
     assert "" not in texts, (texts, html)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.html_export import xtext_to_content
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    strike_across_paragraphs(doc, header)
+
+    # Insert a struck PageNumber field inside the deleted middle paragraph and a live one in After.
+    enum = header.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    struck_field = doc.createInstance("com.sun.star.text.TextField.PageNumber")
+    struck_field.setPropertyValue("NumberingType", 4)  # ARABIC
+    live_field = doc.createInstance("com.sun.star.text.TextField.PageNumber")
+    live_field.setPropertyValue("NumberingType", 0)  # ROMAN_UPPER
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        mid_cur = header.createTextCursorByRange(paras[2].getStart())
+        header.insertTextContent(mid_cur, struck_field, False)
+        # Delete the newly inserted field so it is tracked-deleted.
+        mid_cur.gotoStartOfParagraph(False)
+        mid_cur.goRight(1, True)
+        mid_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    end_cur = header.createTextCursorByRange(paras[-1].getEnd())
+    header.insertTextContent(end_cur, live_field, False)
+
+    html = xtext_to_content(header, doc, ctx)
+    assert "gone" not in html, html
+    assert "data-numbering-type=" in html, html

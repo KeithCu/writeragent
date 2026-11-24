@@ -1816,6 +1816,49 @@ class FakeUndoManager:
             self.undone += 1
 
 
+def strike_across_paragraphs(doc: Any, text: Any) -> None:
+    """Populate *text* with 5 same-style paragraphs and strike from para 1 to para 3.
+
+    Asserts the precondition that LibreOffice kept one continuous Delete redline
+    and emitted no Redline portion in the middle ``gone2`` paragraph.
+    """
+    paras = ["Keep", "Start gone1", "gone2", "gone3 Tail", "After"]
+    text.setString("")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    for idx, line in enumerate(paras):
+        if idx > 0:
+            text.insertControlCharacter(cursor, 0, False)
+        text.insertString(cursor, line, False)
+
+    enum = text.createEnumeration()
+    para_objs = []
+    while enum.hasMoreElements():
+        para_objs.append(enum.nextElement())
+
+    del_cur = text.createTextCursorByRange(para_objs[1].getStart())
+    del_cur.goRight(len("Start "), False)
+    end_cur = text.createTextCursorByRange(para_objs[3].getStart())
+    end_cur.goRight(len("gone3 "), False)
+    del_cur.gotoRange(end_cur, True)
+
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+    redlines = doc.getRedlines()
+    assert redlines.getCount() == 1, f"Expected 1 continuous redline, got {redlines.getCount()}"
+    mid_enum = para_objs[2].createEnumeration()
+    while mid_enum.hasMoreElements():
+        portion = mid_enum.nextElement()
+        assert portion.getPropertyValue("TextPortionType") != "Redline", (
+            "Middle paragraph unexpectedly has a Redline portion (redline was split)"
+        )
+
+
 def logo_32_path() -> str:
     """Return the path to logo_32.png across source and release-bundle layouts."""
     here = os.path.abspath(__file__)

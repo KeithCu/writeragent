@@ -319,7 +319,7 @@ class _Sections:
 def test_section_read_includes_table_content_and_accepts_name_or_section(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "plugin.writer.specialized.sections.get_string_without_tracked_deletions",
-        lambda obj: obj.text,
+        lambda obj, state=None: obj.text,
     )
     items: list[object] = [_Para("Intro"), _Table({"A1": _Cell("A1 text"), "B1": _Cell("B1 text")})]
     sections_map = _Sections({"S": _Section(items)})

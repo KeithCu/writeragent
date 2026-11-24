@@ -1062,3 +1062,145 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
         adjusts.append(int(el.getPropertyValue("ParaAdjust")))
     assert adjusts == [5, 5], adjusts
 
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ruby_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+
+    # 1. Range read across all paragraphs: no gone.
+    full_len = len(get_string_without_tracked_deletions(text))
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=full_len)
+    assert "gone" not in range_html, range_html
+    assert "Keep" in range_html and "Tail" in range_html and "After" in range_html
+
+    # 2. Range from Tail's visible offset returns Tail.
+    visible_str = get_string_without_tracked_deletions(text)
+    tail_off = visible_str.index("Tail")
+    tail_html = document_to_content(
+        doc, ctx, scope="range", range_start=tail_off, range_end=tail_off + len("Tail")
+    )
+    assert "Tail" in tail_html and "gone" not in tail_html, tail_html
+
+    # 3. Selection from gone2 paragraph to the end: no gone.
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    sel_cur = text.createTextCursorByRange(paras[2].getStart())
+    sel_cur.gotoRange(text.getEnd(), True)
+    doc.getCurrentController().select(sel_cur)
+    sel_html = document_to_content(doc, ctx, scope="selection")
+    assert "gone" not in sel_html, sel_html
+    assert "Tail" in sel_html and "After" in sel_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_range_over_struck_table_and_links_and_ruby_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.writer.html_export import document_to_content
+
+    # A. Range over a struck table: no <table.
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Before delstart", False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("CellGone")
+    cur.gotoEnd(False)
+    text.insertString(cur, "delend After", False)
+
+    enum = text.createEnumeration()
+    els = []
+    while enum.hasMoreElements():
+        els.append(enum.nextElement())
+    del_cur = text.createTextCursorByRange(els[0].getStart())
+    del_cur.goRight(len("Before "), False)
+    end_cur = text.createTextCursorByRange(els[2].getStart())
+    end_cur.goRight(len("delend "), False)
+    del_cur.gotoRange(end_cur, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    vis_len = len(get_string_without_tracked_deletions(text))
+    html_tbl = document_to_content(doc, ctx, scope="range", range_start=0, range_end=vis_len)
+    assert "<table" not in html_tbl.lower(), html_tbl
+    assert "CellGone" not in html_tbl, html_tbl
+
+    # B. Full read with a struck outline link before a live one: live href is #...|outline.
+    text.setString("")
+    c = text.createTextCursor()
+    text.insertString(c, "KeepHeading", False)
+    c.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(c, 0, False)
+    c.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(c, "StruckLink", False)
+    c.gotoStartOfParagraph(True)
+    c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
+    c.gotoEndOfParagraph(False)
+    text.insertControlCharacter(c, 0, False)
+    text.insertString(c, "MidGone", False)
+    text.insertControlCharacter(c, 0, False)
+    text.insertString(c, "EndGone ", False)
+    text.insertString(c, "LiveLink", False)
+    c.goLeft(len("LiveLink"), True)
+    c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
+
+    # Strike from StruckLink through EndGone.
+    enum2 = text.createEnumeration()
+    p2 = []
+    while enum2.hasMoreElements():
+        p2.append(enum2.nextElement())
+    d2 = text.createTextCursorByRange(p2[1].getStart())
+    e2 = text.createTextCursorByRange(p2[3].getStart())
+    e2.goRight(len("EndGone "), False)
+    d2.gotoRange(e2, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d2.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    full_html = document_to_content(doc, ctx, scope="full")
+    assert 'href="#KeepHeading|outline"' in full_html or 'href="#KeepHeading%7Coutline"' in full_html, full_html
+
+    # C. Struck ruby does not attach to a later identical base.
+    text.setString("")
+    rc = text.createTextCursor()
+    text.insertString(rc, "漢", False)
+    rc.gotoStart(True)
+    rc.setPropertyValue("RubyText", "かん")
+    rc.gotoEnd(False)
+    text.insertControlCharacter(rc, 0, False)
+    text.insertString(rc, "mid", False)
+    text.insertControlCharacter(rc, 0, False)
+    text.insertString(rc, "end 漢", False)
+
+    enum3 = text.createEnumeration()
+    p3 = []
+    while enum3.hasMoreElements():
+        p3.append(enum3.nextElement())
+    d3 = text.createTextCursorByRange(p3[0].getStart())
+    e3 = text.createTextCursorByRange(p3[2].getStart())
+    e3.goRight(len("end "), False)
+    d3.gotoRange(e3, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d3.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    ruby_html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>" not in ruby_html, ruby_html
+

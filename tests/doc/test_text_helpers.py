@@ -1095,3 +1095,148 @@ def test_jump_view_cursor_to_page_missing_page_returns_count():
     vc.jump_calls.clear()
     assert jump_view_cursor_to_page(vc, 40000) == 3
     assert vc.jump_calls == []
+
+
+class _DeletionFakeEnum:
+    def __init__(self, items):
+        self._items = list(items)
+        self._idx = 0
+
+    def hasMoreElements(self):
+        return self._idx < len(self._items)
+
+    def nextElement(self):
+        item = self._items[self._idx]
+        self._idx += 1
+        return item
+
+
+class _DeletionFakePortion:
+    def __init__(self, ptype, text="", *, redline_type=None, is_start=False):
+        self._ptype = ptype
+        self._text = text
+        self._redline_type = redline_type
+        self._is_start = is_start
+
+    def getPropertyValue(self, name):
+        if name == "TextPortionType":
+            return self._ptype
+        if name == "RedlineType":
+            return self._redline_type
+        if name == "IsStart":
+            return self._is_start
+        raise KeyError(name)
+
+    def getString(self):
+        return self._text
+
+
+class _DeletionFakePara:
+    def __init__(self, portions):
+        self._portions = list(portions)
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.Paragraph"
+
+    def createEnumeration(self):
+        return _DeletionFakeEnum(self._portions)
+
+
+class _DeletionFakeTable:
+    def __init__(self, cells):
+        self._cells = cells
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+    def getCellNames(self):
+        return tuple(self._cells.keys())
+
+    def getCellByName(self, name):
+        return self._cells[name]
+
+
+class _DeletionFakeRange:
+    def __init__(self, elements):
+        self._elements = elements
+
+    def supportsService(self, name):
+        return False
+
+    def createEnumeration(self):
+        return _DeletionFakeEnum(self._elements)
+
+
+def test_deletion_state_across_three_paragraphs():
+    from plugin.doc.text_helpers import DeletionState
+
+    p1 = _DeletionFakePara([
+        _DeletionFakePortion("Text", "Start "),
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=True),
+        _DeletionFakePortion("Text", "gone1"),
+    ])
+    p2 = _DeletionFakePara([_DeletionFakePortion("Text", "gone2")])
+    p3 = _DeletionFakePara([
+        _DeletionFakePortion("Text", "gone3 "),
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=False),
+        _DeletionFakePortion("Text", "Tail"),
+    ])
+    state = DeletionState()
+    assert get_string_without_tracked_deletions(p1, state) == "Start "
+    assert state.in_delete is True
+    assert get_string_without_tracked_deletions(p2, state) == ""
+    assert state.in_delete is True
+    assert get_string_without_tracked_deletions(p3, state) == "Tail"
+    assert state.in_delete is False
+
+
+def test_struck_table_in_multi_paragraph_range_reads_empty():
+    p1 = _DeletionFakePara([
+        _DeletionFakePortion("Text", "Keep "),
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=True),
+    ])
+    table = _DeletionFakeTable({"A1": _DeletionFakeRange([_DeletionFakePara([_DeletionFakePortion("Text", "cellA")])])})
+    p2 = _DeletionFakePara([
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=False),
+        _DeletionFakePortion("Text", "End"),
+    ])
+    rng = _DeletionFakeRange([p1, table, p2])
+    assert get_string_without_tracked_deletions(rng) == "Keep \n\nEnd"
+
+
+def test_visible_portions_cap_hit_resets_open_deletion_state():
+    from plugin.doc.text_helpers import DeletionState
+
+    p1 = _DeletionFakePara([
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=True),
+        _DeletionFakePortion("Text", "gone"),
+    ])
+    p2 = _DeletionFakePara([_DeletionFakePortion("Text", "Next")])
+    state = DeletionState()
+    truncated: list[int] = []
+    assert list(visible_portions(p1, limit=1, truncated_out=truncated, state=state)) == []
+    assert truncated == [1]
+    assert state.in_delete is False
+    assert [c for _p, c in visible_portions(p2, state=state)] == ["Next"]
+
+
+def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
+    from plugin.doc.text_helpers import paragraph_deletion_flags
+
+    p1 = _DeletionFakePara([
+        _DeletionFakePortion("Text", "A"),
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=True),
+    ])
+    p2 = _DeletionFakePara([_DeletionFakePortion("Text", "B")])
+    p3 = _DeletionFakePara([
+        _DeletionFakePortion("Redline", redline_type="Delete", is_start=False),
+        _DeletionFakePortion("Text", "C"),
+    ])
+
+    no_rl_model = MagicMock()
+    no_rl_model.getRedlines.return_value.hasElements.return_value = False
+    assert paragraph_deletion_flags(no_rl_model, [p1, p2, p3]) == [False, False, False]
+
+    rl_model = MagicMock()
+    rl_model.getRedlines.return_value.hasElements.return_value = True
+    assert paragraph_deletion_flags(rl_model, [p1, p2, p3]) == [False, True, True]
