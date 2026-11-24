@@ -535,9 +535,11 @@ def test_damaged_record_launches_again(raw_bytes, tmp_path, monkeypatch):
 
 
 def test_local_requests_ignore_proxy(tmp_path, monkeypatch):
+    import base64
+    import hashlib
+    import socket
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
-    from websockets.sync.server import serve
 
     _isolate_home(monkeypatch, tmp_path)
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
@@ -547,13 +549,46 @@ def test_local_requests_ignore_proxy(tmp_path, monkeypatch):
 
     ws_holder: dict[str, str] = {}
 
-    def ws_handler(websocket):
-        req = json.loads(websocket.recv())
-        websocket.send(json.dumps({"id": req["id"], "result": {"targetInfos": []}}))
-
-    ws_server = serve(ws_handler, "127.0.0.1", 0)
-    ws_port = ws_server.socket.getsockname()[1]
+    ws_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ws_sock.bind(("127.0.0.1", 0))
+    ws_sock.listen(1)
+    ws_port = ws_sock.getsockname()[1]
     ws_url = f"ws://127.0.0.1:{ws_port}/devtools/browser/proxy-test"
+
+    def ws_serve_one():
+        conn, _addr = ws_sock.accept()
+        with conn:
+            buf = b""
+            while b"\r\n\r\n" not in buf:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    return
+                buf += chunk
+            key = ""
+            for line in buf.decode("latin-1").split("\r\n"):
+                if line.lower().startswith("sec-websocket-key:"):
+                    key = line.split(":", 1)[1].strip()
+            accept = base64.b64encode(
+                hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+            ).decode("ascii")
+            conn.sendall(
+                (
+                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                ).encode("ascii")
+            )
+            header = conn.recv(2)
+            length = header[1] & 0x7F
+            mask = conn.recv(4)
+            masked = b""
+            while len(masked) < length:
+                masked += conn.recv(length - len(masked))
+            req = json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(masked)))
+            body = json.dumps({"id": req["id"], "result": {"targetInfos": []}}).encode("utf-8")
+            conn.sendall(bytes([0x81, len(body)]) + body)
+            conn.recv(1024)
 
     class VersionHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -577,7 +612,7 @@ def test_local_requests_ignore_proxy(tmp_path, monkeypatch):
     (profile_dir / browser_cdp_tool._ENDPOINT_FILE).write_text(recorded_url, encoding="utf-8")
 
     http_thread = threading.Thread(target=http_server.serve_forever)
-    ws_thread = threading.Thread(target=ws_server.serve_forever)
+    ws_thread = threading.Thread(target=ws_serve_one)
     http_thread.start()
     ws_thread.start()
     try:
@@ -590,7 +625,7 @@ def test_local_requests_ignore_proxy(tmp_path, monkeypatch):
         cleanup_local_browser()
         http_server.shutdown()
         http_server.server_close()
-        ws_server.shutdown()
+        ws_sock.close()
         http_thread.join(2.0)
         ws_thread.join(2.0)
 
