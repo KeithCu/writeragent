@@ -337,6 +337,7 @@ def test_textjoin_whole_numbers_drop_decimal():
     assert calc.textjoin(",", True, [True, 1.0]) == "True,1"
     assert calc.textjoin(",", True, [np.float32(1.0), np.float32(1.5), np.bool_(True)]) == "1,1.5,True"
     assert calc.textjoin(",", True, [np.longdouble(2.0)]) == "2"
+    assert calc.textjoin(",", True, [0.1 + 0.2, 1e20, 1e-5]) == "0.3,1E+020,0.00001"
 
 
 def test_unique_casefold_bool_and_nan():

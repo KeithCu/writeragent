@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.edit_review import (
+    WriterStreamedRewriteSession,
+    agent_format_author,
     annotate_review_status,
     edit_review_wait_seconds,
     flag_style_unreviewed,
@@ -1211,5 +1213,86 @@ def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
     ):
         flag_untracked_delete(result, doc, "chart")
     assert (result.get("tracked") is False and "warning" in result) is expected
+
+
+@pytest.mark.parametrize(
+    "review_on,recording,foreign",
+    [
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_agent_format_author_skips_when_disabled_not_recording_or_foreign(review_on, recording, foreign):
+    doc = MagicMock()
+    ctx = MagicMock()
+    ranges = [MagicMock()]
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=review_on),
+        patch("plugin.writer.edit_review.is_recording_changes", return_value=recording),
+        patch("plugin.writer.edit_review.overlaps_foreign_insertion", return_value=foreign),
+        patch("plugin.writer.edit_review.review_authors") as mock_authors,
+    ):
+        with agent_format_author(doc, ctx, ranges):
+            pass
+        mock_authors.begin.assert_not_called()
+        mock_authors.end.assert_not_called()
+
+
+def test_agent_format_author_begins_and_ends_even_on_error():
+    doc = MagicMock()
+    ctx = MagicMock()
+    ranges = [MagicMock()]
+    token = ("old-first", "old-last")
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=True),
+        patch("plugin.writer.edit_review.is_recording_changes", return_value=True),
+        patch("plugin.writer.edit_review.overlaps_foreign_insertion", return_value=False),
+        patch("plugin.writer.edit_review.review_authors") as mock_authors,
+    ):
+        mock_authors.begin.return_value = token
+        with pytest.raises(RuntimeError, match="boom"):
+            with agent_format_author(doc, ctx, ranges):
+                raise RuntimeError("boom")
+        mock_authors.begin.assert_called_once_with(ctx)
+        mock_authors.end.assert_called_once_with(ctx, token)
+
+
+def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+
+    def _fail(*_args, **_kwargs):
+        text_range.setString.reset_mock()
+        raise RuntimeError("boom")
+
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", side_effect=_fail),
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=True)
+        session.generated_text = "New"
+        warning = session.finish()
+    assert warning is not None and "boom" in warning
+    text_range.setString.assert_not_called()
+
+
+def test_streamed_plain_mode_retargets_even_after_write_error():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
+        session.generated_text = "New"
+        session.last_write_error = RuntimeError("chunk failed")
+        warning = session.finish()
+    mock_retarget.assert_called_once()
+    assert warning is not None and "chunk failed" in warning
 
 

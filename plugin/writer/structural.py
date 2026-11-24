@@ -24,7 +24,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
-    DeletionState,
+    TrackedDeletions,
     clone_text_range,
     get_string_without_tracked_deletions,
     iter_elements,
@@ -67,11 +67,14 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         return None
 
 
+_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "0-based page index: the user's page 2 is page=1."}
+
+
 class NavGotoPage(ToolWriterStructuralBase):
     name: str | None = "nav_goto_page"
     is_mutation: bool | None = False
     description: str = "Navigate the view cursor to the start of a page. page is 0-based (first page = 0)."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": ["page"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -98,7 +101,7 @@ class GetPageObjects(ToolBase):
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
+        "properties": {"page": _PAGE_PROPERTY, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -369,7 +372,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         # run before that split so the body clone is the visible text.
         clones: list[tuple[str, Any]] = []
         skipped_tables = 0
-        state = DeletionState()
+        state = TrackedDeletions(ctx.doc).state_at(elements[0])
         for el in elements:
             # A table is in this enumeration and has no ParaStyleName
             # (same fact as html_export._copy_window_to_scratch); do not add a table copier.

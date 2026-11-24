@@ -22,7 +22,7 @@ def _reset_idle_writers(monkeypatch):
     monkeypatch.setattr(rh, "_idle_writers", [])
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
 
 
 def _make_hidden_writer(uid: str = "901"):
@@ -70,7 +70,7 @@ def test_insert_cell_html_rich_keeps_temp_writer_registered_as_scratch():
     calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -93,7 +93,7 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
 
     calc_doc, cell, desktop, _temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -114,7 +114,7 @@ def test_insert_cell_html_rich_error_names_the_last_step():
     writer_ctrl.getTransferable.side_effect = RuntimeError("no transferable")
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
         pytest.raises(ToolExecutionError, match="get transferable"),
@@ -132,7 +132,7 @@ def test_failed_paste_keeps_the_writer_for_the_next_one():
     calc_doc, cell, desktop, temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -158,10 +158,10 @@ def test_insert_cell_html_rich_raises_when_hidden_writer_stays_dirty():
     calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
-        patch("plugin.framework.scratch_writer.clear_writer_body", return_value=False),
+        patch("plugin.calc.rich_html.clear_writer_body", return_value=False),
         pytest.raises(ToolExecutionError, match="Could not create temporary Writer document"),
     ):
         mock_bridge = mock_bridge_cls.return_value
@@ -169,7 +169,7 @@ def test_insert_cell_html_rich_raises_when_hidden_writer_stays_dirty():
         mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
 
-    temp_doc.close.assert_called_once_with(True)
+    temp_doc.close.assert_not_called()
 
 
 def test_second_paste_reuses_the_hidden_writer():
@@ -177,7 +177,7 @@ def test_second_paste_reuses_the_hidden_writer():
 
     calc_doc, cell, desktop, _temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -199,7 +199,7 @@ def test_closed_kept_writer_is_replaced():
     desktop.loadComponentFromURL.side_effect = [doc1, doc2]
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -230,7 +230,7 @@ def test_nested_paste_gets_its_own_writer():
             rh.insert_cell_html_rich(calc_doc, uno_ctx, "Z98", "<b>inner</b>")
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -252,7 +252,7 @@ def test_idle_writer_with_leftover_text_is_dropped():
     desktop.loadComponentFromURL.side_effect = [doc1, doc2]
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -315,7 +315,7 @@ def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():
     uno_ctx.ServiceManager = smgr
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -333,7 +333,7 @@ def test_insert_cell_html_rich_passes_sheet_prefix_to_bridge():
 
     calc_doc, cell, desktop, _temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -354,7 +354,7 @@ def test_failed_paste_undoes_the_clear():
     calc_ctrl.insertTransferable.side_effect = RuntimeError("paste boom")
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
@@ -381,7 +381,7 @@ def test_disposed_document_mid_insert_is_document_disposed():
     calc_ctrl.insertTransferable.side_effect = DisposedException("gone")
 
     with (
-        patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):

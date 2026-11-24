@@ -557,25 +557,27 @@ def test_document_for_script_session_walks_bool_has_more() -> None:
     assert unwrap_uno(found) is second
 
 
-def test_document_for_script_session_stops_at_enum_cap() -> None:
+def test_document_for_script_session_finds_document_past_32() -> None:
     from unittest.mock import MagicMock, patch
+    from plugin.framework.thread_guard import unwrap_uno
+
+    others = [MagicMock(name=f"other_{i}") for i in range(39)]
+    for i, m in enumerate(others):
+        m.getURL.return_value = f"file:///other_{i}.ods"
+    wanted = MagicMock(name="wanted")
+    wanted.getURL.return_value = "file:///wanted.ods"
+    items = [*others, wanted]
 
     enum = MagicMock()
-    enum.hasMoreElements.return_value = True
-    missed = MagicMock()
-    missed.getURL.return_value = "file:///other.ods"
-    enum.nextElement.return_value = missed
+    enum.hasMoreElements.side_effect = [True] * len(items) + [False]
+    enum.nextElement.side_effect = items
     comps = MagicMock()
     comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
-    with (
-        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-        patch("plugin.framework.uno_context._ENUM_CAP", 2),
-    ):
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///wanted.ods")
-    assert found is None
-    assert enum.nextElement.call_count == 2
+    assert unwrap_uno(found) is wanted
 
 
 

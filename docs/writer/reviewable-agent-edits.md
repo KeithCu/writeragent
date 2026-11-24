@@ -42,7 +42,7 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete`, `form_delete_control` | No (`tracked: false` with a `warning` when recording or review is on) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, frames/charts/shapes insert, …) | No | No | No |
 
-Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
+Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
 before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
 The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.
@@ -107,7 +107,13 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
-* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`) are
+* Format redlines recorded by `style_format_text` and character `apply_style` in record/wait mode
+  when the document is recording during the call are authored `WriterAgent` so formatting the
+  agent's own pending insertion folds into it and keeps it rejectable (`PreAppendFormatRedline` in
+  `DocumentRedlineManager.cxx`). When the target overlaps a pending insertion by another author, the
+  office author stays so rejecting does not keep the other author's text.
+* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`,
+  including `target='selection'` and streamed Extend/Edit Selection) are
   recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
   resolves them, and omitted from `ChangeRecord` so `wait_for_review` neither waits for them nor
   reports them in `review.changes`. Both the link deletion and insertion are authored
@@ -129,8 +135,9 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. A one-run unlinked plain replace (`replace_preserving_format`) inserts the new
-  text after the struck text so the new text inherits its formatting. Whole-paragraph block replaces
+  stranded mid-import. A single-paragraph plain replace (`replace_preserving_format`) inserts the new
+  text after the longest run so the new text inherits that run's formatting, and carries the common
+  link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
   paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (leaving
@@ -226,7 +233,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
 1. **Inline resolve** — [`plugin/writer/inline_review.py`](../../plugin/writer/inline_review.py),
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
-   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
+   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak. Scratch documents are skipped (view registration is deferred via `run_after_scratch_loads` so `is_scratch_document` sees the registered `RuntimeUID`).
 2. **Review toolbar** — [`plugin/writer/review_view_attachment.py`](../../plugin/writer/review_view_attachment.py)
    (`refresh_review_toolbar`, dock-once): **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
@@ -302,6 +309,8 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   insert/delete colors.
 * **`ShowChanges` is forced on** during review and is not restored afterward; the user must toggle
   display back manually if they had it off. Do not treat that as a missing restore bug in the wait loop.
+* **Formatting across a foreign pending insertion** (or across both the user's and the agent's) still
+  lets LibreOffice turn one of them into a Format redline; rejecting then keeps that text.
 * **Closing the document during wait** aborts with ``complete=False`` and ``timed_out=False`` (not a
   full-timeout spin). A change that never gets an anchor bookmark is **not** registered as a
   reviewable agent edit.

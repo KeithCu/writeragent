@@ -101,6 +101,17 @@ def test_resolve_file_target(tmp_path):
         url_target.as_uri(),
     )
 
+    # Matching quotes (and inner spaces) are stripped; mismatched or empty quotes are not paths.
+    assert resolve_file_target(f'"{target}"') == (str(target), target.as_uri())
+    assert resolve_file_target(f"'{target}'") == (str(target), target.as_uri())
+    assert resolve_file_target(f'"{url_target.as_uri()}"') == (str(url_target), url_target.as_uri())
+    assert resolve_file_target(f'  " {target} "  ') == (str(target), target.as_uri())
+    assert resolve_file_target(f'"{target}\'') is None
+    assert resolve_file_target('"') is None
+    assert resolve_file_target('""') is None
+    inner_quote = tmp_path / 'a"b.odt'
+    assert resolve_file_target(str(inner_quote)) == (str(inner_quote), inner_quote.as_uri())
+
 
 def test_document_open_missing_file(tmp_path):
     missing = tmp_path / "missing.odt"
@@ -127,6 +138,23 @@ def test_document_open_fresh_file(tmp_path):
     assert res["status"] == "ok"
     assert res["already_open"] is False
     assert res["document"]["uid"] == "uid-new"
+    assert desktop.loadComponentFromURL.call_args.args == (target.as_uri(), "_default", 0, ())
+
+
+def test_document_open_quoted_path(tmp_path):
+    target = tmp_path / "quoted doc.odt"
+    target.write_text("x", encoding="utf-8")
+    model = _make_model(url=target.as_uri(), uid="uid-quoted")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = model
+
+    with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools._detect_load_filter", return_value=("writer8", TEXT_DOCUMENT_SERVICE)), \
+         patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_research.system_path_from_url", return_value=str(target)):
+        res = DocumentOpen().execute(_make_ctx(), path=f'"{target}"')
+
+    assert res["status"] == "ok"
     assert desktop.loadComponentFromURL.call_args.args == (target.as_uri(), "_default", 0, ())
 
 
@@ -458,7 +486,41 @@ def test_save_failure_explains_refused_prompt(tmp_path):
     err_aborted_locked = _save_failure(prompts, RuntimeError("abort"), str(locked_target), "EXPORT_FAILED")
     assert err_aborted_locked.code == "FILE_LOCKED"
 
+    locked_link = tmp_path / "link.odt"
+    try:
+        os.symlink(locked_target, locked_link)
+    except OSError:
+        pass
+    else:
+        err_aborted_link = _save_failure(prompts, RuntimeError("abort"), str(locked_link), "EXPORT_FAILED")
+        assert err_aborted_link.code == "FILE_LOCKED"
+
     prompts.aborted = False
     err_fallback = _save_failure(prompts, RuntimeError("disk full"), "/tmp/a.odt", "SAVE_FAILED")
     assert err_fallback.code == "SAVE_FAILED"
     assert "Failed to write /tmp/a.odt: disk full" == err_fallback.message
+
+
+@pytest.mark.parametrize("via_symlink", [False, True])
+def test_document_export_sheet_refuses_locked_target(tmp_path, via_symlink):
+    doc = _make_calc_doc(("One", "Two"))
+    real_csv = tmp_path / "c.csv"
+    real_csv.write_text("keep\n", encoding="utf-8")
+    (tmp_path / ".~lock.c.csv#").write_text("Other,other,host,24.11.2026 10:00,file:///x;", encoding="utf-8")
+
+    target = real_csv
+    if via_symlink:
+        target = tmp_path / "link.csv"
+        try:
+            os.symlink(real_csv, target)
+        except OSError as exc:
+            pytest.skip(f"symlinks unsupported: {exc}")
+
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)):
+        res = DocumentExport().execute(_make_ctx(doc), path=str(target), sheet="One")
+
+    assert res["status"] == "error"
+    assert res["code"] == "FILE_LOCKED"
+    assert real_csv.read_text(encoding="utf-8") == "keep\n"
+    doc.storeToURL.assert_not_called()

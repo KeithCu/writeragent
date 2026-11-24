@@ -77,7 +77,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 |------|----------|-------|
 | `GetImage` core tool | [`get_image.py`](../../plugin/writer/get_image.py) | `tier="core"`, Writer `TextDocument` + Draw `DrawingDocument` + Impress `PresentationDocument` + Calc `SpreadsheetDocument` (image/selection; page render Writer/Draw/Impress only) |
 | Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG) |
-| Page render | `_render_page_png` / [`page_png.render_writer_page_png`](../../plugin/writer/page_png.py) | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
+| Page render | `_render_page_png` / [`page_png.render_writer_page_png`](../../plugin/writer/page_png.py) (export half: `export_current_page_png`) | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
 | Wire marker | same | Returns `{"status":"ok","source":...,"_mcp_image":{"data":"<b64>","mimeType":"image/png"}}` |
 | Schema gating | [`tool.py`](../../plugin/framework/tool.py) `get_schemas` | On **openai** schema path only: drops `image_get` when `has_native_vision` `is False`. MCP path always exposes it (client assumed vision-capable). |
 

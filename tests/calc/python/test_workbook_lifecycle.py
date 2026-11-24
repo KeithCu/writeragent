@@ -656,4 +656,89 @@ def test_global_listener_disposed_view_controller_does_not_warn():
         warn.assert_not_called()
 
 
+def test_unload_keeps_session_shared_with_another_listener(monkeypatch: pytest.MonkeyPatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"uid-scratch"})
+    sid = "calc:file:///tmp/shared.ods"
+    doc_scratch = CalcDocStub(url="file:///tmp/shared.ods", props={"RuntimeUID": "uid-scratch"})
+    doc_user = CalcDocStub(url="file:///tmp/shared.ods", props={"RuntimeUID": "uid-user"})
+    state_scratch = WorkbookState("uid-scratch")
+    state_user = WorkbookState("uid-user")
+
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_scratch, state=state_scratch)
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_user, state=state_user)
+    listener_scratch = lifecycle._LISTENERS["uid-scratch"]
+    listener_user = lifecycle._LISTENERS["uid-user"]
+
+    with (
+        patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock,
+        patch("plugin.calc.python.workbook_lifecycle.clear_in_memory_geometric_state") as geo_mock,
+    ):
+        listener_scratch.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_not_called()
+        geo_mock.assert_not_called()
+
+        listener_user.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_called_once_with(
+            sid,
+            timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+            lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+        )
+        geo_mock.assert_called_once_with(workbook_key=sid)
+
+
+def test_unload_resets_on_reload_when_two_non_scratch_listeners_share_session(monkeypatch: pytest.MonkeyPatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    sid = "calc:file:///tmp/reload.ods"
+    doc_old = CalcDocStub(url="file:///tmp/reload.ods", props={"RuntimeUID": "uid-old"})
+    doc_new = CalcDocStub(url="file:///tmp/reload.ods", props={"RuntimeUID": "uid-new"})
+
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_old, state=WorkbookState("uid-old"))
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_new, state=WorkbookState("uid-new"))
+    listener_old = lifecycle._LISTENERS["uid-old"]
+
+    with (
+        patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock,
+        patch("plugin.calc.python.workbook_lifecycle.clear_in_memory_geometric_state") as geo_mock,
+    ):
+        listener_old.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_called_once_with(
+            sid,
+            timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+            lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+        )
+        geo_mock.assert_called_once_with(workbook_key=sid)
+
+
+def test_unload_resets_user_close_even_while_scratch_copy_is_open(monkeypatch: pytest.MonkeyPatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"uid-scratch"})
+    sid = "calc:file:///tmp/user_first.ods"
+    doc_user = CalcDocStub(url="file:///tmp/user_first.ods", props={"RuntimeUID": "uid-user"})
+    doc_scratch = CalcDocStub(url="file:///tmp/user_first.ods", props={"RuntimeUID": "uid-scratch"})
+
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_user, state=WorkbookState("uid-user"))
+    lifecycle.ensure_calc_workbook_unload_resets_python(doc_scratch, state=WorkbookState("uid-scratch"))
+    listener_user = lifecycle._LISTENERS["uid-user"]
+
+    with (
+        patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock,
+        patch("plugin.calc.python.workbook_lifecycle.clear_in_memory_geometric_state") as geo_mock,
+    ):
+        listener_user.on_document_event(MagicMock(EventName="OnUnload"))
+        reset_mock.assert_called_once_with(
+            sid,
+            timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+            lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
+        )
+        geo_mock.assert_called_once_with(workbook_key=sid)
+
+
 

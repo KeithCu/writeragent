@@ -20,7 +20,7 @@ import urllib.parse
 from plugin.framework.i18n import _
 from plugin.framework.errors import NetworkError, http_status_message
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.client.http_security import redact_secrets
+from plugin.framework.client.http_security import public_target, redact_secrets
 from .responses_shim import responses_failed_message
 
 log = logging.getLogger(__name__)
@@ -340,7 +340,7 @@ def parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[s
 
     parsed = parse_strict_json(raw)
     if not isinstance(parsed, dict):
-        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": public_target(path)})
     # The stream loop raises on {"error": ...} inside HTTP 200. Sync chat,
     # images, and STT must do the same, or that body looks like a finished
     # reply and chat_completion_sync returns "". finish_reason=length with
@@ -351,32 +351,26 @@ def parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[s
         # STT must do the same, or HTTP 200 raises the raw provider string.
         # The caller passes the key. Do not retry a finished body.
         stream_err = redact_secrets(stream_err, [api_key])
-        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
+        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": public_target(path)})
     return parsed
 
 
 def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
-    Query string is dropped so API keys never appear in logs.
+    Query string, userinfo, and opaque path segments are dropped or redacted so secrets never appear in logs.
     """
     if not path or not str(path).startswith("/"):
         return path
     try:
         parsed = urllib.parse.urlparse(endpoint or "")
         if parsed.scheme and parsed.netloc:
-            path_only = urllib.parse.urlparse(str(path)).path or str(path)
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path_only, "", "", ""))
+            path_only = public_target(str(path))
+            netloc = parsed.netloc.rpartition("@")[2]
+            return urllib.parse.urlunparse((parsed.scheme, netloc, path_only, "", "", ""))
     except ValueError:
         pass
-    return path
-
-
-def path_without_query(path: str) -> str:
-    """Request path for logs. A leftover ``?key=`` must not be printed."""
-    if not path or "?" not in path:
-        return path
-    return path.split("?", 1)[0]
+    return public_target(path)
 
 
 def log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:

@@ -7,7 +7,7 @@
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, visible_portions
 from plugin.framework.uno_context import enum_has_more, get_desktop
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.html_export import _visible_portions as html_visible_portions
 
 
@@ -224,3 +224,113 @@ def test_multi_para_deletion_hides_table_in_span_uno(ctx):
 
     _run(ctx=ctx)
 
+
+@native_test
+def test_read_visible_body_offsets_uno(ctx):
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.tests.testing_utils import strike_across_paragraphs, strike_across_table, with_native_doc
+
+    @with_native_doc("writer")
+    def _run(ctx, doc):
+        text = doc.getText()
+        strike_across_paragraphs(doc, text)
+        whole = text.createTextCursor()
+        whole.gotoStart(False)
+        whole.gotoEnd(True)
+
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        after_start = paras[-1].getStart()
+        end_pos = text.getEnd()
+
+        body_text, offsets = read_visible_body(doc, [after_start, end_pos])
+        assert body_text == get_string_without_tracked_deletions(whole)
+        assert offsets == [18, 23]
+
+        tbl = strike_across_table(doc, text)
+        whole.gotoStart(False)
+        whole.gotoEnd(True)
+        cell_pos = tbl.getCellByName("A1").getStart()
+        tbl_text, tbl_offsets = read_visible_body(doc, [cell_pos, text.getEnd()])
+        assert tbl_text == get_string_without_tracked_deletions(whole)
+        assert tbl_offsets == [None, 14]
+
+    _run(ctx=ctx)
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_from_inside_deletion_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    # Middle + end paragraphs (starts inside Delete).
+    mid_cur = text.createTextCursorByRange(paras[2].getStart())
+    mid_cur.gotoRange(paras[3].getEnd(), True)
+    assert visible_range_text(doc, mid_cur) == "\nTail"
+
+    # Inside the start paragraph's deleted tail.
+    in_cur = text.createTextCursorByRange(paras[1].getStart())
+    in_cur.goRight(len("Start "), False)
+    in_cur.gotoRange(paras[1].getEnd(), True)
+    assert "gone" not in visible_range_text(doc, in_cur)
+
+
+@native_test
+@with_native_doc("writer")
+def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length, paragraph_deletion_flags, visible_range_text
+    from plugin.tests.testing_utils import strike_all_after_leading_table
+
+    strike_all_after_leading_table(doc, ctx)
+    text = doc.getText()
+    assert visible_range_text(doc, text) == "\n\n"
+    assert get_document_length(doc) == 1
+
+    enum = text.createEnumeration()
+    els = []
+    while enum.hasMoreElements():
+        els.append(enum.nextElement())
+    assert all(paragraph_deletion_flags(doc, els))
+
+
+@native_test
+@with_native_doc("writer")
+def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length, visible_range_text
+
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("cellA1")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "two", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "three", False)
+
+    enum = text.createEnumeration()
+    els = []
+    while enum.hasMoreElements():
+        els.append(enum.nextElement())
+    del_cur = text.createTextCursorByRange(els[1].getStart())
+    del_cur.gotoRange(els[1].getEnd(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert visible_range_text(doc, text) == "cellA1\n\nthree"
+    # get_document_length uses a cursor from body.getStart(), which skips the leading table.
+    assert get_document_length(doc) == len("\nthree")

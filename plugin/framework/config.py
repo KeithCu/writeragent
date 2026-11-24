@@ -620,15 +620,14 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
     if keystore.is_ref(text):
         return text
     if keystore.is_ref(current):
-        # An equal value keeps the existing ref so save() sees no change and skips
-        # OS writes, file writes, config:changed emits, and tunnel restarts.
-        # An empty save over an unreadable ref also keeps the ref so a locked
-        # keyring never silently wipes the stored key.
-        if text == (keystore.get_secret(name) or ""):
-            return str(current)
+        # Settings shows the ref itself when the secret cannot be read, so blank is always an explicit clear.
         if not text:
             keystore.delete_secret(name)
             return ""
+        # An equal value keeps the existing ref so save() sees no change and skips
+        # OS writes, file writes, config:changed emits, and tunnel restarts.
+        if text == keystore.get_secret(name):
+            return str(current)
     if text and keystore.can_store() and keystore.set_secret(name, text):
         return keystore.new_ref()
     return text
@@ -765,9 +764,26 @@ def api_key_needs_keystore_read(endpoint: Any) -> bool:
     return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
 
 
-def secret_config_locked(key: str) -> bool:
-    """True when *key* holds a ``keystore:`` ref whose last read hit a locked store."""
-    return keystore.is_ref(get_config(key)) and keystore.is_locked(key)
+def _secret_field_text(name: str, raw: Any) -> str:
+    # Return the raw ref when the secret cannot be read: a blank field would be
+    # saved as a clear, so pressing OK for an unrelated setting would drop the saved secret.
+    return _resolve_secret(name, raw) or str(raw or "")
+
+
+def api_key_field_text(endpoint: Any) -> str:
+    """Return the Settings field text for *endpoint*'s API key, falling back to its raw ref when unreadable."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    return _secret_field_text(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
+
+
+def secret_config_field_text(key: str) -> str:
+    """Return the Settings field text for a ``widget: password`` key, falling back to its raw ref when unreadable."""
+    return _secret_field_text(key, get_config(key))
+
+
+def entry_secret_field_text(key: str, entry_name: str, field: str, raw: Any) -> str:
+    """Return the Settings field text for one keyed entry secret, falling back to its raw ref when unreadable."""
+    return _secret_field_text(_entry_secret_name(key, entry_name, field), raw)
 
 
 def get_secret_config(key: str) -> str:

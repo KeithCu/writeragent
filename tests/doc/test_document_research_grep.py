@@ -377,11 +377,13 @@ def test_grep_text_in_writer_includes_table_text():
     model = MagicMock()
     services = MagicMock()
 
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     # Create paragraphs and a table
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "Normal text before table."
-    para1.createEnumeration.side_effect = RuntimeError("no enum")
+    para1.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "Normal text before table.")])
 
     table = MagicMock()
     table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
@@ -415,18 +417,20 @@ def test_grep_text_in_writer_includes_table_text():
 
 
 def test_grep_text_in_writer_caps_match_count_and_sets_partial():
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     model = MagicMock()
     services = MagicMock()
 
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "first keyword paragraph"
-    para1.createEnumeration.side_effect = RuntimeError("no enum")
+    para1.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "first keyword paragraph")])
 
     para2 = MagicMock()
     para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para2.getString.return_value = "second keyword paragraph"
-    para2.createEnumeration.side_effect = RuntimeError("no enum")
+    para2.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "second keyword paragraph")])
 
     services.document.get_paragraph_ranges.return_value = [para1, para2]
 
@@ -858,13 +862,15 @@ def test_grep_text_in_writer_table_cells_do_not_join_across_cells():
 
 
 def test_grep_text_in_writer_caps_context_snippet():
+    from plugin.tests.testing_utils import FakeUnoEnum, FakeUnoPortion
+
     model = MagicMock()
     services = MagicMock()
 
     para = MagicMock()
     para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para.getString.return_value = "keyword" + "x" * 293  # total 300 chars
-    para.createEnumeration.side_effect = RuntimeError("no enum")
+    para.createEnumeration.return_value = FakeUnoEnum([FakeUnoPortion("Text", "keyword" + "x" * 293)])
 
     services.document.get_paragraph_ranges.return_value = [para]
 
@@ -902,3 +908,40 @@ def test_grep_nearby_files_stop_during_listing_is_user_stopped(mock_open):
             result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", cancel=scope)
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
     mock_open.assert_not_called()
+
+
+def test_resolve_grep_candidates_quoted_path():
+    with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as f:
+        path = f.name
+    try:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_scan:
+            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=f'"{path}"')
+        mock_scan.assert_not_called()
+        assert err is None
+        assert truncated is False
+        assert len(candidates) == 1
+        assert candidates[0]["path"] == os.path.normpath(os.path.abspath(path))
+    finally:
+        os.unlink(path)
+
+
+def test_resolve_grep_candidates_subset_miss_returns_error():
+    with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_scan:
+        mock_scan.return_value = {"status": "ok", "files": [], "truncated": False}
+        candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset="missing")
+    assert candidates == []
+    assert truncated is False
+    assert err == "No file matching 'missing'"
+
+
+def test_grep_nearby_files_no_files_scanned():
+    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=([], False, None)):
+        res_empty = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4")
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "NO_FILES_SCANNED"
+
+    unsupported = [{"path": "/tmp/photo.png", "name": "photo.png", "url": "file:///tmp/photo.png", "doc_type_guess": "image"}]
+    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=(unsupported, False, None)):
+        res_unsupported = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="photo.png")
+    assert res_unsupported["status"] == "error"
+    assert res_unsupported["code"] == "NO_FILES_SCANNED"

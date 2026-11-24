@@ -441,6 +441,12 @@ def provider_label(name: str) -> str:
     return name.title() if name else DEFAULT_PROVIDER.title()
 
 
+def provider_uses_token(name: str) -> bool:
+    """False only for a known provider that ignores Provider config, so its start reads no secret."""
+    cls = _PROVIDER_BY_NAME.get(name.strip().lower())
+    return cls is None or cls.uses_token
+
+
 def binary_available(provider: str) -> str | None:
     """None when the version command finished; otherwise the short last_error.
 
@@ -856,8 +862,7 @@ class TunnelManager:
     def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str | None = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
         """Start (or keep) a tunnel to *port*. Returns False if start failed.
 
-        ``provider_token=None`` means a token is configured but could not be read; a provider
-        that uses it is refused rather than started without it.
+        ``provider_token=None`` means the provider's configured token could not be read; the start is refused.
         """
         from plugin.framework.queue_executor import Policy, main
 
@@ -867,7 +872,7 @@ class TunnelManager:
         provider = (provider or DEFAULT_PROVIDER).strip().lower()
         token = (provider_token or "").strip()
         provider_obj = self._providers.get(provider)
-        if provider_obj is None or (provider_token is None and provider_obj.uses_token):
+        if provider_obj is None or provider_token is None:
             # Without its token Cloudflare opens an anonymous public tunnel and Bore drops its server and secret.
             refusal = (
                 "unknown tunnel provider: %s" % provider

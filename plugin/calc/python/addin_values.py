@@ -10,7 +10,7 @@ Cell outcomes for ``=PY()`` fall into four kinds:
 - **Payload NaN** (quiet NaN carrying a Calc ``FormulaError`` in its low 32 bits):
   ``py_addin_cell_value`` (error tokens and helper error dicts),
   ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes),
-  and the worker's ``NA_NAN`` and ``NESTED_ARRAY_NAN`` (``calc_functions_util.py``).
+  and the worker's ``NA_NAN``, ``NESTED_ARRAY_NAN``, and ``DIV0_NAN`` (``calc_functions_util.py``).
   LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
@@ -36,7 +36,8 @@ Worker failure codes in ``addin_result_for_worker_status`` map as follows:
 
 ``LO_ERROR_TOKENS`` in ``plugin/scripting/venv/coerce.py`` mirrors
 ``_CALC_ERROR_TOKEN_CODES``; ``tests/calc/python/test_addin_values.py`` pins that both
-agree.
+agree. ``calc_error_code_for_token`` maps those tokens plus published ``Err:<n>``
+codes (case-insensitive).
 """
 
 from __future__ import annotations
@@ -73,6 +74,12 @@ _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
     "#NAME?": 525,
     "#NULL!": 521,
 }
+
+# Same spelling as coerce._ERR_NUMBER_RE in the worker.
+_ERR_NUMBER_RE = re.compile(r"Err:([0-9]{3})", re.IGNORECASE)
+# isPublishedFormulaError (include/formula/errorcodes.hxx). =#ERRn! with any other number is #NAME?,
+# and a payload NaN with 537 (RetryCircular) starts Calc's recursion handling.
+_PUBLISHED_ERROR_CODES = frozenset({*range(501, 505), *range(507, 526), *range(530, 534), *range(538, 541)})
 
 _ERR_VALUE = _CALC_ERROR_TOKEN_CODES["#VALUE!"]
 _ERR_NUM = _CALC_ERROR_TOKEN_CODES["#NUM!"]
@@ -117,7 +124,19 @@ def nonfinite_error_code(val: float) -> int:
     return low or _ERR_NUM
 
 
+def published_err_code(text: str) -> int | None:
+    """FormulaError integer when *text* is a published ``Err:<n>`` token (case-insensitive), else None."""
+    match = _ERR_NUMBER_RE.fullmatch(text.strip())
+    if match is None:
+        return None
+    code = int(match.group(1))
+    return code if code in _PUBLISHED_ERROR_CODES else None
+
+
 def calc_error_code_for_token(text: str) -> int | None:
+    code = published_err_code(text)
+    if code is not None:
+        return code
     return _CALC_ERROR_TOKEN_CODES.get(text.strip())
 
 
@@ -164,8 +183,8 @@ def is_helper_error_dict(val: Any) -> bool:
 def _calc_code_for_helper_error(code: str) -> int:
     """FormulaError integer for a helper error code.
 
-    Tokens use calc_error_code_for_token (the _map_addin_error_tokens table).
-    Exception names use _WORKER_EXC_CODES (the worker_exception_error_code table).
+    Tokens and published ``Err:<n>`` strings use ``calc_error_code_for_token``.
+    Exception names use ``_WORKER_EXC_CODES`` (the ``worker_exception_error_code`` table).
     Anything else is #VALUE! (519). The helper message is not scanned.
     """
     token_code = calc_error_code_for_token(code)
@@ -474,7 +493,7 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
         stripped = val.strip()
         if not stripped:
             return _SPILL_EMPTY
-        err = _CALC_ERROR_TOKEN_CODES.get(stripped)
+        err = calc_error_code_for_token(stripped)
         if err is not None:
             return _spill_error(err)
         if match_iso_duration(stripped):

@@ -23,6 +23,7 @@ from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     _iter_portions,
     _paint,
+    _renamed_url,
     capture_outline_hyperlinks,
     heading_renames,
     plan_outline_updates,
@@ -263,6 +264,16 @@ class _Cursor:
                 elif name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
                     sl.link_style = value
 
+    def setPropertyToDefault(self, name):
+        self.doc.writes.append((f"DEFAULT:{name}", None))
+        for sl in self.doc.slices:
+            start, end = self.doc.slice_bounds(sl)
+            if start < self.end and end > self.start and name == "HyperLinkURL":
+                sl.url = ""
+                sl.name = ""
+                sl.target = ""
+                sl.link_style = ""
+
 
 class _Paragraph:
     def __init__(self, doc):
@@ -373,16 +384,22 @@ def test_restore_rewrites_the_whole_outline_span_and_leaves_the_bookmark():
 
 def test_restore_repaints_a_run_whose_url_the_html_path_dropped():
     """setString('') + import leaves the new characters with no HyperLinkURL."""
-    prefix = _Slice("2.3.4. ", _OUTLINE)
-    title = _Slice("Old title", _OUTLINE)
-    suffix = _Slice("\t42", _OUTLINE)
+    prefix = _Slice("2.3.4. ", _OUTLINE, link_style="Index Link")
+    title = _Slice("Old title", _OUTLINE, name="Old title", target="_blank", link_style="Index Link")
+    suffix = _Slice("\t42", _OUTLINE, link_style="Index Link")
     doc = _Doc([prefix, title, suffix])
     snapshot = capture_outline_hyperlinks(_match(doc, 7, 16))
     _replace_equal(title, "New title")
     title.url = ""
+    title.name = ""
+    title.target = ""
+    title.link_style = ""
     restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
     assert prefix.url == "#1.New title|outline"
     assert title.url == "#1.New title|outline"
+    assert title.name == "New title"
+    assert title.target == "_blank"
+    assert title.link_style == "Index Link"
     assert suffix.url == "#1.New title|outline"
 
 
@@ -460,7 +477,8 @@ def test_restore_accepts_deleting_the_whole_outline_link():
     title.url = ""
     reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "", None)
     assert title.url == ""
-    assert reports[0]["hyperlink_url_after"] == "#1.|outline"
+    assert reports[0]["hyperlink_url_after"] == ""
+    assert reports[0]["hyperlink_updated"] is False
 
 
 def test_restore_does_not_paint_one_outline_url_across_a_second_link():
@@ -541,10 +559,11 @@ def test_restore_selects_after_a_non_bmp_prefix():
 
 def test_capture_sets_fully_linked_false_when_plain_text_in_match():
     plain = _Slice("START ", "")
-    linked = _Slice("link text", "https://example.com/")
+    linked = _Slice("link text", "https://example.com/", name="nm")
     doc = _Doc([plain, linked])
     snapshot = capture_outline_hyperlinks(_match(doc, 0, len("START link text")))
     assert snapshot.fully_linked is False
+    assert snapshot.props["HyperLinkName"] == "nm"
 
     linked_only = capture_outline_hyperlinks(_match(doc, len("START "), len("START link text")))
     assert linked_only.fully_linked is True
@@ -554,12 +573,11 @@ def test_paint_refuses_a_selection_that_does_not_match_the_replacement():
     title = _Slice("Old title!", _OUTLINE)
     doc = _Doc([title])
     snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
-    plan = {"new_url": "#1.New title|outline", "new_name": None, "new_target": None}
     with pytest.raises(ToolExecutionError, match="Could not select the replaced text") as exc_info:
-        _paint(doc, _Pos(0), snapshot, "New title", plan, required=True)
+        _paint(doc, _Pos(0), snapshot, "New title", "#1.New title|outline", {}, required=True)
     assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
     assert title.url == _OUTLINE
-    assert _paint(doc, _Pos(0), snapshot, "New title", plan, required=False) is False
+    assert _paint(doc, _Pos(0), snapshot, "New title", "#1.New title|outline", {}, required=False) is False
     assert title.url == _OUTLINE
 
 
@@ -624,3 +642,119 @@ def test_restore_keeps_inherited_look_without_direct_color():
 )
 def test_heading_renames(before, after, expected):
     assert heading_renames(before, after) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "renames", "expected"),
+    [
+        ("#Old title|outline", {"Old title": "New title"}, "#New title|outline"),
+        ("#1.Old title|outline", {"Old title": "New title"}, "#1.New title|outline"),
+        ("#1.2.Old title|outline", {"Old title": "New title"}, "#1.2.New title|outline"),
+        ("#Old%20title|outline", {"Old title": "New title"}, "#New%20title|outline"),
+        ("#1.Old%20title|outline", {"Old title": "New title"}, "#1.New%20title|outline"),
+        ("#Old%20title%7Coutline", {"Old title": "New title"}, "#New%20title%7Coutline"),
+        ("#2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#2027. Plan|outline"),
+        ("#1.2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#1.2027. Plan|outline"),
+        ("#50% off|outline", {"50% off": "40% off"}, "#40% off|outline"),
+        ("#Other|outline", {"Old title": "New title"}, None),
+        ("#__RefHeading___Toc123", {"Old title": "New title"}, None),
+    ],
+)
+def test_renamed_url(url, renames, expected):
+    assert _renamed_url(url, renames) == expected
+
+
+def test_restore_partly_linked_does_not_paint_outline_url():
+    lead = _Slice("See ")
+    title = _Slice("Old title", _OUTLINE)
+    tail = _Slice(" here")
+    doc = _Doc([lead, title, tail])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, len(doc.text())))
+    assert snapshot.fully_linked is False
+    # Simulate an HTML replace that dropped the link on the replaced text.
+    doc.slices = [_Slice("Read New text now")]
+    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Read New text now", None)
+    assert doc.slices[0].url == ""
+    assert reports[0]["hyperlink_updated"] is False
+
+
+def test_restore_two_non_outline_urls_does_not_paint():
+    first = _Slice("Alpha ", "https://a.example.com/")
+    second = _Slice("Beta", "https://b.example.com/")
+    doc = _Doc([first, second])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, len(doc.text())))
+    assert snapshot.multi_preserve is True
+    doc.slices = [_Slice("Gamma delta epsilon")]
+    restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma delta epsilon", None)
+    assert doc.slices[0].url == ""
+
+
+def test_restore_mid_paragraph_outline_link_leaves_neighbors_unlinked():
+    zed = "#Zed|outline"
+    lead = _Slice("See ")
+    title = _Slice("Old title", zed, color=0x112233, direct=True)
+    tail = _Slice(" here")
+    doc = _Doc([lead, title, tail])
+    snapshot = capture_outline_hyperlinks(_match(doc, 4, 13))
+    assert snapshot.whole_paragraph is False
+    doc.slices = [lead, _Slice("Swap"), tail]
+    restore_outline_hyperlinks(_match(doc, 4, 4), snapshot, "Swap", None)
+    assert lead.url == ""
+    assert tail.url == ""
+    assert doc.slices[1].url == zed
+
+
+def test_restore_whole_paragraph_toc_row_writes_whole_paragraph():
+    num = _Slice("1. ", _OUTLINE, color=0x112233, direct=True)
+    title = _Slice("Old title", _OUTLINE, color=0x112233, direct=True)
+    page = _Slice("\t5", _OUTLINE, color=0x112233, direct=True)
+    doc = _Doc([num, title, page], stomp_look_on_url=True)
+    snapshot = capture_outline_hyperlinks(_match(doc, 13, 14))
+    assert snapshot.whole_paragraph is True
+    page.text = "\t6"
+    restore_outline_hyperlinks(_match(doc, 13, 13), snapshot, "6", None)
+    assert all(sl.url == _OUTLINE and sl.color == 0x112233 for sl in (num, title, page))
+
+
+def test_restore_reports_a_dropped_link():
+    left = _Slice("Alpha ", "#1.Alpha Beta|outline")
+    right = _Slice("Beta", "#1.Other|outline")
+    doc = _Doc([left, right])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, 10))
+    doc.slices = [_Slice("New title")]
+    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    assert doc.slices[0].url == ""
+    assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in reports] == [
+        ("", False),
+        ("", False),
+    ]
+
+    left2 = _Slice("Alpha ", "#1.Alpha Beta|outline")
+    right2 = _Slice("Beta", "#1.Other|outline")
+    tail2 = _Slice(" rest", "#1.Alpha Beta|outline")
+    doc2 = _Doc([left2, right2, tail2])
+    snapshot2 = capture_outline_hyperlinks(_match(doc2, 0, 10))
+    doc2.slices = [_Slice("New title"), tail2]
+    reports2 = restore_outline_hyperlinks(_match(doc2, 0, 0), snapshot2, "New title", None)
+    assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in reports2] == [
+        ("#1.New title|outline", True),
+        ("", False),
+    ]
+
+
+def test_restore_whole_row_with_different_names_keeps_them():
+    url = "#1.Other|outline"
+    s1 = _Slice("1. ", url, name="n1")
+    s2 = _Slice("Old title", url, name="n2")
+    s3 = _Slice("\t5", url, name="n3")
+    doc = _Doc([s1, s2, s3])
+    snapshot = capture_outline_hyperlinks(_match(doc, 12, 14))
+    assert snapshot.whole_paragraph is False
+    s3.text = "\t6"
+    s3.url = ""
+    s3.name = ""
+    restore_outline_hyperlinks(_match(doc, 12, 12), snapshot, "\t6", None)
+    assert s1.name == "n1"
+    assert s2.name == "n2"
+    assert s3.name == "n3"
+    assert s3.url == url

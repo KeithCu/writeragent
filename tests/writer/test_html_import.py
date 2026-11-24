@@ -773,11 +773,11 @@ def test_content_has_block_markup(html, expected):
     assert content_has_block_markup(html) is expected
 
 
-def test_text_run_lengths_magic_mock_returns_empty():
-    from plugin.writer.html_import import _text_run_lengths
+def test_text_runs_magic_mock_returns_empty():
+    from plugin.writer.html_import import _text_runs
 
     mock_range = MagicMock()
-    assert _text_run_lengths(mock_range) == []
+    assert _text_runs(mock_range) == []
 
 
 def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
