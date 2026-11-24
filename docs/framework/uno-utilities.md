@@ -217,7 +217,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` / `graphic_pixel_size` | 1/100 mm ↔ 96-DPI px (`UNITS_PER_INCH` / `PX_PER_INCH`, rounded both ways). |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
-| `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |
+| `list_graphic_objects` / `get_graphic_object_by_name` / `find_image` / `no_image_selected_error` / `graphic_from_object` | Name lookup across Writer text + Draw pages, and shared vision image resolution. |
 | `get_active_draw_page` / `draw_page_for_insert` / `position_on_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page and position helpers. |
 | `SHAPE_TOOL_UNO_SERVICES` | Union of Writer/Calc/Draw/Impress services for shared tool names. |
 

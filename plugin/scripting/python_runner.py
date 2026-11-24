@@ -386,15 +386,17 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
         # while keeping the OCR wait, which can take minutes, on this background thread.
+        found: list[tuple[str, Any | None]] = []
         result = run_and_insert_vision_for_selection(
             prepared.ctx,
             prepared.doc,
             helper=prepared.helper_name,
             params=prepared.params,
             insert_into_document=False,
+            on_discovered=found.extend,
         )
 
-        return {"status": "ok", "vision_selection_result": result}
+        return {"status": "ok", "vision_selection_result": result, "vision_graphics": dict(found)}
 
     return run_code_in_user_venv(
         prepared.code,
@@ -417,7 +419,8 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
     if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])
-        outcomes = [insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params) for indiv_res in indiv_results]
+        graphics = response["vision_graphics"]
+        outcomes = [insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params, graphics) for indiv_res in indiv_results]
 
     note = source_image_note(outcomes)
 

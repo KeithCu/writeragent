@@ -382,7 +382,8 @@ def test_rps_finish_vision_skips_insert_on_draw():
             "status": "ok",
             "images_processed": 1,
             "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>x</p>"}],
-        }
+        },
+        "vision_graphics": {},
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=True), patch(
         "plugin.vision.vision_egress.insert_vision_result"
@@ -435,7 +436,8 @@ def test_rps_finish_vision_all_empty_reports_no_text():
             "individual_results": [
                 {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
             ],
-        }
+        },
+        "vision_graphics": {},
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=False):
         out = _finish_vision_execution(prepared, response)
@@ -460,7 +462,8 @@ def test_rps_finish_vision_draw_blank_image_reports_no_text():
             "individual_results": [
                 {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
             ],
-        }
+        },
+        "vision_graphics": {},
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=True):
         out = _finish_vision_execution(prepared, response)
@@ -492,7 +495,8 @@ def test_rps_finish_vision_includes_source_image_note(outcome, expected_note):
             "individual_results": [
                 {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
             ],
-        }
+        },
+        "vision_graphics": {},
     }
     with (
         patch("plugin.scripting.python_runner.is_draw", return_value=False),
@@ -520,7 +524,8 @@ def test_rps_finish_vision_partial_error_includes_deleted_note():
             "individual_results": [
                 {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
             ],
-        }
+        },
+        "vision_graphics": {},
     }
     with (
         patch("plugin.scripting.python_runner.is_draw", return_value=False),
@@ -529,5 +534,46 @@ def test_rps_finish_vision_partial_error_includes_deleted_note():
         out = _finish_vision_execution(prepared, response)
     assert out["ok"] is False
     assert "Source images deleted: 1." in out["message"]
+
+
+def test_rps_prepared_and_finish_passes_discovered_unnamed_shape():
+    from plugin.scripting.python_runner import _finish_vision_execution, _run_prepared_rps
+
+    shape_a = MagicMock()
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    inserted_graphics: list[object] = []
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("", shape_a)])
+        return {
+            "status": "ok",
+            "images_processed": 1,
+            "full_text": "hi",
+            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": ""}],
+        }
+
+    def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
+        del params
+        inserted_graphics.append(graphic)
+        return "inserted"
+
+    with patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
+        response = _run_prepared_rps(prepared)
+
+    with (
+        patch("plugin.scripting.python_runner.is_draw", return_value=False),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert),
+    ):
+        out = _finish_vision_execution(prepared, response)
+
+    assert out["ok"] is True
+    assert inserted_graphics == [shape_a]
 
 
