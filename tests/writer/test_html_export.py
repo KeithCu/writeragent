@@ -409,10 +409,30 @@ def test_offset_window_slices_by_running_offset():
     with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=side_effects):
         past_end, window = _offset_window(text, 2, 8)
         e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
-        assert window(e1, "Hello") == (2, 5)
-        assert window(e2, "World") == (0, 2)
-        assert window(e3, "Next") is None
+        assert window(e1, "Hello", False) == (2, 5)
+        assert window(e2, "World", False) == (0, 2)
+        assert window(e3, "Next", False) is None
         assert past_end(e1) is False
+
+
+def test_offset_window_adds_one_after_table_unless_collapsed():
+    from plugin.writer.html_export import _offset_window
+
+    text = MagicMock()
+    gap = MagicMock()
+    text.createTextCursorByRange.return_value = gap
+
+    # After a non-collapsed gap (table in the middle), running advances by len(gap) + 1.
+    gap.isCollapsed.return_value = False
+    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="AlphaT"):
+        _past_end, window = _offset_window(text, 7, 11)
+        assert window(MagicMock(), "Beta", True) == (0, 4)
+
+    # When the table opens the document, the gap is collapsed and nothing is added.
+    gap.isCollapsed.return_value = True
+    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", return_value="T"):
+        _past_end, window = _offset_window(text, 1, 5)
+        assert window(MagicMock(), "Beta", True) == (0, 4)
 
 
 @pytest.mark.parametrize(

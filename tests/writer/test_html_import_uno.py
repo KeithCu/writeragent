@@ -684,7 +684,7 @@ def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, do
     empty_paras = [p for p in paras if p.getString() == ""]
 
     assert [p.getString() for p in non_empty] == ["a", "b"]
-    assert len(empty_paras) >= 1, "Expected trailing empty paragraph"
+    assert empty_paras == [], f"Unexpected trailing empty paragraphs: {empty_paras}"
 
     for p in paras:
         p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
@@ -1363,7 +1363,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
         ("beginning+lead", {"target": "beginning"}, lead_tbl, ["Paragraph:Lead", "TextTable", "Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"]),
         ("full+tbl", {"target": "full_document"}, tbl, ["TextTable", "Paragraph:"]),
         ("full+lead", {"target": "full_document"}, lead_tbl, ["Paragraph:Lead", "TextTable", "Paragraph:"]),
-        ("full+trail", {"target": "full_document"}, trail_tbl, ["TextTable", "Paragraph:Trail", "Paragraph:"]),
+        ("full+trail", {"target": "full_document"}, trail_tbl, ["TextTable", "Paragraph:Trail"]),
         ("after+tbl", {"target": "search", "old_content": "Body", "position": "after"}, tbl, ["Paragraph:Intro", "Paragraph:Body", "TextTable", "Paragraph:Outro"]),
         ("after+lead", {"target": "search", "old_content": "Body", "position": "after"}, lead_tbl, ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Lead", "TextTable", "Paragraph:Outro"]),
         ("after+trail", {"target": "search", "old_content": "Body", "position": "after"}, trail_tbl, ["Paragraph:Intro", "Paragraph:Body", "TextTable", "Paragraph:Trail", "Paragraph:Outro"]),
@@ -1395,6 +1395,8 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
                 expected_accept = ["Paragraph:Intro", "Paragraph:", "TextTable", "Paragraph:", "Paragraph:Outro"]
             elif label == "replace_first+tbl":
                 expected_accept = ["Paragraph:", "TextTable", "Paragraph:", "Paragraph:Body", "Paragraph:Outro"]
+            elif label == "full+trail":
+                expected_accept = ["TextTable", "Paragraph:Trail", "Paragraph:"]
             else:
                 expected_accept = expected
             assert actual_accept == expected_accept, (label, "record-accept", actual_accept, expected_accept)
@@ -1477,7 +1479,7 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
         assert res.get("status") == "ok", res
         res = ApplyDocumentContent().execute(tctx, content=[tbl], target="beginning")
         assert res.get("status") == "ok", res
-        assert _body_structure_via_enum(text) == ["TextTable", "TextTable", "Paragraph:After", "Paragraph:"], _body_structure_via_enum(text)
+        assert _body_structure_via_enum(text) == ["TextTable", "TextTable", "Paragraph:After"], _body_structure_via_enum(text)
 
         # Empty document + table at end: on a 1-paragraph blank doc, SwHTMLParser opens an
         # extra split node before the table; cleanup removes the split node and keeps the user's own.
@@ -1542,3 +1544,103 @@ def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_does_not_inherit_old_character_formatting_uno(ctx: Any, doc: Any) -> None:
+    """full_document drops old Char* formatting and character style while keeping language."""
+    from com.sun.star.lang import Locale
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed_formatted() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        cur.setPropertyValue("CharLocale", Locale("pt", "BR", ""))
+        cur.setPropertyValue("CharStyleName", "Emphasis")
+        cur.setPropertyValue("CharWeight", 150.0)
+        cur.setPropertyValue("CharColor", 0xFF0000)
+        cur.setPropertyValue("CharHeight", 20.0)
+        text.insertString(cur, "Old formatted text", False)
+
+    try:
+        save({flag: "off"})
+        _seed_formatted()
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
+        assert res.get("status") == "ok", res
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["plain words"]
+        portions = paras[0].createEnumeration()
+        while enum_has_more(portions):
+            portion = portions.nextElement()
+            if portion.getPropertyValue("TextPortionType") != "Text":
+                continue
+            assert portion.getPropertyValue("CharWeight") == 100.0
+            assert int(portion.getPropertyValue("CharColor")) == -1
+            assert portion.getPropertyValue("CharHeight") != 20.0
+            assert portion.getPropertyValue("CharStyleName") in ("", "Default Character Style")
+            assert portion.getPropertyValue("CharLocale").Language == "pt"
+
+        save({flag: "record"})
+        _seed_formatted()
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
+        assert res.get("status") == "ok", res
+        helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["plain words", ""], [p.getString() for p in paras]
+        portions = paras[0].createEnumeration()
+        while enum_has_more(portions):
+            portion = portions.nextElement()
+            if portion.getPropertyValue("TextPortionType") != "Text":
+                continue
+            assert portion.getPropertyValue("CharWeight") == 100.0
+            assert int(portion.getPropertyValue("CharColor")) == -1
+            assert portion.getPropertyValue("CharHeight") != 20.0
+            assert portion.getPropertyValue("CharLocale").Language == "pt"
+
+        _seed_formatted()
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
+        assert res.get("status") == "ok", res
+        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["Old formatted text"]
+        first_portion = paras[0].createEnumeration().nextElement()
+        assert first_portion.getPropertyValue("CharWeight") == 150.0
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_keeps_trailing_inline_formula_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """_drop_leftover_paragraph does not drop a trailing paragraph holding an inline formula."""
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>text</p>\\(x^2\\)"])
+    assert res.get("status") == "ok", res
+    paras = _body_paragraphs(doc)
+    assert len(paras) == 2
+    assert paras[0].getString() == "text"
+    types = []
+    portions = paras[1].createEnumeration()
+    while enum_has_more(portions):
+        types.append(portions.nextElement().getPropertyValue("TextPortionType"))
+    assert "Frame" in types, types

@@ -578,3 +578,81 @@ def test_header_custom_style_read_reports_margin_uno(ctx, doc):
     assert para_after.getPropertyValue("ParaStyleName") == "CustomLetterhead"
     assert para_after.getPropertyState("ParaLeftMargin").value == "DEFAULT_VALUE"
     assert abs(para_after.getPropertyValue("ParaLeftMargin") - 2000) <= 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_read_does_not_repeat_run_formatting_uno(ctx, doc):
+    """Header reads paint runs after plain insertion so formatting never leaks across runs."""
+    from com.sun.star.awt.FontSlant import ITALIC
+    from plugin.writer.html_export import xtext_to_content
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("")
+    cur = header.createTextCursor()
+
+    # Paragraph 1: italic middle run
+    header.insertString(cur, "Beta has ", False)
+    cur.setPropertyValue("CharPosture", ITALIC)
+    header.insertString(cur, "italic", False)
+    cur.setPropertyValue("CharPosture", 0)
+    header.insertString(cur, " run", False)
+
+    # Paragraph 2: bold first run + plain second run (applied as a run, not paragraph-wide)
+    header.insertControlCharacter(cur, 0, False)
+    p2_start = cur.getStart()
+    header.insertString(cur, "Bold plain", False)
+    p2_bold = header.createTextCursorByRange(p2_start)
+    p2_bold.goRight(4, True)
+    p2_bold.setPropertyValue("CharWeight", 150.0)
+
+    # Paragraph 3: hyperlink followed by plain text
+    header.insertControlCharacter(cur, 0, False)
+    p3_start = cur.getStart()
+    header.insertString(cur, "Link after", False)
+    p3_link = header.createTextCursorByRange(p3_start)
+    p3_link.goRight(4, True)
+    p3_link.setPropertyValue("HyperLinkURL", "https://example.com/")
+
+    # Paragraph 4: bold page-number field
+    header.insertControlCharacter(cur, 0, False)
+    p4_start = cur.getStart()
+    field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+    header.insertTextContent(cur, field, False)
+    p4_bold = header.createTextCursorByRange(p4_start)
+    p4_bold.gotoEndOfParagraph(True)
+    p4_bold.setPropertyValue("CharWeight", 150.0)
+
+    # Paragraph 5: plain paragraph after a bold-ended paragraph
+    header.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    header.insertString(cur, "Ends bold", False)
+    header.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    header.insertString(cur, "Next plain", False)
+
+    import re
+
+    html = xtext_to_content(header, doc, ctx)
+    lines = re.findall(r"<p\b.*?</p>", html, re.DOTALL)
+    assert len(lines) == 6, html
+
+    p1 = lines[0]
+    assert ("font-style:italic" in p1 or "<em>italic</em>" in p1 or "<i>italic</i>" in p1) and "italic</" in p1, p1
+    assert not ("italic</span> <span" in p1 and "italic" in p1.split("italic</span>", 1)[1]), p1
+
+    p2 = lines[1]
+    assert "data-lo-para" not in p2, p2
+    assert ("font-weight:bold" in p2 or "<strong>Bold</strong>" in p2 or "<b>Bold</b>" in p2), p2
+    assert "plain" in p2 and "font-weight:bold" not in p2.split("Bold", 1)[1], p2
+
+    p3 = lines[2]
+    assert 'href="https://example.com/"' in p3 and "</a> after" in p3, p3
+
+    p4 = lines[3]
+    assert 'title="page-number"' in p4 and ("<strong>" in p4 or "<b>" in p4 or "font-weight:bold" in p4), p4
+
+    p6 = lines[5]
+    assert "<strong>" not in p6 and "<b>" not in p6 and "font-weight:bold" not in p6, p6

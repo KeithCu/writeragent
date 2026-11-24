@@ -378,16 +378,19 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph(content, ex
 
 def test_full_document_without_review_imports_in_place():
     from plugin.writer import html_import
+    from plugin.writer.html_import_styles import WriteReport
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
-         patch.object(html_import, "_deletion_author"):
-        imp.return_value = ["margin-left"]
+         patch.object(html_import, "_deletion_author"), \
+         patch.object(html_import, "_drop_leftover_paragraph") as drop_leftover:
+        imp.return_value = WriteReport(added_content=True)
         dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
-    assert dropped == ["margin-left"]
+    assert dropped == WriteReport(added_content=True)
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
+    drop_leftover.assert_called_once()
 
 
 def test_deletion_author_noop_when_review_authors_missing(monkeypatch):

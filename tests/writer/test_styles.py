@@ -190,6 +190,41 @@ def test_get_style_info_para_adjust_is_word():
     assert res["ParaAdjust"] == "justify"
 
 
+@pytest.mark.parametrize(
+    "raw_adjust, expected",
+    [
+        (5, "start"),
+        (6, "end"),
+        (MagicMock(value="START"), "start"),
+        (MagicMock(value="END"), "end"),
+    ],
+)
+def test_get_style_info_para_adjust_start_and_end(raw_adjust, expected):
+    """ParaAdjust START (5) and END (6) read back as 'start'/'end', and write back as 5/6."""
+    from plugin.writer.styles import para_adjust_to_uno
+
+    style = create_mock_style("Standard", is_in_use=True)
+    props = {
+        "DisplayName": "Standard",
+        "IsPhysical": True,
+        "IsHidden": False,
+        "ParentStyle": "Default",
+        "Category": 0,
+        "ParaAdjust": raw_adjust,
+    }
+    style.getPropertyValue.side_effect = lambda p: props.get(p)
+    style.getParentStyle.return_value = "Default"
+    family = _style_family({"Standard": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+
+    res = StyleGetInfo().execute(mock_ctx, style="Standard", family="ParagraphStyles")
+
+    assert res["status"] == "ok"
+    assert res["ParaAdjust"] == expected
+    assert para_adjust_to_uno("start") == 5
+    assert para_adjust_to_uno("end") == 6
+
+
 def _page_style_for_info():
     """Page-style mock with the UNO properties get_page_style_properties reads."""
     style = MagicMock()
@@ -2026,6 +2061,37 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     para2 = _make_para([portion])
 
     overrides, failures, notes = fmt._capture_direct_char_overrides(doc, _make_style_cursor([para1, para2]), {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
+
+
+def test_capture_direct_char_overrides_descends_into_table_cells():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight")
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+    cell_para = _make_para([portion])
+
+    cell_ok = MagicMock()
+    cell_enum = MagicMock()
+    cell_enum.hasMoreElements.side_effect = [True, False]
+    cell_enum.nextElement.side_effect = [cell_para]
+    cell_ok.createEnumeration.return_value = cell_enum
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ["A1", "B1"]
+    table.getCellByName.side_effect = lambda name: (
+        (_ for _ in ()).throw(RuntimeError("bad cell")) if name == "A1" else cell_ok
+    )
+
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, _make_style_cursor([table]), {})
     assert len(overrides) == 1
     assert failures == 1
     assert notes == []

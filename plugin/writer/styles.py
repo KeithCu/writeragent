@@ -26,7 +26,7 @@ from contextlib import nullcontext
 import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -132,6 +132,25 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
             reraise_if_disposed(exc)
             continue
     return cleared
+
+
+_LANGUAGE_PROPERTIES = ("CharLocale", "CharLocaleAsian", "CharLocaleComplex")
+
+
+def reset_direct_char_formatting(cursor: Any) -> None:
+    """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
+
+    Resetting any one Char* name on an empty paragraph drops its whole character
+    attribute set, language included, so the language is read first and put back.
+    """
+    names = _writable_char_names(cursor)
+    if not isinstance(names, list):
+        return
+    language = {name: cursor.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+    reset_properties_to_default(cursor, names)
+    for name, value in language.items():
+        if cursor.getPropertyValue(name) != value:
+            cursor.setPropertyValue(name, value)
 
 
 def convert_direct_properties(updates: dict[str, Any]) -> dict[str, Any]:
@@ -271,6 +290,25 @@ def _writable_char_names(portion: Any) -> list[str] | object:
     ]
 
 
+def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str]) -> Iterator[Any]:
+    """Yield the paragraphs of *para_enum*, descending into table cells (nested tables too)."""
+    seen = 0
+    for el in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
+        seen += 1
+        if not hasattr(el, "supportsService"):
+            continue
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            yield el
+        elif el.supportsService("com.sun.star.text.TextTable"):
+            names = read(el.getCellNames)
+            for name in () if names is _READ_FAILED else names:
+                cell = read(el.getCellByName, name)
+                cell_enum = _READ_FAILED if cell is _READ_FAILED else read(cell.createEnumeration)
+                if cell_enum is not _READ_FAILED:
+                    yield from _capture_paragraphs(read, cell_enum, notes)
+    record_walk_cap(para_enum, seen, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
+
+
 def _capture_direct_char_overrides(
     doc: Any,
     cursor: Any,
@@ -294,12 +332,7 @@ def _capture_direct_char_overrides(
     if para_styles is _READ_FAILED or para_enum is _READ_FAILED:
         return [], read.failures, notes
 
-    paras = 0
-    for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
-        paras += 1
-        if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
-            continue
-
+    for para in _capture_paragraphs(read, para_enum, notes):
         name = read(para.getPropertyValue, "ParaStyleName")
         if name is _READ_FAILED:
             continue
@@ -355,7 +388,6 @@ def _capture_direct_char_overrides(
                     overrides.append((pc, props))
 
         record_walk_cap(portion_enum, portions, _CAPTURE_PORTION_LIMIT, "text portions", notes)
-    record_walk_cap(para_enum, paras, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
     return overrides, read.failures, notes
 
 
@@ -543,12 +575,16 @@ _UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_P
 
 
 # ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center). Schema
-# is the words; these maps are the UNO integers (ParagraphAdjust).
-_PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3}
-_PARA_ADJUST_FROM_INT = {0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify"}
+# is the words; these maps are the UNO integers (ParagraphAdjust). START/END exist
+# since LO 26.2, and older SvxAdjustItem::PutValue ignores 5/6, so the tool schema
+# does not offer them.
+_PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3, "start": 5, "end": 6}
+_PARA_ADJUST_FROM_INT = {
+    0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify", 5: "start", 6: "end",
+}
 _PARA_ADJUST_FROM_ENUM = {
     "LEFT": "left", "RIGHT": "right", "BLOCK": "justify",
-    "CENTER": "center", "STRETCH": "justify",
+    "CENTER": "center", "STRETCH": "justify", "START": "start", "END": "end",
 }
 
 

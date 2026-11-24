@@ -378,11 +378,11 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
     return trim_start, trim_end
 
 
-# (element, visible para text) -> (trim_start, trim_end) in visible coordinates
-# (_visible_portions, tracked deletions removed), or None to skip the element.
+# (element, visible para text, after_table) -> (trim_start, trim_end) in visible
+# coordinates (_visible_portions, tracked deletions removed), or None to skip the element.
 # The pair is always returned, even when nothing is cut, because paint_direct_formatting
 # and _hyperlink_urls index portions with it.
-_Window = Callable[[Any, str], "tuple[int, int] | None"]
+_Window = Callable[[Any, str, bool], "tuple[int, int] | None"]
 
 
 def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _Window]:
@@ -390,7 +390,7 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
     def past_end(el: Any) -> bool:
         return starts_at_or_after(text, el.getStart(), source.getEnd())
 
-    def window(el: Any, para_text: str) -> tuple[int, int] | None:
+    def window(el: Any, para_text: str, _after_table: bool) -> tuple[int, int] | None:
         if not _element_overlaps(text, el, source):
             return None
         return _trim_to_source(text, el, para_text, source)
@@ -411,11 +411,17 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
     walker.gotoStart(False)
     running = 0
 
-    def window(el: Any, para_text: str) -> tuple[int, int] | None:
+    def window(el: Any, para_text: str, after_table: bool) -> tuple[int, int] | None:
         nonlocal running
         gap = text.createTextCursorByRange(walker.getStart())
         gap.gotoRange(el.getStart(), True)
         running += len(get_string_without_tracked_deletions(gap))
+        # A range that ends at the start of the paragraph after a table enumerates without
+        # that paragraph (SwXParagraphEnumerationImpl::IgnoreLastElement in
+        # sw/source/core/unocore/unoobj2.cxx), so the break before it is not in the gap text.
+        # The gap is collapsed when the table opens the document: gotoStart steps past it.
+        if after_table and not gap.isCollapsed():
+            running += 1
         walker.gotoRange(el.getStart(), False)
         para_start = running
         para_end = para_start + len(para_text)
@@ -484,17 +490,15 @@ def _copy_window_to_scratch(
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
 
+    after_table = False
     for el in iter_elements(enum):
-        if not hasattr(el, "getString"):
+        if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+            after_table = True
             continue
         if past_end(el):
             break
-        if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
-            # Tables are in this enumeration and have no ParaStyleName.
-            style = ""
-        else:
-            # Paragraphs always have ParaStyleName.
-            style = el.getPropertyValue("ParaStyleName") or ""
+        # Paragraphs always have ParaStyleName.
+        style = el.getPropertyValue("ParaStyleName") or ""
 
         # Same _visible_portions walk as get_string_without_tracked_deletions so
         # paint offsets match the helper string. Still walk here (not just the
@@ -503,7 +507,8 @@ def _copy_window_to_scratch(
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
 
-        trim = window(el, para_text)
+        trim = window(el, para_text, after_table)
+        after_table = False
         if trim is None:
             continue
         trim_start, trim_end = trim
