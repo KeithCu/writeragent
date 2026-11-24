@@ -10,7 +10,12 @@ import tempfile
 import zipfile
 
 from plugin.doc.document_file_tools import DocumentExport, DocumentOpen, DocumentSave
-from plugin.framework.uno_context import get_desktop, get_runtime_uid, resolve_document_by_url
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_desktop,
+    get_runtime_uid,
+    resolve_document_by_url,
+)
 from plugin.framework.url_utils import path_to_file_url
 from plugin.testing_runner import native_test
 from tests.testing_utils import TestingFactory, with_native_doc
@@ -98,5 +103,110 @@ def test_document_save_export_open_roundtrip_uno(ctx, doc):
         res_missing = DocumentOpen().execute(tool_ctx, path=os.path.join(tmp_dir, "missing.odt"))
         assert res_missing["status"] == "error"
         assert res_missing["code"] == "FILE_NOT_FOUND"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_open_html_is_writer_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_html_")
+    html_path = os.path.join(tmp_dir, "page.html")
+    odt_path = os.path.join(tmp_dir, "page.odt")
+    model = None
+    try:
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write("<html><body><p>Initial</p></body></html>")
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res_open = DocumentOpen().execute(tool_ctx, path=html_path)
+        assert res_open["status"] == "ok", res_open
+        model, _ = resolve_document_by_url(ctx, res_open["document"]["uid"])
+        assert res_open["document"]["doc_type"] == "writer"
+        assert model is not None
+        text = model.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        text.insertString(cursor, " appended", False)
+
+        save_ctx = TestingFactory.create_context(doc=model, ctx=ctx, env="native")
+        res_inplace = DocumentSave().execute(save_ctx)
+        assert res_inplace["status"] == "ok", res_inplace
+        assert "warning" in res_inplace
+        with open(html_path, encoding="utf-8") as f:
+            assert "appended" in f.read()
+
+        res_odt = DocumentSave().execute(save_ctx, path=odt_path)
+        assert res_odt["status"] == "ok", res_odt
+        assert "warning" not in res_odt
+    finally:
+        if model is not None:
+            model.close(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_open_refuses_master_document_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_odm_")
+    odm_path = os.path.join(tmp_dir, "book.odm")
+    desktop = get_desktop(ctx)
+    odm_model = None
+    try:
+        odm_model = desktop.loadComponentFromURL(
+            "private:factory/swriter/GlobalDocument",
+            "_blank",
+            0,
+            (create_property_value("Hidden", True),),
+        )
+        odm_model.storeAsURL(
+            path_to_file_url(odm_path),
+            (create_property_value("FilterName", "writerglobal8"),),
+        )
+        odm_model.close(True)
+        odm_model = None
+
+        frames_before = desktop.getFrames().getCount()
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res = DocumentOpen().execute(tool_ctx, path=odm_path)
+        assert res["status"] == "error", res
+        assert res["code"] == "UNSUPPORTED_DOCUMENT"
+        assert desktop.getFrames().getCount() == frames_before
+    finally:
+        if odm_model is not None:
+            odm_model.close(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_document_save_csv_warns_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_csv_")
+    csv_path = os.path.join(tmp_dir, "sheet.csv")
+    ods_path = os.path.join(tmp_dir, "sheet.ods")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        sheets = doc.getSheets()
+        sheets.insertNewByName("Second", 1)
+        sheets.getByIndex(0).getCellByPosition(0, 0).setString("first")
+        sheets.getByIndex(1).getCellByPosition(0, 0).setString("second")
+
+        res_csv = DocumentSave().execute(tool_ctx, path=csv_path)
+        assert res_csv["status"] == "ok", res_csv
+        assert "warning" in res_csv
+        with open(csv_path, encoding="utf-8") as f:
+            content = f.read()
+        assert "first" in content
+        assert "second" not in content
+
+        sheets.getByIndex(0).getCellByPosition(0, 0).setString("updated")
+        res_inplace = DocumentSave().execute(tool_ctx)
+        assert res_inplace["status"] == "ok", res_inplace
+        assert "warning" in res_inplace
+        with open(csv_path, encoding="utf-8") as f:
+            assert "updated" in f.read()
+
+        res_ods = DocumentSave().execute(tool_ctx, path=ods_path)
+        assert res_ods["status"] == "ok", res_ods
+        assert "warning" not in res_ods
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
