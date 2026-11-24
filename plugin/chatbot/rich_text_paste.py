@@ -451,8 +451,8 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     # "Assistant <p>done</p>" after File > Reload until the rich control
     # takes over. Give it the same stripped text the stream stripper shows.
     text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
-    notice = getattr(session, "history_notice", "")
-    if isinstance(notice, str) and notice:
+    notice = session.history_notice
+    if notice:
         text += "\n%s %s\n" % (_("Assistant:"), _plain_fallback_text(notice))
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):

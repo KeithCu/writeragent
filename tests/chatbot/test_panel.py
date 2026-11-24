@@ -70,7 +70,7 @@ def _make_send_listener() -> SendButtonListener:
     with patch("plugin.framework.config.get_config", return_value=""):
         with patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False):
             with patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True):
-                session = MagicMock()
+                session = MagicMock(history_notice="")
                 session.messages = [{"role": "system", "content": "test"}]
                 listener = SendButtonListener(
                     MagicMock(),
@@ -1130,7 +1130,7 @@ class TestTtsStopInteraction:
                 send_listener.dispatch.assert_not_called()
 
     def test_clear_stops_speech(self) -> None:
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         listener = ClearButtonListener(session, MagicMock(), MagicMock(), "greeting")
         with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
             listener.on_action_performed(MagicMock())

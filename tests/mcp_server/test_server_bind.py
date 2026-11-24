@@ -484,3 +484,30 @@ def test_tls_bad_cert_fails_before_bind():
     assert not server.is_running()
     # The cert is loaded before bind, so a missing file never takes the port.
     assert server._server is None
+
+
+def test_tool_exposure_mode_change_advances_catalog_without_rebind(monkeypatch):
+    import plugin.mcp_server.mcp_session as mcp_session
+
+    old = _Listener(18765)
+    old.running = True
+    mod, _cfg, created, _dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {"mcp_enabled": True, "mcp_port": 18765, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    mcp_session.reset_tool_catalog_for_tests()
+    try:
+        assert mcp_session.tool_catalog_generation() == 0
+        mod._on_config_changed(key="mcp.tool_exposure_mode", keys=("mcp.tool_exposure_mode",))
+        assert mcp_session.tool_catalog_generation() == 1
+        assert old.stop_count == 0
+        assert created == []
+
+        mod._on_config_changed(key="", keys=("mcp.tool_exposure_mode", "mcp.mcp_port"))
+        assert mcp_session.tool_catalog_generation() == 2
+
+        mod._on_config_changed(key="mcp.host", keys=("mcp.host",))
+        assert mcp_session.tool_catalog_generation() == 2
+    finally:
+        mcp_session.reset_tool_catalog_for_tests()

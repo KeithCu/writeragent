@@ -1541,7 +1541,62 @@ def test_remote_tool_call_does_not_fill_remote_defaults():
         },
     }
     schema = convert_mcp_schema("srv", spec)
-    tool = RemoteMcpTool({"name": "srv", "url": "http://localhost"}, spec, schema)
+    tool = RemoteMcpTool(McpServerConnection({"name": "srv", "url": "http://localhost"}), spec, schema)
     prepared = prepare_tool_call(tool, SimpleNamespace(doc_type=None, caller=None), tool.name or "", {})
     assert prepared.error is None
     assert prepared.kwargs == {}
+
+
+def test_old_tool_does_not_replace_the_live_connection(fake):
+    ctx = _chat_ctx()
+    with _with_servers({"claw": {"url": fake.url, "token": TOKEN, "trust": "full", "timeout": 30}}):
+        tools_old, _ = mcp_domain_tools(ctx)
+    with _with_servers({"claw": {"url": fake.url, "token": TOKEN, "trust": "full", "timeout": 60}}):
+        mcp_domain_tools(ctx)
+    live_conn = mcp_client._connections["claw"]
+    old_read_tool = next(t for t in tools_old if t.name == "mcp__claw__nextcloud_list_files")
+    result = old_read_tool.execute(ctx, path="/Docs")
+    assert result["status"] == "ok"
+    assert mcp_client._connections["claw"] is live_conn
+    assert fake.methods().count("initialize") == 2
+
+
+@pytest.mark.parametrize(
+    ("extra", "secret_parts"),
+    [
+        ({"headers": {"X-Api-Key": "supersecret\npart2secret"}}, ("supersecret", "part2secret")),
+        ({"headers": {"X-Api-Key": "supersecret\r\npart2secret"}}, ("supersecret", "part2secret")),
+        ({"token": "abctoken1\nxdef 123rest"}, ("abctoken1", "xdef", "123rest")),
+    ],
+)
+def test_header_with_line_break_is_a_config_error_without_the_value(fake, extra, secret_parts):
+    conn = McpServerConnection({"name": "claw", "url": fake.url, "trust": "full", **extra})
+    for _ in range(4):
+        with pytest.raises(McpClientError) as exc_info:
+            conn.call_tool("nextcloud_list_files", {"path": "/Docs"})
+        assert exc_info.value.code == "MCP_CLIENT_CONFIG"
+        msg = str(exc_info.value)
+        for part in secret_parts:
+            assert part not in msg
+    assert fake.requests == []
+
+
+def test_escaped_secret_in_an_error_body_is_redacted(fake):
+    cookie = 'sid="qwertyui-9"'
+    fake.error_body = (500, json.dumps({"error": f"bad cookie {cookie}"}))
+    conn = McpServerConnection(_server(fake, headers={"Cookie": cookie}))
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
+    assert "qwertyui-9" not in str(exc_info.value)
+
+
+def test_bare_credential_of_an_authorization_header_is_redacted(fake):
+    fake.error_body = (500, f"bad auth {TOKEN}")
+    conn = McpServerConnection({"name": "claw", "url": fake.url, "headers": {"Authorization": f"Bearer {TOKEN}"}})
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
+    assert TOKEN not in str(exc_info.value)

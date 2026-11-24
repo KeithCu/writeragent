@@ -850,7 +850,6 @@ def _is_main_chat(tool_names: set[str]) -> bool:
     return bool(
         tool_names
         & {
-            "web_research",
             "comment_add",
             "apply_content",
             "search",
@@ -974,20 +973,8 @@ def _html_table(topic: str) -> str:
     )
 
 
-def _html_research_summary(topic: str, tool_text: str) -> str:
-    safe = html.escape((topic or "that query").strip()[:120] or "that query")
-    snippet = html.escape((tool_text or "").strip().replace("\n", " ")[:280])
-    return (
-        f"<p>I looked that up. Mock summary for <strong>{safe}</strong>.</p>"
-        f"<p>Research sub-agent returned: {snippet or '(empty)'}</p>"
-        "<ul><li>example.com/mock-research</li><li>Canned source two</li></ul>"
-    )
-
-
 def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
-    """Main-chat HTML after a tool round. Research wording is only for web_research."""
-    if tool_name == "web_research":
-        return _html_research_summary(user_text, tool_text)
+    """Main-chat HTML after a tool round."""
     snippet = html.escape((tool_text or "").strip().replace("\n", " ")[:280])
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
     if tool_name == "apply_content":
@@ -1710,11 +1697,12 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         )
 
     if _is_main_chat(tool_names) and (config.always_research or _looks_like_research(user_text)):
-        return Completion(
-            reasoning=reasoning,
-            tool_name="web_research",
-            tool_args={"query": user_text or "mock research"},
-            finish_reason="tool_calls",
+        return _tool_or_html(
+            tool_names,
+            _DELEGATE_WRITER,
+            {"domain": "web_research", "task": user_text or "mock research"},
+            user_text,
+            turn,
         )
 
     last_user = _last_user_message(messages)
@@ -2222,7 +2210,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--always-research",
         action="store_true",
-        help="Main chat always emits web_research on user turns",
+        help="Main chat always delegates to the web_research domain on user turns",
     )
     parser.add_argument(
         "--scenario",

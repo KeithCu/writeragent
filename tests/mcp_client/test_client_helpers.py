@@ -18,6 +18,7 @@ from plugin.mcp_client.client_helpers import (
     names_unknown_tool,
     safe_numeric,
     sanitize_error,
+    secret_spellings,
     server_enabled,
     server_trusted,
     strip_bearer_prefix,
@@ -241,3 +242,11 @@ def test_restore_masked_puts_real_values_back_only_where_unchanged():
         "nested": {"password": "user-new-pw", "keep": "y"},
         "items": [{"token": "t-1"}, {"token": "user-t-2"}],
     }
+
+
+def test_secret_spellings_cover_escaped_forms():
+    secret = 'a"b\\c/d\ne'
+    spellings = secret_spellings(secret)
+    assert secret in spellings
+    assert json.dumps(secret)[1:-1] in spellings
+    assert json.dumps(secret)[1:-1].replace("/", r"\/") in spellings

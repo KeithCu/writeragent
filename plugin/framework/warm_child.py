@@ -509,7 +509,6 @@ class WarmChild(ChildSlot):
 
     def _killed_before_lease(self) -> dict[str, Any]:
         return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} was killed before the request started.")
-
     def _publish_refusal(self) -> dict[str, Any] | None:
         if self._retired or self._supervisor.is_shutting_down():
             return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
