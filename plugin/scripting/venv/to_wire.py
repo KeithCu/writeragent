@@ -240,6 +240,10 @@ def _tree_contains_dict(tree: Any) -> bool:
     return False
 
 
+class UnsupportedResultTypeError(ValueError):
+    """The result holds a value of a type that has no wire form (an instance, a module, a matplotlib artist)."""
+
+
 def to_wire(
     obj: Any,
     *,
@@ -406,7 +410,7 @@ def to_wire(
                 "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
                 ".item() returns another clongdouble, not a builtin complex"
             )
-        raise ValueError(
+        raise UnsupportedResultTypeError(
             f"Result type {type(val).__module__}.{type(val).__name__} "
             "cannot cross the LibreOffice pickle boundary"
         )

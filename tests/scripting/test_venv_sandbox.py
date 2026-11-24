@@ -2220,6 +2220,62 @@ def test_axes_array_result_captures_its_figure(
     assert b'id="axes_2"' in res["result"]["data"]
 
 
+@pytest.mark.parametrize(
+    ("tail", "session_id"),
+    [
+        pytest.param("plt.hist([1, 2, 2, 3])", "calc:plot-call-hist", id="hist"),
+        pytest.param("n, bins, patches = plt.hist([1, 2])", "calc:plot-call-hist-unpack", id="hist_unpack"),
+        pytest.param("plt.boxplot([1, 2, 3])", "calc:plot-call-boxplot", id="boxplot"),
+        pytest.param("plt.errorbar([1, 2], [3, 4], yerr=1)", "calc:plot-call-errorbar", id="errorbar"),
+        pytest.param("plt.pie([1, 2])", "calc:plot-call-pie", id="pie"),
+        pytest.param("plt.hist2d([1, 2], [3, 4])", "calc:plot-call-hist2d", id="hist2d"),
+        pytest.param("fig, axs = plt.subplots(2, 2)\naxs.tolist()", "calc:plot-call-axs-tolist", id="axs_tolist"),
+        pytest.param("plt.imshow([[1, 2], [3, 4]])\nplt.colorbar()", "calc:plot-call-colorbar", id="colorbar"),
+        pytest.param("plt.plot([1])\nresult = plt", "calc:plot-call-plt-module", id="plt_module"),
+    ],
+)
+def test_plot_call_result_captures_its_figure(
+    fresh_sandbox_sessions,
+    tail: str,
+    session_id: str,
+) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    code = f"import matplotlib.pyplot as plt\n{tail}"
+    res = sandbox_run(code, session_id=session_id, timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+    assert plt.get_fignums() == []
+
+
+def test_uncrossable_result_without_open_figure_errors(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib.pyplot")
+
+    code = "import matplotlib.pyplot as plt\nr = plt.hist([1])\nplt.close()\nr"
+    res = sandbox_run(code, session_id="calc:uncrossable-no-fig", timeout_sec=15)
+    assert res["status"] == "error", res
+    assert "cannot cross" in res.get("message", "")
+
+
+def test_render_error_is_not_replaced_by_another_figure(fresh_sandbox_sessions) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "other = plt.figure()\n"
+        "other.add_subplot()\n"
+        "fig, ax = plt.subplots()\n"
+        "ax.set_title('$\\\\badcmd$')\n"
+        "plt.close(fig)\n"
+        "result = {'fig': fig}"
+    )
+    res = sandbox_run(code, session_id="calc:render-err-no-fallback", timeout_sec=15)
+    assert res["status"] == "error", res
+    assert "badcmd" in res.get("message", "")
+    assert plt.get_fignums() == []
+
+
 def test_runtime_error_returns_user_traceback_without_host_paths() -> None:
     res = sandbox_run("def f(x):\n    return x / 0\n\nresult = f(2)")
     assert res["status"] == "error"
