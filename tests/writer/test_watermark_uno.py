@@ -377,6 +377,12 @@ def _make_inactive_watermarks(doc: Any, ctx: Any) -> tuple[Any, Any]:
 
     standard.setPropertyValue("HeaderIsShared", True)
     standard.setPropertyValue("FirstIsShared", True)
+    assert any(
+        s.getName().startswith("PowerPlusWaterMarkObject")
+        and s.getAnchor() is not None
+        and s.getAnchor().getText() is None
+        for s in iter_draw_shapes(doc.getDrawPage())
+    )
     return standard, tool_ctx
 
 
@@ -473,11 +479,12 @@ def test_remove_watermark_keeps_picture_removal_undoable_uno(ctx: Any, doc: Any)
 
     rem = PageSetWatermark().execute(tool_ctx, text="")
     assert rem["status"] == "ok", rem
+    assert rem["picture_watermarks_removed"] == 1
+    assert "WordPictureWatermark1" not in [s.getName() for s in iter_draw_shapes(doc.getDrawPage())]
 
     undo_mgr = doc.getUndoManager()
     while undo_mgr.isUndoPossible():
         undo_mgr.undo()
 
     names = [s.getName() for s in iter_draw_shapes(doc.getDrawPage())]
-    assert "WordPictureWatermark1" in names
-    assert not any(n.startswith("PowerPlusWaterMarkObject") for n in names)
+    assert names == ["WordPictureWatermark1"]

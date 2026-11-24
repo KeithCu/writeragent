@@ -380,8 +380,9 @@ class PageSetWatermark(ToolWriterPageBase):
                 # every header is off the dispatch leaves older entries on the stack, and deleting
                 # a frame with undo off leaves them pointing at freed memory
                 # (SwUndoInsLayFormat, sw/source/core/undo/undobj1.cxx). clear() refuses while an
-                # undo context is open (a streamed edit); LibreOffice then empties the stack
-                # itself when that context closes (SfxUndoManager::ClearAllLevels).
+                # undo context is open (a streamed edit): the dispatch already marked the stack
+                # for clearing when a header is on (SfxUndoManager::ClearAllLevels), whereas with
+                # every header off the deletions stay in that open group.
                 best_effort(ctx.doc.getUndoManager().clear, "clear undo after watermark removal failed")
         else:
             _update_inactive_watermarks(ctx.doc, text)
