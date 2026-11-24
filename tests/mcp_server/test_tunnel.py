@@ -20,6 +20,7 @@ from plugin.mcp_server.tunnel import (
     parse_tailscale_url,
     provider_label,
 )
+from plugin.mcp_server.tunnel_state import TunnelStatus
 
 
 def _make_fake_async_process(
@@ -1764,6 +1765,108 @@ def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatc
 
     assert probe_calls == ["cloudflare"]
     assert tunnel.last_error == "cloudflared missing"
+
+
+def _setup_sync_tunnel(monkeypatch, provider: str, token_value: str):
+    import plugin.mcp_server as mcp_mod
+    from plugin.framework.config import save
+
+    save(
+        {
+            "mcp.mcp_enabled": True,
+            "mcp.tunnel_enabled": True,
+            "mcp.mcp_port": "18765",
+            "mcp.tunnel_provider": provider,
+            "mcp.tunnel_provider_token": token_value,
+        }
+    )
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    mod._services = MagicMock()
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod.server = bound
+    tunnel = TunnelManager()
+    mod.tunnel = tunnel
+
+    cmds: list[list[str]] = []
+    envs: list[dict[str, str]] = []
+    background: list = []
+
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: None)
+    monkeypatch.setattr("plugin.framework.worker_pool.AsyncProcess", _make_fake_async_process(cmds=cmds, envs=envs))
+    monkeypatch.setattr("plugin.mcp_server.tunnel.subprocess.run", _record_subprocess_run())
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", _track_background(background))
+    return mod, tunnel, cmds, envs, background
+
+
+@pytest.mark.parametrize("provider", ["cloudflare", "bore", "ngrok", "tailscale"])
+@pytest.mark.parametrize("cause", ["locked", "fail_get", "missing"])
+def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, provider, cause):
+    from plugin.framework import keystore
+
+    if cause == "locked":
+        fake_keystore.locked = True
+        fake_keystore.store["mcp.tunnel_provider_token"] = "tok"
+    elif cause == "fail_get":
+        fake_keystore.fail_get = True
+
+    mod, tunnel, cmds, _envs, background = _setup_sync_tunnel(monkeypatch, provider, "keystore:abc12345")
+    mod._sync_tunnel()
+
+    assert keystore.is_locked("mcp.tunnel_provider_token") is (cause == "locked")
+    if provider == "tailscale":
+        assert len(cmds) == 1
+        tunnel.stop()
+        _join_recorded_background(background)
+    else:
+        assert tunnel.status == TunnelStatus.FAILED
+        assert tunnel.last_error
+        assert cmds == []
+
+
+def test_sync_tunnel_starts_after_keyring_unlocks(monkeypatch, fake_keystore):
+    from plugin.framework import keystore
+
+    fake_keystore.locked = True
+    fake_keystore.store["mcp.tunnel_provider_token"] = "relay.example sec"
+    monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0)
+    mod, tunnel, cmds, envs, _background = _setup_sync_tunnel(monkeypatch, "bore", "keystore:abc12345")
+
+    mod._sync_tunnel()
+    assert tunnel.status == TunnelStatus.FAILED
+    assert cmds == []
+
+    fake_keystore.locked = False
+    mod._sync_tunnel()
+
+    assert len(cmds) == 1
+    assert "--to" in cmds[0] and "relay.example" in cmds[0]
+    assert envs[0].get("BORE_SECRET") == "sec"
+    tunnel.stop()
+
+
+def test_stop_during_unreadable_token_read_stays_stopped(monkeypatch, fake_keystore):
+    fake_keystore.locked = True
+    fake_keystore.store["mcp.tunnel_provider_token"] = "tok"
+    mod, tunnel, _cmds, _envs, _background = _setup_sync_tunnel(monkeypatch, "cloudflare", "keystore:abc12345")
+    fake_keystore.on_get = lambda _name: tunnel.stop()
+
+    mod._sync_tunnel()
+    assert tunnel.status == TunnelStatus.STOPPED
+    assert tunnel.last_error is None
+
+
+def test_sync_tunnel_empty_token_still_starts_quick_tunnel(monkeypatch, fake_keystore):
+    mod, tunnel, cmds, _envs, _background = _setup_sync_tunnel(monkeypatch, "cloudflare", "")
+
+    mod._sync_tunnel()
+    assert len(cmds) == 1
+    assert "--url" in cmds[0]
+    tunnel.stop()
 
 
 @pytest.mark.slow
