@@ -270,6 +270,7 @@ def _anchor_pair(insert_error=None):
     text = MagicMock()
     cursor = MagicMock()
     start.getText.return_value = text
+    end.getText.return_value = text
     text.createTextCursorByRange.return_value = cursor
     cursor.getText.return_value = text
     if insert_error is not None:
@@ -1211,5 +1212,54 @@ def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
     ):
         flag_untracked_delete(result, doc, "chart")
     assert (result.get("tracked") is False and "warning" in result) is expected
+
+
+def test_record_mutation_multi_text_anchors_in_changing_cell():
+    from unittest.mock import patch as _patch
+    from plugin.writer.edit_review import EditReviewSession
+
+    text_unchanged = MagicMock()
+    text_changed = MagicMock()
+    cur_unchanged = MagicMock()
+    cur_changed = MagicMock()
+    cur_unchanged.getText.return_value = text_unchanged
+    cur_changed.getText.return_value = text_changed
+    text_unchanged.createTextCursorByRange.return_value = cur_unchanged
+    text_changed.createTextCursorByRange.return_value = cur_changed
+
+    s1, e1 = MagicMock(), MagicMock()
+    s1.getText.return_value = text_unchanged
+    e1.getText.return_value = text_unchanged
+    s2, e2 = MagicMock(), MagicMock()
+    s2.getText.return_value = text_changed
+    e2.getText.return_value = text_changed
+
+    rl1 = MagicMock()
+    rl1.getPropertyValue.side_effect = lambda p: s1 if p == "RedlineStart" else (e1 if p == "RedlineEnd" else None)
+    rl2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda p: s2 if p == "RedlineStart" else (e2 if p == "RedlineEnd" else None)
+
+    doc = MagicMock()
+    session = EditReviewSession(doc, MagicMock(), enabled=True)
+    session._active = True
+
+    def fake_skip(span, skip_type):
+        if span is cur_changed:
+            return "" if skip_type == "Delete" else "old"
+        return "same"
+
+    with (
+        _patch.object(session, "_redline_idents", return_value=([], True)),
+        _patch("plugin.writer.edit_review._tag_new_change", return_value=("wa-review:s:0", [rl1, rl2])),
+        _patch("plugin.writer.edit_review._string_skipping_redline", side_effect=fake_skip),
+        _patch("plugin.writer.edit_review.refresh_review_toolbar"),
+    ):
+        session.record_mutation(lambda: None)
+
+    assert len(session.changes) == 1
+    assert session.changes[0].accepted_text == ""
+    assert session.changes[0].rejected_text == "old"
+    text_changed.insertTextContent.assert_called_once()
+    text_unchanged.insertTextContent.assert_not_called()
 
 

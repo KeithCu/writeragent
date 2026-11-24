@@ -21,6 +21,7 @@ import contextlib
 import logging
 from typing import Any, Generator
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.errors import reraise_if_disposed
 
@@ -66,6 +67,30 @@ def record_changes(doc: Any, on: bool) -> Generator[bool, None, None]:
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.warning("record_changes: failed to restore RecordChanges=%s", was_recording)
+
+
+def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> None:
+    """Insert *content* into *host* at *cursor*, recording an Insert redline when tracking is on."""
+    # insertTextContent adds no redline, but text inside an Insert redline belongs to it;
+    # deleting our own insertion removes it outright. Do not position from content.getAnchor():
+    # its end maps before the object, so deleting the tail marker would delete the object.
+    if not is_recording_changes(model):
+        host.insertTextContent(cursor, content, False)
+        return
+    with WriterCompoundUndo(model, "WriterAgent: Insert object"):
+        span = host.createTextCursorByRange(cursor.getStart())
+        host.insertString(span, "xx", True)  # two recorded characters, one on each side
+        try:
+            middle = host.createTextCursorByRange(span.getStart())
+            middle.goRight(1, False)
+            host.insertTextContent(middle, content, False)
+        finally:
+            tail = host.createTextCursorByRange(span.getEnd())
+            tail.goLeft(1, True)
+            tail.setString("")
+            head = host.createTextCursorByRange(span.getStart())
+            head.goRight(1, True)
+            head.setString("")
 
 
 def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:

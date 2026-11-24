@@ -970,3 +970,45 @@ def test_indexes_create_end_is_one_undo_step(ctx, doc):
     assert doc.getDocumentIndexes().getCount() == 1
     um.undo()
     assert doc.getDocumentIndexes().getCount() == 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_update_all_refuses_with_pending_redline_and_updates_clean_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Heading One\n", False)
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    IndexesCreate().execute(tctx, kind="toc", target="end", create_from_outline=True)
+    idx = doc.getDocumentIndexes().getByIndex(0)
+    idx.update()
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        anchor = idx.getAnchor()
+        del_cur = anchor.getText().createTextCursorByRange(anchor.getStart())
+        del_cur.goRight(3, True)
+        del_cur.setString("")
+        assert doc.getRedlines().getCount() >= 1
+
+        res_on = IndexesUpdateAll().execute(tctx)
+        assert res_on["status"] == "error"
+        assert res_on["code"] == "INDEX_HAS_TRACKED_CHANGES"
+        assert doc.getRedlines().getCount() >= 1
+
+        doc.setPropertyValue("RecordChanges", False)
+        res_off = IndexesUpdateAll().execute(tctx)
+        assert res_off["status"] == "error"
+        assert res_off["code"] == "INDEX_HAS_TRACKED_CHANGES"
+        assert doc.getRedlines().getCount() >= 1
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getRedlines().getCount() == 0
+        res_clean = IndexesUpdateAll().execute(tctx)
+        assert res_clean["status"] == "ok" and res_clean["count"] == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

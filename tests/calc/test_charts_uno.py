@@ -262,6 +262,32 @@ def test_chart_from_named_data_range(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_writer_chart_while_recording_reject_removes_uno(ctx, doc):
+    from plugin.calc.charts import ChartUpsert
+    from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ChartUpsert().execute(
+            tctx,
+            chart_type="bar",
+            headers=["A", "B"],
+            rows=[["X", 10], ["Y", 20]],
+        )
+        assert res["status"] == "ok"
+        assert res["tracked"] is True and res["pending_review"] is True
+        assert len(doc.getEmbeddedObjects().getElementNames()) == 1
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert len(doc.getEmbeddedObjects().getElementNames()) == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_chart_delete_writer_anchors_uno(ctx, doc):
     from com.sun.star.awt import Size

@@ -40,6 +40,10 @@ log = logging.getLogger(__name__)
 WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
 _TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
 DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
+TRACKED_IMAGE_DELETE_MESSAGE = (
+    "Image marked for deletion as a tracked change: it stays in the document until the user accepts the change. "
+    "Do not accept or reject it yourself."
+)
 
 SHAPE_TOOL_UNO_SERVICES = list(DOCUMENT_SERVICES)
 

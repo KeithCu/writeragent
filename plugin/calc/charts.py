@@ -52,8 +52,11 @@ from plugin.framework.errors import (
     name_miss_details,
     resolve_exception_message,
 )
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
-from plugin.writer.edit_review import flag_untracked_delete
+from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
+from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
 from plugin.writer.specialized_base import ToolWriterChartBase
 import uno
 
@@ -1178,16 +1181,23 @@ class WriterEmbeds:
         log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
 
         # 3. Insert into document
+        tracked = False
         try:
-            # Ensure we are at a valid insertion point if the doc is empty
-            if _writer_body_has_no_text(text):
-                try:
-                    PARAGRAPH_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
-                    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-                except Exception:
-                    log.debug("insert PARAGRAPH_BREAK before chart failed", exc_info=True)
+            def _insert_chart() -> bool:
+                # Ensure we are at a valid insertion point if the doc is empty
+                if _writer_body_has_no_text(text):
+                    try:
+                        PARAGRAPH_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
+                        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                    except Exception:
+                        log.debug("insert PARAGRAPH_BREAK before chart failed", exc_info=True)
+                insert_recorded_content(doc, text, cursor, chart_obj)
+                return is_recording_changes(doc)
 
-            text.insertTextContent(cursor, chart_obj, False)
+            # Only the insert is inside the review session, not the idle pump in
+            # _await_writer_chart_document; otherwise user typing during the pump
+            # would be recorded as WriterAgent.
+            tracked = bool(run_writer_mutation_with_optional_review(doc, ctx.ctx, _insert_chart))
             log.info("Successfully inserted chart object into text.")
         except Exception as e:
             if is_disposal(e):
@@ -1198,6 +1208,7 @@ class WriterEmbeds:
 
             chart_obj.AnchorType = AT_PARAGRAPH
             text.insertTextContent(cursor, chart_obj, False)
+            tracked = False
             log.info("Successfully inserted chart object with AT_PARAGRAPH.")
 
         # 4. Configure properties after insertion
@@ -1281,11 +1292,21 @@ class WriterEmbeds:
             log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        return make_tool_ok(
+        result = make_tool_ok(
             message=f"Chart '{actual_name}' inserted in Writer.",
             name=actual_name,
             warnings=warnings,
         )
+        if tracked:
+            result["tracked"] = True
+            result["pending_review"] = True
+        else:
+            flag_untracked(
+                result,
+                doc,
+                _("This chart was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result
 
     def remove(self, ref: ChartRef, name: str) -> None:
         if ref.kind == "writer_embed":
