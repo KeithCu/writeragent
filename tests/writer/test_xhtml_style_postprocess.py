@@ -381,3 +381,70 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
     _p, ov_none = parse_fodt_autostyles(make_fodt(""))
     assert ov_none["P1"] == "text-align:left"
 
+
+def test_split_deleted_breaks():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    # No deletions -> None.
+    assert split_deleted_breaks("<office:body><office:text><text:p>a</text:p></office:text></office:body>") is None
+
+    # Single-block deletion -> None.
+    single = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>x</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>a<text:change text:change-id="ct1"/>b</text:p></office:text></office:body>'
+    )
+    assert split_deleted_breaks(single) is None
+
+    # Three-block deletion with span reopened.
+    three = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p text:style-name="P1">d1</text:p>'
+        '<text:h text:style-name="H1">d2</text:h>'
+        '<text:p text:style-name="P2">d3</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p text:style-name="P1">Start <text:span text:style-name="T1"><text:change text:change-id="ct1"/>Tail</text:span></text:p>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(three)
+    assert out is not None
+    assert '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>' in out
+    assert '<text:h text:style-name="H1"><text:span text:style-name="T1"></text:span></text:h>' in out
+    assert '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>' in out
+
+    # List item reopened.
+    list_fodt = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p>d1</text:p><text:p>d2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:list><text:list-item><text:p>One<text:change text:change-id="ct1"/>Two</text:p></text:list-item></text:list>'
+        '</office:text></office:body>'
+    )
+    list_out = split_deleted_breaks(list_fodt)
+    assert list_out is not None
+    assert '</text:p></text:list-item><text:list-item><text:p>Two</text:p>' in list_out
+
+    # Table blocks inside deletion are ignored; two adjacent changes both split.
+    table_and_two = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p>d1</text:p><table:table><table:table-row><table:table-cell><text:p>cell</text:p></table:table-cell></table:table-row></table:table><text:p>d2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '<text:changed-region text:id="ct2"><text:deletion>'
+        '<text:p>e1</text:p><text:p>e2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>A<text:change text:change-id="ct1"/>B<text:change text:change-id="ct2"/>C</text:p>'
+        '</office:text></office:body>'
+    )
+    t_out = split_deleted_breaks(table_and_two)
+    assert t_out is not None
+    body_out = t_out.split("</text:tracked-changes>", 1)[1]
+    assert body_out.count("<text:p>") == 3
+    assert "cell" not in body_out
+

@@ -65,7 +65,7 @@ from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.html_import import replace_preserving_format
-from plugin.writer.record_changes import is_recording_changes, record_changes
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
 from plugin.writer.review_view_attachment import refresh_review_toolbar
 from plugin.writer.word_diff_split import split_change
 
@@ -1180,15 +1180,17 @@ def _is_blocking_redline(node: Any) -> bool:
     return kind in _BLOCKING_REDLINE_TYPES
 
 
-def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
-    """True when *text_range* contains a tracked Insert or Delete.
+def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
+    """True when *text_range* contains, or lies wholly inside, a tracked Insert or Delete.
 
-    A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
-    are leaves — calling ``createEnumeration`` on them is not part of this walk.
-    ``iter_elements`` (``enum_has_more``) stops on a MagicMock enum. When the walk
-    starts and then fails, the result is True: ``setString`` must not run on a
-    range we could not prove is free of Insert/Delete redlines.
+    A selection inside one change has no redline marker portions of its own, so
+    we first check ``redline_kinds_covering`` and then walk the range's elements
+    and portions. When the walk starts and then fails, the result is True:
+    ``setString`` must not run on a range we could not prove is free of
+    Insert/Delete redlines.
     """
+    if _BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range):
+        return True
     top = _open_enum(text_range)
     if top is None:
         return False
@@ -1225,18 +1227,17 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
     return False
 
 
-def refuse_tracked_insert_or_delete(text_range: Any) -> None:
-    """Raise before any streamed-edit write when the range has an Insert or Delete.
+def refuse_tracked_insert_or_delete(doc: Any, text_range: Any) -> None:
+    """Raise before any streamed-edit write when the range touches an Insert or Delete.
 
-    Extend/Edit Selection reads the selection with
-    ``get_string_without_tracked_deletions`` (Delete text dropped,
-    Insert text kept as ordinary characters).
-    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off
-    and calls ``setString("")``. ``WriterStreamedAppendSession``
-    streams with ``setString(original + continuation)`` and ``finish``
-    calls ``setString(original_text)``. With tracking off, ``setString``
-    accepts every redline in the range — struck text disappears and
-    insertions flatten — before the model returns anything.
+    Extend/Edit Selection reads the selection with ``visible_range_text``
+    (Delete text dropped, Insert text kept as ordinary characters).
+    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off and calls
+    ``setString("")``. ``WriterStreamedAppendSession`` streams with
+    ``setString(original + continuation)`` and ``finish`` calls
+    ``setString(original_text)``. With tracking off, ``setString`` accepts or
+    splits every redline covering or inside the range before the model returns
+    anything.
 
     Both session constructors call this before the undo context,
     before ``RecordChanges`` is changed, and before the first
@@ -1245,7 +1246,7 @@ def refuse_tracked_insert_or_delete(text_range: Any) -> None:
     rewrite path. An empty model result restores the original text
     and does not record a deletion.
     """
-    if range_has_tracked_insert_or_delete(text_range):
+    if range_has_tracked_insert_or_delete(doc, text_range):
         log.warning(
             "streamed selection edit refused: selection contains a tracked Insert or "
             "Delete; RecordChanges was not changed and setString was not called")
@@ -1259,7 +1260,7 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
 
 
 def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
-    refuse_tracked_insert_or_delete(text_range)
+    refuse_tracked_insert_or_delete(doc, text_range)
 
     record_cm = record_changes(doc, False)
     was_recording = record_cm.__enter__()

@@ -1908,6 +1908,33 @@ def strike_across_table(doc: Any, text: Any) -> Any:
     return tbl
 
 
+def strike_all_after_leading_table(doc: Any, ctx: Any) -> Any:
+    """Create a leading 1x1 table followed by two paragraphs, then Select All + Delete under RecordChanges."""
+    text = doc.getText()
+    text.setString("")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("cellA1")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "p1", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "p2", False)
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        helper.executeDispatch(frame, ".uno:SelectAll", "", 0, ())
+        helper.executeDispatch(frame, ".uno:SelectAll", "", 0, ())
+        helper.executeDispatch(frame, ".uno:Delete", "", 0, ())
+    finally:
+        doc.setPropertyValue("RecordChanges", was_recording)
+    return tbl
+
+
 class FakeUnoEnum:
     def __init__(self, items: list[Any]) -> None:
         self._items = list(items)
@@ -1964,6 +1991,9 @@ class FakeUnoPara:
         if name in self._props:
             return self._props[name]
         raise KeyError(name)
+
+    def getString(self) -> str:
+        return "".join(p.getString() for p in self._portions)
 
 
 def logo_32_path() -> str:

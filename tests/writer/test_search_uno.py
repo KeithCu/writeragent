@@ -326,3 +326,34 @@ def test_search_miss_names_closest_text_box_text_uno(ctx, doc):
     msg = res.get("message", "")
     assert "closest match" in msg, res
     assert "atchar box" in msg, res
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_skips_tracked_deleted_text_and_table_cell_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context, strike_across_paragraphs
+    from plugin.writer.search import SearchInDocument
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    cell.setString("cellgone")
+    c_cur = cell.createTextCursor()
+    c_cur.gotoStart(False)
+    c_cur.gotoEnd(True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        c_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    assert SearchInDocument().execute(tctx, pattern="gone")["count"] == 0
+    assert SearchInDocument().execute(tctx, pattern="cellgone")["count"] == 0
+    tail_res = SearchInDocument().execute(tctx, pattern="Tail")
+    assert tail_res["count"] == 1
+    assert "gone" not in tail_res["matches"][0]["context"]

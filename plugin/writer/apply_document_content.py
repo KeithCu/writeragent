@@ -60,14 +60,15 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.doc.text_helpers import (
-    DeletionState,
     KeepViewSelection,
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
     iter_elements,
-    visible_portions,
+    iter_xtext_paragraphs,
 )
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
-from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
+from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
@@ -472,17 +473,16 @@ def _document_headings(doc: Any) -> list[tuple[int, str]]:
             if frame_text is not None:
                 texts.append(frame_text)
 
-    tracked = document_has_tracked_deletions(doc)
+    deletions = TrackedDeletions(doc)
     headings: list[tuple[int, str]] = []
     for text_obj in texts:
-        state = DeletionState()
-        for para in range_copy.iter_xtext_paragraphs(text_obj):
+        for para, state in iter_xtext_paragraphs(text_obj, deletions.state_at(text_obj)):
             level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
             is_heading = isinstance(level, int) and level > 0
-            if not is_heading and not tracked:
+            if not is_heading and not deletions:
                 continue
             text = uno_read(
-                lambda: "".join(chunk for _portion, chunk in visible_portions(para, state=state)),
+                lambda: get_string_without_tracked_deletions(para, state),
                 "",
             )
             if is_heading and text:

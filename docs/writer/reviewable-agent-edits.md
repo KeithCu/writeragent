@@ -41,7 +41,7 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete`, `form_delete_control` | No (`tracked: false` with a `warning` when recording or review is on) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, frames/charts/shapes insert, …) | No | No | No |
 
-Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
+Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
 before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
 The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.

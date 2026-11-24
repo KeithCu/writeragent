@@ -444,3 +444,65 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     tr.close()
     out = _drop_trailing_empty_paragraphs(tr.result())
     return out.strip()
+
+
+_ODF_TAG_RE = re.compile(r"<(/?)([\w.-]+:[\w.-]+)((?:\s[^<>]*?)?)(/?)>")
+_TRACKED_CHANGES_RE = re.compile(r"<text:tracked-changes\b.*?</text:tracked-changes>", re.DOTALL)
+_DELETION_RE = re.compile(
+    r'<text:changed-region\b[^<>]*?\btext:id="([^"]+)"[^<>]*>\s*<text:deletion>(.*?)</text:deletion>',
+    re.DOTALL,
+)
+_CHANGE_ID_RE = re.compile(r'text:change-id="([^"]+)"')
+
+
+def _deleted_paragraph_tags(deletion: str) -> list[tuple[str, str]]:
+    """Return ``(name, attrs)`` of ``text:p`` / ``text:h`` outside ``table:table``."""
+    tags: list[tuple[str, str]] = []
+    depth = 0
+    for close, name, attrs, empty in _ODF_TAG_RE.findall(deletion):
+        if name == "table:table" and not empty:
+            depth += -1 if close else 1
+        elif name in ("text:p", "text:h") and not close and not depth:
+            tags.append((name, attrs))
+    return tags
+
+
+def split_deleted_breaks(fodt: str) -> str | None:
+    """Split paragraphs joined across tracked-deletion breaks in flat ODF, or return None."""
+    # crosshair: off
+    breaks = {cid: _deleted_paragraph_tags(body)[1:] for cid, body in _DELETION_RE.findall(fodt)}
+    if not any(breaks.values()):
+        return None
+    skip = iter([m.span() for m in _TRACKED_CHANGES_RE.finditer(fodt)])
+    span = next(skip, None)
+    out: list[str] = []
+    pos = 0
+    stack: list[tuple[str, str]] = []
+    for m in _ODF_TAG_RE.finditer(fodt):
+        while span and m.start() >= span[1]:
+            span = next(skip, None)
+        if span and m.start() >= span[0]:
+            continue
+        close, name, attrs, empty = m.groups()
+        if close:
+            stack.pop()
+            continue
+        if not empty:
+            stack.append((name, attrs))
+            continue
+        if name != "text:change":
+            continue
+        para = next((i for i in reversed(range(len(stack))) if stack[i][0] in ("text:p", "text:h")), None)
+        cid_match = _CHANGE_ID_RE.search(attrs)
+        tags = breaks.get(cid_match.group(1), []) if cid_match else []
+        if para is None or not tags:
+            continue
+        # A paragraph in a list item becomes a new item, so it keeps its number.
+        top = para - 1 if para > 0 and stack[para - 1][0] == "text:list-item" else para
+        out.append(fodt[pos:m.start()])
+        pos = m.end()
+        for tag in tags:
+            out.extend("</%s>" % n for n, _a in reversed(stack[top:]))
+            stack[para] = tag
+            out.extend("<%s%s>" % t for t in stack[top:])
+    return "".join(out) + fodt[pos:] if out else None

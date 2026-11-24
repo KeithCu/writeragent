@@ -580,7 +580,7 @@ def test_extract_page_number_fields_reads_properties():
     para.createEnumeration.return_value = _Enum([portion])
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([para])
-    assert extract_page_number_fields(text) == [
+    assert extract_page_number_fields(MagicMock(), text) == [
         {"SubType": 2, "Offset": 1, "NumberingType": 3}
     ]
 
@@ -608,7 +608,7 @@ def test_extract_page_number_fields_reads_a_table_cell():
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([table])
 
-    assert extract_page_number_fields(text) == [
+    assert extract_page_number_fields(MagicMock(), text) == [
         {"SubType": 1, "Offset": 2, "NumberingType": 4}
     ]
 
@@ -624,7 +624,7 @@ def test_extract_page_number_fields_no_field_returns_empty():
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([para])
 
-    assert extract_page_number_fields(text) == []
+    assert extract_page_number_fields(MagicMock(), text) == []
 
 
 def test_xtext_injects_nonzero_page_offset():

@@ -11,7 +11,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.doc.text_helpers import FAILED, DeletionState, iter_elements, visible_portions
+from plugin.doc.text_helpers import FAILED, DeletionState, TrackedDeletions, iter_elements, visible_portions
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -415,35 +415,6 @@ def supports_service(obj: Any, name: str) -> bool:
     return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
-def iter_table_paragraphs(table: Any) -> Iterator[Any]:
-    """Yield paragraphs inside *table*'s cells in cell-name order."""
-    try:
-        names = table.getCellNames() or ()
-    except Exception as exc:
-        log.debug("iter_table_paragraphs: getCellNames failed: %s", exc)
-        return
-    for name in names:
-        try:
-            cell = table.getCellByName(name)
-        except Exception as exc:
-            log.debug("iter_table_paragraphs: getCellByName failed: %s", exc)
-            continue
-        yield from iter_xtext_paragraphs(cell)
-
-
-def iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
-    """Yield paragraphs under *text_obj*, descending into table cells."""
-    enum = uno_read(lambda: text_obj.createEnumeration(), FAILED)
-    if enum is FAILED:
-        return
-    for el in iter_elements(enum):
-        if supports_service(el, "com.sun.star.text.TextTable"):
-            yield from iter_table_paragraphs(el)
-            continue
-        if hasattr(el, "createEnumeration"):
-            yield el
-
-
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
     services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], FAILED)
@@ -711,18 +682,18 @@ def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
 
 
 def _copy_xtext_by_portions(
+    src_doc: Any,
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
-    src_doc: Any = None,
 ) -> None:
     """Copy paragraphs/fields without the view transferable.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
     view is on the first page (``FirstIsShared=False``).
 
-    With *src_doc*, each copy gets its source paragraph style, and only values that
-    differ from that style are copied. The style object used for the direct-formatting
+    Each copy gets its source paragraph style, and only values that differ from
+    that style are copied. The style object used for the direct-formatting
     comparison is the source style, after the scratch document has that style.
     Without the style, the export would report ``Standard`` for a ``Header`` paragraph,
     and every inherited margin and font would come back as a hand-set ``data-lo-para``
@@ -738,7 +709,7 @@ def _copy_xtext_by_portions(
     except Exception:
         dest_text.setString(src_text.getString())
         return
-    state = DeletionState()
+    state = TrackedDeletions(src_doc).state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
         # A table inside an open deletion is struck whole.
@@ -751,10 +722,9 @@ def _copy_xtext_by_portions(
             copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
             continue
         style = None
-        if src_doc is not None:
-            style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
-            if apply_temp_para_style(dest_doc, dest_cursor, style_name, src_doc):
-                style = source_style(src_doc, style_name, style_cache)
+        style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
+        if apply_temp_para_style(dest_doc, dest_cursor, style_name, src_doc):
+            style = source_style(src_doc, style_name, style_cache)
         # Insert unformatted, then paint: a run painted while it is the paragraph's only text
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
@@ -793,7 +763,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
-    state = DeletionState()
+    state = TrackedDeletions(doc).state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
         # A table inside an open deletion is struck whole.
@@ -857,5 +827,5 @@ def copy_xtext_into_doc(
     Does not select the live document or use a transferable, because that pattern
     corrupts the heap on the XHTML export that follows.
     """
-    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records, src_doc=src_doc)
+    _copy_xtext_by_portions(src_doc, src_text, dest_doc, math_records=math_records)
 

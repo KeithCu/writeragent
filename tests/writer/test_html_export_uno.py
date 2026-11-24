@@ -1204,3 +1204,49 @@ def test_html_export_full_read_skips_mid_deletion_ruby_uno(ctx: Any, doc: Any) -
     ruby_html = document_to_content(doc, ctx, scope="full")
     assert "<ruby>" not in ruby_html, ruby_html
 
+
+@native_test
+@with_native_doc("writer")
+def test_full_html_keeps_deleted_paragraph_breaks_and_list_joins_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    redline_count = doc.getRedlines().getCount()
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    frames_before = desktop.getFrames().getCount()
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert doc.getRedlines().getCount() == redline_count
+    assert desktop.getFrames().getCount() == frames_before
+    assert "Start Tail" not in html, html
+    assert "Start" in html and "Tail" in html, html
+
+    # List join: 3 numbered items, strike across middle item.
+    text.setString("")
+    cur = text.createTextCursor()
+    for idx, label in enumerate(("One", "Two", "Three")):
+        if idx > 0:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, label, False)
+        cur.gotoStartOfParagraph(False)
+        cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+        cur.gotoEndOfParagraph(False)
+
+    enum = text.createEnumeration()
+    items = []
+    while enum.hasMoreElements():
+        items.append(enum.nextElement())
+    d_cur = text.createTextCursorByRange(items[0].getEnd())
+    d_cur.gotoRange(items[2].getStart(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    list_html = document_to_content(doc, ctx, scope="full")
+    assert "OneThree" not in list_html, list_html
+    assert "One" in list_html and "Three" in list_html, list_html
+

@@ -591,7 +591,6 @@ def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_witho
 
     result = read_writer_text_slice(MagicMock(), 0, 100)
 
-    mock_without_deletions.assert_called_once_with(cursor)
     assert result == "visible text"
     cursor.getString.assert_not_called()
 

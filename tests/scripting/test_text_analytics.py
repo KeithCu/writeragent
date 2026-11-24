@@ -766,8 +766,8 @@ def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
 def test_selection_scope_topics_uses_selection_string(monkeypatch):
     monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     monkeypatch.setattr(
-        "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
-        lambda rng: "A" * 30,
+        "plugin.scripting.text_analytics.visible_range_text",
+        lambda _doc, rng: "A" * 30,
     )
     monkeypatch.setattr("plugin.scripting.text_analytics.get_doc_language", lambda doc: "de")
 
