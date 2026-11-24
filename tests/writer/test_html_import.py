@@ -2325,3 +2325,30 @@ def test_insert_content_at_position_selection_none_end_refuses():
             html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
     assert exc_info.value.code == "SELECTION_SPANS_TABLE"
     ins.assert_not_called()
+
+
+@pytest.mark.parametrize("recording", [False, True])
+def test_replace_whole_paragraphs_works_without_styles_module(recording):
+    import sys
+    from plugin.writer import html_import, record_changes
+
+    model = MagicMock()
+    rng = MagicMock()
+    text_obj = rng.getText.return_value
+    cursor = MagicMock()
+    following = MagicMock()
+    following.goRight.return_value = False
+    doomed = MagicMock()
+    text_obj.createTextCursorByRange.side_effect = [cursor, following, doomed]
+    cursor.getPropertySetInfo.return_value = None
+    doomed.getPropertySetInfo.return_value = None
+
+    with (
+        patch.dict(sys.modules, {"plugin.writer.styles": None}),
+        patch.object(record_changes, "is_recording_changes", return_value=recording),
+        patch.object(record_changes, "record_changes", return_value=MagicMock()),
+        patch.object(html_import, "_import_and_drop_leftover", return_value=MagicMock()) as imp,
+    ):
+        html_import._replace_whole_paragraphs(model, MagicMock(), rng, "<p>new</p>", apply_styles=True)
+
+    imp.assert_called_once()

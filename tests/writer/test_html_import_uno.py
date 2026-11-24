@@ -2491,3 +2491,316 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
         assert doc.getRedlines().getCount() == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+def _first_text_portion_props(para: Any) -> dict[str, Any]:
+    enum = para.createEnumeration()
+    while enum.hasMoreElements():
+        p = enum.nextElement()
+        if str(p.getPropertyValue("TextPortionType") or "") == "Text" and p.getString():
+            return {
+                "weight": float(p.getPropertyValue("CharWeight")),
+                "height": float(p.getPropertyValue("CharHeight")),
+                "color": int(p.getPropertyValue("CharColor")),
+                "char_style": str(p.getPropertyValue("CharStyleName") or ""),
+                "lang": str(p.getPropertyValue("CharLocale").Language),
+            }
+    raise AssertionError("No non-empty text portion found in paragraph")
+
+
+def _body_paragraphs(doc: Any) -> list[Any]:
+    out = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            out.append(el)
+    return out
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) -> None:
+    """Whole-paragraph search/selection replace drops old direct formatting and keeps language."""
+    from com.sun.star.lang import Locale
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    std_style = para_styles.getByName("Standard")
+    std_height = float(std_style.getPropertyValue("CharHeight"))
+    std_left = int(std_style.getPropertyValue("ParaLeftMargin"))
+    std_adjust = int(std_style.getPropertyValue("ParaAdjust"))
+    std_border_w = int(std_style.getPropertyValue("LeftBorder").OuterLineWidth)
+
+    def _seed() -> tuple[int, int]:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Before", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "Target", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "After", False)
+
+        paras = _body_paragraphs(doc)
+        mid = text.createTextCursorByRange(paras[1])
+        mid.setPropertyValue("CharWeight", 150.0)
+        mid.setPropertyValue("CharHeight", 18.0)
+        mid.setPropertyValue("CharColor", 0xFF0000)
+        mid.setPropertyValue("CharStyleName", "Emphasis")
+        mid.setPropertyValue("CharLocale", Locale("pt", "PT", ""))
+        mid.setPropertyValue("ParaAdjust", 3)  # CENTER
+        mid.setPropertyValue("ParaLeftMargin", 900)
+        border = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+        border.OuterLineWidth = 40
+        border.Color = 0xFF0000
+        mid.setPropertyValue("LeftBorder", border)
+        mid.setPropertyValue("NumberingStyleName", "Numbering 123")
+        left_readback = int(mid.getPropertyValue("ParaLeftMargin"))
+        border_readback = int(mid.getPropertyValue("LeftBorder").OuterLineWidth)
+        assert left_readback > std_left
+        assert border_readback > std_border_w
+        return left_readback, border_readback
+
+    def _select_mid() -> None:
+        paras = _body_paragraphs(doc)
+        cur = doc.getText().createTextCursorByRange(paras[1])
+        doc.getCurrentController().select(cur)
+
+    try:
+        for mode in ("off", "accept", "reject"):
+            save({flag: "off" if mode == "off" else "record"})
+            for target in ("search", "selection"):
+                seed_left, seed_border_w = _seed()
+                if target == "selection":
+                    _select_mid()
+                    res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New text</p>"])
+                else:
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="search", old_content="Target", content=["<p>New text</p>"]
+                    )
+                assert res.get("status") == "ok", (mode, target, res)
+                if mode == "accept":
+                    redlines = doc.getRedlines()
+                    types = {redlines.getByIndex(i).getPropertyValue("RedlineType") for i in range(redlines.getCount())}
+                    assert types == {"Insert", "Delete"}, (target, types)
+                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                elif mode == "reject":
+                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+
+                paras = _body_paragraphs(doc)
+                assert paras[0].getString() == "Before"
+                assert paras[2].getString() == "After"
+                mid = paras[1]
+                props = _first_text_portion_props(mid)
+                if mode == "reject":
+                    assert mid.getString() == "Target"
+                    assert props["weight"] == 150.0
+                    assert props["height"] == 18.0
+                    assert props["color"] == 0xFF0000
+                    assert props["char_style"] == "Emphasis"
+                    assert props["lang"] == "pt"
+                    assert int(mid.getPropertyValue("ParaLeftMargin")) == seed_left
+                    assert int(mid.getPropertyValue("ParaAdjust")) == 3
+                    assert int(mid.getPropertyValue("LeftBorder").OuterLineWidth) == seed_border_w
+                    assert str(mid.getPropertyValue("ListLabelString") or "") != ""
+                else:
+                    assert mid.getString() == "New text"
+                    assert props["weight"] == 100.0
+                    assert props["height"] == std_height
+                    assert props["color"] == -1
+                    assert props["char_style"] in ("", "No Character Style")
+                    assert props["lang"] == "pt"
+                    assert int(mid.getPropertyValue("ParaLeftMargin")) == std_left
+                    assert int(mid.getPropertyValue("ParaAdjust")) == std_adjust
+                    assert int(mid.getPropertyValue("LeftBorder").OuterLineWidth) == std_border_w
+                    assert str(mid.getPropertyValue("ListLabelString") or "") == ""
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any) -> None:
+    """Untracked whole-paragraph replace Undo restores old direct character/paragraph formatting."""
+    from com.sun.star.lang import Locale
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+
+        # 1. Uniformly formatted paragraph
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Replace me", False)
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("CharWeight", 150.0)
+        cur.setPropertyValue("CharHeight", 30.0)
+        cur.setPropertyValue("CharColor", 0xFF0000)
+        cur.setPropertyValue("CharLocale", Locale("pt", "PT", ""))
+        cur.setPropertyValue("ParaLeftMargin", 800)
+        cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+        seed_left = int(cur.getPropertyValue("ParaLeftMargin"))
+        assert seed_left > 0
+        doc.getUndoManager().clear()
+
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Replace me", content=["<p>Done</p>"]
+        )
+        assert res.get("status") == "ok", res
+        assert text.getString() == "Done"
+
+        doc.getUndoManager().undo()
+        paras = _body_paragraphs(doc)
+        assert paras[0].getString() == "Replace me"
+        props = _first_text_portion_props(paras[0])
+        assert props["weight"] == 150.0
+        assert props["height"] == 30.0
+        assert props["color"] == 0xFF0000
+        assert props["lang"] == "pt"
+        assert int(paras[0].getPropertyValue("ParaLeftMargin")) == seed_left
+        assert str(paras[0].getPropertyValue("ListLabelString") or "") != ""
+
+        doc.getUndoManager().redo()
+        paras = _body_paragraphs(doc)
+        assert paras[0].getString() == "Done"
+        assert _first_text_portion_props(paras[0])["weight"] == 100.0
+
+        # 2. Only the first word formatted
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Bold rest", False)
+        cur.gotoStart(False)
+        cur.goRight(4, True)
+        cur.setPropertyValue("CharWeight", 150.0)
+        doc.getUndoManager().clear()
+
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Bold rest", content=["<p>Plain</p>"]
+        )
+        assert res.get("status") == "ok", res
+        doc.getUndoManager().undo()
+        p0 = _body_paragraphs(doc)[0]
+        assert p0.getString() == "Bold rest"
+        assert _first_text_portion_props(p0)["weight"] == 150.0
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) -> None:
+    """Whole-paragraph and full_document replaces preserve chapter numbering on Heading 1."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.chapter_numbering_fixtures import enable_chapter_numbering
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    enable_chapter_numbering(doc, levels=2, suffix="")
+
+    def _seed_heading() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Old Heading", False)
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    try:
+        # search (off) -> <h1>
+        save({flag: "off"})
+        _seed_heading()
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Old Heading", content=["<h1>New Heading</h1>"]
+        )
+        assert res.get("status") == "ok", res
+        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+
+        # search (record + Accept) -> <h1>
+        save({flag: "record"})
+        _seed_heading()
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Old Heading", content=["<h1>New Heading</h1>"]
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+
+        # full_document (off) -> <h1>
+        save({flag: "off"})
+        _seed_heading()
+        res = ApplyDocumentContent().execute(
+            tctx, target="full_document", content=["<h1>Fresh Heading</h1>"]
+        )
+        assert res.get("status") == "ok", res
+        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+
+        # search (off) -> <ul><li>a</li><li>b</li></ul>
+        _seed_heading()
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Old Heading", content=["<ul><li>a</li><li>b</li></ul>"]
+        )
+        assert res.get("status") == "ok", res
+        paras = _body_paragraphs(doc)
+        assert [bool(p.getPropertyValue("NumberingIsNumber")) for p in paras[:2]] == [True, True]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """Replacing a bold paragraph with a <ul> gives both items bullets and normal weight."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Bold para", False)
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("CharWeight", 150.0)
+
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Bold para", content=["<ul><li>one</li><li>two</li></ul>"]
+        )
+        assert res.get("status") == "ok", res
+        paras = _body_paragraphs(doc)
+        assert len(paras) == 2
+        for p in paras:
+            assert bool(p.getPropertyValue("NumberingIsNumber")) is True
+            assert _first_text_portion_props(p)["weight"] == 100.0
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
