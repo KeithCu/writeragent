@@ -17,6 +17,17 @@ if str(_PO) not in sys.path:
 import run_eval_multi  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clear_provider_env_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "EVAL_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "EVAL_GEMINI_API_KEY",
+        "GEMINI_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 def test_parse_args_defaults_and_overrides() -> None:
     defaults = run_eval_multi.parse_args([])
     assert defaults.tools == "full"
@@ -64,48 +75,153 @@ def test_nitro_student_reuses_base_catalog_pricing(monkeypatch) -> None:
         output_cost_per_million=1.50,
     )
     monkeypatch.setitem(run_eval_multi.MODEL_BY_ID, base.openrouter_id, base)
-    cfg = run_eval_multi._model_config_for_id(
-        "synthetic/base-model:nitro", allow_unknown=False
-    )
+    cfg = run_eval_multi._model_config_for_id("synthetic/base-model:nitro")
     assert cfg.openrouter_id == "synthetic/base-model:nitro"
     assert cfg.input_cost_per_million == base.input_cost_per_million
     assert cfg.output_cost_per_million == base.output_cost_per_million
 
 
 def test_model_config_for_anthropic_zero_pricing() -> None:
-    cfg = run_eval_multi._model_config_for_id(
-        "anthropic/claude-sonnet-4.5", allow_unknown=False
-    )
+    cfg = run_eval_multi._model_config_for_id("anthropic/claude-sonnet-4.5")
     assert cfg.input_cost_per_million == 0.0
     assert cfg.output_cost_per_million == 0.0
-    with pytest.raises(KeyError):
-        run_eval_multi._model_config_for_id("not-a-model", allow_unknown=False)
-
-
-def test_filter_unknown_models_accepts_anthropic() -> None:
-    unknown = run_eval_multi._filter_unknown_models([
-        "claude-sonnet-4-5",
-        "anthropic/claude-sonnet-4.5:nitro",
-        "not-a-model",
-    ])
-    assert unknown == ["not-a-model"]
 
 
 def test_model_config_for_gemini_zero_pricing() -> None:
-    cfg = run_eval_multi._model_config_for_id(
-        "google/gemini-2.5-flash", allow_unknown=False
-    )
+    cfg = run_eval_multi._model_config_for_id("google/gemini-2.5-flash")
     assert cfg.input_cost_per_million == 0.0
     assert cfg.output_cost_per_million == 0.0
 
 
-def test_filter_unknown_models_accepts_gemini() -> None:
-    unknown = run_eval_multi._filter_unknown_models([
-        "gemini-2.5-flash",
-        "google/gemini-2.5-flash:free",
-        "not-a-model",
-    ])
-    assert unknown == ["not-a-model"]
+@pytest.mark.parametrize(
+    ("endpoint", "env_var", "model_id", "accepted"),
+    [
+        ("https://openrouter.ai/api/v1", "ANTHROPIC_API_KEY", "claude-sonnet-4-5", True),
+        (
+            "https://openrouter.ai/api/v1",
+            "EVAL_ANTHROPIC_API_KEY",
+            "anthropic/claude-sonnet-4.5:nitro",
+            True,
+        ),
+        ("https://openrouter.ai/api/v1", "GEMINI_API_KEY", "gemini-2.5-flash", True),
+        (
+            "https://openrouter.ai/api/v1",
+            "EVAL_GEMINI_API_KEY",
+            "google/gemini-2.5-flash:free",
+            True,
+        ),
+        ("https://openrouter.ai/api/v1", None, "google/gemini-2.5-flash", False),
+        ("https://openrouter.ai/api/v1", None, "anthropic/claude-sonnet-4.5", False),
+        ("http://127.0.0.1:11434/v1", "GEMINI_API_KEY", "google/gemini-2.5-flash", False),
+        ("http://127.0.0.1:11434/v1", "ANTHROPIC_API_KEY", "claude-sonnet-4-5", False),
+        ("https://api.anthropic.com/v1", None, "claude-sonnet-4-5", True),
+        ("https://api.anthropic.com/v1", None, "google/gemini-2.5-flash", False),
+    ],
+)
+def test_filter_unknown_models_follows_route(
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    env_var: str | None,
+    model_id: str,
+    accepted: bool,
+) -> None:
+    if env_var is not None:
+        monkeypatch.setenv(env_var, "sk-test")
+    unknown = run_eval_multi._filter_unknown_models([model_id, "not-a-model"], endpoint=endpoint)
+    expected = ["not-a-model"] if accepted else [model_id, "not-a-model"]
+    assert unknown == expected
+
+
+def test_main_refuses_unlisted_gemini_staying_on_openrouter(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import llm_chat_eval
+
+    monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
+    monkeypatch.setattr(
+        run_eval_multi,
+        "to_dspy_examples",
+        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_eval_multi.py",
+            "--models",
+            "google/gemini-2.5-flash",
+            "--api-base",
+            "https://openrouter.ai/api/v1",
+            "--student",
+            "scripted",
+        ],
+    )
+    assert run_eval_multi.main() == 1
+    assert "google/gemini-2.5-flash" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("env_key", "extra_args", "expected_label", "forbidden_label"),
+    [
+        ("sk-gem", [], "native Gemini", "(--allow-unknown-model)"),
+        (None, ["--allow-unknown-model"], "(--allow-unknown-model)", "native Gemini"),
+    ],
+)
+def test_main_pricing_label_follows_route(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    env_key: str | None,
+    extra_args: list[str],
+    expected_label: str,
+    forbidden_label: str,
+) -> None:
+    import llm_chat_eval
+
+    if env_key is not None:
+        monkeypatch.setenv("GEMINI_API_KEY", env_key)
+    monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
+    monkeypatch.setattr(
+        run_eval_multi,
+        "to_dspy_examples",
+        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
+    )
+    monkeypatch.setattr(
+        run_eval_multi,
+        "_run_one_model",
+        lambda model_id, *_args, **_kwargs: {
+            "summary": _pareto_row(
+                openrouter_id=model_id,
+                pricing_known=False,
+                total_cost_usd=0.0,
+            ),
+            "details": [],
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_eval_multi.py",
+            "--models",
+            "google/gemini-2.5-flash",
+            "--api-base",
+            "https://openrouter.ai/api/v1",
+            "--student",
+            "scripted",
+            "-e",
+            "table_from_mess",
+            "-j",
+            "1",
+            "--out",
+            str(tmp_path / "o.json"),
+            *extra_args,
+        ],
+    )
+    assert run_eval_multi.main() == 0
+    out = capsys.readouterr().out
+    assert expected_label in out
+    assert forbidden_label not in out
 
 
 def test_refuse_catalog_sweep_without_models(monkeypatch, capsys) -> None:
