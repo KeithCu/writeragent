@@ -486,14 +486,14 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 | Calc function | Python / `=PY` body | Notes |
 |---------------|---------------------|-------|
 | `IF` | `result = b if cond else a` | `cond` from first `data` or inline |
-| `IFS` | chained `if/elif` | P1 |
+| `IFS` | chained `if/elif` | P1; no match is `calc.na()` |
 | `AND` | `result = all(args)` | |
 | `OR` | `result = any(args)` | |
 | `NOT` | `result = not data` | |
 | `TRUE` / `FALSE` | `result = True` / `False` | |
 | `IFERROR` | `try/except` wrapper | P2 |
 | `IFNA` | `calc.ifna(lambda: …, alt)` | P2 |
-| `SWITCH` | dict lookup | P2 |
+| `SWITCH` | dict lookup | P2; no match is `calc.na()` |
 
 ### 8.3 Math & trig (P1–P2)
 
@@ -527,8 +527,8 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 | Calc function | Python | Tier |
 |---------------|--------|------|
-| `VLOOKUP` | `pd.DataFrame(...).merge` or indexed lookup | P2 exact match first |
-| `HLOOKUP` | transpose + vlookup pattern | P2 |
+| `VLOOKUP` | `pd.DataFrame(...).merge` or indexed lookup | P2 exact match first; no match is `calc.na()` |
+| `HLOOKUP` | transpose + vlookup pattern | P2; no match is `calc.na()` |
 | `INDEX` | `arr[i,j]` | P2 |
 | MATCH | `np.argmax` / `searchsorted` | P2 |
 | XLOOKUP | `_xlookup(val, l_arr, r_arr, not_found, match_mode, search_mode)` | P2 |

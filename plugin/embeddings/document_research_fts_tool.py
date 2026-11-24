@@ -122,8 +122,8 @@ class SearchNearbyFiles(ToolBase):
                 looks_empty = True
 
             if looks_empty:
+                # Start the build even when file_subset is refused below.
                 ensure_index_wakeup(ctx.ctx, ctx.doc)
-                return {"empty": True, "folder_key": folder_key}
 
             allowed_urls: set[str] | None = None
             if file_subset:
@@ -152,6 +152,10 @@ class SearchNearbyFiles(ToolBase):
                             url = pathlib.Path(path).as_uri()
                     if url:
                         allowed_urls.add(url)
+
+            # A bad file_subset stays bad once the index is built, so its error comes before "indexing".
+            if looks_empty:
+                return {"empty": True, "folder_key": folder_key}
 
             search_path = store.search_path
 

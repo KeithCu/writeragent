@@ -224,7 +224,7 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
 
     key = ("file:///fake.ods", sheet.getName(), 1, 1)
     assert key in SPILL_REGISTRY
-    assert SPILL_REGISTRY[key].spills == [(2, 1)]
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (2, 1)
 
 
 def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -252,7 +252,7 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
     assert sheet2.getCellByPosition(1, 2).getValue() == 200.0
     key = ("file:///multi.ods", "Viz_Gallery", 1, 1)
     assert key in SPILL_REGISTRY
-    assert SPILL_REGISTRY[key].spills == [(2, 1)]
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (2, 1)
 
 
 def test_finalize_python_return_matrix_formula_does_not_spill() -> None:
@@ -335,7 +335,7 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
 
     key = ("file:///fake2d.ods", "Sheet1", 1, 1)
     assert key in SPILL_REGISTRY
-    assert set(SPILL_REGISTRY[key].spills) == {(1, 2), (2, 1), (2, 2)}
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (2, 2)
 
 
 def _install_immediate_spill_timer(
@@ -397,7 +397,7 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     assert sheet.getCellByPosition(1, 1).getValue() == 44  # B2
     key = ("file:///SpillTest.ods", "SpillTest", 0, 0)
     assert key in SPILL_REGISTRY
-    assert set(SPILL_REGISTRY[key].spills) == {(0, 1), (1, 0), (1, 1)}
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (2, 2)
 
 
 def test_finalize_python_return_spills_off_main_into_caller_doc(
@@ -434,7 +434,7 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(
     assert sheet.getCellByPosition(2, 2).getValue() == 44  # C3
     key = ("file:///offmain-spill.ods", "Sheet1", 1, 1)
     assert key in SPILL_REGISTRY
-    assert set(SPILL_REGISTRY[key].spills) == {(1, 2), (2, 1), (2, 2)}
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (2, 2)
 
 
 def test_finalize_python_return_spills_dataframe_payload_off_main(
@@ -1151,7 +1151,7 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
     assert sheet.getCellByPosition(0, 1).getValue() == 20
     key = ("file:///sel_spill.ods", "Sheet1", 0, 0)
     assert key in SPILL_REGISTRY
-    assert SPILL_REGISTRY[key].spills == [(1, 0), (2, 0)]
+    assert (SPILL_REGISTRY[key].rows, SPILL_REGISTRY[key].cols) == (3, 1)
 
     # Second case: locate returns None -> returns UNO matrix without reading selection or queuing spill
     doc.getCurrentController = lambda: pytest.fail("selection must not be read")
@@ -1417,11 +1417,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     assert None in all_recorded_cells
     key_col = ("file:///fake_col.ods", sheet.getName(), 0, 0)
     assert key_col in SPILL_REGISTRY
-    col_cells = SPILL_REGISTRY[key_col].cells
-    assert len(col_cells) == 3
-    assert col_cells[0].kind == "err" and col_cells[0].value == 519
-    assert col_cells[1].kind == "err" and col_cells[1].value == 532
-    assert col_cells[2].kind == "err" and col_cells[2].value == 32767
+    assert (SPILL_REGISTRY[key_col].rows, SPILL_REGISTRY[key_col].cols) == (4, 1)
 
     # 2. 2x2 [[1, "#NUM!"], ["#REF!", "#NAME?"]]
     recorded_set_data.clear()

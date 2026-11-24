@@ -79,7 +79,7 @@ RED_UNO_SINKS = {
     "get_document_type",
     "get_document_length",
     "read_visible_body",
-    "get_text_cursor_at_range_reached",
+    "visible_body_range",
     "get_paragraph_ranges",
     "build_heading_tree",
     "ensure_heading_bookmarks",

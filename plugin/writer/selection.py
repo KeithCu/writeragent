@@ -13,7 +13,7 @@ view, so set_selection updates that pin when present; MCP contexts carry no pin.
 from typing import Any
 import logging
 
-from plugin.doc.text_helpers import get_text_cursor_at_range_reached
+from plugin.doc.text_helpers import visible_body_range
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
@@ -62,13 +62,12 @@ class SetSelection(ToolBase):
                 "type": "integer",
                 "minimum": 0,
                 "description": (
-                    "Alternative to search_text: 0-based start offset in body cursor steps, which is not "
-                    "quite get_content's document_length space: a field or footnote anchor is one step "
-                    "whatever it shows, text deleted by pending tracked changes still counts, and an "
-                    "offset inside a table moves to the paragraph after it."
+                    "Alternative to search_text: 0-based start offset in get_content's document_length "
+                    "space (same as search return_offsets). Must be in a paragraph, not in a table; "
+                    "an offset inside a field or footnote number covers all of it."
                 ),
             },
-            "char_end": {"type": "integer", "minimum": 0, "description": "End offset (exclusive, same cursor steps), required with char_start."},
+            "char_end": {"type": "integer", "minimum": 0, "description": "End offset (exclusive, same space), required with char_start."},
         },
         "required": [],
     }
@@ -112,27 +111,21 @@ class SetSelection(ToolBase):
                 ctx, controller, search_str, kwargs.get("occurrence", 0), case_sensitive
             )
 
-        target_range, fully_reached = get_text_cursor_at_range_reached(
-            doc, char_start, char_end
-        )
-        if target_range is None:
-            return self._tool_error("Could not build a cursor for that character range.", code="TOOL_EXECUTION_ERROR")
-
-        fields = _read_selection_fields(target_range)
-        if not fully_reached and not fields.get("selected_text") and "warning" not in fields:
+        found = visible_body_range(doc, char_start, char_end)
+        if found is None:
             return self._tool_error("Could not reach character range in document.", code="TOOL_EXECUTION_ERROR")
-
-        controller.select(target_range)
-        update_selection_pin(ctx, target_range)
-
-        result: dict[str, Any] = {"status": "ok", **fields}
-        result["char_start"] = char_start
-        if not fully_reached:
-            truncation = "Character range was truncated at the document end."
-            result["warning"] = (truncation + " " + result["warning"]) if "warning" in result else truncation
+        controller.select(found.cursor)
+        update_selection_pin(ctx, found.cursor)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "selected_text": found.text,
+            "length": len(found.text),
+            "char_start": found.start,
+        }
+        if found.end < char_end:
+            result["warning"] = "Character range was truncated at the document end."
         else:
-            result["char_end"] = char_end
-
+            result["char_end"] = found.end
         return result
 
     def _select_by_search(
