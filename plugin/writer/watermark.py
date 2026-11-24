@@ -167,14 +167,23 @@ def _update_inactive_watermarks(doc: Any, text: str) -> None:
     An inactive header's text belongs to no page descriptor format, so ``getAnchor().getText()``
     is ``None`` (``sw/source/core/unocore/unoobj2.cxx`` ``sw::CreateParentXText``). A
     page-anchored shape has no anchor at all (``getAnchor() is None``) and is left alone.
+    The caller has verified through ``SwEditShell::GetWatermark`` that an active header holds
+    this text, so a model exists whenever there are inactive copies.
     """
     inactive: list[Any] = []
     model: Any = None
     for shape in _watermark_shapes(doc, TEXT_WATERMARK_PREFIX):
         anchor = shape.getAnchor()
-        if anchor is not None and anchor.getText() is None:
+        if anchor is None:
+            continue
+        anchor_text = anchor.getText()
+        if anchor_text is None:
             inactive.append(shape)
-        elif model is None and anchor is not None and shape.getString() == text:
+        elif (
+            model is None
+            and anchor_text.getImplementationName() == "SwXHeadFootText"
+            and shape.getString() == text
+        ):
             model = shape
     active_model = cast("Any", model)
     for shape in inactive:

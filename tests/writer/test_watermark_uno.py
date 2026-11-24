@@ -303,7 +303,7 @@ def test_set_watermark_updates_inactive_first_and_even_headers_uno(ctx: Any, doc
         font="DejaVu Serif",
         angle=30,
         color="#ff0000",
-        transparency=50,
+        transparency=30,
     )
     assert res["status"] == "ok", res
     assert doc.getUndoManager().getAllUndoActionTitles() == ()
@@ -350,6 +350,7 @@ def test_set_watermark_updates_inactive_first_and_even_headers_uno(ctx: Any, doc
             assert shape.getString() == "FINAL", prop_name
             assert shape.getPropertyValue("RotateAngle") == 3000, prop_name
             assert shape.getPropertyValue("FillColor") == 0xFF0000, prop_name
+            assert shape.getPropertyValue("FillTransparence") == 30, prop_name
             by_header[prop_name] = shape.getPropertyValue("BoundRect")
 
         base_rect = by_header["HeaderText"]
