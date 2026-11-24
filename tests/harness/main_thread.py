@@ -22,11 +22,13 @@ def reset_main_thread() -> None:
         main._async_callback_service = None
         main._callback_instance = None
         main._logged_callback_problem = False
+    # execute()'s timeout marks items cancelled without dequeuing them, and a mocked poke may not run process_queue before the next test.
     while not main._work_queue.empty():
         try:
             main._work_queue.get_nowait()
         except queue.Empty:
             break
+    # A post with no AsyncCallback waits in _pending_posts; the next test's post() would flush it.
     with main._pending_lock:
         main._pending_posts.clear()
         main._pending_lock.notify_all()

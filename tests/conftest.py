@@ -100,6 +100,7 @@ def _reset_main_thread_policy_for_tests():
     """Ensure MainThread policy, designated thread, context, AsyncCallback, and queued posts do not leak across tests."""
     from tests.harness.main_thread import reset_main_thread
 
+    # Reset before the test too: a background thread from the previous test can post late.
     reset_main_thread()
     try:
         yield
