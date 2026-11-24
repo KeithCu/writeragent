@@ -776,7 +776,11 @@ def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: An
     # as the whole text when the first enumerated element is not a table.
     first = next(iter_elements(text.createEnumeration()), None)
     if (
-        not _is_text_table(first)
+        not uno_read(
+            lambda: first is not None and first.supportsService(_TEXT_TABLE_SERVICE) is True,
+            False,
+            object_type="TextRange",
+        )
         and text.compareRegionStarts(start, text.getStart()) == 0
         and text.compareRegionEnds(text.getEnd(), end) == 0
     ):
