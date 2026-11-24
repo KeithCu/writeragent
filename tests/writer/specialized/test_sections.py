@@ -467,3 +467,12 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
     assert "section_read" not in structural_names
     assert "section_create" not in structural_names
     assert "section_get_info" not in structural_names
+
+
+def test_section_password_params_are_secret_keys() -> None:
+    from plugin.framework.logging import is_secret_key
+
+    props = SectionSetPassword().parameters["properties"]
+    pw_keys = [k for k in props if "password" in k]
+    assert len(pw_keys) == 2
+    assert all(is_secret_key(k) for k in pw_keys)
