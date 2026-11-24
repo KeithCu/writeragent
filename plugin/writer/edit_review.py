@@ -480,6 +480,7 @@ class EditReviewSession:
                     # paragraph is never truncated out of the preview.
                     accepted_text = _string_skipping_redline(span, "Delete")
                     rejected_text = _string_skipping_redline(span, "Insert")
+                    # The anchored text omits the table, so a table-only insert reads the same after Accept and Reject and must stay untagged.
                     if not at_table or accepted_text != rejected_text:
                         bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
                         bm = self.doc.createInstance("com.sun.star.text.Bookmark")

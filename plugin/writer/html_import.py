@@ -416,8 +416,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
     after it, which keeps its own style (``sw_GetJoinFlags`` in
     ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). In a review-mode full-document replace the paragraph after it is the
-    first tracked-deleted paragraph; Accept empties it, so the result matches the
+    end node). In a review-mode full-document replace or a recorded whole-paragraph
+    replace (``_replace_whole_paragraphs``), the paragraph after it is the first
+    tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
     """
@@ -589,9 +590,10 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
       A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
     - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
 
-    ``selection`` / ``search`` are not handled here: non-collapsed selections are cleared by
-    setString before import, a collapsed caret goes through ``_insert_at_caret``, and
-    search replaces handle their own boundaries.
+    ``selection`` / ``search`` are not handled here: whole-paragraph block
+    selections go through ``_replace_whole_paragraphs``, other non-collapsed
+    selections are cleared by ``setString`` before import, a collapsed caret goes
+    through ``_insert_at_caret``, and search replaces handle their own boundaries.
     """
     if position != "end":
         return cursor
@@ -695,8 +697,12 @@ def _replace_whole_paragraphs(
     ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) places
     every imported block before the target paragraph. While recording, we extend
     the tracked deletion across the following paragraph break so its mark is
-    deleted with the text (Accept leaves nothing and Reject keeps both styles
-    per ``sw_GetJoinFlags`` in ``sw/source/core/doc/docedt.cxx``), then open a
+    deleted with the text: Accept leaves nothing and keeps the following
+    paragraph's style (``sw_GetJoinFlags`` in ``sw/source/core/doc/docedt.cxx``
+    when the follower is non-empty, or ``lcl_AcceptRedline`` calling
+    ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
+    empty), while Reject keeps both styles because ``AppendRedline`` skips its
+    tdf#119571 restyle when the deletion starts at offset 0. We then open a
     fresh paragraph before the struck text so the import does not inherit the
     struck text's character formatting. The leftover synthetic paragraph is
     dropped untracked because that break is our own new insertion. Where no
@@ -889,6 +895,8 @@ def insert_content_at_position(
                             and not content_is_block(content)
                             and not html_fragment_contains_mixed_math(content)
                         )
+                        # Trim a lone trailing break; otherwise a recorded Shift+Down selection
+                        # deletes the paragraph break and Accept joins the next paragraph.
                         if not caret:
                             rng = _without_trailing_break(rng)
                         styled, note = _lo_style_for_replaced_range(model, content, rng)

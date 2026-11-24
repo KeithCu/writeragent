@@ -1614,7 +1614,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
                     elif table_ending:
                         assert [t for _s, t in actual_accept] == [t for _s, t in untracked], (label, "accept", actual_accept, untracked)
                     else:
-                        assert [t for _s, t in actual_accept] == [t for _s, t in untracked] + [""], (label, "accept", actual_accept, untracked)
+                        assert actual_accept[:-1] == untracked and actual_accept[-1][1] == "", (label, "accept", actual_accept, untracked)
 
                     _seed()
                     if mode == "search":
@@ -1648,6 +1648,41 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
         assert res.get("status") == "ok", res
         _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
         assert _body_style_and_text(doc) == seed
+
+        # Empty follower paragraph: Accept still keeps the blank follower and Reject keeps both styles.
+        seed_blank = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", ""), ("Standard", "Last")]
+
+        def _seed_blank() -> None:
+            doc.setPropertyValue("RecordChanges", False)
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.gotoEnd(True)
+            cur.setString("")
+            cur.gotoStart(False)
+            for idx, (style, body) in enumerate(seed_blank):
+                if idx:
+                    text.insertControlCharacter(cur, 0, False)
+                cur.setPropertyValue("ParaStyleName", style)
+                text.insertString(cur, body, False)
+
+        save({flag: "off"})
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        untracked_blank = _body_style_and_text(doc)
+
+        save({flag: "record"})
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert _body_style_and_text(doc) == untracked_blank
+
+        _seed_blank()
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == seed_blank
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

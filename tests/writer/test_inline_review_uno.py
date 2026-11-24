@@ -608,4 +608,6 @@ def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ct
     resolved, _msg = resolve_all_with_feedback(doc, ctx, True)
     assert resolved == 1
     assert agent_change_presence(doc, stop_at_first=True)[0] == 0
+    assert doc.getTextTables().getCount() == 1
+    assert "Replace me" not in doc.getText().getString()
 
