@@ -492,7 +492,7 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 | `NOT` | `result = not data` | |
 | `TRUE` / `FALSE` | `result = True` / `False` | |
 | `IFERROR` | `try/except` wrapper | P2 |
-| `IFNA` | `pd.isna` guard | P2 |
+| `IFNA` | `calc.ifna(lambda: …, alt)` | P2 |
 | `SWITCH` | dict lookup | P2 |
 
 ### 8.3 Math & trig (P1–P2)

@@ -26,6 +26,7 @@ from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 
 from ..edit_review import next_agent_edit_undo_title
+from ..record_changes import insert_recorded_content
 from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import insert_at_target
@@ -318,8 +319,9 @@ class FieldsInsert(ToolWriterFieldBase):
             self,
             ctx,
             kwargs,
-            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
             what="the field",
+            review=True,
         )
         if err is not None:
             return err

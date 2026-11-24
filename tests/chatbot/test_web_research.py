@@ -18,6 +18,7 @@ from plugin.contrib.smolagents.models import (
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.harness.smol_messages import flatten_messages
 
 def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
     def side_effect(key: str):
@@ -1831,13 +1832,7 @@ def test_web_research_agent_keeps_partial_observations_and_step_budget():
 
     def _gen(messages, **kwargs):
         del kwargs
-        text = "\n".join(
-            "\n".join(str(p.get("text", p)) if isinstance(p, dict) else str(p) for p in m.content)
-            if isinstance(m.content, list)
-            else str(m.content or "")
-            for m in messages
-        )
-        seen.append(text)
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return ChatMessage(
                 role=MessageRole.ASSISTANT,

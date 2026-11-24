@@ -37,7 +37,7 @@ def _create_nearby_test_env(ctx, active_doc):
     # GHA 34593327841 / 34599838644 / 34633295036: a second
     # private:factory/scalc under leftover paste Writers (uids 26/27,
     # frames -) failed in ~1s (PyUNO traceback wrap) and the next
-    # unique _wa_factory_N hung 30s. Budget is only needed as a sibling
+    # factory scalc hung 30s. Budget is only needed as a sibling
     # file. Write it on the pooled @with_native_doc Calc, store, wipe,
     # then store Report. Do not open a second factory Calc.
     _nearby_progress("store budget via active start")

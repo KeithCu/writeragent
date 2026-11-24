@@ -17,12 +17,15 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
-   NA_NAN shows #N/A (na, xmatch miss, textsplit padding), NESTED_ARRAY_NAN shows
-   Err:533 (filter with no match and no if_empty), and DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1).
-3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", or a propagated
-   Err:<n> token). The add-in shows that error. Used where the cell must show a token other
-   than #NUM! and the helper catches its own parse errors (lookup, text, array and regression helpers),
-   and the first error of a range (first_error: npv, sumsq, sumproduct, subtotal).
+   NA_NAN shows #N/A (na, xmatch miss, textsplit padding, textafter/textbefore miss, prob size
+   mismatch), NESTED_ARRAY_NAN shows Err:533 (filter with no match and no if_empty),
+   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1), and ILLEGAL_PARAMETER_NAN
+   shows Err:504 (xmatch bad mode).
+3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", "Err:502", "Err:504",
+   or a propagated Err:<n> token). The add-in shows that error. Used where the cell must show
+   a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
+   and regression helpers), and the first error of a range (first_error: npv, sumsq,
+   sumproduct, subtotal). "Err:502" / "Err:504" come from xlookup bad mode, growth and trend.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -48,12 +51,26 @@ def formula_error_nan(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", 0x7FF8000000000000 | code))[0]
 
 
-# 0x7FFF is FormulaError::NotAvailable, 532 is FormulaError::DivisionByZero,
-# 533 is FormulaError::NestedArray. They are ordinary NaNs in Python;
-# the worker does not import plugin.calc.
+# 0x7FFF is FormulaError::NotAvailable, 504 is FormulaError::IllegalParameter,
+# 532 is FormulaError::DivisionByZero, 533 is FormulaError::NestedArray.
+# They are ordinary NaNs in Python; the worker does not import plugin.calc.
 NA_NAN: float = formula_error_nan(0x7FFF)
+ILLEGAL_PARAMETER_NAN: float = formula_error_nan(504)
 NESTED_ARRAY_NAN: float = formula_error_nan(533)
 DIV0_NAN: float = formula_error_nan(532)
+
+
+def is_na_nan(val: float) -> bool:
+    """True for a NaN whose low 32 bits are FormulaError::NotAvailable (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+    return math.isnan(val) and (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == 0x7FFF
+
+
+class RegressionError(ValueError):
+    """A regression input Calc rejects. str(exc) is the error token the cell shows.
+
+    Subclasses ValueError so linest/logest, which call require_samples and catch ValueError,
+    keep returning #VALUE!, and why growth/trend must catch RegressionError before ValueError.
+    """
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
@@ -63,7 +80,7 @@ def require_samples(n: int, k: int, const: bool) -> None:
     and GROWTH(5;3) are Err:504; CalculateRGPRKP and CalculateTrendGrowth, interpr5.cxx).
     """
     if n < k + int(const):
-        raise ValueError
+        raise RegressionError("Err:504")
 
 
 _SERIAL_OFFSET: int = 693594
@@ -470,7 +487,8 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
     """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
 
     Same-shaped known_y and known_x are one x variable (CheckMatrix nCase 1); with one variable
-    new_x may have any shape. Inputs Calc rejects raise ValueError.
+    new_x may have any shape. Shape and sample rejections raise RegressionError with Calc's token,
+    other rejections raise ValueError.
     """
     n = known_y.size
     y = known_y.ravel()
@@ -480,7 +498,9 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
         x = np.asarray(known_x, dtype=float)
         x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
     # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
-    if x.ndim != 2 or x.shape[0] != n or np.any(np.isnan(x)) or np.any(np.isnan(y)):
+    if x.ndim != 2 or x.shape[0] != n:
+        raise RegressionError("Err:502")
+    if np.any(np.isnan(x)) or np.any(np.isnan(y)):
         raise ValueError
     k = x.shape[1]
     with_intercept = as_nonzero(const)
@@ -491,7 +511,9 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
         at = np.asarray(new_x, dtype=float)
         at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
     # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
-    if at.ndim != 2 or at.shape[1] != k or np.any(np.isnan(at)):
+    if at.ndim != 2 or at.shape[1] != k:
+        raise RegressionError("Err:502")
+    if np.any(np.isnan(at)):
         raise ValueError
     # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the
     # intercept column indistinguishable to lstsq.

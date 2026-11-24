@@ -26,6 +26,7 @@ from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc
 from plugin.framework.uno_context import create_property_value
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 _XLSX = _FIXTURE_DIR / "python_showcase_demo.xlsx"
@@ -218,133 +219,76 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _project_venv() -> str:
-    """Checkout ``.venv`` that has an interpreter.
-
-    ``parents[3]`` of this file is the repo during ``make test``, and the
-    stripped temp tree during ``make release``. A configured venv with no
-    interpreter is ``VENV_NOT_FOUND``, so ``=PY()`` never spills. Release
-    exports ``WRITERAGENT_PROJECT_ROOT`` from the checkout Makefile.
-    """
-
-    def _has_python(venv: Path) -> bool:
-        return (venv / "bin" / "python").is_file() or (venv / "Scripts" / "python.exe").is_file()
-
-    for parent in Path(__file__).resolve().parents:
-        venv = parent / ".venv"
-        if _has_python(venv):
-            return str(venv)
-    root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
-    if root:
-        venv = Path(root) / ".venv"
-        if _has_python(venv):
-            return str(venv)
-    raise AssertionError("project .venv not found (release tree needs WRITERAGENT_PROJECT_ROOT)")
-
-
 # Cold macOS runners can exceed 30s spawning the venv worker, building the
 # matplotlib font cache, and rendering the plot.
 @native_test(timeout=60)
 def test_py_multi_document_spill_and_plot(ctx):
     """When a blank doc is open, =PY in a second doc spills and inserts plots in the second doc."""
-    import glob
-    import json
-    from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
+    with repo_venv_in_profile():
+        desktop = get_desktop(ctx)
+        doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+        doc_second = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+        try:
+            sheet_second = doc_second.getSheets().getByIndex(0)
 
-    repo_venv = _project_venv()
-    profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
-    try:
-        profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
-    except Exception:
-        pass
+            a1 = sheet_second.getCellByPosition(0, 0)
+            d1 = sheet_second.getCellByPosition(3, 0)
+            a1.setFormula('=PY("[[1,2],[3,4]]")')
+            d1.setFormula('=PY("plt.figure(); plt.plot([1,2,3])")')
 
-    old_cfgs: dict[str, dict] = {}
-    for pcfg in profile_cfgs:
-        if os.path.exists(pcfg):
-            try:
-                with open(pcfg, "r", encoding="utf-8") as f:
-                    old_cfgs[pcfg] = json.load(f)
-                d = dict(old_cfgs[pcfg])
-                d["scripting.python_venv_path"] = repo_venv
-                with open(pcfg, "w", encoding="utf-8") as f:
-                    json.dump(d, f, indent=2)
-            except Exception:
-                pass
-    shutdown_venv_workers_for_tests()
+            doc_second.calculateAll()
 
-    desktop = get_desktop(ctx)
-    doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    doc_second = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    try:
-        sheet_second = doc_second.getSheets().getByIndex(0)
+            # Wait for spill and image insertion
+            from plugin.framework.queue_executor import pump_main_thread_work_queue
 
-        a1 = sheet_second.getCellByPosition(0, 0)
-        d1 = sheet_second.getCellByPosition(3, 0)
-        a1.setFormula('=PY("[[1,2],[3,4]]")')
-        d1.setFormula('=PY("plt.figure(); plt.plot([1,2,3])")')
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                pump_main_thread_work_queue(max_items=20)
+                b1_val = sheet_second.getCellByPosition(1, 0).getValue()
+                dp = sheet_second.getDrawPage()
+                has_shape = False
+                for idx in range(dp.getCount()):
+                    sh = dp.getByIndex(idx)
+                    name = getattr(sh, "Name", "")
+                    if not name and hasattr(sh, "getPropertyValue"):
+                        try:
+                            name = sh.getPropertyValue("Name")
+                        except Exception:
+                            name = ""
+                    if name and "WriterAgentPlot" in str(name):
+                        has_shape = True
+                        break
+                if b1_val == 2.0 and has_shape:
+                    break
+                time.sleep(0.2)
 
-        time.sleep(2.1)
-        doc_second.calculateAll()
+            # Assert B1/A2/B2 are spilled in second doc
+            assert sheet_second.getCellByPosition(1, 0).getValue() == 2.0
+            assert sheet_second.getCellByPosition(0, 1).getValue() == 3.0
+            assert sheet_second.getCellByPosition(1, 1).getValue() == 4.0
 
-        # Wait for spill and image insertion
-        from plugin.framework.queue_executor import pump_main_thread_work_queue
-
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            pump_main_thread_work_queue(max_items=20)
-            b1_val = sheet_second.getCellByPosition(1, 0).getValue()
-            dp = sheet_second.getDrawPage()
-            has_shape = False
-            for idx in range(dp.getCount()):
-                sh = dp.getByIndex(idx)
+            # Assert WriterAgentPlot shape is on its sheet
+            dp_second = sheet_second.getDrawPage()
+            shape_names = []
+            for idx in range(dp_second.getCount()):
+                sh = dp_second.getByIndex(idx)
                 name = getattr(sh, "Name", "")
                 if not name and hasattr(sh, "getPropertyValue"):
                     try:
                         name = sh.getPropertyValue("Name")
                     except Exception:
                         name = ""
-                if name and "WriterAgentPlot" in str(name):
-                    has_shape = True
-                    break
-            if b1_val == 2.0 and has_shape:
-                break
-            time.sleep(0.2)
+                shape_names.append(str(name))
+            assert any("WriterAgentPlot" in n for n in shape_names), f"Plot shape not found in {shape_names}"
 
-        # Assert B1/A2/B2 are spilled in second doc
-        assert sheet_second.getCellByPosition(1, 0).getValue() == 2.0
-        assert sheet_second.getCellByPosition(0, 1).getValue() == 3.0
-        assert sheet_second.getCellByPosition(1, 1).getValue() == 4.0
-
-        # Assert WriterAgentPlot shape is on its sheet
-        dp_second = sheet_second.getDrawPage()
-        shape_names = []
-        for idx in range(dp_second.getCount()):
-            sh = dp_second.getByIndex(idx)
-            name = getattr(sh, "Name", "")
-            if not name and hasattr(sh, "getPropertyValue"):
-                try:
-                    name = sh.getPropertyValue("Name")
-                except Exception:
-                    name = ""
-            shape_names.append(str(name))
-        assert any("WriterAgentPlot" in n for n in shape_names), f"Plot shape not found in {shape_names}"
-
-        # Assert blank doc is untouched
-        sheet_blank0 = doc_blank.getSheets().getByIndex(0)
-        assert sheet_blank0.getCellByPosition(0, 0).getString() == ""
-        assert sheet_blank0.getCellByPosition(1, 0).getValue() == 0.0
-        assert sheet_blank0.getDrawPage().getCount() == 0
-    finally:
-        _close_doc_and_clear_sessions(ctx, doc_second)
-        _close_doc_and_clear_sessions(ctx, doc_blank)
-        for pcfg, old_d in old_cfgs.items():
-            try:
-                with open(pcfg, "w", encoding="utf-8") as f:
-                    json.dump(old_d, f, indent=2)
-            except Exception:
-                pass
-        shutdown_venv_workers_for_tests()
+            # Assert blank doc is untouched
+            sheet_blank0 = doc_blank.getSheets().getByIndex(0)
+            assert sheet_blank0.getCellByPosition(0, 0).getString() == ""
+            assert sheet_blank0.getCellByPosition(1, 0).getValue() == 0.0
+            assert sheet_blank0.getDrawPage().getCount() == 0
+        finally:
+            _close_doc_and_clear_sessions(ctx, doc_second)
+            _close_doc_and_clear_sessions(ctx, doc_blank)
 
 
 
@@ -454,57 +398,13 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
             WorkbookState.forget_key(st.key)
 
 
-def _with_repo_venv_for_tests(ctx):
-    """Temporarily point the test profile's ``scripting.python_venv_path`` at the repo venv."""
-    from contextlib import contextmanager
-    import glob
-    import json
-    from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
-
-    @contextmanager
-    def _mgr():
-        repo_venv = _project_venv()
-        profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
-        try:
-            profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
-        except Exception:
-            pass
-
-        old_cfgs: dict[str, dict] = {}
-        for pcfg in profile_cfgs:
-            if os.path.exists(pcfg):
-                try:
-                    with open(pcfg, "r", encoding="utf-8") as f:
-                        old_cfgs[pcfg] = json.load(f)
-                    d = dict(old_cfgs[pcfg])
-                    d["scripting.python_venv_path"] = repo_venv
-                    with open(pcfg, "w", encoding="utf-8") as f:
-                        json.dump(d, f, indent=2)
-                except Exception:
-                    pass
-        shutdown_venv_workers_for_tests()
-        try:
-            yield
-        finally:
-            for pcfg, old_d in old_cfgs.items():
-                try:
-                    with open(pcfg, "w", encoding="utf-8") as f:
-                        json.dump(old_d, f, indent=2)
-                except Exception:
-                    pass
-            shutdown_venv_workers_for_tests()
-
-    return _mgr()
-
-
-@native_test
+@native_test(timeout=60)
 @with_native_doc("calc")
 def test_py_addin_token_formula_errors(ctx, doc):
     """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
     cases = [("#DIV/0!", 532), ("#N/A", 32767)]
-    with _with_repo_venv_for_tests(ctx):
+    with repo_venv_in_profile():
         try:
             for row_idx, (token, _expected_err) in enumerate(cases):
                 sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
@@ -515,10 +415,23 @@ def test_py_addin_token_formula_errors(ctx, doc):
             sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
             sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
             sheet.getCellByPosition(2, 3).setFormula('=IFNA(A4;"na")')
+            helper_cases = [
+                ("result=calc.filter([1,2],['#DIV/0!',1])", 532),
+                ("result=calc.ifna(lambda: float('nan'), 0)", 503),
+                ("result=calc.xmatch(1,[1],9)", 504),
+                ("result=calc.xlookup(1,[1],[2],'m',9)", 504),
+                ("result=calc.growth([1,2],[1,2,3])", 502),
+                ("result=calc.textafter('abc','z')", 32767),
+            ]
+            for offset, (helper_code, _expected) in enumerate(helper_cases):
+                sheet.getCellByPosition(0, 5 + offset).setFormula(f'=PY("{helper_code}")')
             doc.calculateAll()
             for row_idx, (_token, expected_err) in enumerate(cases):
                 assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
             assert sheet.getCellByPosition(0, 4).getError() == 502
+            for offset, (helper_code, expected_err) in enumerate(helper_cases):
+                cell = sheet.getCellByPosition(0, 5 + offset)
+                assert cell.getError() == expected_err, f"{helper_code}: got {cell.getError()} ({cell.getString()!r})"
             a3 = sheet.getCellByPosition(0, 2)
             a4 = sheet.getCellByPosition(0, 3)
             assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
@@ -598,6 +511,24 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
         cell_f1 = sheet.getCellByPosition(5, 0)
         assert cell_f1.getError() == 502
         assert sheet.getCellByPosition(5, 1).getValue() == 1.0
+
+        # Unpublished error payloads in spill neighbors are written as =#ERR503!.
+        unpub_code = "result = [[1, float('nan')]]"
+        sheet.getCellByPosition(7, 0).setFormula(f'=PY("{unpub_code}")')
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            7,
+            [[1, calc_formula_error_double(999)]],
+            doc=doc,
+            sheet=sheet,
+            code=unpub_code,
+            key=WorkbookState.for_doc(doc).key,
+        )
+        doc.calculateAll()
+        cell_i1 = sheet.getCellByPosition(8, 0)
+        assert cell_i1.getError() == 503
+        assert cell_i1.getFormula() in ("=#ERR503!", "=#NUM!"), cell_i1.getFormula()
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

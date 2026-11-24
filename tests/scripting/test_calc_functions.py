@@ -531,7 +531,8 @@ def test_isblank_isna_ifna_are_not_the_same_check():
     assert calc.isblank(float("nan")) is False
     assert calc.isna("#N/A") is True
     assert calc.isna("#n/a") is True
-    assert calc.isna(float("nan")) is True
+    assert calc.isna(float("nan")) is False
+    assert calc.isna(calc.na()) is True
     assert calc.isna("") is False
     assert calc.isna(None) is False
     assert calc.isna("#VALUE!") is False
@@ -539,7 +540,9 @@ def test_isblank_isna_ifna_are_not_the_same_check():
     assert calc.ifna(lambda: "", "alt") == ""
     assert calc.ifna(lambda: None, "alt") is None
     assert calc.ifna(lambda: "#N/A", "alt") == "alt"
-    assert calc.ifna(lambda: float("nan"), "alt") == "alt"
+    nan_res = calc.ifna(lambda: float("nan"), "alt")
+    assert isinstance(nan_res, float) and math.isnan(nan_res)
+    assert calc.ifna(lambda: calc.na(), "alt") == "alt"
 
 
 def test_yearfrac_basis_matches_days360_and_swaps_dates():
@@ -876,9 +879,9 @@ def test_logest_nonpositive_y_is_value_error():
     assert math.isclose(coeffs[1], 0.5)
 
 
-def test_mode_na_without_duplicates_and_lowest_tie():
+def test_mode_error_without_duplicates_and_lowest_tie():
     assert math.isnan(calc.mode([1, 2, 3]))
-    assert calc.isna(calc.mode([1, 2, 3])) is True
+    assert calc.isna(calc.mode([1, 2, 3])) is False
     assert calc.mode([2, 2, 1, 1]) == 1
     assert calc.mode([1, 1, 2]) == 1
 
@@ -1059,9 +1062,9 @@ def test_xnpv_rate_at_or_below_minus_one_is_nan():
     assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
 
 
-def test_trend_empty_known_y_is_value_error():
-    assert calc.trend([]) == "#VALUE!"
-    assert calc.trend([[]]) == "#VALUE!"
+def test_trend_empty_known_y_is_illegal_parameter():
+    assert calc.trend([]) == "Err:504"
+    assert calc.trend([[]]) == "Err:504"
     fitted = calc.trend([1.0, 2.0, 3.0])
     assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
 

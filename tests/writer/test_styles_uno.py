@@ -881,3 +881,80 @@ def test_apply_style_single_target_is_one_undo_step_uno(ctx, doc):
     assert portions["three"]["CharWeight"] == 150.0
 
 
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_para_adjust_start_uno(ctx, doc):
+    from plugin.tests.testing_utils import libreoffice_version
+
+    text = doc.getText()
+    text.setString("Alignment check")
+    cur = text.createTextCursor()
+    cur.gotoRange(text.getStart(), False)
+    cur.gotoRange(text.getEnd(), True)
+    cur.setPropertyValue("ParaAdjust", 3)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = StyleFormatText().execute(tool_ctx, properties={"ParaAdjust": "start"}, target="full_document")
+
+    para = text.createEnumeration().nextElement()
+    effective = para.getPropertyValue("ParaAdjust")
+    assert res["status"] == "ok", res
+    if libreoffice_version(ctx) >= (26, 2):
+        assert res["after"]["ParaAdjust"] == "start"
+        assert effective == 5
+    else:
+        assert res["after"]["ParaAdjust"] == "left"
+        assert effective == 0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tab_stop_words_reach_the_document_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.setString("Paragraph with tab stops")
+
+    style_name = "AgentTabStopStyle"
+    res_create = StyleCreate().execute(
+        tool_ctx,
+        style=style_name,
+        family="ParagraphStyles",
+        property_updates={"ParaTabStops": [{"Position": 2000, "Alignment": "right", "FillChar": "."}]},
+    )
+    assert res_create["status"] == "ok", res_create
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style = para_styles.getByName(style_name)
+    stops = style.getPropertyValue("ParaTabStops")
+    assert len(stops) == 1
+    assert stops[0].Position == 2000
+    assert stops[0].Alignment.value == "RIGHT"
+    assert stops[0].FillChar.value == "."
+
+    res_fmt = StyleFormatText().execute(
+        tool_ctx,
+        target="full_document",
+        properties={"ParaTabStops": [{"Position": 3000, "Alignment": "center", "FillChar": "_"}]},
+    )
+    assert res_fmt["status"] == "ok", res_fmt
+    para = text.createEnumeration().nextElement()
+    para_stops = para.getPropertyValue("ParaTabStops")
+    assert len(para_stops) == 1
+    assert para_stops[0].Position == 3000
+    assert para_stops[0].Alignment.value == "CENTER"
+    assert para_stops[0].FillChar.value == "_"
+
+    res_bad = StyleUpdate().execute(
+        tool_ctx,
+        style=style_name,
+        family="ParagraphStyles",
+        property_updates={"ParaTabStops": [{"Position": 1000, "Alignment": "SIDEWAYS"}]},
+    )
+    assert res_bad["status"] == "error", res_bad
+    assert res_bad["code"] == "INVALID_PARAM"
+    stops_after = style.getPropertyValue("ParaTabStops")
+    assert len(stops_after) == 1
+    assert stops_after[0].Position == 2000
+    assert stops_after[0].Alignment.value == "RIGHT"
+    assert stops_after[0].FillChar.value == "."
+

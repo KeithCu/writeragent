@@ -317,14 +317,13 @@ def test_every_para_writer_property_is_copied_by_range_reads(monkeypatch) -> Non
     Range and header reads copy paragraphs into a scratch document first, so any
     property missing from this list is dropped on range and header content reads.
     """
-    import sys
-    from plugin.writer import html_import_styles
+    from plugin.writer import html_import_styles, styles
 
     class _FakeStruct:
         Mode = 0
         Height = 0
 
-    monkeypatch.setitem(sys.modules["uno"].__dict__, "createUnoStruct", lambda _name: _FakeStruct())
+    monkeypatch.setitem(styles.uno.__dict__, "createUnoStruct", lambda _name: _FakeStruct())
     writers = html_import_styles._para_writers()
     assert writers
 

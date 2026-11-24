@@ -308,3 +308,30 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
         pos = t_end
 
     return out
+
+
+def math_placeholders(html: str, nonce: str) -> tuple[str, list[MathSegment]]:
+    """Replace math and TeX segments in *html* with ``[[WA-MATH:<nonce>:<i>]]`` tokens.
+
+    In an HTML segment next to a display math segment, drops the touching whitespace run
+    when it contains fewer than two newlines (a blank line is kept as a paragraph break).
+    """
+    segs = segment_html_with_mixed_math(html)
+    parts: list[str] = []
+    formulas: list[MathSegment] = []
+    for idx, seg in enumerate(segs):
+        if seg.kind == "html":
+            text = seg.text
+            if idx > 0 and segs[idx - 1].display_block:
+                lead = text[: len(text) - len(text.lstrip(" \t\r\n"))]
+                if lead and lead.count("\n") < 2:
+                    text = text[len(lead) :]
+            if idx + 1 < len(segs) and segs[idx + 1].display_block:
+                trail = text[len(text.rstrip(" \t\r\n")) :]
+                if trail and trail.count("\n") < 2:
+                    text = text[: len(text) - len(trail)]
+            parts.append(text)
+        else:
+            parts.append(f"[[WA-MATH:{nonce}:{len(formulas)}]]")
+            formulas.append(seg)
+    return "".join(parts), formulas

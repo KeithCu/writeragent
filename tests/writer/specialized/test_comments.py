@@ -37,7 +37,7 @@ def test_read_annotation_falls_back_to_paragraph_context():
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = 7
     with patch("plugin.writer.specialized.comments.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
-        entry = _read_annotation(field, [], MagicMock(), doc_svc)
+        entry = _read_annotation(field, [], MagicMock(), doc_svc, MagicMock())
     assert entry["anchor_preview"] == "the clause the comment covers"
     assert entry["anchor_is_paragraph_context"] is True
 
@@ -673,7 +673,7 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
 
     with patch("plugin.writer.specialized.comments.describe_match_location", return_value="body"), \
          patch("plugin.writer.specialized.comments.uno_same", return_value=True):
-        entry = _read_annotation(field, [], text_obj, doc_svc)
+        entry = _read_annotation(field, [], text_obj, doc_svc, MagicMock())
 
     assert "paragraph_index" not in entry
 
@@ -772,7 +772,7 @@ def test_read_annotation_disposal_propagates():
     field = MagicMock()
     field.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
     with pytest.raises(DocumentDisposedError):
-        _read_annotation(field, [], MagicMock(), MagicMock())
+        _read_annotation(field, [], MagicMock(), MagicMock(), MagicMock())
 
 
 def test_add_comment_empty_content_errors_without_search(monkeypatch):
