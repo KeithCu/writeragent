@@ -1353,7 +1353,7 @@ def test_apply_style_all_matches_leave_failure_is_not_ok():
          patch("plugin.writer.styles.next_agent_edit_undo_title", return_value="Agent Edit"):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
     assert res["status"] == "error"
-    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["code"] == "UNDO_CONTEXT_LEAK"
     assert "could not be closed" in res["message"]
     assert "leave failed" in res["message"]
 
