@@ -445,7 +445,10 @@ def test_surroundings_keeps_content_control_text_without_redlines():
             return self._raw_text
 
     para = _CtlPara(
-        [FakeUnoPortion("Text", "Name: "), FakeUnoPortion("ContentControl", "")],
+        [
+            FakeUnoPortion("Text", "Name: "),
+            FakeUnoPortion("ContentControl", inner=[FakeUnoPortion("Text", "John")]),
+        ],
         "Name: John",
         OutlineLevel=0,
     )

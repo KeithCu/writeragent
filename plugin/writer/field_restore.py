@@ -18,7 +18,7 @@ import re
 import uuid
 from typing import Any
 
-from plugin.doc.text_helpers import FAILED, iter_elements
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
@@ -330,7 +330,7 @@ def find_tokens(
                         if not tok.startswith(prefix):
                             continue
                         cur = xtext.createTextCursorByRange(portion.getStart())
-                        if cur.goRight(m.start(), False) is False:
+                        if not go_right(cur, m.start(), False):
                             continue
                         if cur.goRight(len(tok), True) is False:
                             continue

@@ -9,8 +9,8 @@ Public entries: ``document_to_content`` and ``xtext_to_content``.
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
-semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_ruby.extract_and_strip_ruby`` / ``apply_ruby_spans``).
+semantic post-process. Apply swaps ``<ruby>`` for placeholders then sets
+``RubyText`` on the base run (``html_ruby.ruby_placeholders`` / ``html_import._place_ruby``).
 """
 
 from __future__ import annotations
@@ -725,29 +725,47 @@ def _range_to_content_via_temp_doc(
 
 
 
+def _has_section_display(model: Any) -> bool:
+    """True when any text section has IsVisible=False (LO writes ``text:display``)."""
+    sections = uno_read(lambda: model.getTextSections(), None)
+    if sections is None:
+        return False
+    count = uno_read(lambda: sections.getCount(), 0)
+    if not isinstance(count, int) or count <= 0:
+        return False
+    for i in range(count):
+        sec = uno_read(lambda: sections.getByIndex(i), None)
+        if sec is not None and not uno_read(lambda: bool(sec.getPropertyValue("IsVisible")), True):
+            return True
+    return False
+
+
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, expanding tracked deletions first.
+    """Export the full document via XHTML, expanding tracked deletions and hidden sections first.
 
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
-    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks; when
-    tracked deletions cross a paragraph break or empty a paragraph, expand them
-    in the flat-ODF sidecar and export a hidden copy instead.
+    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks and
+    ``text:section[@text:display='none']``; when tracked deletions cross a
+    paragraph break or empty a paragraph, or any section has ``IsVisible``
+    false, rewrite the flat-ODF sidecar and export a hidden copy instead.
     """
-    fodt: str | None = None
-    if TrackedDeletions(model):
-        fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        expanded = xhtml_post.expand_tracked_deletions(fodt)
-        if expanded is not None:
-            with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
-                copy = load_scratch_document(get_desktop(ctx), url)
-                if copy is None:
-                    raise ToolExecutionError("Could not read the document (no scratch document).")
-                try:
-                    # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
-                    return _export_semantic(copy, read_ruby=True)
-                finally:
-                    best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
-    return _export_semantic(model, read_ruby=True, fodt=fodt)
+    deletions = bool(TrackedDeletions(model))
+    if not deletions and not _has_section_display(model):
+        return _export_semantic(model, read_ruby=True)
+    fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+    expanded = xhtml_post.expand_tracked_deletions(fodt) if deletions else None
+    readable = xhtml_post.show_hidden_sections(expanded or fodt)
+    if readable == fodt:
+        return _export_semantic(model, read_ruby=True, fodt=fodt)
+    with with_temp_buffer(readable, ext=FODT_EXTENSION) as (_path, url):
+        copy = load_scratch_document(get_desktop(ctx), url)
+        if copy is None:
+            raise ToolExecutionError("Could not read the document (no scratch document).")
+        try:
+            # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
+            return _export_semantic(copy, read_ruby=True)
+        finally:
+            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
 
 
 def document_to_content(

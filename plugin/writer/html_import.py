@@ -9,9 +9,10 @@ Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
 insert as the body path, pointed at a region ``XText``). It applies
 data-lo-style and data-lo-para like a ``full_document`` write.
 
-CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``extract_and_strip_ruby``
-drops the reading before import; ``apply_ruby_spans`` sets ``RubyText`` on each
-base run. Not a text field — do not use ``TextField.Ruby``.
+CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``ruby_placeholders``
+swaps each ``<ruby>`` for a ``[[WA-RUBY:…]]`` token before its base;
+``_place_ruby`` deletes the token and sets ``RubyText`` on the base run.
+Not a text field — do not use ``TextField.Ruby``.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks as _normalize,
     reset_direct_char_formatting,
     reset_properties_to_default,
+    section_own_shown,
 )
 from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.constants import HTML_WRITER_FILTER
@@ -119,7 +121,7 @@ def html_to_plain_text(html_string: str) -> str:
     if "<" not in html_string and "&" not in html_string:
         return html_string.strip()
 
-    stripped, _unused_ruby = html_ruby.extract_and_strip_ruby(html_string)
+    stripped = html_ruby.strip_ruby(html_string)
     return html_to_search_text(stripped).strip()
 
 
@@ -210,8 +212,8 @@ def _place_formulas(
 ) -> list[dict[str, Any]]:
     """Replace ``[[WA-MATH:<nonce>:<i>]]`` placeholders in *text_obj* with Math formulas.
 
-    Must run after style/ruby application (offsets are measured before formulas change the
-    text) and after ``restore_style`` (a style write resets a centred display-math paragraph).
+    Must run after style/ruby application and after ``restore_style`` (a style
+    write resets a centred display-math paragraph).
     """
     if not formulas:
         return []
@@ -275,10 +277,33 @@ def _insert_start_from_anchor(text_obj: Any, anchor: Any, cursor: Any) -> Any:
         return cursor
 
 
+def _place_ruby(text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str) -> None:
+    """Paint ``RubyText`` on the base text after each ``[[WA-RUBY:<nonce>:<i>]]`` token."""
+    if not spans:
+        return
+    prefix = html_ruby.ruby_token_prefix(nonce)
+    hits = field_restore.find_tokens(text_obj, prefix, html_ruby.RUBY_TOKEN_RE)
+    for cursor, m in hits:
+        idx = int(m.group(2))
+        if idx >= len(spans):
+            continue
+        span = spans[idx]
+        cursor.setString("")
+        if not go_right(cursor, len(span.base), True) or cursor.getString() != span.base:
+            log.warning("_place_ruby: base %r did not match at token %d", span.base, idx)
+            continue
+        cursor.setPropertyValue("RubyText", span.reading)
+        cursor.setPropertyValue("RubyIsAbove", bool(span.is_above))
+        # 0 = com.sun.star.text.RubyAdjust.LEFT
+        cursor.setPropertyValue("RubyAdjust", 0)
+    if len(hits) < len(spans):
+        log.warning("_place_ruby: found %d of %d ruby tokens", len(hits), len(spans))
+
+
 def _apply_ruby_and_restore_fields(
-    model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
+    model: Any, text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str
 ) -> None:
-    html_ruby.apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
+    _place_ruby(text_obj, spans, nonce)
     if model is not None:
         field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
 
@@ -299,45 +324,33 @@ def raise_if_no_table_added(added: int | None) -> None:
         raise ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED")
 
 
-def raise_if_hidden_start(model: Any) -> None:
-    """Refuse full_document when the document opens with a hidden section.
+def raise_if_hidden_section(model: Any) -> None:
+    """Refuse full_document when the document has any hidden section.
 
-    SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) skips hidden
-    sections, so full_document would leave the hidden section in place and
-    overwrite only what follows it.
+    A full read returns hidden section text, and importing that HTML back
+    creates a visible section instead.
     """
-    text = uno_read(lambda: model.getText(), None)
-    if text is None:
+    sections = uno_read(lambda: model.getTextSections(), None)
+    if sections is None:
         return
-    enum = uno_read(lambda: text.createEnumeration(), None)
-    if enum is None:
+    count = uno_read(lambda: sections.getCount(), 0)
+    if not isinstance(count, int) or count <= 0:
         return
-    first = None
-    for el in iter_elements(enum):
-        if not _uno_service_true(el, "com.sun.star.text.TextTable"):
-            first = el
-            break
-    if first is None:
-        return
-    cursor = uno_read(lambda: text.createTextCursor(), None)
-    if cursor is None:
-        return
-    cursor.gotoStart(False)
-    if uno_read(lambda: text.compareRegionStarts(first.getStart(), cursor), None) != 1:
-        return
-    section = uno_read(lambda: first.getPropertyValue("TextSection"), None)
-    while section is not None:
-        cur_sec: Any = section
-        if not uno_read(lambda: cur_sec.getPropertyValue("IsVisible"), True):
-            break
-        section = uno_read(lambda: cur_sec.getParentSection(), None)
-    sec_name = uno_read(lambda: section.getName(), "") if section is not None else ""
-    named = f" ({sec_name!r})" if sec_name else ""
-    raise ToolExecutionError(
-        f"Document starts with a hidden section{named} that target='full_document' cannot reach; "
-        "nothing was changed. Show it first with section_set_visibility, or edit with another target.",
-        code="HIDDEN_LEADING_SECTION",
-    )
+    hidden_names: list[str] = []
+    for i in range(count):
+        sec = uno_read(lambda: sections.getByIndex(i), None)
+        if sec is None:
+            continue
+        if not uno_read(lambda: section_own_shown(sec), True):
+            name = uno_read(lambda: str(sec.getName() or ""), "")
+            hidden_names.append(name or f"#{i}")
+    if hidden_names:
+        names = ", ".join(repr(n) for n in hidden_names)
+        raise ToolExecutionError(
+            f"Document has hidden sections ({names}) that target='full_document' would delete; "
+            "nothing was changed. Show them first with section_set_visibility, or edit with another target.",
+            code="HIDDEN_SECTION",
+        )
 
 
 def _sections_at(cursor: Any) -> list[Any]:
@@ -400,15 +413,14 @@ def _insert_mixed_or_plain_html(
     # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(unescaped_content)
-    # Expand literal \n and \t before measuring ruby offsets and StarWriter import
+    # Expand literal \n and \t before StarWriter import
     clean = html_import_styles.expand_escapes(clean)
-    # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
-    clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
+    # Replace <ruby> with a placeholder + base so StarWriter does not concatenate reading; paint RubyText after.
+    clean, ruby_spans = html_ruby.ruby_placeholders(clean, nonce)
     has_table = "<table" in clean.lower()
     tables_before = _table_count(model) if has_table else None
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
-    ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
@@ -455,8 +467,8 @@ def _insert_mixed_or_plain_html(
         failures = html_import_styles.declared_para_names(block_paras)
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     failures.extend(html_import_styles.declared_para_names(skipped_paras))
-    _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
-    # Run after styles and ruby so offsets are measured before formulas change the text.
+    _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
+    # Run after styles and ruby so a style write cannot reset a centred display-math paragraph.
     math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
     return html_import_styles.WriteReport(
         unapplied_para=failures,
@@ -737,7 +749,7 @@ def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
     inline_html, formulas = math_placeholders(inline_html, nonce)
     inline_html = html_import_styles.expand_escapes(inline_html)
-    inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+    inline_html, ruby_spans = html_ruby.ruby_placeholders(inline_html, nonce)
     return inline_html, ruby_spans, formulas, nonce
 
 
@@ -799,9 +811,8 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
             return []
         inline_html, ruby_spans, formulas, nonce = _prep_inline_html(swapped)
         text = cursor.getText()
-        ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
         _insert_raw_inline_html(model, text, cursor, inline_html)
-        _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
+        _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce)
         return _place_formulas(model, ctx, text, formulas, nonce)
 
 
@@ -1355,9 +1366,8 @@ def replace_single_range_with_content(
             # the host paragraph, and apply_paragraph_style_preserving_direct_char expands
             # to whole paragraphs.
             inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
-            ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
             _insert_raw_inline_html(model, text_obj, cursor, inline_html)
-            _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+            _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
             # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -1437,7 +1447,7 @@ def replace_xtext_with_html(
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
     expanded = html_import_styles.expand_escapes(expanded)
-    expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
+    expanded, ruby_spans = html_ruby.ruby_placeholders(expanded, nonce)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = ensure_html_linebreaks(clean)

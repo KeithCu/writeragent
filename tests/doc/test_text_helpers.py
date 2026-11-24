@@ -1566,12 +1566,17 @@ def test_build_heading_tree_keeps_unseen_live_headings():
         def createEnumeration(self):
             raise RuntimeError("unenumerable")
 
-    h_ctl = _RawTextPara([FakeUnoPortion("ContentControl", "")], "Ctl Heading", OutlineLevel=1)
+    h_ctl = _RawTextPara(
+        [FakeUnoPortion("ContentControl", inner=[FakeUnoPortion("Text", "Ctl Heading")])],
+        "Ctl Heading",
+        OutlineLevel=1,
+    )
+    h_meta = _RawTextPara([FakeUnoPortion("TextField", "")], "Meta Heading", OutlineLevel=1)
     h_bad = _UnenumerablePara([], OutlineLevel=1)
     h_next = FakeUnoPara([FakeUnoPortion("Text", "After")], OutlineLevel=1)
 
     body = MagicMock()
-    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_bad, h_next])
+    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_meta, h_bad, h_next])
     model = MagicMock()
     model.getText.return_value = body
     model.getRedlines.return_value.hasElements.return_value = False
@@ -1579,9 +1584,69 @@ def test_build_heading_tree_keeps_unseen_live_headings():
     tree = build_heading_tree(model)
     assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
         ("Ctl Heading", 0),
-        ("Unreadable", 1),
-        ("After", 2),
+        ("Meta Heading", 1),
+        ("Unreadable", 2),
+        ("After", 3),
     ]
+
+
+def test_visible_portions_flattens_nested_content_control_and_redlines():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    inner_ctl = FakeUnoPortion(
+        "ContentControl",
+        inner=[
+            FakeUnoPortion("Text", "ab"),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+            FakeUnoPortion("Text", "cd"),
+        ],
+    )
+    outer_ctl = FakeUnoPortion(
+        "ContentControl",
+        inner=[FakeUnoPortion("Text", "xx "), inner_ctl],
+    )
+    para = FakeUnoPara([
+        outer_ctl,
+        FakeUnoPortion("Text", "ef"),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", " yy"),
+    ])
+    state = DeletionState()
+    assert [c for _p, c in visible_portions(para, state=state)] == ["xx ", "ab", " yy"]
+    assert state.in_delete is False
+
+
+def test_visible_portions_limit_counts_inner_portions():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    para = FakeUnoPara([
+        FakeUnoPortion("ContentControl", inner=[FakeUnoPortion("Text", "a"), FakeUnoPortion("Text", "b")]),
+        FakeUnoPortion("Text", "c"),
+    ])
+    truncated: list[int] = []
+    chunks = [c for _p, c in visible_portions(para, limit=1, truncated_out=truncated, state=DeletionState())]
+    assert chunks == ["a"]
+    assert truncated == [1]
+
+
+def test_visible_portions_abort_on_unreadable_inner_portion():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _BadTypePortion(FakeUnoPortion):
+        def getPropertyValue(self, name: str):
+            raise RuntimeError("unreadable")
+
+    para = FakeUnoPara([
+        FakeUnoPortion(
+            "ContentControl",
+            inner=[FakeUnoPortion("Text", "a"), _BadTypePortion("Text", "b"), FakeUnoPortion("Text", "c")],
+        ),
+    ])
+    chunks = [c for _p, c in visible_portions(para, abort_on_portion_error=True, state=DeletionState())]
+    assert chunks == ["a"]
 
 
 def test_visible_point_in_paragraph():

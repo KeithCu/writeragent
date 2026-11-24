@@ -11,7 +11,6 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import enum_has_more
 from plugin.doc.text_helpers import (
     FAILED,
     DeletionState,
@@ -38,15 +37,6 @@ def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, d
     ph = chr(0xE000 + len(records))
     records.append((ph, read_starmath(emb), display_block))
     return ph
-
-
-def iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
-    for portion in iter_elements(portions):
-        try:
-            kind = portion.getPropertyValue("TextPortionType")
-        except Exception:
-            break
-        yield portion, kind
 
 
 def _portion_field(portion: Any) -> Any:
@@ -871,39 +861,6 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
     return fields_copied
 
 
-def cell_has_visible_text(cell: Any) -> bool:
-    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
-
-    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
-    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
-    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
-    read as visible.
-    """
-    para_enum = uno_read(cell.createEnumeration, None)
-    if para_enum is None:
-        return bool(uno_read(cell.getString, ""))
-    in_delete = False
-    while enum_has_more(para_enum):
-        para = para_enum.nextElement()
-        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
-            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
-                return True
-            continue
-        portion_enum = uno_read(para.createEnumeration, None)
-        if portion_enum is None:
-            continue
-        while enum_has_more(portion_enum):
-            portion = portion_enum.nextElement()
-            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
-            if ptype == "Redline":
-                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
-                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
-                continue
-            if not in_delete and uno_read(portion.getString, ""):
-                return True
-    return False
-
-
 def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
     """True when *cells* have some raw text and no cell has visible text left."""
     deletions = TrackedDeletions(doc)
@@ -957,18 +914,6 @@ ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
     "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 ) + GRAPHIC_LAYOUT_PROPS
-
-
-def prefix_char_count(text_obj: Any, cursor: Any) -> int:
-    """``getString()`` length from the start of *text_obj* to *cursor*.
-
-    Captured before import so we can apply ruby only to the inserted suffix.
-    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
-    """
-    measure = text_obj.createTextCursor()
-    measure.gotoStart(False)
-    measure.gotoRange(cursor.getStart(), True)
-    return len(measure.getString() or "")
 
 
 def copy_xtext_into_doc(

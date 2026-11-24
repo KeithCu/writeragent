@@ -710,11 +710,11 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
         assert sv_res["status"] == "ok", sv_res
         res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
         assert res.get("status") == "error", (res, with_table)
-        assert res.get("code") == "HIDDEN_LEADING_SECTION", res
+        assert res.get("code") == "HIDDEN_SECTION", res
         assert "secret" in doc.getTextSections().getByName(f"HiddenTop_{with_table}").getAnchor().getString()
         assert "tail" in text.getString()
 
-    # 2b. Negative cases for raise_if_hidden_start: visible leading section, hidden middle section, leading table.
+    # 2b. Visible leading section is allowed, hidden middle section is refused (HIDDEN_SECTION), leading table is allowed.
     _clear_body(doc)
     cur = text.createTextCursor()
     cur.gotoStart(False)
@@ -736,7 +736,10 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
     text.insertString(cur, "mid", False)
     assert SectionCreate().execute(tctx, name="HidMid", locator="paragraph:1")["status"] == "ok"
     assert SectionSetVisibility().execute(tctx, name="HidMid", visible=False)["status"] == "ok"
-    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>").get("status") == "ok"
+    mid_res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>")
+    assert mid_res.get("status") == "error", mid_res
+    assert mid_res.get("code") == "HIDDEN_SECTION", mid_res
+    assert "mid" in doc.getTextSections().getByName("HidMid").getAnchor().getString()
 
     _clear_body(doc)
     tbl = doc.createInstance("com.sun.star.text.TextTable")
