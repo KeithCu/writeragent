@@ -165,7 +165,6 @@ def main(argv: list[str] | None = None):
         print(note, flush=True)
     examples = selected.examples
 
-    tools_lo.VERBOSE = args.verbose
     n = len(examples)
     if args.student == "scripted":
         print(f"Running {n} example(s) with scripted student (no API, result oracles).\n")
@@ -196,7 +195,7 @@ def main(argv: list[str] | None = None):
                 return 1
 
             print("=" * 60)
-            print("PROMPT A: Current (get_writer_eval_chat_system_prompt)")
+            print("PROMPT A: Current (get_eval_system_prompt)")
             print("=" * 60)
             results_a = run_eval_on_examples_llm(
                 examples,

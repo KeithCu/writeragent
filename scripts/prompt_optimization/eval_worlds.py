@@ -22,6 +22,8 @@ from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     SortKey,
     _delimited_text_message,
+    _first_ragged_row,
+    _grid_mismatch_message,
     _parse_json_array_string,
     _sort_done_message,
     _sort_keys_width_error,
@@ -29,6 +31,7 @@ from plugin.calc.manipulator import (
     _values_length_mismatch_message,
     parse_then_by,
 )
+from plugin.writer.search import case_ladder, parse_non_negative_int
 from plugin.draw.tree import (
     build_shape_tree,
     custom_shape_geometry,
@@ -353,9 +356,20 @@ class WriterWorld:
         """Hook for a later multi-turn refresh. Same as get_html today."""
         return self._html
 
+    def _find_spans(self, needle: str, case_sensitive: bool | None) -> list[tuple[int, int]]:
+        escaped = re.escape(needle)
+        for cs in case_ladder(case_sensitive):
+            flags = 0 if cs else re.IGNORECASE
+            spans = [(m.start(), m.end()) for m in re.finditer(escaped, self._html, flags)]
+            if spans:
+                return spans
+        return []
+
     def get_content(self, **kwargs: Any) -> dict[str, Any]:
         scope = kwargs.get("scope")
         max_chars = kwargs.get("max_chars")
+        if max_chars is not None and max_chars < 1:
+            return make_tool_error("max_chars must be a positive integer.")
         text = self._html
         if scope == "range":
             start = kwargs.get("start")
@@ -377,21 +391,57 @@ class WriterWorld:
         }
 
     def apply_content(self, **kwargs: Any) -> dict[str, Any]:
-        content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
+        start_anchor = kwargs.get("start_anchor")
+        end_anchor = kwargs.get("end_anchor")
         target = kwargs.get("target")
-        if not target and old_content is not None:
+        if not target and (
+            old_content is not None or start_anchor is not None or end_anchor is not None
+        ):
             target = "search"
+        if start_anchor is not None or end_anchor is not None:
+            return unsupported_in_eval("apply_content start_anchor/end_anchor")
+        if kwargs.get("dry_run"):
+            return unsupported_in_eval("apply_content dry_run=true")
+        position = kwargs.get("position")
+        if position in ("before", "after"):
+            return unsupported_in_eval(f"apply_content position={position}")
+        if target == "search":
+            if kwargs.get("regex"):
+                return unsupported_in_eval("apply_content regex=true")
+            if (kwargs.get("hyperlink_url") or "").strip():
+                return unsupported_in_eval("apply_content hyperlink_url")
         if not target:
-            return {
-                "status": "error",
-                "message": "Provide target or old_content for search.",
-            }
+            return make_tool_error(
+                "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') "
+                "or old_content for find-and-replace.",
+                code="INVALID_PARAM",
+            )
         if target == "search" and old_content is None:
-            return {"status": "error", "message": "target='search' requires old_content."}
+            return make_tool_error(
+                "target='search' requires old_content or start_anchor and end_anchor.",
+                code="INVALID_PARAM",
+            )
 
-        content = normalize_apply_content(content)
         all_matches = bool(kwargs.get("all_matches"))
+        occurrence = kwargs.get("occurrence")
+        occ_idx: int | None = None
+        if occurrence is not None:
+            if target != "search":
+                return make_tool_error(
+                    "occurrence only applies to target='search'.",
+                    code="INVALID_PARAM",
+                )
+            if all_matches:
+                return make_tool_error(
+                    "occurrence cannot be combined with all_matches=true.",
+                    code="INVALID_PARAM",
+                )
+            occ_idx, occ_err = parse_non_negative_int(occurrence)
+            if occ_err:
+                return make_tool_error(occ_err, code="INVALID_PARAM")
+
+        content = normalize_apply_content(kwargs.get("content", ""))
 
         if target == "full_document":
             self._html = content
@@ -418,70 +468,67 @@ class WriterWorld:
             self._html = self._html + content
             self._sync_blocks()
             return {"status": "ok", "message": "Inserted content (simulated selection)."}
-        if target == "search":
-            old = str(old_content).strip()
-            if not old:
-                return {"status": "error", "message": "old_content is empty after normalization."}
-            if old not in self._html:
-                if all_matches:
-                    return {
-                        "status": "error",
-                        "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring.",
-                        "replaced_count": 0,
-                    }
-                return {
-                    "status": "error",
-                    "message": "old_content not found in document. Try a shorter, unique substring.",
-                    "replaced_count": 0,
-                }
-            if all_matches:
-                count = self._html.count(old)
-                self._html = self._html.replace(old, content)
-                self._sync_blocks()
-                return {
-                    "status": "ok",
-                    "message": "Replaced %d occurrence(s)." % count,
-                    "replaced_count": count,
-                }
-            self._html = self._html.replace(old, content, 1)
+
+        old = str(old_content).strip()
+        if not old:
+            return make_tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
+        spans = self._find_spans(old, kwargs.get("case_sensitive"))
+        if not spans:
+            msg = (
+                "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
+                if all_matches
+                else "old_content not found in document. Try a shorter, unique substring."
+            )
+            return make_tool_error(
+                msg,
+                code="OLD_CONTENT_NOT_FOUND",
+                top_level={"replaced_count": 0},
+            )
+        if all_matches:
+            html = self._html
+            for start, end in reversed(spans):
+                html = html[:start] + content + html[end:]
+            self._html = html
             self._sync_blocks()
             return {
                 "status": "ok",
-                "message": "Replaced 1 occurrence (by old_content).",
-                "replaced_count": 1,
+                "message": "Replaced %d occurrence(s)." % len(spans),
+                "replaced_count": len(spans),
             }
-        return {"status": "error", "message": f"Unknown target: {target!r}"}
+        chosen = occ_idx if occ_idx is not None else 0
+        if chosen >= len(spans):
+            return make_tool_error(
+                f"occurrence {chosen} out of range (found {len(spans)} match(es), use 0..{len(spans) - 1}).",
+                code="OCCURRENCE_OUT_OF_RANGE",
+                count=len(spans),
+            )
+        start, end = spans[chosen]
+        self._html = self._html[:start] + content + self._html[end:]
+        self._sync_blocks()
+        res: dict[str, Any] = {
+            "status": "ok",
+            "message": "Replaced 1 occurrence (by old_content).",
+            "replaced_count": 1,
+        }
+        if occ_idx is not None:
+            res["occurrence"] = occ_idx
+        return res
 
     def search(self, **kwargs: Any) -> dict[str, Any]:
         """Production name. Offsets are into exported HTML."""
+        limit = kwargs["max_results"]
+        if limit < 1:
+            return make_tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
         pattern = kwargs["pattern"]
         if not pattern:
             return make_tool_error("pattern is required.", code="INVALID_PARAM")
-        limit = kwargs["max_results"]
-        case_sensitive = kwargs["case_sensitive"]
-        hay = self._html
-        if not case_sensitive:
-            hay_l = hay.lower()
-            needle_l = pattern.lower()
-        else:
-            hay_l = hay
-            needle_l = pattern
-        ranges: list[dict[str, Any]] = []
-        pos = 0
-        while True:
-            idx = hay_l.find(needle_l, pos)
-            if idx == -1:
-                break
-            ranges.append(
-                {
-                    "start": idx,
-                    "end": idx + len(pattern),
-                    "text": hay[idx : idx + len(pattern)],
-                }
-            )
-            pos = idx + 1
-            if len(ranges) >= limit:
-                break
+        if kwargs["regex"]:
+            return unsupported_in_eval("search regex=true")
+        spans = self._find_spans(pattern, kwargs["case_sensitive"])[:limit]
+        ranges = [
+            {"start": start, "end": end, "text": self._html[start:end]}
+            for start, end in spans
+        ]
         matches = [
             {
                 "location": "body",
@@ -496,43 +543,52 @@ class WriterWorld:
     def comment_add(self, **kwargs: Any) -> dict[str, Any]:
         """Anchor a visible ``[comment]`` after the search hit (no UNO annotation)."""
         content = kwargs["content"]
+        if not content:
+            return make_tool_error("Provide content.")
+        if (kwargs.get("parent_name") or "").strip():
+            return unsupported_in_eval("comment_add parent_name")
         search = kwargs.get("search") or ""
         if not search:
-            return {"status": "error", "message": "Provide search.", "comment_added": False}
-        if not content:
-            return {"status": "error", "message": "Provide content.", "comment_added": False}
-        occurrence = kwargs["occurrence"]
-        hay = self._html
-        idx = -1
-        pos = 0
-        for _i in range(occurrence + 1):
-            idx = hay.find(search, pos)
-            if idx < 0:
-                break
-            pos = idx + 1
-        if idx < 0:
-            where = (" at occurrence %d" % occurrence) if occurrence else ""
-            return {
-                "status": "error",
-                "message": "Text '%s' not found%s." % (search, where),
-                "matched": False,
-                "comment_added": False,
-            }
+            return make_tool_error("Provide search.")
+        occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence"))
+        if occ_err:
+            return make_tool_error(
+                occ_err,
+                code="INVALID_PARAM",
+                top_level={"matched": False, "comment_added": False},
+            )
+        occurrence = occ_val or 0
+        spans = self._find_spans(search, kwargs.get("case_sensitive"))
+        if not spans:
+            return make_tool_error(
+                "search not found in document. Try a shorter, unique substring.",
+                code="OLD_CONTENT_NOT_FOUND",
+                top_level={"replaced_count": 0, "matched": False, "comment_added": False},
+            )
+        if occurrence >= len(spans):
+            return make_tool_error(
+                f"occurrence {occurrence} out of range (found {len(spans)} match(es), use 0..{len(spans) - 1}).",
+                code="OCCURRENCE_OUT_OF_RANGE",
+                top_level={"matched": False, "comment_added": False},
+                count=len(spans),
+            )
+        start, end = spans[occurrence]
+        anchor_text = self._html[start:end]
         insert = f" [{content}]"
-        self._html = hay[: idx + len(search)] + insert + hay[idx + len(search) :]
+        self._html = self._html[:end] + insert + self._html[end:]
         self._sync_blocks()
         return {
             "status": "ok",
             "comment_added": True,
             "matched": True,
-            "anchor_text": search,
+            "anchor_text": anchor_text,
         }
 
     def apply_style(self, **kwargs: Any) -> dict[str, Any]:
         """Map production apply_style onto HTML tags / data-lo-style (no UNO families)."""
         style_name = (kwargs.get("style") or "").strip()
         if not style_name:
-            return {"status": "error", "message": "style is required."}
+            return make_tool_error("style is required.", code="INVALID_PARAM")
         family = kwargs.get("family")
         if family == "CharacterStyles":
             return {
@@ -557,18 +613,16 @@ class WriterWorld:
                 )
                 self.set_html(html)
                 return {"status": "ok", "message": "Applied Quotations to Default paragraphs."}
-            return {
-                "status": "error",
-                "message": "full_document apply_style in the string harness needs target=search.",
-            }
-        if target not in ("search", "selection") or old_content is None:
-            return {
-                "status": "error",
-                "message": "Provide target='search' and old_content for apply_style.",
-            }
-        needle = str(old_content).strip()
+            return unsupported_in_eval("apply_style target=full_document")
+        if target != "search":
+            return unsupported_in_eval(f"apply_style target={target}")
+        needle = str(old_content).strip() if old_content is not None else ""
         if not needle:
-            return {"status": "error", "message": "old_content is empty."}
+            return make_tool_error(
+                "target='search' requires old_content.",
+                code="INVALID_PARAM",
+                top_level={"applied": False, "matched": False},
+            )
         self.set_html(
             restyle_html_needle(
                 self._html,
@@ -954,10 +1008,10 @@ class CalcWorld:
         has_header = kwargs["has_header"]
         then_by = parse_then_by(kwargs.get("then_by", []))
         if then_by is None:
-            return {
-                "status": "error",
-                "message": 'then_by must be a list of {"column": <integer >= 0>, "ascending": true|false} objects',
-            }
+            return make_tool_error(
+                'then_by must be a list of {"column": <integer >= 0>, "ascending": true|false} objects',
+                code="INVALID_PARAM",
+            )
 
         ranges = kwargs["range"]
         if not ranges:
@@ -972,7 +1026,7 @@ class CalcWorld:
             keys: list[SortKey] = [(col_idx, ascending), *then_by]
             width_error = _sort_keys_width_error(range_str, keys, width)
             if width_error is not None:
-                return {"status": "error", "message": width_error}
+                return make_tool_error(width_error, code="INVALID_PARAM")
             parsed_ranges.append((range_str, c0, r0, c1, r1, keys))
 
         results: list[str] = []
@@ -1026,7 +1080,7 @@ class CalcWorld:
     @staticmethod
     def _plan_eval_write(
         rng: str, raw_values: Any
-    ) -> tuple[list[Any], tuple[int, int, int, int]] | str:
+    ) -> tuple[list[Any], tuple[int, int, int, int]] | dict[str, Any]:
         c0, r0, c1, r1 = parse_a1_range(rng)
         num_rows = r1 - r0 + 1
         num_cols = c1 - c0 + 1
@@ -1034,40 +1088,47 @@ class CalcWorld:
         if raw_values is None or raw_values in ("", [], "[]", "{}"):
             return ([], (c0, r0, c1, r1))
 
+        scalar = False
         values: Any = raw_values
         if isinstance(values, str):
             parsed = _parse_json_array_string(values)
             if parsed is None:
                 refusal = _delimited_text_message(rng, values, single_cell=(c0 == c1 and r0 == r1))
                 if refusal:
-                    return refusal
-            values = parsed if parsed is not None else [values]
+                    return make_tool_error(refusal, code="INVALID_PARAM")
+                values = [values]
+                scalar = True
+            else:
+                values = parsed
         elif isinstance(values, (list, tuple)):
             values = list(values)
         else:
             values = [values]
+            scalar = True
 
         rows_2d = bool(values) and isinstance(values[0], (list, tuple))
         if rows_2d:
             r_cnt, c_cnt = len(values), len(values[0])
-            ragged = not all(
-                isinstance(row, (list, tuple)) and len(row) == c_cnt for row in values
-            )
-            if total > 1 and (ragged or (r_cnt, c_cnt) != (num_rows, num_cols)):
-                return f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}."
+            bad_row = _first_ragged_row(values)
+            if total > 1 and (bad_row is not None or (r_cnt, c_cnt) != (num_rows, num_cols)):
+                return make_tool_error(
+                    _grid_mismatch_message(rng, values, num_rows, num_cols, (c0, r0), bad_row),
+                    code="CALC_ERROR",
+                )
             if total == 1:
-                if ragged:
-                    return (
-                        f"Array is {r_cnt}x{max(len(r) for r in values)} "
-                        "but range is 1x1."
+                if bad_row is not None:
+                    return make_tool_error(
+                        _grid_mismatch_message(rng, values, 1, 1, (c0, r0), bad_row),
+                        code="CALC_ERROR",
                     )
                 c1 = c0 + c_cnt - 1
                 r1 = r0 + r_cnt - 1
             flat = [v for row in values for v in row]
         else:
-            if len(values) != total and not (len(values) == 1 and total > 1):
-                return _values_length_mismatch_message(
-                    rng, len(values), total, num_rows, num_cols
+            if len(values) != total and not scalar:
+                return make_tool_error(
+                    _values_length_mismatch_message(rng, len(values), total, num_rows, num_cols),
+                    code="CALC_ERROR",
                 )
             flat = values
         return (flat, (c0, r0, c1, r1))
@@ -1081,13 +1142,20 @@ class CalcWorld:
         if "values" not in kwargs:
             return make_tool_error("values is required when source is omitted", code="INVALID_PARAM")
         raw_values = kwargs["values"]
+        if kwargs.get("array") and isinstance(raw_values, str) and raw_values not in ("", "[]", "{}"):
+            if not raw_values.lstrip().startswith("="):
+                return make_tool_error(
+                    "array=true needs a formula starting with '='.",
+                    code="CALC_ERROR",
+                )
+            return unsupported_in_eval("write_range array=true")
         written = 0
         dests: list[str] = []
         plans: list[tuple[str, list[Any], tuple[int, int, int, int]]] = []
         for rng in ranges:
             plan = self._plan_eval_write(str(rng), raw_values)
-            if isinstance(plan, str):
-                return {"status": "error", "message": plan}
+            if isinstance(plan, dict):
+                return plan
             flat, bounds = plan
             plans.append((str(rng), flat, bounds))
         for rng_str, flat, bounds in plans:

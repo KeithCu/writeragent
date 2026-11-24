@@ -259,3 +259,64 @@ def test_eval_zero_tool_edit_reply_ends_run(monkeypatch) -> None:
     assert err is None
     assert client.calls == 1
     assert trace == []
+
+
+def test_workflow_finished_without_answer_fails_delegation(monkeypatch: Any) -> None:
+    from eval_worlds import CalcWorld
+
+    fake_inner = _FakeInnerClient(
+        [
+            {
+                "content": "",
+                "tool_calls": [_tc("workflow_finished", {}, tid="c1")],
+                "usage": {},
+            }
+        ]
+    )
+    monkeypatch.setattr(llm_chat_eval, "_build_api_config", lambda **kw: {"model": kw["model"]})
+    monkeypatch.setattr(llm_chat_eval, "LlmClient", lambda cfg, ctx: fake_inner)
+    monkeypatch.setattr(llm_chat_eval, "_eval_tools", lambda **kw: [])
+
+    state = CalcWorld("A\tB\n1\t2")
+    out = json.loads(
+        llm_chat_eval._run_specialized_inner(
+            kind="calc",
+            domain="ranges",
+            task="Sort",
+            state=state,
+            client=None,
+            endpoint="http://unused",
+            api_key="",
+            model="test-model",
+            backend="string",
+            max_tokens=256,
+            verbose=False,
+            student="llm",
+            usage_acc={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            trace=[],
+        )
+    )
+    assert out["status"] == "error"
+    assert out["code"] == "VALIDATION_ERROR"
+    assert len(fake_inner.calls) == 1
+
+
+def test_workflow_finished_same_on_both_backends(monkeypatch: Any) -> None:
+    from eval_worlds import WriterWorld
+
+    def _boom(*_a: Any, **_kw: Any) -> str:
+        raise AssertionError("workflow_finished must not touch LibreOffice")
+
+    monkeypatch.setattr(llm_chat_eval, "_dispatch_lo_tool", _boom)
+    state = WriterWorld("<p>Hi</p>")
+    out = json.loads(
+        llm_chat_eval._dispatch_world_tool(
+            state,
+            "workflow_finished",
+            json.dumps({"answer": None}),
+            backend="lo",
+            verbose=False,
+        )
+    )
+    assert out["status"] == "ok"
+    assert out["answer"] == ""

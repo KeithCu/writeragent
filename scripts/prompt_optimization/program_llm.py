@@ -111,7 +111,7 @@ class LiveEvalStudent(dspy.Module):
         total_tok = int(usage.get("total_tokens", 0))
         if total_tok == 0 and (prompt_tok or completion_tok):
             total_tok = prompt_tok + completion_tok
-        # get_lm_usage shape matches metric._get_total_tokens (DSPy ReAct path).
+        # get_lm_usage shape matches metric._get_total_tokens.
         usage_payload = {
             self.model or "llm_chat_eval": {
                 "prompt_tokens": prompt_tok,
