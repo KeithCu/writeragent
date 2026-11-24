@@ -23,6 +23,7 @@ from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
+from .range_copy import table_is_all_deleted
 from .record_changes import is_recording_changes
 
 log = logging.getLogger("writeragent.writer")
@@ -87,7 +88,7 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
             try:
                 props[prop] = obj.getPropertyValue(prop)
             except Exception as exc:
-                log.debug("_swap_image_placeholders: skip property %s: %s", prop, exc)
+                log.debug("capture_placeholder_images: skip property %s: %s", prop, exc)
         marker = "wa%simg%d" % (nonce, len(kept))
         kept.append(_KeptImage(marker, name, obj, obj.getPropertyValue("Graphic"),
                                obj.getPropertyValue("AnchorType"), obj.getSize(), props))
@@ -140,9 +141,10 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
                     False,
                 ):
                     return False  # the last paragraph has no break: it stays
-                # A table cell's last paragraph has no trailing break, yet a struck
-                # table deletes the cell; check whether the anchor itself is in a Delete redline.
-                point = anchor
+                # A cell's last paragraph has no trailing break; restore only when the whole
+                # table is struck (not on a search-replace inside the cell).
+                table = uno_read(lambda: point.getPropertyValue("TextTable"), None)
+                return table is not None and table_is_all_deleted(table)
         except Exception as exc:
             reraise_if_disposed(exc)
             return False

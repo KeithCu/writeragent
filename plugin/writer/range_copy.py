@@ -11,7 +11,13 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.doc.text_helpers import FAILED, iter_elements, visible_portions
+from plugin.framework.uno_context import enum_has_more
+from plugin.doc.text_helpers import (
+    FAILED,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    visible_portions,
+)
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -807,7 +813,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
-            # graphics=False: page-style clones omit cell images (not cloned here).
+            # graphics=False: page-style clone handles only graphics anchored in the
+            # region text (page._copy_region_graphics); cell images are an open limit.
             copy_table(el, doc, dest_text, cursor, None)
             continue
         try:
@@ -834,6 +841,58 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
         _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied
+
+
+def cell_has_visible_text(cell: Any) -> bool:
+    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
+
+    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
+    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
+    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
+    read as visible.
+    """
+    para_enum = uno_read(cell.createEnumeration, None)
+    if para_enum is None:
+        return bool(uno_read(cell.getString, ""))
+    in_delete = False
+    while enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
+            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
+                return True
+            continue
+        portion_enum = uno_read(para.createEnumeration, None)
+        if portion_enum is None:
+            continue
+        while enum_has_more(portion_enum):
+            portion = portion_enum.nextElement()
+            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
+            if ptype == "Redline":
+                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
+                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
+                continue
+            if not in_delete and uno_read(portion.getString, ""):
+                return True
+    return False
+
+
+def cells_all_tracked_deleted(cells: list[Any]) -> bool:
+    """True when *cells* have some raw text and no cell has visible text left."""
+    has_raw = False
+    for cell in cells:
+        if uno_read(cell.getString, ""):
+            has_raw = True
+        if uno_read(lambda: cell_has_visible_text(cell), True):
+            return False
+    return has_raw
+
+
+def table_is_all_deleted(table: Any) -> bool:
+    """True when every cell of *table* has lost all visible text (with some raw text)."""
+    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
+    if not names:
+        return False
+    return cells_all_tracked_deleted([table.getCellByName(n) for n in names])
 
 
 # TextGraphicObject property list (shared with page._copy_region_graphics).

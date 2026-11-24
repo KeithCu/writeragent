@@ -188,7 +188,6 @@ def test_deleted_by_the_edit():
 
 
 def test_deleted_by_the_edit_name_guard():
-    from types import SimpleNamespace
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer import image_placeholders
 
@@ -222,36 +221,6 @@ def test_deleted_by_the_edit_name_guard():
     model.getGraphicObjects.side_effect = DocumentDisposedError("doc disposed")
     with pytest.raises(DocumentDisposedError):
         image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1")
-
-    # 5. AT_PARAGRAPH in a cell's last paragraph (goRight False) checks the anchor in Delete redlines
-    cell = MagicMock()
-    cell.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.CellProperties"
-    cell.compareRegionStarts.return_value = 0
-    cell.compareRegionEnds.return_value = 0
-    cur = MagicMock()
-    cur.goRight.return_value = False
-    cell.createTextCursorByRange.return_value = cur
-
-    anchor = MagicMock()
-    anchor.getText.return_value = cell
-    original = MagicMock()
-    original.getAnchor.return_value = anchor
-    original.getPropertyValue.return_value = SimpleNamespace(value="AT_PARAGRAPH")
-
-    redline = MagicMock()
-    redline.getPropertyValue.side_effect = lambda k: (
-        "Delete" if k == "RedlineType" else MagicMock(getText=lambda: cell)
-    )
-    model = MagicMock()
-    model.getGraphicObjects.return_value.hasByName.return_value = True
-    model.getPropertyValue.return_value = True
-    model.getRedlines.return_value.getCount.return_value = 1
-    redline_items = [redline]
-    model.getRedlines.return_value.createEnumeration.return_value = SimpleNamespace(
-        hasMoreElements=lambda: bool(redline_items),
-        nextElement=lambda: redline_items.pop(0),
-    )
-    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
 
 
 def test_restore_image_placeholders_passes_name():

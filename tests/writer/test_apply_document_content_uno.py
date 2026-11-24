@@ -571,6 +571,65 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
                 execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
             assert doc.getGraphicObjects().getCount() == 1, (mode, anchor_type)
             assert "updated" in doc.getText().getString(), (mode, anchor_type)
+
+        # Case A: record mode, search-replace inside a 1-para cell with AT_PARAGRAPH image leaves 1 image
+        save({flag: "record"})
+        _clear_body(doc)
+        text = doc.getText()
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        cell = tbl.getCellByName("A1")
+        cell.setString("logo")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(png)
+            img_path = f.name
+        try:
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("Width", 500)
+            g.setPropertyValue("Height", 500)
+            cell.insertTextContent(cell.getStart(), g, False)
+        finally:
+            os.unlink(img_path)
+        res_sr = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="logo", content="newlogo"
+        )
+        assert res_sr.get("status") == "ok", res_sr
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
+
+        # Case B: record mode, full_document on [T(textless logo cell | company text), tail]
+        _clear_body(doc)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 2)
+        text.insertTextContent(text.getStart(), tbl, False)
+        logo_cell = tbl.getCellByName("A1")
+        tbl.getCellByName("B1").setString("company text")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(png)
+            img_path = f.name
+        try:
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("Width", 500)
+            g.setPropertyValue("Height", 500)
+            logo_cell.insertTextContent(logo_cell.getStart(), g, False)
+        finally:
+            os.unlink(img_path)
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        html_b = document_to_content(doc, ctx, scope="full")
+        assert 'src=""' in html_b, html_b
+        res_b = ApplyDocumentContent().execute(
+            tctx, target="full_document", content=html_b.replace("tail", "updated")
+        )
+        assert res_b.get("status") == "ok", res_b
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

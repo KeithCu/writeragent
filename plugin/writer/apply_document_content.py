@@ -1398,9 +1398,8 @@ class ApplyDocumentContent(ToolBase):
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
-                kwargs = {"kept_images": captured} if captured[1] else {}
                 rep = html_import.replace_full_document(
-                    ctx.doc, ctx.ctx, content, **kwargs
+                    ctx.doc, ctx.ctx, content, kept_images=captured
                 )
                 _verify_table_insert(ctx.doc, 0 if has_table else None)
                 return rep

@@ -1155,7 +1155,6 @@ def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any
         getStart=lambda: tbl.getCellByName("A1").getStart(),
         getEnd=lambda: text.getEnd(),
     )
-    assert uno_same(body_sel.getText(), text)
     assert uno_read(lambda: text.createTextCursorByRange(body_sel.getStart()), None) is None
     html = document_to_content(doc, ctx, scope="selection", selection=body_sel)
     assert "T0" in html and "tail" in html and "BEFORE_PARA" not in html, html

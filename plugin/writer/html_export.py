@@ -380,9 +380,11 @@ def _selection_cursor(model: Any, selection: Any | None = None) -> Any | None:
     A selection starting in a body table and ending in the body has two forms:
     Ctrl+A (``SwCursorShell::ExtendedSelectAll``, ``sw/source/core/crsr/crsrsh.cxx``)
     gives ``SwXCell`` whose ``createXTextCursorByRangeImpl`` (``unotbl.cxx``) returns
-    None for an end outside the cell, and Shift+arrow gives ``SwXBodyText`` whose
-    ``createTextCursorByRange`` raises for a start inside a cell. Both fall back to
-    ``_table_start_range``.
+    None for an end outside the cell, and a programmatic ``SwXBodyText`` range whose
+    ``start`` is inside a cell causes ``createTextCursorByRange`` to raise (interactive
+    Shift+arrow cannot leave a table because ``SwCursor::IsSelOvr`` in
+    ``sw/source/core/crsr/swcrsr.cxx`` restores the saved position). Both fall back
+    to ``_table_start_range``.
     """
     found = get_writer_selection_positions(model, selection=selection)
     if not found:
