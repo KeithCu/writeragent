@@ -94,8 +94,50 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
     assert len(result["shapes"]) == 1
     assert result["shapes"][0]["name"] == "Box"
     assert result["shapes"][0]["text"] == "label"
+    assert "custom_shape_type" not in result["shapes"][0]
     shape.createEnumeration.assert_not_called()
     vc.gotoRange.assert_called_once()
+
+
+def test_scan_page_reports_custom_shape_type(monkeypatch):
+    from types import SimpleNamespace
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    tool = GetPageObjects()
+    doc = _make_doc()
+    shape = MagicMock()
+    shape.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.Shape"
+
+    def _props(name: str):
+        if name == "AnchorType":
+            return at_page
+        if name == "AnchorPageNo":
+            return 1
+        if name == "CustomShapeGeometry":
+            return (SimpleNamespace(Name="Type", Value="rectangle"),)
+        raise RuntimeError(f"no {name}")
+
+    shape.getPropertyValue.side_effect = _props
+    shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
+    shape.Name = "Box1"
+    shape.getString.return_value = "hi"
+    shape.getPosition.return_value = MagicMock(X=1, Y=2)
+    shape.getSize.return_value = MagicMock(Width=3, Height=4)
+
+    draw = MagicMock()
+    draw.getCount.return_value = 1
+    draw.getByIndex.return_value = shape
+    doc.getDrawPage.return_value = draw
+
+    result = tool._scan_page(doc, MagicMock(), 1)
+    assert result["shapes"][0]["type"] == "CustomShape"
+    assert result["shapes"][0]["custom_shape_type"] == "rectangle"
 
 
 def test_execute_clones_view_cursor_via_own_text():

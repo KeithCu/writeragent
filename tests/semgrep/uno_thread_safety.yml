@@ -122,7 +122,6 @@ rules:
         - "**/plugin/contrib/**"
         - "**/plugin/framework/worker_pool.py"
         - "**/plugin/framework/async_stream.py"
-        - "**/plugin/contrib/cdp/browser_supervisor.py"
         - "**/plugin/scripting/venv_worker.py"
         - "**/plugin/framework/ipc.py"
         - "**/plugin/framework/ipc.py"

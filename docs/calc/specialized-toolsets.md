@@ -225,7 +225,6 @@ For recent feature additions:
 - `[fidelity M few]` Fuller change tracking on Calc, where `tracking_list` is unsupported when `getRedlines` is absent. (§ 3.2 Future enhancements)
 - `[fidelity S few]` Optional `move_contents` on the merge tool so hidden cell content moves into the top-left cell like the UI does. (§ 3.5 Deferred ideas)
 - `[feature S many]` Let `sheet_create` accept `source` or `values` so a new sheet can be created and filled in one call. (§ 3.4 Future ideas)
-- `[eng S few]` Wrap `=PY()` plot placement in `UndoStepOrRollback` so it undoes as one step, safe on Collabora Online. (§ 3.5 Deferred ideas)
 - `[idea M few]` Rewrite typed `=PY("...xl('A1')...")` formulas into the dependency-tracked form with a cell-input hook. (§ 3.5 Deferred ideas)
 - `[idea M many]` Coerce locale dates and numbers such as `1,5` stored as text, beyond the shipped warn-only check. (§ 3.4 Future ideas)
 - `[idea M many]` Auto-detect the header row on `sort_range` and report `header_detected`, needing its own eval. (§ 3.4 Future ideas)

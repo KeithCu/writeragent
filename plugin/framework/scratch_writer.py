@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Hidden scratch Writer creation and cleanup helpers.
+"""Hidden scratch documents, with their creation, registry and cleanup.
 
 Split out from ``uno_context`` to separate scratch document lifecycle
 from core context and desktop lookup.
@@ -12,19 +12,101 @@ from core context and desktop lookup.
 from __future__ import annotations
 
 import logging
-from typing import Any
+import threading
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.errors import _uno_disposal_message, reraise_if_disposed
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_context import create_property_value, get_desktop
+from plugin.framework.uno_context import create_property_value, get_desktop, get_runtime_uid
 
 log = logging.getLogger("writeragent.scratch_writer")
+
+# _scratch_lock guards the three names below it.
+# Scratch documents are excluded from DocumentService.open_documents: counting one broadens
+# tools/list, fires a false tools/list_changed, and breaks single-open-document fallback
+# (NO_ACTIVE_DOCUMENT). Keyed by RuntimeUID rather than Hidden because user-hidden documents
+# must still count, and LibreOffice never reuses a uid in a process so stale entries are safe.
+_scratch_lock = threading.Lock()
+_scratch_uids: set[str] = set()
+_scratch_loads = 0
+_after_loads: Callable[[], object] | None = None
+
+
+def load_scratch_document(
+    desktop: Any,
+    url: str,
+    target: str = "_blank",
+    flags: int = 0,
+    props: tuple[Any, ...] = (),
+) -> Any:
+    """Load *url* hidden as a WriterAgent scratch document and register its RuntimeUID.
+
+    Returns what ``loadComponentFromURL`` returned (``None`` included).
+    """
+    global _scratch_loads, _after_loads
+    with _scratch_lock:
+        _scratch_loads += 1
+    try:
+        doc = desktop.loadComponentFromURL(
+            url, target, flags, (create_property_value("Hidden", True), *props)
+        )
+        uid = get_runtime_uid(doc) if doc is not None else ""
+        if uid:
+            with _scratch_lock:
+                _scratch_uids.add(uid)
+        return doc
+    finally:
+        deferred = None
+        with _scratch_lock:
+            _scratch_loads -= 1
+            if _scratch_loads == 0:
+                deferred, _after_loads = _after_loads, None
+        if deferred is not None:
+            deferred()
+
+
+def close_scratch_document(doc: Any) -> None:
+    """``close(True)``, then unregister.
+
+    A failed close raises and leaves the id registered, because the document may still be open.
+    """
+    uid = get_runtime_uid(doc)  # read first; a closed model cannot answer
+    doc.close(True)
+    with _scratch_lock:
+        _scratch_uids.discard(uid)
+
+
+def is_scratch_document(doc: Any) -> bool:
+    """Return True when *doc* is a currently registered WriterAgent scratch document."""
+    uid = get_runtime_uid(doc)
+    with _scratch_lock:
+        return uid in _scratch_uids
+
+
+def run_after_scratch_loads(report: Callable[[], object]) -> None:
+    """Run *report* now, or once when the scratch loads in progress finish.
+
+    ``OnViewCreated`` is broadcast inside ``loadComponentFromURL`` when the model is already
+    enumerated on the desktop, so an immediate report would count it before its ``RuntimeUID``
+    can be registered (``sfxbasemodel.cxx`` assigns the uid; the caller sees the model only
+    when the load returns). One pending report is kept: there is one catalog listener and
+    the report reads current state.
+    """
+    global _after_loads
+    with _scratch_lock:
+        if _scratch_loads:
+            _after_loads = report
+            return
+    report()
 
 
 def _close_scratch_doc(doc: Any) -> None:
     """Close a hidden scratch document we are about to abandon, so it does not leak."""
     try:
-        doc.close(True)
+        close_scratch_document(doc)
     except Exception:
         log.debug("new_blank_writer: doc.close() failed", exc_info=True)
 
@@ -117,8 +199,7 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
     if desktop is None:
         return None
 
-    hidden = create_property_value("Hidden", True)
-    doc = desktop.loadComponentFromURL("private:factory/swriter", target, 0, (hidden,))
+    doc = load_scratch_document(desktop, "private:factory/swriter", target)
     if doc is None:
         return None
     if not clear_writer_body(doc):

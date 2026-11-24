@@ -212,3 +212,91 @@ def test_new_blank_writer_returns_none_if_load_fails():
     desktop.loadComponentFromURL.return_value = None
     with patch("plugin.framework.scratch_writer.get_desktop", return_value=desktop):
         assert new_blank_writer() is None
+
+
+def _fake_uid_doc(uid: str):
+    doc = MagicMock()
+    doc.getRuntimeUID.return_value = uid
+    return doc
+
+
+@pytest.fixture
+def isolated_scratch_registry(monkeypatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    return scratch_writer
+
+
+def test_load_and_close_scratch_document_registers_and_unregisters(isolated_scratch_registry):
+    sw = isolated_scratch_registry
+    doc = _fake_uid_doc("101")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+
+    loaded = sw.load_scratch_document(desktop, "private:factory/sdraw")
+    assert loaded is doc
+    assert sw.is_scratch_document(doc) is True
+
+    sw.close_scratch_document(doc)
+    doc.close.assert_called_once_with(True)
+    assert sw.is_scratch_document(doc) is False
+
+
+def test_close_scratch_document_keeps_uid_registered_when_close_raises(isolated_scratch_registry):
+    sw = isolated_scratch_registry
+    doc = _fake_uid_doc("102")
+    doc.close.side_effect = RuntimeError("vetoed")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+
+    sw.load_scratch_document(desktop, "private:factory/sdraw")
+    with pytest.raises(RuntimeError, match="vetoed"):
+        sw.close_scratch_document(doc)
+    assert sw.is_scratch_document(doc) is True
+
+
+def test_run_after_scratch_loads_defers_until_nested_loads_finish(isolated_scratch_registry):
+    sw = isolated_scratch_registry
+    outer_doc = _fake_uid_doc("201")
+    inner_doc = _fake_uid_doc("202")
+    desktop = MagicMock()
+    observed: list[tuple[bool, bool]] = []
+
+    def _load(url, *_args):
+        if url == "private:factory/swriter":
+            sw.load_scratch_document(desktop, "private:factory/sdraw")
+            sw.run_after_scratch_loads(
+                lambda: observed.append((sw.is_scratch_document(outer_doc), sw.is_scratch_document(inner_doc)))
+            )
+            assert observed == []
+            return outer_doc
+        sw.run_after_scratch_loads(
+            lambda: observed.append((sw.is_scratch_document(outer_doc), sw.is_scratch_document(inner_doc)))
+        )
+        assert observed == []
+        return inner_doc
+
+    desktop.loadComponentFromURL.side_effect = _load
+    sw.load_scratch_document(desktop, "private:factory/swriter")
+    assert observed == [(True, True)]
+
+
+def test_run_after_scratch_loads_runs_pending_report_on_failed_load(isolated_scratch_registry):
+    sw = isolated_scratch_registry
+    desktop = MagicMock()
+    calls: list[str] = []
+
+    def _failing_load(*_args):
+        sw.run_after_scratch_loads(lambda: calls.append("during-failed-load"))
+        raise RuntimeError("boom")
+
+    desktop.loadComponentFromURL.side_effect = _failing_load
+    with pytest.raises(RuntimeError, match="boom"):
+        sw.load_scratch_document(desktop, "private:factory/sdraw")
+
+    assert calls == ["during-failed-load"]
+    sw.run_after_scratch_loads(lambda: calls.append("after"))
+    assert calls == ["during-failed-load", "after"]

@@ -557,20 +557,22 @@ def test_iter_shape_addresses():
 
 
 @pytest.mark.parametrize(
-    ("shape_type", "services", "clsid", "expected"),
+    ("shape_type", "services", "clsid", "props", "expected"),
     [
-        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "12DCAE26-281F-416F-a234-c3086127382e", "Chart"),
-        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "078B7ABA-54FC-457F-8551-6147e776a997", "Formula"),
-        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "00000000-0000-0000-0000-000000000000", "EmbeddedObject"),
-        ("FrameShape", {"com.sun.star.text.TextGraphicObject"}, None, "Image"),
-        ("FrameShape", {"com.sun.star.text.TextFrame"}, None, "TextFrame"),
-        ("com.sun.star.drawing.OLE2Shape", set(), "12DCAE26-281F-416F-a234-c3086127382e", "Chart"),
-        ("com.sun.star.drawing.RectangleShape", set(), None, "RectangleShape"),
-        ("com.sun.star.presentation.TitleTextShape", set(), None, "TitleTextShape"),
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "12DCAE26-281F-416F-a234-c3086127382e", None, "Chart"),
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "078B7ABA-54FC-457F-8551-6147e776a997", None, "Formula"),
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "00000000-0000-0000-0000-000000000000", None, "EmbeddedObject"),
+        ("FrameShape", {"com.sun.star.text.TextGraphicObject"}, None, None, "Image"),
+        ("FrameShape", {"com.sun.star.text.TextFrame"}, None, None, "TextFrame"),
+        ("com.sun.star.drawing.OLE2Shape", set(), "12DCAE26-281F-416F-a234-c3086127382e", None, "Chart"),
+        ("com.sun.star.drawing.RectangleShape", set(), None, None, "RectangleShape"),
+        ("com.sun.star.presentation.TitleTextShape", set(), None, None, "TitleTextShape"),
+        ("com.sun.star.drawing.CustomShape", set(), None, {"CustomShapeGeometry": (SimpleNamespace(Name="Type", Value="octagon"),)}, "CustomShape (octagon)"),
+        ("com.sun.star.drawing.CustomShape", set(), None, None, "CustomShape"),
     ],
 )
-def test_shape_kind_tells_writer_frames_and_embeds_apart(shape_type, services, clsid, expected):
-    shape = _Shape(shape_type, services=services, clsid=clsid)
+def test_shape_kind_tells_writer_frames_and_embeds_apart(shape_type, services, clsid, props, expected):
+    shape = _Shape(shape_type, services=services, clsid=clsid, props=props)
     assert shape_kind(shape) == expected
 
 

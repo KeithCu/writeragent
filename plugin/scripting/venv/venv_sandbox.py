@@ -70,7 +70,7 @@ from plugin.scripting.named_scripts import (
     bind_named_scripts_executor,
     reset_named_scripts_executor,
 )
-from plugin.scripting.venv.to_wire import plot_image_payload, to_wire
+from plugin.scripting.venv.to_wire import UnsupportedResultTypeError, plot_image_payload, to_wire
 from plugin.scripting.venv import optional_import
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
@@ -646,6 +646,9 @@ def serialize_result(
     """
     try:
         return to_wire(obj, force=force)
+    except UnsupportedResultTypeError:
+        # The caller shows an open figure instead, or the cell error names the type; neither is a host fault to log.
+        raise
     except Exception:
         if log_failure:
             log.exception(
@@ -953,9 +956,9 @@ def _is_non_value_result(obj: Any) -> bool:
     A ``def`` or ``class`` statement evaluates to the object it created.
     Those objects cannot cross the LibreOffice pickle boundary. Nulling
     them keeps a helper-only script (and an init session) successful.
-    Instances stay values: a cell that ends on an instance still errors.
-    Import statements already return None, so a module expression still
-    errors on purpose.
+    Instances stay values: a cell that ends on an instance errors when no pyplot
+    figure is open. Import statements already return None, so a module
+    expression also errors when no pyplot figure is open.
     """
     return isinstance(
         obj,
@@ -1039,10 +1042,14 @@ def _serialize_cell_result(
     list of them, becomes those images in that order, and every other open figure is closed
     without being shown. An artist (plt.plot's lines, plt.title's Text, an Axes or an Axes
     array) or a blank figure shows every open figure that has a drawing. Artists and
-    returned figures are handled before serialize_result, which would reject them, and every
-    open figure is closed afterwards; a figure left open would be what the next cell returns.
+    returned figures are handled before serialize_result so a `(fig, axs)` tuple does
+    not render `fig` twice and a bare blank figure is replaced by open figures that have
+    drawings. Every open figure is closed afterwards; a figure left open would be what
+    the next cell returns.
 
-    A non-image value, including result = 42, is replaced when a figure is still open. That replacement stays.
+    A non-image value is replaced when a figure is still open. That includes `result = 42`,
+    and a value with no wire form, such as the tuple `plt.hist` returns, the dict `plt.boxplot`
+    returns, or a Colorbar. With no open figure that value is an error.
     """
     if _is_non_value_result(result):
         result = None
@@ -1060,12 +1067,19 @@ def _serialize_cell_result(
             serialized = captured
             extra_stdout = note
     else:
-        serialized = serialize_result(result, force=force, log_failure=log_failure)
+        serialized = None
+        unsupported: UnsupportedResultTypeError | None = None
+        try:
+            serialized = serialize_result(result, force=force, log_failure=log_failure)
+        except UnsupportedResultTypeError as e:
+            unsupported = e
         if not find_image_payloads(serialized):
             captured, note = _capture_open_figures_payload()
             if captured is not None:
                 serialized = captured
                 extra_stdout = note
+            elif unsupported is not None:
+                raise unsupported
         else:
             _close_open_figures()
     return serialized, extra_stdout

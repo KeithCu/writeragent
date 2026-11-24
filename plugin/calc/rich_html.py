@@ -26,8 +26,12 @@ from typing import Any
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.framework.scratch_writer import clear_writer_body
-from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
+from plugin.framework.scratch_writer import (
+    clear_writer_body,
+    close_scratch_document,
+    load_scratch_document,
+)
+from plugin.framework.uno_context import get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import FORMULA, query_interface
 import plugin.writer.html_import as html_import
@@ -119,11 +123,15 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     pasted = False
     try:
         desktop = get_desktop(uno_ctx)
-        hidden = create_property_value("Hidden", True)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
         step = _step("load hidden Writer")
-        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", _HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS, (hidden,))
+        temp_doc = load_scratch_document(
+            desktop,
+            "private:factory/swriter",
+            _HTML_WRITER_TARGET,
+            _HTML_WRITER_SEARCH_FLAGS,
+        )
         _keeper_loaded = temp_doc is not None
         # Never close the Windows keeper. After a successful paste we also
         # keep this Writer (see finally) — CREATE|GLOBAL reuses _wa_calc_html.
@@ -193,6 +201,6 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         # _wa_calc_html and clear the body on the next call.
         if temp_doc is not None and not reused and not pasted:
             step = _step("close hidden Writer")
-            best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
+            best_effort(lambda: close_scratch_document(temp_doc), "temp Writer close failed")
             _keeper_loaded = False
     return replaced

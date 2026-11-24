@@ -22,6 +22,7 @@ from plugin.calc.address_utils import (
     format_range,
     is_cell_token,
     parse_range_string,
+    qualify_a1,
     split_sheet_prefix,
 )
 from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
@@ -71,7 +72,7 @@ def _address_key(ref: str) -> str | None:
     except ValueError:
         return None
     body = format_range(start[0], start[1], end[0], end[1], collapse_single=True)
-    qualified = f"{sheet}.{body}" if sheet else body
+    qualified = qualify_a1(sheet, body) if sheet else body
     return canonical_key(qualified)
 
 

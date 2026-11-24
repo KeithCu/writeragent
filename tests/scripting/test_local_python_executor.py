@@ -18,6 +18,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     LocalPythonExecutor,
     evaluate_generatorexp,
 )
+from tests.scripting.sandbox_support import refuse_sigalrm
 
 _MIXED_GRID = [
     [1.0, "label", 10.0],
@@ -1974,20 +1975,13 @@ except Exception as result:
 
 def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest.MonkeyPatch):
     # Tip: thread-pool fallback waits for the worker thread to finish before abandoning.
-    import signal
     import time
-    from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
 
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=["time"], timeout_seconds=1)
     executor.send_tools({})
@@ -2009,21 +2003,14 @@ def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest
 
 
 def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: pytest.MonkeyPatch):
-    import signal
     import threading
-    from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
     release = threading.Event()
 
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -2855,6 +2842,20 @@ def test_process_callables_allowed_when_os_true():
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+_EXIT_MANAGER = (
+    "class M:\n"
+    "    def __init__(self, exc=None, suppress=False):\n"
+    "        self.exc = exc\n"
+    "        self.suppress = suppress\n"
+    "    def __enter__(self):\n"
+    "        return self\n"
+    "    def __exit__(self, *args):\n"
+    "        if self.exc is not None:\n"
+    "            raise self.exc\n"
+    "        return self.suppress\n\n"
+)
+
+
 @pytest.mark.parametrize(
     "code",
     [
@@ -3002,6 +3003,38 @@ def test_process_callables_allowed_when_os_true():
             "try:\n    1/0\nexcept ZeroDivisionError:\n    pass\nraise ValueError('after')",
             id="handled_then_raise",
         ),
+        pytest.param(
+            "raise ValueError('b') from KeyError('a')",
+            id="chain_cause_instance",
+        ),
+        pytest.param(
+            "raise ValueError('b') from KeyError",
+            id="chain_cause_class",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ValueError:\n    pass\nexcept (KeyError, nope):\n    pass",
+            id="except_undefined_name",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept 5:\n    pass",
+            id="except_non_class",
+        ),
+        pytest.param(
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(ValueError('inner')):\n    1/0",
+            id="with_two_exits",
+        ),
+        pytest.param(
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(suppress=True):\n    1/0",
+            id="with_inner_exit_suppresses",
+        ),
+        pytest.param(
+            _EXIT_MANAGER + "with M(), M(ValueError('inner')):\n    pass",
+            id="with_normal_inner_exit_raises",
+        ),
+        pytest.param(
+            _EXIT_MANAGER + "with M(RuntimeError('outer')), M(ValueError('inner')):\n    pass",
+            id="with_normal_both_exits_raise",
+        ),
     ],
 )
 def test_user_traceback_frames_match_cpython(code: str) -> None:
@@ -3147,18 +3180,6 @@ def test_user_traceback_survives_failing_str_in_chain() -> None:
     assert tb.splitlines()[-1].startswith("ValueError:")
 
 
-def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
-    import signal
-    from typing import Any
-
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
-
-
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="SIGALRM path; thread-pool timeouts print without the chain",
@@ -3190,7 +3211,7 @@ def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.Mo
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -3216,7 +3237,7 @@ def test_thread_pool_timeout_wins_over_later_worker_error(monkeypatch: pytest.Mo
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -3227,4 +3248,50 @@ def test_thread_pool_timeout_wins_over_later_worker_error(monkeypatch: pytest.Mo
         assert lpe.abandoned_timeout is False
     finally:
         lpe.discard_thread_pool_timeout()
+
+
+def test_user_traceback_text_for_unraised_cause() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "raise ValueError('b') from KeyError('a')"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    expected = (
+        "KeyError: 'a'\n\n"
+        "The above exception was the direct cause of the following exception:\n\n"
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 1, in <module>\n'
+        "    raise ValueError('b') from KeyError('a')\n"
+        "ValueError: b"
+    )
+    assert exc_info.value.user_traceback == expected
+
+
+def test_with_inner_exit_error_reaches_outer_manager() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = (
+        "seen = []\n"
+        "class Outer:\n"
+        "    def __init__(self, suppress=False):\n"
+        "        self.suppress = suppress\n"
+        "    def __enter__(self):\n"
+        "        return self\n"
+        "    def __exit__(self, exc_type, exc, tb):\n"
+        "        seen.append(exc_type)\n"
+        "        return self.suppress\n"
+        "class Inner:\n"
+        "    def __enter__(self):\n"
+        "        return self\n"
+        "    def __exit__(self, exc_type, exc, tb):\n"
+        "        raise ValueError('boom')\n"
+        "with Outer(suppress=True), Inner():\n"
+        "    pass\n"
+        "after = 'ran'\n"
+        "result = (seen, after)"
+    )
+    assert executor(code).output == ([ValueError], "ran")
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code.replace("Outer(suppress=True)", "Outer(suppress=False)"))
+    assert exc_info.value.user_traceback.splitlines()[-1] == "ValueError: boom"
+    assert executor.state["seen"] == [ValueError]
 

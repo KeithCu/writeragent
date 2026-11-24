@@ -122,7 +122,9 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. Whole-paragraph block replaces (whether Track Changes is recording or not)
+  stranded mid-import. A one-run unlinked plain replace (`replace_preserving_format`) inserts the new
+  text after the struck text so the new text inherits its formatting. Whole-paragraph block replaces
+  (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
   paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (leaving
   new blocks first, then the struck paragraph while pending), and drops the synthetic leftover

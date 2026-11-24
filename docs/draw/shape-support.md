@@ -4,8 +4,8 @@ LibreOffice provides a comprehensive and flexible API for drawing shapes through
 
 ## Base Shapes
 The most common and simple shapes are implemented as direct UNO classes. These include:
-- `com.sun.star.drawing.RectangleShape`
-- `com.sun.star.drawing.EllipseShape`
+- `com.sun.star.drawing.RectangleShape` (available by full UNO name; the `rectangle` alias creates a `CustomShape`)
+- `com.sun.star.drawing.EllipseShape` (available by full UNO name; the `ellipse` alias creates a `CustomShape`)
 - `com.sun.star.drawing.TextShape`
 - `com.sun.star.drawing.LineShape` — an axis-aligned line has a zero width (vertical) or a zero height (horizontal). `shape_upsert` with `shape_type` `line` accepts that box. Other shapes still need both sides positive. A negative side, or both sides zero, is rejected (`DRAW_INVALID_SIZE`).
 - `com.sun.star.drawing.ConnectorShape`
@@ -52,9 +52,9 @@ These require specifying the `Polygon` or `PolyPolygon` properties, which expect
 The `shape_upsert` tool unifies the simple and CustomShape UNO APIs into a single interface. Its results carry `action` (`"create"` or `"edit"`) and the read-back `name` (`""` when unnamed), while `shape_connect`, `shape_group`, and `shape_delete` results carry the resolved `page` index. `shape_connect` and `shape_create_diagram` connections accept `line_start` and `line_end` (`"arrow"` or `"none"`) like `shape_upsert`.
 
 When the user requests a `shape_type`:
-1. **Base Aliases**: If it's a known simple alias (e.g., `"rectangle"`, `"ellipse"`), it maps to the corresponding base UNO shape (`RectangleShape`, `EllipseShape`).
+1. **Base Aliases**: `text`, `line`, and `connector` map to the corresponding base UNO shape (`TextShape`, `LineShape`, `ConnectorShape`).
 2. **UNO Classes**: If it matches a specific UNO class name, it instantiates that class directly.
-3. **Custom Shapes**: If it's none of the above, the tool assumes the user is requesting a specific `CustomShape` geometry type (like `"octagon"` or `"smiley"`). It will instantiate a `CustomShape` and apply the requested string to the `Type` geometry property.
+3. **Custom Shapes**: If it's none of the above (including `"rectangle"`, `"ellipse"`, `"round-rectangle"`, `"octagon"`, or `"smiley"`), the tool instantiates a `CustomShape` and applies the requested string to the `Type` geometry property. Empty custom shapes are created with autogrow off (`TextAutoGrowHeight=False`, `TextAutoGrowWidth=False`) so later text writes do not resize the box.
 
 The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.
 
@@ -65,10 +65,10 @@ New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, `sh
 `shape_upsert` exposes six optional text and box parameters:
 
 - `bold` / `italic`: forwarded to `apply_character_properties` (`CharWeight` 150.0 / 100.0 and `CharPosture` `FontSlant.ITALIC` / `NONE`).
-- `h_align` (`left`, `center`, `right`, `justify`): sets `TextHorizontalAdjust=BLOCK` and then `ParaAdjust` via `para_adjust_to_uno`. Setting `BLOCK` is required so the text area spans the shape width and `ParaAdjust` aligns against the shape edges; `RectangleShape` and `EllipseShape` default to `TextHorizontalAdjust=CENTER`, which centres the text block at its own width and ignores left/right `ParaAdjust`. Custom shapes made by `shape_upsert` default to `center`, and when `shape_upsert` writes text into a previously empty shape it re-applies any direct `ParaAdjust` on the shape so the new paragraph inherits it.
-- `v_align` (`top`, `center`, `bottom`): sets `TextVerticalAdjust` (`TOP`, `CENTER`, `BOTTOM`). Custom shapes made by `shape_upsert` default to `center` (same as `RectangleShape` and `EllipseShape`); `TextShape` remains top-left (`TextHorizontalAdjust=BLOCK`, `TextVerticalAdjust=TOP`).
-- `wrap_text`: sets `TextWordWrap`. Custom shapes wrap by default in all four apps because `shape_upsert` sets it (LibreOffice's own default is off in Writer and Calc, `svx/source/svdraw/svdmodel.cxx:185`, and on in Draw and Impress, `sd/source/core/drawdoc4.cxx:270`); `TextShape` always wraps; `RectangleShape` and `EllipseShape` never wrap at a fixed `font_size` (they only wrap under the default `TextFitToSize=AUTOFIT`).
-- `corner_radius`: sets `CornerRadius` in `1/100 mm`. Only `RectangleShape` (plus text, circle, connector, and caption maps) supports `CornerRadius`; on a `CustomShape` (such as `round-rectangle`) it fails and is reported as a `corner_radius` warning.
+- `h_align` (`left`, `center`, `right`, `justify`): sets `TextHorizontalAdjust=BLOCK` and then `ParaAdjust` via `para_adjust_to_uno`. Setting `BLOCK` is required so the text area spans the shape width and `ParaAdjust` aligns against the shape edges; raw or existing `RectangleShape` and `EllipseShape` primitives default to `TextHorizontalAdjust=CENTER`, which centres the text block at its own width and ignores left/right `ParaAdjust`. Custom shapes (including `rectangle` and `ellipse`) made by `shape_upsert` default to `center`, and `set_shape_string` (used by `shape_upsert`, `shape_fill_fields`, and `placeholder_set_text`) re-applies any direct `ParaAdjust` on the shape when writing text into a previously empty shape so the new paragraph inherits it.
+- `v_align` (`top`, `center`, `bottom`): sets `TextVerticalAdjust` (`TOP`, `CENTER`, `BOTTOM`). Custom shapes (including `rectangle` and `ellipse`) made by `shape_upsert` default to `center` (same as `RectangleShape` and `EllipseShape`); `TextShape` remains top-left (`TextHorizontalAdjust=BLOCK`, `TextVerticalAdjust=TOP`).
+- `wrap_text`: sets `TextWordWrap`. Custom shapes (including `rectangle` and `ellipse`) wrap by default in all four apps because `shape_upsert` sets it (LibreOffice's own default is off in Writer and Calc, `svx/source/svdraw/svdmodel.cxx:185`, and on in Draw and Impress, `sd/source/core/drawdoc4.cxx:270`); `TextShape` always wraps; raw or existing `RectangleShape` and `EllipseShape` primitives never wrap at a fixed `font_size` (they only wrap under the default `TextFitToSize=AUTOFIT`).
+- `corner_radius`: sets `CornerRadius` in `1/100 mm` on primitive shapes (`RectangleShape`, plus text, circle, connector, and caption maps), or maps `rectangle` / `round-rectangle` custom shapes to the `round-rectangle` preset's `AdjustmentValues` (`round(21600 * radius / min(width, height))`, clamped to `10800`; `0` switches back to `rectangle` with square corners). Because the adjustment is relative to the shorter side, a later resize scales the corner radius until `corner_radius` is passed again. On other `CustomShape` presets (such as `ellipse`) it fails because `CustomShape` has no `CornerRadius` and is reported as a `corner_radius` warning.
 
 ## Grouping
 

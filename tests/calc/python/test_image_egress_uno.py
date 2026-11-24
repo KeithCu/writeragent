@@ -398,3 +398,132 @@ def test_undone_formula_on_deleted_sheet_preserves_neighbour_plot_uno(ctx, doc):
         while dp1.getCount():
             dp1.remove(dp1.getByIndex(0))
         um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_tool_plot_insert_is_one_undo_step_uno(ctx, doc):
+    """Tool plots without a formula record one 'WriterAgent: Insert plot' undo step per plot."""
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.framework.i18n import _
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    um = doc.getUndoManager()
+    assert um is not None
+    um.clear()
+
+    c4 = sheet.getCellByPosition(2, 3)
+    controller.select(c4)
+    p0 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+    p1 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(24, 12)}
+
+    def shape_facts(shape) -> tuple:
+        pos = shape.getPosition()
+        size = shape.getSize()
+        return (
+            shape.getPropertyValue("Name"),
+            _cell_address_key(shape.getPropertyValue("Anchor")),
+            (pos.X, pos.Y),
+            (size.Width, size.Height),
+            shape.getPropertyValue("Graphic").SizePixel.Width,
+        )
+
+    try:
+        _insert_image_result_on_sheet_impl(p0, doc=doc, image_index=0, image_count=2)
+        _insert_image_result_on_sheet_impl(p1, doc=doc, image_index=1, image_count=2)
+
+        assert list(um.getAllUndoActionTitles()) == [_("WriterAgent: Insert plot")] * 2
+        assert draw_page.getCount() == 2
+        orig = [shape_facts(draw_page.getByIndex(i)) for i in range(2)]
+
+        um.undo()
+        assert draw_page.getCount() == 1
+        assert draw_page.getByIndex(0).getPropertyValue("Name") == "WriterAgentPlot"
+
+        um.undo()
+        assert draw_page.getCount() == 0
+
+        um.redo()
+        um.redo()
+        assert draw_page.getCount() == 2
+        assert [shape_facts(draw_page.getByIndex(i)) for i in range(2)] == orig
+
+        # Shrinking to 1 slot sweeps WriterAgentPlot_2; undoing restores both slots unchanged.
+        _insert_image_result_on_sheet_impl(p0, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+        um.undo()
+        assert draw_page.getCount() == 2
+        assert [shape_facts(draw_page.getByIndex(i)) for i in range(2)] == orig
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_image_note_joins_formula_undo_step_uno(ctx, doc):
+    """WriterAgent image notes add no undo entry, preserve redo, and go away with the formula's undo."""
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _clear_image_cell_annotation, _set_image_cell_annotation
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    sheet = doc.getSheets().getByIndex(0)
+    annotations = sheet.getAnnotations()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    um = doc.getUndoManager()
+    assert um is not None
+    um.clear()
+
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = controller.getFrame()
+    code = "result = 4109"
+    formula = f'=PY("{code}")'
+
+    def enter_string(cell, text: str) -> None:
+        controller.select(cell)
+        prop = PropertyValue()
+        prop.Name = "StringName"
+        prop.Value = text
+        dispatcher.executeDispatch(frame, ".uno:EnterString", "", 0, (prop,))
+
+    b3 = sheet.getCellByPosition(1, 2)
+    d1 = sheet.getCellByPosition(3, 0)
+    try:
+        enter_string(b3, formula)
+        undo_titles = list(um.getAllUndoActionTitles())
+        assert len(undo_titles) == 1
+
+        _set_image_cell_annotation(doc, code, "boom")
+        assert b3.getAnnotation().getString() == "WriterAgent image: boom"
+        assert list(um.getAllUndoActionTitles()) == undo_titles
+
+        um.undo()
+        pump_main_thread_work_queue(max_items=20)
+        assert b3.getFormula() == ""
+        assert b3.getAnnotation().getString() == ""
+
+        um.redo()
+        enter_string(d1, "a")
+        enter_string(d1, "b")
+        um.undo()
+        undo_before = list(um.getAllUndoActionTitles())
+        redo_before = list(um.getAllRedoActionTitles())
+        assert len(redo_before) > 0
+
+        _set_image_cell_annotation(doc, code, "again")
+        assert b3.getAnnotation().getString() == "WriterAgent image: again"
+        _clear_image_cell_annotation(doc, code)
+        assert b3.getAnnotation().getString() == ""
+        assert list(um.getAllUndoActionTitles()) == undo_before
+        assert list(um.getAllRedoActionTitles()) == redo_before
+    finally:
+        while annotations.getCount():
+            annotations.removeByIndex(0)
+        b3.setFormula("")
+        d1.setFormula("")
+        um.clear()

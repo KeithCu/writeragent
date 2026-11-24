@@ -705,11 +705,12 @@ class TestHasNativeVision:
             }
             mock_sync.side_effect = None
             mock_sync.return_value = payload
+            import plugin.framework.client.model_fetcher as mf
+            mf._catalog_memos[mf._catalog_memo_key("https://openrouter.ai/api")].fetch_failed_at -= mf.CATALOG_RETRY_S + 1.0
             assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is True
             assert mock_sync.call_count == 2
 
         # 2. UI path: failed job clears in-flight key so next UI call schedules again
-        import plugin.framework.client.model_fetcher as mf
         mf._catalog_memos.clear()
 
         scheduled = []
@@ -791,7 +792,7 @@ class TestHasNativeVision:
             ]
         }
         for endpoint in ("https://api.anthropic.com", "https://api.anthropic.com/v1"):
-            clear_settings_catalog_cache(endpoint)
+            clear_settings_catalog_cache(endpoint, api_key_override="sk-ant-test")
             with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync, \
                  patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-ant-test"):
                 assert has_native_vision("claude-opus-5-5", endpoint) is True
@@ -2233,6 +2234,66 @@ def test_memo_text_and_image_openrouter_share_one_job_and_fetch_both_endpoints()
             posted[0]()
             assert text_calls == [["anthropic/claude-sonnet-4"]]
             assert image_calls == [["google/gemini-2.5-flash-image"]]
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_has_native_vision_dead_endpoint_backs_off_and_clears_on_test_connection():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "https://openrouter.ai/api"
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    fetch_calls = 0
+
+    def _fail_fetch(_ep, **_kw):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return None
+
+    try:
+        with (
+            patch.object(mf.main, "is_current", return_value=False),
+            patch.object(mf, "get_config", return_value={}),
+            patch.object(mf, "get_api_key_for_endpoint", return_value=""),
+            patch.object(mf, "fetch_available_models", side_effect=_fail_fetch),
+        ):
+            assert mf.has_native_vision("some/uncatalogued-model", endpoint) is None
+            assert mf.has_native_vision("some/uncatalogued-model", endpoint) is None
+            assert fetch_calls == 1
+
+            memo = mf._catalog_memos[mf._catalog_memo_key(endpoint)]
+            assert memo.fetch_failed_at is not None
+            memo.fetch_failed_at -= mf.CATALOG_RETRY_S + 1.0
+            assert mf.has_native_vision("some/uncatalogued-model", endpoint) is None
+            assert fetch_calls == 2
+
+            mf.clear_settings_catalog_cache(endpoint)
+            assert mf.has_native_vision("some/uncatalogued-model", endpoint) is None
+            assert fetch_calls == 3
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_has_native_vision_lmstudio_failure_does_not_set_fetch_failed_at():
+    import plugin.framework.client.model_fetcher as mf
+
+    endpoint = "http://127.0.0.1:1234/v1"
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+
+    try:
+        with (
+            patch.object(mf.main, "is_current", return_value=False),
+            patch.object(mf, "get_config", return_value={}),
+            patch.object(mf, "_vision_list_url", return_value="http://127.0.0.1:1234/api/v1/models"),
+            patch.object(mf, "_fetch_vision_list", return_value=None),
+        ):
+            assert mf.has_native_vision("qwen2.5-vl", endpoint) is None
+            memo = mf._catalog_memos.get(mf._catalog_memo_key(endpoint))
+            assert memo is None or memo.fetch_failed_at is None
     finally:
         mf._catalog_memos.clear()
         mf._catalog_fetch_waiters.clear()

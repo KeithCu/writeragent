@@ -81,29 +81,34 @@ class undo_lock:
         return False
 
 
-def _undo_callback_action(on_undone: Callable[[], None]) -> Any:
+def _undo_action(title: str, on_undo: Callable[[], Any], on_redo: Callable[[], Any]) -> Any:
     # UNO is absent in unit tests; import unohelper/XUndoAction only when building an action.
     import unohelper
     from com.sun.star.document import XUndoAction
 
-    class _UndoCallbackAction(unohelper.Base, XUndoAction):
+    class _UndoAction(unohelper.Base, XUndoAction):
         @property  # type: ignore[misc]
         def Title(self) -> str:  # type: ignore[override]  # ty: ignore[invalid-property-type-override]  # pyright: ignore[reportIncompatibleMethodOverride]
-            # Never shown because the merged entry keeps its predecessor's title.
-            return "Python plot"
+            return title
 
+        # An exception here would make LibreOffice clear the whole undo stack
+        # (SfxUndoManager::ImplUndo, catch branch, svl/source/undo/undo.cxx).
         def undo(self) -> None:
-            # A merged group is undone newest-first, so the cell still has its formula here.
-            # Posting with force_queue=True defers the check until the whole Undo finishes.
-            best_effort(
-                partial(main.post, partial(best_effort, on_undone, "undo callback failed"), force_queue=True),
-                "undo callback post failed",
-            )
+            best_effort(on_undo, "undo action failed")
 
         def redo(self) -> None:
-            pass
+            best_effort(on_redo, "redo action failed")
 
-    return _UndoCallbackAction()
+    return _UndoAction()
+
+
+def add_undo_action(um: Any, title: str, on_undo: Callable[[], Any], on_redo: Callable[[], Any]) -> None:
+    """Add an undo entry for an edit LibreOffice does not record itself.
+
+    Nothing is added while *um* is locked (UndoManagerHelper_Impl::impl_addUndoAction,
+    framework/source/fwe/helper/undomanagerhelper.cxx).
+    """
+    um.addUndoAction(_undo_action(title, on_undo, on_redo))
 
 
 def attach_to_newest_undo(um: Any, on_undone: Callable[[], None]) -> None:
@@ -112,6 +117,15 @@ def attach_to_newest_undo(um: Any, on_undone: Callable[[], None]) -> None:
         return  # leaving a non-empty context clears the redo stack
     um.enterHiddenUndoContext()  # raises EmptyUndoStackException when there is no entry
     try:
-        um.addUndoAction(_undo_callback_action(on_undone))
+        # Never shown because the merged entry keeps its predecessor's title.
+        # A merged group is undone newest-first, so the cell still has its formula here;
+        # posting with force_queue=True defers the check until the whole Undo finishes.
+        um.addUndoAction(
+            _undo_action(
+                "Python plot",
+                partial(main.post, partial(best_effort, on_undone, "undo callback failed"), force_queue=True),
+                lambda: None,
+            )
+        )
     finally:
         um.leaveUndoContext()

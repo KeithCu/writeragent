@@ -75,6 +75,7 @@ from plugin.calc.navigation import (
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
+from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 log = logging.getLogger(__name__)
@@ -131,8 +132,6 @@ def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
 def create_hidden_html_writer(ctx: Any) -> Any | None:
     """Load a hidden Writer document for HTML import + direct copy."""
     try:
-        from plugin.framework.scratch_writer import new_blank_writer
-
         return new_blank_writer(ctx)
     except Exception:
         log.exception("create_hidden_html_writer failed")
@@ -405,9 +404,7 @@ SLASH_LOCAL = "_slash_local"
 
 def append_slash_local_message(session: Any, text: str) -> bool:
     """Persist a closed assistant row for local slash output (not an LLM turn)."""
-    messages = getattr(session, "messages", None)
-    if not isinstance(messages, list):
-        return False
+    messages = session.messages
     if not text or not str(text).strip():
         return False
     messages.append({"role": "assistant", "content": text, SLASH_LOCAL: True})
@@ -422,9 +419,7 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     separate message the turn writes when it closes, not a chunk matched by
     text. Returns True when the list changed.
     """
-    messages = getattr(session, "messages", None)
-    if not isinstance(messages, list):
-        return False
+    messages = session.messages
     if not text or not str(text).strip():
         return False
     if role == "user":
@@ -454,12 +449,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     notice = session.history_notice
     if notice:
         text += "\n%s %s\n" % (_("Assistant:"), _plain_fallback_text(notice))
-    messages = getattr(session, "messages", None)
-    if not isinstance(messages, list):
-        return text
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
+    for msg in session.messages:
         role = msg.get("role", "")
         content = _plain_fallback_text(message_text(msg.get("content", "")))
         if role == "user":
@@ -483,7 +473,7 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
     if greeting:
         items.append(("assistant", greeting))
     notice = session.history_notice
-    if isinstance(notice, str) and notice:
+    if notice:
         items.append(("assistant", notice))
     for msg in session.messages:
         role = msg.get("role", "")
@@ -678,7 +668,7 @@ def paint_message_items(
 def _close_hidden_doc(doc: Any, context: str) -> None:
     if doc is not None:
         try:
-            doc.close(True)
+            close_scratch_document(doc)
         except Exception:
             log.debug("%s: hidden writer close failed", context, exc_info=True)
 

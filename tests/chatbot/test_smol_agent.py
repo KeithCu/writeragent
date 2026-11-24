@@ -1301,6 +1301,47 @@ def test_writeragent_agent_still_validates_plain_smol_tools():
         agent.execute_tool_call("plain", {"text": 123})
 
 
+def test_inner_call_recorder_records_editing_tool_that_raises():
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall, record_edits
+    from plugin.framework.tool import ToolBase, ToolContext
+
+    events: list[str] = []
+
+    class _RaisingEditTool(ToolBase):
+        name = "edit_and_raise"
+        description = "Mutates then raises."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs):
+            del ctx, kwargs
+            events.append("mutated")
+            raise RuntimeError("boom after edit")
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+    calls: list[InnerToolCall] = []
+    recorder = InnerCallRecorder(_RaisingEditTool(), ctx, calls)
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        result = recorder.forward()
+
+    assert events == ["mutated"]
+    assert len(calls) == 1
+    assert calls[0].mutating is True
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+    payload: dict[str, object] = {}
+    record_edits(payload, calls)
+    assert payload["edits"] == {}
+    assert "note" not in payload
+
+
 def test_build_toolcalling_agent_prints_nothing_when_tool_with_password_fails(capsys):
     from plugin.contrib.smolagents.models import (
         ChatMessage,

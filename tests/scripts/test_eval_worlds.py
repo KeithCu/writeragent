@@ -66,6 +66,31 @@ def test_draw_connect_tree() -> None:
     assert any(n.get("connected_end") or n.get("connected_start") for n in nodes)
 
 
+def test_draw_connect_records_arrowheads() -> None:
+    draw = DrawWorld()
+    draw.shape_upsert(action="create", shape_type="ellipse", text="Start")
+    draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process")
+    res_end = draw.shape_connect(start=0, end=1, line_end="arrow", line_start=None)
+    assert res_end["status"] == "ok"
+    assert draw.get_tree()["connections"][0] == {
+        "from_index": 0,
+        "to_index": 1,
+        "line_end": "arrow",
+    }
+
+    res_start = draw.shape_connect(start=1, end=0, line_start="arrow", line_end="none")
+    assert res_start["status"] == "ok"
+    assert draw.get_tree()["connections"][1] == {
+        "from_index": 1,
+        "to_index": 0,
+        "line_start": "arrow",
+    }
+
+    res_bad = draw.shape_connect(start=0, end=1, line_end="triangle")
+    assert res_bad["status"] == "error"
+    assert len(draw.get_tree()["connections"]) == 2
+
+
 def test_calc_py_dest_snapshot() -> None:
     calc = CalcWorld("Name\tAmt\nAnn\t1")
     calc.write_range(

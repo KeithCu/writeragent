@@ -31,10 +31,10 @@ def is_recording_changes(model: Any) -> bool:
     """True if *model* is currently recording Track Changes (redlines).
 
     Agent edits made while recording must land as a clean tracked Delete + Insert so the
-    user can accept (-> new text) or reject (-> old text) each one. The format-preserving
-    replace paths (the char-by-char diff in ``replace_preserving_format`` and the
-    paragraph-style restore) corrupt that into a per-character mess or a FORMAT
-    redline that keeps the old text on Accept -- so those steps are skipped while recording.
+    user can accept (-> new text) or reject (-> old text) each one. The paragraph-style
+    restore on inline HTML replaces would turn that deletion into a FORMAT redline that
+    keeps the old text on Accept, so it is skipped while recording; ``replace_preserving_format``
+    uses its recorded path instead of untracked run-by-run replacement.
     """
     # RecordChanges get/set does not fail on a live document.
     try:

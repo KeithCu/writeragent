@@ -11,11 +11,15 @@ modules under plugin.writer.locale or plugin.framework.client at module level.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from plugin.framework import config, uno_context
 
+if TYPE_CHECKING:
+    from collections.abc import Collection
+
 _LOCAL = frozenset({"harper", "languagetool", "vale"})
+_GRAMMAR_ENGINE_KEYS = frozenset({"doc.grammar_proofreader_enabled", "doc.grammar_proofreader_model"})
 
 GrammarProvider = Literal["off", "llm", "languagetool", "vale", "harper"]
 GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
@@ -84,3 +88,16 @@ def checker_identity(name: str | None = None) -> str:
     from plugin.framework.client.model_fetcher import get_grammar_model
 
     return f"llm:{get_grammar_model() or ''}"
+
+
+def engine_settings_changed(keys: Collection[str]) -> bool:
+    """Return True when *keys* change the active grammar engine, model, or LLM endpoint."""
+    if not _GRAMMAR_ENGINE_KEYS.isdisjoint(keys):
+        return True
+    # Only the LLM engine uses the endpoint, and it falls back to text_model only when
+    # no grammar model is set (get_grammar_model).
+    if provider() != "llm":
+        return False
+    return "endpoint" in keys or (
+        "text_model" in keys and not str(config.get_config("doc.grammar_proofreader_model") or "").strip()
+    )

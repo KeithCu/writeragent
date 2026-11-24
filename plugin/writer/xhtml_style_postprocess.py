@@ -17,10 +17,10 @@
 #   - Whole-paragraph Para* overrides in data-lo-para: on write, the geometry properties
 #     (alignment, margins, indent, line-height) and background-color round-trip on
 #     full_document, beginning, end, position='before'/'after' block inserts, and
-#     whole-paragraph selection and search replacements with Track Changes off;
+#     whole-paragraph selection and search replacements with Track Changes on or off;
 #     paragraph-level font properties and color are read-only and arrive in warnings
-#     (html_import_styles._READ_ONLY_PARA_NAMES says why). Table cells and partial or
-#     recorded replacements do not apply data-lo-para. Read reports geometry, paragraph
+#     (html_import_styles._READ_ONLY_PARA_NAMES says why). Table cells and partial
+#     replacements do not apply data-lo-para. Read reports geometry, paragraph
 #     font, and fo:color in data-lo-para from the flat-ODF sidecar (see
 #     parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override
 #     from an inherited value.
@@ -104,7 +104,7 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # the style is set (full_document, beginning, end, position='before'/'after' block inserts, and
 # whole-paragraph selection/search writes), except the font names and color in
 # html_import_styles._READ_ONLY_PARA_NAMES, which arrive in warnings. A unit test fails when a name
-# added here is in neither. Table cells and partial or recorded replacements do not apply
+# added here is in neither. Table cells and partial replacements do not apply
 # data-lo-para.
 # Range, selection and header reads copy paragraphs into a scratch document first, so
 # range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets; test_every_para_writer_property_is_copied_by_range_reads pins that.

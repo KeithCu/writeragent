@@ -61,7 +61,10 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, TypeVar
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 _T = TypeVar("_T", int, float)
 _S = TypeVar("_S")
@@ -631,9 +634,9 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
     return text
 
 
-def _resolve_secret(name: str, raw: Any) -> str:
+def _resolve_secret(name: str, raw: Any, cancel: SendCancellation | None = None) -> str:
     if keystore.is_ref(raw):
-        return keystore.get_secret(name) or ""
+        return keystore.get_secret(name, cancel=cancel) or ""
     return str(raw or "")
 
 
@@ -734,10 +737,10 @@ def api_key_slot_value(endpoint: Any) -> str:
     return _api_key_slot_raw(normalize_endpoint_url(endpoint or ""))
 
 
-def get_api_key_for_endpoint(endpoint: Any) -> str:
+def get_api_key_for_endpoint(endpoint: Any, cancel: SendCancellation | None = None) -> str:
     """Return API key for the given endpoint."""
     normalized = normalize_endpoint_url(endpoint or "")
-    return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
+    return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized), cancel=cancel)
 
 
 def has_api_key_for_endpoint(endpoint: Any) -> bool:
@@ -908,7 +911,7 @@ def get_api_config(*, with_api_key: bool = True) -> dict[str, Any]:
     return api_config
 
 
-def fill_api_key(api_config: dict[str, Any]) -> None:
+def fill_api_key(api_config: dict[str, Any], cancel: SendCancellation | None = None) -> None:
     """Read the key that ``get_api_config(with_api_key=False)`` left out; a key already present is kept.
 
     Call on the worker that sends the request: reading a locked keyring blocks
@@ -916,7 +919,7 @@ def fill_api_key(api_config: dict[str, Any]) -> None:
     because a shared client's ``config`` can be replaced while the prompt is open.
     """
     if "api_key" not in api_config:
-        api_config["api_key"] = get_api_key_for_endpoint(api_config.get("endpoint"))
+        api_config["api_key"] = get_api_key_for_endpoint(api_config.get("endpoint"), cancel=cancel)
 
 
 def validate_api_config(config: Any) -> tuple[bool, str]:

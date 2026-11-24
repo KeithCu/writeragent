@@ -25,7 +25,7 @@ from plugin.scripting.venv.venv_sandbox import (
     reset_sandbox_session,
     serialize_result,
 )
-from tests.scripting.sandbox_support import sandbox_run
+from tests.scripting.sandbox_support import refuse_sigalrm, sandbox_run
 
 
 @pytest.fixture(autouse=True)
@@ -118,25 +118,11 @@ def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     assert out.get("result") != "caught"
 
 
-def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force local_python_executor.timeout onto its ThreadPoolExecutor path."""
-    import signal
-
-    real_signal = signal.signal
-
-    def _signal(signum, handler):
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return real_signal(signum, handler)
-
-    monkeypatch.setattr(signal, "signal", _signal)
-
-
 def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.MonkeyPatch):
     """Windows / non-main timeout thread must still see the workbook session."""
     from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id, sandbox_execute_active
 
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
     seen: dict[str, object] = {}
 
     def probe() -> int:
@@ -746,7 +732,6 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
 ) -> None:
     """Thread-pool fallback (Windows / non-main thread) must write EXECUTION_TIMEOUT before draining."""
     import io
-    import signal
     import time
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
@@ -757,12 +742,7 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
-    def refuse_sigalrm(signum: int, handler: object) -> object:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     req_data = pack_pickle_frame(
         {
@@ -833,7 +813,7 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
     monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     req_data = pack_pickle_frame(
         {
@@ -2218,6 +2198,62 @@ def test_axes_array_result_captures_its_figure(
     assert res["status"] == "ok", res
     assert is_image_payload(res["result"])
     assert b'id="axes_2"' in res["result"]["data"]
+
+
+@pytest.mark.parametrize(
+    ("tail", "session_id"),
+    [
+        pytest.param("plt.hist([1, 2, 2, 3])", "calc:plot-call-hist", id="hist"),
+        pytest.param("n, bins, patches = plt.hist([1, 2])", "calc:plot-call-hist-unpack", id="hist_unpack"),
+        pytest.param("plt.boxplot([1, 2, 3])", "calc:plot-call-boxplot", id="boxplot"),
+        pytest.param("plt.errorbar([1, 2], [3, 4], yerr=1)", "calc:plot-call-errorbar", id="errorbar"),
+        pytest.param("plt.pie([1, 2])", "calc:plot-call-pie", id="pie"),
+        pytest.param("plt.hist2d([1, 2], [3, 4])", "calc:plot-call-hist2d", id="hist2d"),
+        pytest.param("fig, axs = plt.subplots(2, 2)\naxs.tolist()", "calc:plot-call-axs-tolist", id="axs_tolist"),
+        pytest.param("plt.imshow([[1, 2], [3, 4]])\nplt.colorbar()", "calc:plot-call-colorbar", id="colorbar"),
+        pytest.param("plt.plot([1])\nresult = plt", "calc:plot-call-plt-module", id="plt_module"),
+    ],
+)
+def test_plot_call_result_captures_its_figure(
+    fresh_sandbox_sessions,
+    tail: str,
+    session_id: str,
+) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    code = f"import matplotlib.pyplot as plt\n{tail}"
+    res = sandbox_run(code, session_id=session_id, timeout_sec=15)
+    assert res["status"] == "ok", res
+    assert is_image_payload(res["result"])
+    assert b'id="axes_1"' in res["result"]["data"]
+    assert plt.get_fignums() == []
+
+
+def test_uncrossable_result_without_open_figure_errors(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("matplotlib.pyplot")
+
+    code = "import matplotlib.pyplot as plt\nr = plt.hist([1])\nplt.close()\nr"
+    res = sandbox_run(code, session_id="calc:uncrossable-no-fig", timeout_sec=15)
+    assert res["status"] == "error", res
+    assert "cannot cross" in res.get("message", "")
+
+
+def test_render_error_is_not_replaced_by_another_figure(fresh_sandbox_sessions) -> None:
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "other = plt.figure()\n"
+        "other.add_subplot()\n"
+        "fig, ax = plt.subplots()\n"
+        "ax.set_title('$\\\\badcmd$')\n"
+        "plt.close(fig)\n"
+        "result = {'fig': fig}"
+    )
+    res = sandbox_run(code, session_id="calc:render-err-no-fallback", timeout_sec=15)
+    assert res["status"] == "error", res
+    assert "badcmd" in res.get("message", "")
+    assert plt.get_fignums() == []
 
 
 def test_runtime_error_returns_user_traceback_without_host_paths() -> None:

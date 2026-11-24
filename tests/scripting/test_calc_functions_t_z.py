@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import struct
 from typing import Any
 
 import numpy as np
@@ -550,6 +551,10 @@ def test_textjoin_propagates_errors_and_flattens_ranges():
     assert calc.textjoin(",", True, [True, 1.0]) == "True,1"
 
 
+def _nan_low32(val: float) -> int:
+    return struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
+
+
 def test_textsplit_empty_text_is_nan_and_pad_is_nan():
     assert math.isnan(calc.textsplit("", ","))
     assert math.isnan(calc.textsplit("", ",", ignore_empty=True))
@@ -557,6 +562,7 @@ def test_textsplit_empty_text_is_nan_and_pad_is_nan():
     assert padded[0] == ["a", "b"]
     assert padded[1][0] == "c"
     assert math.isnan(padded[1][1])
+    assert _nan_low32(padded[1][1]) == 0x7FFF
     assert calc.textsplit("a,b;c", ",", ";", pad_with="x") == [["a", "b"], ["c", "x"]]
 
 
@@ -582,5 +588,22 @@ def test_text_and_trend_shared_helpers_unchanged():
     assert calc.text(float("inf"), "0.00") == "inf"
     assert np.allclose(calc.trend([1, 2, 3], [[1, 2, 3]], [[4], [5]]), [4.0, 5.0])
     assert np.allclose(calc.trend([1, 2, 3, 4], [[1, 2, 3, 4], [2, 1, 5, 4]], [[5], [6]]), [5.0])
-    assert np.allclose(calc.trend(5, 3), [5.0])
+    assert calc.trend(5, 3) == "#VALUE!"
+    assert calc.trend(5) == "#VALUE!"
+    assert calc.trend([1, 2], [[1, 2], [3, 5]]) == "#VALUE!"
+    assert math.isclose(calc.trend(5, 3, 4, False)[0], 20.0 / 3.0, rel_tol=1e-9)
+
+
+def test_xmatch_miss_and_bad_mode_nan_payload():
+    miss = calc.xmatch(9, [1, 2])
+    assert math.isnan(miss)
+    assert _nan_low32(miss) == 0x7FFF
+
+    bad_mode = calc.xmatch(9, [1, 2], match_mode=9)
+    assert math.isnan(bad_mode)
+    assert _nan_low32(bad_mode) == 0
+
+    plain_nan_lookup = calc.xmatch(float("nan"), [1, 2])
+    assert math.isnan(plain_nan_lookup)
+    assert _nan_low32(plain_nan_lookup) == 0
 

@@ -266,3 +266,37 @@ def test_untyped_tts_id_takes_catalog_casing():
          patch("plugin.chatbot.dialog_views.cached_image_models", return_value=[]):
         listener._apply_dropdowns(OR, models=["openrouter/free"])
     assert ctrls["audio__tts_model"].text == "hexgrad/kokoro-82m"
+
+
+def test_custom_url_keeps_edited_text_shows_saved_on_first_fill_and_resets_on_switch():
+    from plugin.framework.config import save
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    custom_a = "http://gpu.lan:8000/v1"
+    custom_b = "http://gpu2.lan:8000/v1"
+    save({
+        "endpoint": custom_a,
+        "text_model": "custom/saved-model",
+    })
+    ctrls = {
+        "endpoint": FakeCombo(custom_a),
+        "api_key": FakeCombo(""),
+        "text_model": FakeCombo("custom/saved-model"),
+    }
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)), \
+         patch("plugin.chatbot.dialog_views.cached_image_models", return_value=[]):
+        # First fill shows the saved model, not LRU head.
+        listener._apply_dropdowns(custom_a, models=["custom/other", "custom/saved-model"])
+        assert ctrls["text_model"].text == "custom/saved-model"
+
+        # Edited text survives a repaint on the same custom URL.
+        ctrls["text_model"].setText("custom/half-ty")
+        listener._apply_dropdowns(custom_a, models=["custom/other", "custom/saved-model"])
+        assert ctrls["text_model"].text == "custom/half-ty"
+
+        # Switching to a different custom URL drops the old text.
+        ctrls["endpoint"].setText(custom_b)
+        listener._apply_dropdowns(custom_b, models=["custom/b-model"])
+        assert ctrls["text_model"].text != "custom/half-ty"
+        assert "custom/b-model" in ctrls["text_model"].items

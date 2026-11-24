@@ -634,7 +634,7 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
 MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
 
-StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH"]
 
 
 @dataclass
@@ -644,17 +644,16 @@ class WriteReport:
     Every write function in ``html_import`` returns one. ``unapplied_para`` holds the
     data-lo-para property names that were not applied. ``style_skips`` holds one code per
     write whose data-lo-style (and data-lo-para) was skipped because the replaced range was
-    not whole paragraphs or tracked changes were recording. ``style_tokens`` is the distinct
-    non-empty data-lo-style tokens in the content, in first-seen order; a skip with no token
-    still explains the data-lo-para skip but names no style. ``math`` is one entry per
-    formula conversion attempt. ``snapped_to_paragraph`` is True when a collapsed-caret
-    insert moved to after the caret's paragraph because the content was block-level.
-    ``added_content`` is internal (not reported): False when the import added nothing
-    (e.g. ``<p></p>``), so ``_replace_whole_paragraphs`` keeps the emptied paragraph.
-    ``links_retargeted`` counts outline hyperlinks updated after a heading rename, and
-    ``stale_links`` lists ``|outline`` URLs on field-backed links that could not be
-    rewritten as tracked changes while recording.
-    all_matches merges one report per match with ``extend``.
+    not whole paragraphs. ``style_tokens`` is the distinct non-empty data-lo-style tokens in
+    the content, in first-seen order; a skip with no token still explains the data-lo-para
+    skip but names no style. ``math`` is one entry per formula conversion attempt.
+    ``snapped_to_paragraph`` is True when a collapsed-caret insert moved to after the caret's
+    paragraph because the content was block-level. ``added_content`` is internal (not
+    reported): False when the import added nothing (e.g. ``<p></p>``), so
+    ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
+    outline hyperlinks updated after a heading rename, and ``stale_links`` lists
+    ``|outline`` URLs on field-backed links that could not be rewritten as tracked changes
+    while recording. all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
@@ -708,10 +707,7 @@ def attach_write_report(
         token = style_tokens[0] if len(style_tokens) == 1 else None
         subject = f"data-lo-style='{token}'" if token else "data-lo-style"
 
-        partial_count = report.style_skips.count("STYLE_IGNORED_PARTIAL_MATCH")
-        recording_count = report.style_skips.count("STYLE_IGNORED_RECORDING")
-
-        style_diags: list[Diagnostic] = []
+        partial_count = len(report.style_skips)
         if partial_count > 0:
             scope_clause = (
                 f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
@@ -734,31 +730,9 @@ def attach_write_report(
                 suggested = suggest_style_fix(token, total_matches)
                 if suggested is not None:
                     partial_diag["suggested_call"] = suggested
-            style_diags.append(partial_diag)
-
-        if recording_count > 0:
-            rec_scope = f" to {recording_count} of {total_matches} matches" if total_matches > 1 else ""
-            rec_msg = (
-                f"{subject} was not applied{rec_scope} while tracked changes are recording, "
-                "because a paragraph style on this replace would turn the deletion into a format change. "
-                "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
-            )
-            rec_diag: Diagnostic = {
-                "code": "STYLE_IGNORED_RECORDING",
-                "message": rec_msg,
-                "matches_skipped": recording_count,
-                "matches_total": total_matches,
-            }
-            style_diags.append(rec_diag)
-
-        if style_diags:
-            diags.extend(style_diags)
-            note_text = " ".join(d["message"] for d in style_diags)
+            diags.append(partial_diag)
             existing_message = result.get("message") or ""
-            if existing_message:
-                result["message"] = f"{existing_message} {note_text}"
-            else:
-                result["message"] = note_text
+            result["message"] = f"{existing_message} {msg}" if existing_message else msg
 
     if report.unapplied_para:
         deduped = list(dict.fromkeys(report.unapplied_para))
@@ -766,9 +740,6 @@ def attach_write_report(
         if skip_reason == "STYLE_IGNORED_PARTIAL_MATCH":
             para_code = "PARA_IGNORED_PARTIAL_MATCH"
             para_suffix = " because the replaced range does not cover a whole paragraph"
-        elif skip_reason == "STYLE_IGNORED_RECORDING":
-            para_code = "PARA_IGNORED_RECORDING"
-            para_suffix = " because tracked changes are recording"
         else:
             para_code = "PARA_PROPERTY_UNSUPPORTED"
             para_suffix = ""

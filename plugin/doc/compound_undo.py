@@ -94,12 +94,6 @@ class WriterCompoundUndo:
                     log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
                 return
             self._titles_before = undo_titles(doc)
-            try:
-                is_in_ctx = um.isInContext()
-                undo_enabled = um.isUndoEnabled()
-                log.debug("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
-            except Exception as probe_e:
-                log.debug("WriterCompoundUndo: could not probe undo manager state: %s", probe_e)
             um.enterUndoContext(title)
             self._undo_manager = um
             self._open = True
