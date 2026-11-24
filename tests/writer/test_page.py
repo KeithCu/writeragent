@@ -15,8 +15,8 @@ from plugin.writer.page import (
     PageSetHeaderFooterText,
     PageSetColumns,
     PageInsertBreak,
-    _copy_region_graphics,
     _disable_blocked_by_content,
+    _region_graphics_report,
     _region_holds_content,
     _region_mirrors_shared,
     _region_shapes,
@@ -1078,37 +1078,31 @@ def test_page_break_empty_style_with_restart_does_not_resolve():
     doc.getStyleFamilies.assert_not_called()
 
 
-def test_copy_region_graphics_skips_non_graphic():
-    """AT_PARAGRAPH frames are not TextGraphicObject; they are reported, not copied."""
+def test_region_graphics_report_counts_and_skips():
+    """AT_PARAGRAPH frames are not TextGraphicObject; they and shortfalls are reported."""
     src = MagicMock()
-    src.createEnumeration.return_value.hasMoreElements.return_value = False
     dest = MagicMock()
-    graphic = MagicMock()
-    graphic.supportsService.return_value = True
-    graphic.getName.return_value = "logo"
-    graphic.getAnchor.return_value.getText.return_value = src
-    graphic.getPropertyValue.side_effect = lambda name: "v-" + name
+    g1 = MagicMock()
+    g1.supportsService.return_value = True
+    g1.getName.return_value = "logo1"
+    g2 = MagicMock()
+    g2.supportsService.return_value = True
+    g2.getName.return_value = "logo2"
     frame = MagicMock()
     frame.supportsService.return_value = False
     frame.getName.return_value = "frame"
-    frame.getAnchor.return_value.getText.return_value = src
-    elsewhere = MagicMock()
-    elsewhere.getAnchor.return_value.getText.return_value = object()
-    draw = MagicMock()
-    draw.getCount.return_value = 3
-    draw.getByIndex.side_effect = [graphic, frame, elsewhere]
+    dest_g = MagicMock()
+    dest_g.supportsService.return_value = True
     doc = MagicMock()
-    doc.getDrawPage.return_value = draw
-    created = MagicMock()
-    doc.createInstance.return_value = created
 
-    copied, skipped = _copy_region_graphics(doc, src, dest)
+    with patch(
+        "plugin.writer.page._region_shapes",
+        side_effect=[[(g1, MagicMock()), (g2, MagicMock()), (frame, MagicMock())], [(dest_g, MagicMock())]],
+    ):
+        copied, skipped = _region_graphics_report(doc, src, dest)
 
     assert copied == 1
-    assert skipped == ["frame"]
-    dest.insertTextContent.assert_called_once()
-    created.setPropertyValue.assert_any_call("HyperLinkURL", "v-HyperLinkURL")
-    created.setPropertyValue.assert_any_call("AnchorType", "v-AnchorType")
+    assert skipped == ["frame", "1 image(s)"]
 
 
 def test_copy_page_style_inserts_without_touching_follow_style():

@@ -299,3 +299,18 @@ def test_manage_changes_survives_unclearable_paste_writer_uno(ctx):
         dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
         dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
         assert writer_doc.getText().getString() == "keep"
+
+
+@native_test
+@with_native_doc("calc")
+def test_insert_cell_html_escaped_tag_stays_text_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "insert_html",
+        {"cell": "A1", "html": "&lt;b&gt;literal&lt;/b&gt;"},
+    )
+    assert res.get("status") == "ok", res
+    note_windows_html_paste_leftover()
+    assert sheet.getCellByPosition(0, 0).getString() == "<b>literal</b>"

@@ -47,13 +47,11 @@ class TestPythonRunnerFormatting:
         assert (format_result_for_writer(value)) == (expected)
         assert (format_result_for_writer(value_2)) == (expected_2)
 
-    def test_format_escapes_html_specials_for_insert_unescape(self):
-        # Double-escape so html.unescape in insert_content_at_position still
-        # leaves entities the StarWriter filter will render as text.
-        assert (format_result_for_writer("<b>&</b>")) == ("&amp;lt;b&amp;gt;&amp;amp;&amp;lt;/b&amp;gt;")
+    def test_format_escapes_html_specials_for_insert(self):
+        assert (format_result_for_writer("<b>&</b>")) == ("&lt;b&gt;&amp;&lt;/b&gt;")
         table = format_result_for_writer([["<td>", "a&b"]])
-        assert ("<td>&amp;lt;td&amp;gt;</td>") in (table)
-        assert ("<td>a&amp;amp;b</td>") in (table)
+        assert ("<td>&lt;td&gt;</td>") in (table)
+        assert ("<td>a&amp;b</td>") in (table)
 
 
     def test_is_shape_tool_status_result(self):
@@ -166,7 +164,7 @@ class TestPythonRunnerFormatting:
         assert ("<p><b>12345</b></p>") in (res)
         assert ("<p><b>99.9</b></p>") in (res)
         assert ("<p><b>True</b></p>") in (res)
-        assert ("<p><b>{&amp;#x27;nested&amp;#x27;: &amp;#x27;value&amp;#x27;}</b></p>") in (res)
+        assert ("<p><b>{&#x27;nested&#x27;: &#x27;value&#x27;}</b></p>") in (res)
         assert ("<b>title:</b>") not in (res)
         assert ("<b>summary:</b>") not in (res)
         assert ("<b>message:</b>") not in (res)

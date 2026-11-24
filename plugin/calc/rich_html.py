@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import html as html_std
 import logging
 import sys
 from typing import Any
@@ -35,6 +34,7 @@ from plugin.framework.uno_context import get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import FORMULA, query_interface
 import plugin.writer.html_import as html_import
+from plugin.writer.html_import_styles import normalize_character_references
 
 log = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     cell = CalcBridge(doc).get_cell_by_address(cell_address.strip())
     replaced = str(cell.getFormula()) if cell.getType() == FORMULA else str(cell.getString())
 
-    content = html_std.unescape(html)
+    content = normalize_character_references(html)
     prepared = html_import.ensure_html_linebreaks(content)
 
     step = "start"

@@ -468,3 +468,21 @@ def test_frame_miss_lists_word_text_boxes():
         assert res["details"]["available"] == ["Plain", "Frame1"]
         assert "Frame1" in res["details"]["similar"]
     draw_page.remove.assert_not_called()
+
+
+def test_frame_set_properties_refuses_text_box():
+    doc, _plain, box_frame, box_shape, _dp = _make_text_box_doc()
+    ctx = MagicMock(doc=doc)
+    tool = FrameSetProperties()
+    for params in (
+        {"width_mm": 90.0},
+        {"anchor_type": 2},
+        {"hori_orient": 1},
+        {"vert_orient": 3},
+    ):
+        res = tool.execute(ctx, name="Frame1", **params)
+        assert res["status"] == "error"
+        assert res["code"] == "TEXT_BOX_SHAPE"
+        assert res["details"] == {"shape_index": 1, "shape_name": "Text Box 2"}
+    box_frame.setPropertyValue.assert_not_called()
+    box_shape.setPropertyValue.assert_not_called()
