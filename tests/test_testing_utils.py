@@ -274,16 +274,16 @@ def test_testing_utils_identity_when_tests_name_imported_first():
 
 
 @pytest.mark.parametrize(
-    ("doc_type", "expected_url", "expected_target"),
+    ("doc_type", "expected_url"),
     [
-        ("writer", "private:factory/swriter", "_wa_factory"),
-        ("calc", "private:factory/scalc", "_wa_scalc"),
-        ("draw", "private:factory/sdraw", "_wa_sdraw"),
-        ("impress", "private:factory/simpress", "_wa_simpress"),
+        ("writer", "private:factory/swriter"),
+        ("calc", "private:factory/scalc"),
+        ("draw", "private:factory/sdraw"),
+        ("impress", "private:factory/simpress"),
     ],
 )
-def test_create_native_doc_windows_reuses_stable_target(
-    monkeypatch, doc_type: str, expected_url: str, expected_target: str
+def test_create_native_doc_windows_prepares_before_factory_load(
+    monkeypatch, doc_type: str, expected_url: str
 ):
     from unittest.mock import MagicMock, patch
 
@@ -293,52 +293,26 @@ def test_create_native_doc_windows_reuses_stable_target(
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = MagicMock()
     calls = []
-    saved_seq = tu._STATE.factory_seq
-    tu._STATE.factory_seq = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
         tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
-    try:
-        with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("uno.createUnoStruct", return_value=MagicMock()),
-            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
-        ):
-            TestingFactory.create_native_doc(object(), doc_type)
-            TestingFactory.create_native_doc(object(), doc_type)
-        assert calls == ["prepare", "prepare"]
-        args = desktop.loadComponentFromURL.call_args.args
-        assert args[0] == expected_url
-        assert args[1] == expected_target
-        assert args[2] == (8 | 55)
-    finally:
-        tu._STATE.factory_seq = saved_seq
-
-
-def test_windows_factory_load_args_blank_and_unknown_sequence():
-    import plugin.tests.testing_utils as tu
-
-    saved = tu._STATE.factory_seq
-    tu._STATE.factory_seq = 0
-    try:
-        assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
-        assert tu._windows_factory_load_args("private:factory/smath", 2) == ("_wa_factory_1", 8 | 55)
-        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == ("_wa_sdraw", 8 | 55)
-        assert tu._windows_factory_load_args("private:factory/smath", 2) == ("_wa_factory_2", 8 | 55)
-    finally:
-        tu._STATE.factory_seq = saved
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("uno.createUnoStruct", return_value=MagicMock()),
+        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+    ):
+        TestingFactory.create_native_doc(object(), doc_type)
+        TestingFactory.create_native_doc(object(), doc_type)
+    assert calls == ["prepare", "prepare"]
+    args = desktop.loadComponentFromURL.call_args.args
+    assert args[0] == expected_url
 
 
 def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
     monkeypatch,
 ):
-    """GHA 34661915875 / 34672065355: leftover _wa_simpress hung 30s.
-
-    #737's stable name is live. Leftover _wa_factory swriter at
-    leftover_open=15 returned. leftover_open=3 still hung (old max=4).
-    Skip leftover Draw/Impress; leftover Writer still loads.
-    """
+    """GHA 34661915875 / 34672065355: a Draw/Impress factory load hangs 30s with more than two leftover Writers; Writer still loads."""
     import unittest
     from unittest.mock import MagicMock, patch
 
@@ -374,7 +348,6 @@ def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
         TestingFactory.create_native_doc(object(), "writer")
         args = desktop.loadComponentFromURL.call_args.args
         assert args[0] == "private:factory/swriter"
-        assert args[1] == "_wa_factory"
         assert calls == ["prepare", "prepare", "prepare"]
 
 
@@ -478,7 +451,6 @@ def test_create_native_doc_windows_skips_hidden_blank_after_bitmap(monkeypatch):
             TestingFactory.create_native_doc(object(), "writer")
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/swriter"
-            assert args[1] == "_wa_factory"
     finally:
         tu._set_windows_hidden_open_bitmap(saved_bitmap)
 
@@ -613,7 +585,7 @@ def test_close_doc_posix_closes_math_ole_draw(monkeypatch):
 
 
 def test_close_doc_skips_windows_notebook_leftover(monkeypatch):
-    """GHA 34646877587: close notebook leftover then next _wa_notebook hung."""
+    """GHA 34646877587: closing a notebook leftover hung the next Hidden notebook load."""
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -634,22 +606,6 @@ def test_close_doc_skips_windows_notebook_leftover(monkeypatch):
             TestingFactory.close_doc(doc)
         doc.close.assert_not_called()
     finally:
-        tu._set_windows_leftover_open(saved)
-
-
-def test_windows_notebook_host_uses_dedicated_factory_target(monkeypatch):
-    import plugin.tests.testing_utils as tu
-
-    saved = tu._windows_leftover_open()
-    monkeypatch.setattr(tu.sys, "platform", "win32")
-    tu.set_windows_notebook_host(True)
-    tu._set_windows_leftover_open(5)
-    try:
-        target, flags = tu._windows_factory_load_args("private:factory/swriter", 5)
-        assert target == "_wa_notebook_host"
-        assert flags == (8 | 55)
-    finally:
-        tu.set_windows_notebook_host(False)
         tu._set_windows_leftover_open(saved)
 
 
@@ -753,7 +709,7 @@ def test_native_doc_notebook_host_pool_is_separate(monkeypatch, platform):
 
 
 def test_native_doc_windows_reuses_calc_when_leftovers_open(monkeypatch):
-    """GHA 34643210006: leftover _wa_scalc hung; reuse=False must not factory-load."""
+    """GHA 34643210006: a Calc factory load with leftovers hung; reuse=False must not factory-load."""
     from unittest.mock import MagicMock
 
     from plugin.tests.testing_utils import TestingFactory

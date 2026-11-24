@@ -14,10 +14,7 @@ from plugin.framework.doc_type import is_writer
 from plugin.framework.uno_context import get_desktop
 from plugin.notebook.cell_registry import load_registry
 from plugin.testing_runner import _progress_verbose as _progress, native_test
-from plugin.tests.testing_utils import (
-    TestingFactory,
-    windows_notebook_load_args,
-)
+from plugin.tests.testing_utils import TestingFactory
 
 
 def _ipynb_fixture_url() -> str:
@@ -42,7 +39,7 @@ def _has_notebook_filter(ctx) -> bool:
 
 
 def _load_ipynb(ctx, *, filter_name: str | None = None):
-    """Hidden .ipynb load. Windows avoids leftover Hidden ``_blank`` (34619751330)."""
+    """Hidden .ipynb load."""
     desktop = get_desktop(ctx)
     assert desktop is not None
     from com.sun.star.beans import PropertyValue
@@ -57,13 +54,9 @@ def _load_ipynb(ctx, *, filter_name: str | None = None):
     prop_hidden.Name = "Hidden"
     prop_hidden.Value = True
     props.append(prop_hidden)
-    target, flags = windows_notebook_load_args()
-    _progress(
-        "import_filter_uno: load start target=%s flags=%s filter=%s"
-        % (target, flags, filter_name or "-")
-    )
+    _progress("import_filter_uno: load start filter=%s" % (filter_name or "-"))
     doc = desktop.loadComponentFromURL(
-        _ipynb_fixture_url(), target, flags, tuple(props)
+        _ipynb_fixture_url(), "_blank", 0, tuple(props)
     )
     uid = ""
     try:
@@ -93,10 +86,9 @@ def test_import_filter_uno_load_component(ctx):
         assert len(state.code_cells) > 0
         assert "In [" in doc.getText().getString()
     finally:
-        # Raw close(True) + next Hidden _blank hung detect (34619751330).
-        # GHA 34646877587: close_doc of leftover _wa_notebook uid=41
-        # returned; the next Hidden _wa_notebook hung 30s. close_doc
-        # skips leftover notebook docs. Detect skips the second load.
+        # On Windows, raw close(True) here hangs the next Hidden load (GHA 34619751330),
+        # and so does closing while leftover Writers are open (GHA 34646877587);
+        # close_doc skips the close in the second case.
         TestingFactory.close_doc(doc)
 
 

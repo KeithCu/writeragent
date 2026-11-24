@@ -732,3 +732,14 @@ def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
 
     assert addin_values.accepts_returned_any(_RejectingCtx()) is False
     assert addin_values.accepts_returned_any(MagicMock()) is True
+
+
+def test_accepts_returned_any_propagates_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(addin_values.uno, "Any", lambda t, v: (t, v), raising=False)
+
+    class _BrokenCtx:
+        def getValueByName(self, _name: Any) -> Any:
+            raise ValueError("unexpected")
+
+    with pytest.raises(ValueError, match="unexpected"):
+        addin_values.accepts_returned_any(_BrokenCtx())
