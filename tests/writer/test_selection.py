@@ -253,9 +253,7 @@ def test_set_selection_char_range_start_equals_end_error():
 
 def test_set_selection_char_range_start_past_end_no_select():
     ctx, doc, controller = _selection_ctx()
-    rng = MagicMock()
-    rng.getString.return_value = ""
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
+    with patch("plugin.writer.selection.visible_body_range", return_value=None):
         res = SetSelection().execute(ctx, char_start=100, char_end=110)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
@@ -263,10 +261,11 @@ def test_set_selection_char_range_start_past_end_no_select():
 
 
 def test_set_selection_char_range_truncated_end_omits_char_end_and_sets_warning():
+    from plugin.doc.text_helpers import VisibleBodyRange
+
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
-    rng.getString.return_value = "truncated"
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
+    with patch("plugin.writer.selection.visible_body_range", return_value=VisibleBodyRange(rng, 10, "truncated")):
         res = SetSelection().execute(ctx, char_start=10, char_end=50)
     assert res["status"] == "ok"
     assert res["char_start"] == 10
@@ -277,10 +276,11 @@ def test_set_selection_char_range_truncated_end_omits_char_end_and_sets_warning(
 
 
 def test_set_selection_by_char_offsets_happy_path():
+    from plugin.doc.text_helpers import VisibleBodyRange
+
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
-    rng.getString.return_value = "faixa"
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, True)):
+    with patch("plugin.writer.selection.visible_body_range", return_value=VisibleBodyRange(rng, 10, "faixa")):
         res = SetSelection().execute(ctx, char_start=10, char_end=15)
     assert res["status"] == "ok" and res["selected_text"] == "faixa"
     assert res["char_start"] == 10 and res["char_end"] == 15
@@ -288,14 +288,27 @@ def test_set_selection_by_char_offsets_happy_path():
     controller.select.assert_called_once_with(rng)
 
 
+def test_set_selection_table_offset_error_does_not_select():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx, doc, controller = _selection_ctx()
+    err = ToolExecutionError("Character offset 2 is inside a table (offsets 0 to 4).", code="INVALID_PARAM")
+    with patch("plugin.writer.selection.visible_body_range", side_effect=err):
+        res = SetSelection().execute_safe(ctx, char_start=2, char_end=6)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    controller.select.assert_not_called()
+
+
 def test_set_selection_getString_disposed_is_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import MatchMode
 
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.side_effect = DocumentDisposedError("gone")
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, True)):
-        res = SetSelection().execute_safe(ctx, char_start=10, char_end=15)
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(rng, MatchMode(True, False))):
+        res = SetSelection().execute_safe(ctx, search_text="hello")
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
 
@@ -406,16 +419,16 @@ def test_set_selection_oversized_search_does_not_refuse():
     controller.select.assert_not_called()
 
 
-def test_set_selection_read_failure_on_truncated_range_keeps_both_warnings():
+def test_set_selection_search_read_failure_sets_warning():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.side_effect = RuntimeError("boom")
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
-        res = SetSelection().execute(ctx, char_start=10, char_end=50)
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(rng, MatchMode(True, False))):
+        res = SetSelection().execute(ctx, search_text="hello")
     assert res["status"] == "ok"
-    assert "Character range was truncated" in res["warning"]
     assert "Could not read selected text" in res["warning"]
-    assert res["char_start"] == 10
     controller.select.assert_called_once_with(rng)
 
 
@@ -460,16 +473,16 @@ def test_set_selection_search_updates_pin():
 
 
 def test_set_selection_char_range_updates_pin():
+    from plugin.doc.text_helpers import VisibleBodyRange
     from plugin.framework.tool import SelectionPin
 
     ctx, _doc, controller = _selection_ctx()
     ctx.selection_pin = SelectionPin(MagicMock())
     target_range = MagicMock()
-    target_range.getString.return_value = "hello"
     cloned = MagicMock()
     target_range.getText.return_value.createTextCursorByRange.return_value = cloned
 
-    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(target_range, True)):
+    with patch("plugin.writer.selection.visible_body_range", return_value=VisibleBodyRange(target_range, 0, "hello")):
         res = SetSelection().execute(ctx, char_start=0, char_end=5)
 
     assert res["status"] == "ok"

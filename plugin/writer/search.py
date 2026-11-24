@@ -27,15 +27,17 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, ca
 from plugin.doc.text_helpers import (
     FAILED,
     TrackedDeletions,
+    get_document_length,
     get_string_without_tracked_deletions,
-    go_right,
+    is_text_table,
     iter_elements,
     normalize_linebreaks,
+    read_visible_body,
     starts_at_or_after,
     visible_point_in_paragraph,
     with_view_cursor_left_body_locked,
 )
-from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
@@ -449,43 +451,32 @@ def find_text_ranges(
     search: str,
     limit: int | None = None,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-    *,
-    body_only: bool = False,
 ) -> list[dict[str, Any]]:
-    """Find occurrences of *search*, returning a list of
-    ``{"start": int, "end": int, "text": str}`` dicts.
+    """Find body occurrences of *search*, returning ``{"start": int, "end": int, "text": str}``
+    dicts in ``get_content``'s ``document_length`` space.
 
-    FOLLOW-UP: seeds ``findNext`` from body text but measures each hit with
-    ``found.getText()``; ``start``/``end`` are offsets within that nested text
-    object, not guaranteed global document indices (tables, frames, etc.).
-    ``body_only=True`` drops other ``XText`` objects. A failure (closed document
-    or UNO error) propagates. It is not an empty hit list. ``limit is None`` means
-    no cap while ``limit <= 0`` returns no rows.
+    A failure (closed document or UNO error) propagates; it is not an empty hit list.
+    ``limit is None`` means no cap while ``limit <= 0`` returns no rows.
     """
     if limit is not None:
         if type(limit) is not int or limit <= 0:
             return []
     sd = _search_descriptor(model, search, False, case_sensitive)
-
-    text = model.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoStart(False)
-
-    deletions = TrackedDeletions(model)
+    body = model.getText()
+    hits = islice(
+        (h for h in _iter_descriptor_hits(model, sd, TrackedDeletions(model)) if uno_same(h.getText(), body)),
+        limit,
+    )
+    positions = [p for h in hits for p in (h.getStart(), h.getEnd())]
+    if not positions:
+        return []
+    text, offsets, _ = read_visible_body(model, positions)
     matches = []
-    found = model.findNext(cursor, sd)
-    while found:
-        if not deletions.covers(found) and (not body_only or uno_same(found.getText(), model.getText())):
-            measure = found.getText().createTextCursor()
-            measure.gotoStart(False)
-            measure.gotoRange(found.getStart(), True)
-            m_start = len(measure.getString())
-            matched_text = found.getString()
-            m_end = m_start + len(matched_text)
-            matches.append({"start": m_start, "end": m_end, "text": matched_text})
-            if limit is not None and len(matches) >= limit:
-                break
-        found = model.findNext(found.getEnd(), sd)
+    for start, end in zip(offsets[::2], offsets[1::2], strict=True):
+        if start is None or end is None:
+            raise ToolExecutionError("Could not measure the offsets of a match.")
+        if start < end:  # a match struck by several deletions shows no text
+            matches.append({"start": start, "end": end, "text": text[start:end]})
     return matches
 
 
@@ -621,7 +612,7 @@ def _chain_hit_range(
             return whole
         return visible_point_in_paragraph(
             para, off, opened=deletions.state_at(whole).in_delete, at_end=at_end
-        )
+        )[0]
 
     if is_anchor_first:
         first_start_cursor = _edge(anchor_cursor, anchor_offset_len, at_end=False)
@@ -673,6 +664,10 @@ def _chain_hit_range(
     if uno_same(start_range.getText(), end_range.getText()):
         result_range = text.createTextCursorByRange(start_range)
         result_range.gotoRange(end_range, True)
+        # gotoNextParagraph steps over a table, and the visible text of the range has the table's
+        # cells between the parts; a replace would delete the table.
+        if any(is_text_table(el) for el in iter_elements(result_range.createEnumeration())):
+            return None
         return result_range
 
     log.debug("_chain_hit_range: chain crosses XText; no single range")
@@ -1392,30 +1387,16 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
 def old_content_covers_most(doc: Any, needle_len: int) -> bool:
     """Check whether a search needle spans more than half the document body.
 
-    Probe the body using cursor character steps. If the needle length exceeds half
-    the body character count, caller directs the user to target='full_document'.
-    Short needles (under 100 characters) are never oversized: local edits on small
-    documents or headings must not be forced to whole-document replacements.
-    An empty body or non-positive needle length returns False.
+    Compares *needle_len* against the visible body length (``get_document_length``).
+    If the needle length exceeds half the body character count, caller directs the user
+    to target='full_document'. Short needles (under 100 characters) are never oversized:
+    local edits on small documents or headings must not be forced to whole-document
+    replacements. An empty body or non-positive needle length returns False.
     """
     if needle_len < MIN_OVERSIZED_CHARS:
         return False
-    try:
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoStart(False)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return False
-
-    if not go_right(cursor, 1, False):
-        return False
-    cursor.gotoStart(False)
-    if not go_right(cursor, needle_len, False):
-        return True
-    if not go_right(cursor, needle_len, False):
-        return True
-    return False
+    length = get_document_length(doc)
+    return 0 < length < 2 * needle_len
 
 
 def closest_mismatch(
@@ -1667,8 +1648,8 @@ class SearchInDocument(ToolBase):
                 "description": "Maximum results to return. Must be a positive integer.",
             },
             "return_offsets": {"type": "boolean", "default": False, "description": (
-                "If true, returns {start, end, text} character offsets for body text only "
-                "(no regex, no shapes/comments).")},
+                "If true, returns {start, end, text} offsets in get_content's document_length "
+                "space, for body paragraphs only (no tables, regex, shapes or comments).")},
         },
         "required": ["pattern"],
     }
@@ -1695,7 +1676,7 @@ class SearchInDocument(ToolBase):
                 code="INVALID_PARAM")
         if return_offsets:
             ranges = find_text_ranges(
-                ctx.doc, pattern, limit=max_results, case_sensitive=case_sensitive, body_only=True)
+                ctx.doc, pattern, limit=max_results, case_sensitive=case_sensitive)
             return {"status": "ok", "ranges": ranges, "matched_case_sensitive": case_sensitive}
 
         if use_regex:

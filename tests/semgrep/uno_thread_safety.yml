@@ -71,7 +71,7 @@ rules:
           - pattern: get_full_document_text(...)
           - pattern: get_document_length(...)
           - pattern: read_visible_body(...)
-          - pattern: get_text_cursor_at_range_reached(...)
+          - pattern: visible_body_range(...)
           - pattern: get_paragraph_ranges(...)
           - pattern: build_heading_tree(...)
           - pattern: ensure_heading_bookmarks(...)

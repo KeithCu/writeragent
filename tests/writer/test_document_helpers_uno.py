@@ -300,6 +300,32 @@ def test_chat_context_marks_selection_in_long_document_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_chat_context_includes_leading_table_and_selection_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length
+
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("LeadCell")
+
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "After table target", False)
+
+    desc = doc.createSearchDescriptor()
+    desc.SearchString = "target"
+    sel = doc.findFirst(desc)
+    assert sel is not None
+
+    ctx_str = get_document_context_for_chat(doc, include_selection=True, selection=sel, ctx=ctx)
+    assert "LeadCell" in ctx_str
+    assert str(get_document_length(doc)) in ctx_str
+    assert "[SELECTION_START]target[SELECTION_END]" in ctx_str
+
+
+@native_test
+@with_native_doc("writer")
 def test_chat_context_marks_struck_paragraph_only_not_real_blank_uno(ctx, doc):
     from plugin.doc.text_helpers import read_visible_body
     from plugin.framework.uno_context import enum_has_more
