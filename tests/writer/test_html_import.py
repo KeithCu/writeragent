@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import html as html_mod
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -274,7 +274,10 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
          patch.object(html_import, "convert_latex_to_starmath", return_value=failed):
         html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "<p>antes \\(x\\) depois</p>")
     assert frag.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "[Math import failed] x", False)
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, "[Math import failed] x", False),
+        call(cursor, " ", False),
+    ]
     assert cursor.gotoRange.call_args.args == (parked.getStart.return_value, False)
     model.getText.assert_not_called()
 
@@ -1001,9 +1004,25 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
         {"kind": "mathml", "display_block": True, "snippet": "<math display='block'><mi>z</mi></math>", "ok": True},
     ]
     assert mock_formula.call_count == 2
-    cursor.getText.return_value.insertString.assert_called_once_with(
-        cursor, "[Math import failed] y=2", False
-    )
+    assert cursor.getText.return_value.insertString.call_args_list == [
+        call(cursor, " ", False),
+        call(cursor, "[Math import failed] y=2", False),
+    ]
+
+
+def test_mixed_math_does_not_insert_space_before_nbsp():
+    from types import SimpleNamespace
+    from plugin.writer import html_import
+
+    model, cursor = MagicMock(), MagicMock()
+    ok_tex = SimpleNamespace(ok=True, starmath="x", error_message=None)
+    with patch.object(html_import, "insert_html_fragment_at_cursor"), \
+         patch.object(html_import, "convert_latex_to_starmath", return_value=ok_tex), \
+         patch.object(html_import, "insert_writer_math_formula"):
+        html_import._insert_mixed_html_and_math_at_cursor(
+            model, MagicMock(), cursor, "<p>\\(x\\)\u00a0: post</p>"
+        )
+    cursor.getText.return_value.insertString.assert_not_called()
 
 
 def test_mixed_inserters_report_math_and_preserve_returns():

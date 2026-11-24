@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from plugin.calc.formula_dialect import to_api
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
-from plugin.framework.uno_context import create_property_value
+from plugin.framework.uno_context import create_property_value, execute_dispatch
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
 from ..specialized_base import ToolWriterEmbeddedBase, enum_param, target_params
 from ..target_resolver import insert_at_target
 
@@ -91,7 +92,7 @@ def _write_cell(cell: Any, value: Any, doc: Any) -> None:
     raise ValueError(f"unsupported cell value type: {type(value).__name__}")
 
 
-def _deselect_inplace_embed(doc: Any, tool: Any) -> dict[str, Any] | None:
+def _deselect_inplace_embed(doc: Any, uno_ctx: Any, tool: Any) -> dict[str, Any] | None:
     """Leave in-place OLE editing before insert (avoids native crash on second embed)."""
     controller = uno_read(doc.getCurrentController, None)
     if controller is None:
@@ -111,9 +112,14 @@ def _deselect_inplace_embed(doc: Any, tool: Any) -> dict[str, Any] | None:
         if state in (_EMBED_STATE_INPLACE_ACTIVE, _EMBED_STATE_UI_ACTIVE):
             xe.changeState(_EMBED_STATE_RUNNING)
         anchor = selection.getAnchor()
-        anchor_text = anchor.getText()
-        cursor = anchor_text.createTextCursorByRange(anchor.getEnd())
-        controller.select(cursor)
+        if anchor is None:
+            # An AT_PAGE object has no anchor (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor),
+            # and Escape leaves the frame selection with the caret on the object's page.
+            execute_dispatch(uno_ctx, controller, ".uno:Escape")
+        else:
+            anchor_text = anchor.getText()
+            cursor = anchor_text.createTextCursorByRange(anchor.getEnd())
+            controller.select(cursor)
     except Exception as exc:
         reraise_if_disposed(exc)
         return tool._tool_error(f"Could not leave in-place embedded edit before insert ({exc}).")
@@ -215,7 +221,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
     if req.name:
         emb.Name = req.name
 
-    text.insertTextContent(cursor, emb, False)
+    insert_recorded_content(doc, text, cursor, emb)
 
     after_names = set(container.getElementNames())
     new_names = after_names - before_names
@@ -291,7 +297,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         # Deselect before insert_at_target resolves the target: this avoids a native crash on a
         # second embed, and unpinned (MCP) contexts must see the post-deselect cursor after the
         # OLE anchor rather than the pre-deselect view cursor (pinned sidebar turns read the pin).
-        deselect_err = _deselect_inplace_embed(ctx.doc, self)
+        deselect_err = _deselect_inplace_embed(ctx.doc, ctx.ctx, self)
         if deselect_err is not None:
             return deselect_err
 
@@ -306,20 +312,22 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             return self._tool_error(f"Embedded object {req.name!r} already exists.", code="INVALID_PARAM")
 
         container_name = ""
+        recorded = False
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
-            nonlocal container_name
+            nonlocal container_name, recorded
+            recorded = is_recording_changes(ctx.doc)
             res = _insert_spreadsheet(self, ctx.doc, cursor, clsid, req)
             if isinstance(res, dict):
                 return res
             container_name = res
             return None
 
-        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE")
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE", review=True)
         if error is not None:
             return error
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "name": container_name,
             "object_type": "spreadsheet",
@@ -329,6 +337,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             "height": req.size.height if req.size else None,
             "message": f"Inserted spreadsheet OLE {container_name!r}.",
         }
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
 
 class EmbeddedEdit(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]

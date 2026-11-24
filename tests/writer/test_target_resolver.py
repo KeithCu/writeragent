@@ -351,3 +351,29 @@ def test_selection_without_pin_reads_live_view():
         assert res is vc_cursor
         controller.getSelection.assert_called_once()
 
+
+def test_insert_at_target_review_rolls_back_error_dict_and_never_opens_when_false(monkeypatch):
+    from unittest.mock import patch
+
+    ctx, undo_mgr = _insert_ctx()
+    tool = _DummyTool()
+    cursor = MagicMock()
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: cursor)
+
+    err_dict = {"status": "error", "code": "INVALID_PARAM", "message": "already exists"}
+    with patch("plugin.writer.target_resolver.run_in_review_session") as run_rev:
+        res_off = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing", review=False)
+    assert res_off == err_dict
+    run_rev.assert_not_called()
+
+    ctx, undo_mgr = _insert_ctx()
+    session = MagicMock()
+    session.changes = []
+    session.record_mutation.side_effect = lambda fn: fn()
+    with patch("plugin.writer.target_resolver.run_in_review_session", side_effect=lambda _d, _c, fn: fn(session)) as run_rev:
+        res_on = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing", review=True)
+    assert res_on == err_dict
+    run_rev.assert_called_once()
+    session.discard_changes_since.assert_called_once_with(0)
+    undo_mgr.undo.assert_called_once()
+

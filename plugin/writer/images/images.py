@@ -43,6 +43,7 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     resolve_exception_message,
 )
+from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param
@@ -66,7 +67,7 @@ from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed
+from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.specialized.textframes import text_content_anchor
 from .image_tools import (
@@ -80,6 +81,14 @@ from .image_tools import (
 )
 
 log = logging.getLogger("writeragent.writer")
+
+
+def _flag_untracked_replace(result: dict[str, Any], doc: Any) -> None:
+    flag_untracked(
+        result,
+        doc,
+        _("LibreOffice cannot record replacing a picture in place as a tracked change, so it was replaced directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."),
+    )
 
 
 def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> Any:
@@ -435,7 +444,9 @@ class ImageGenerate(ToolWriterImageBase):
                     )
                     res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                     return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
-                return {"status": "ok", "message": "Image edited and inserted from endpoint."}
+                res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
+                _flag_untracked_replace(res, ctx.doc)
+                return res
             _record_for_review(
                 ctx.ctx,
                 ctx.doc,
@@ -660,7 +671,7 @@ class ImageList(ToolWriterImageBase):
                                     ctrl = doc.getCurrentController()
                                     vc = ctrl.getViewCursor() if ctrl is not None else None
                                     if vc is not None:
-                                        _, saved_vc = cursor_for_writer_view(vc)
+                                        _unused_cursor, saved_vc = cursor_for_writer_view(vc)
                                 except Exception:
                                     saved_vc = None
                             try:
@@ -1573,7 +1584,9 @@ class ImageReplace(ToolWriterImageBase):
 
             if not replace_graphic_source(ctx.ctx, ctx.doc, graphic, new_image_path, width_units=width_units, height_units=height_units):
                 return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
-            return {"status": "ok", "image_name": image_name}
+            res: dict[str, Any] = {"status": "ok", "image_name": image_name}
+            _flag_untracked_replace(res, ctx.doc)
+            return res
 
         return main.run(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 

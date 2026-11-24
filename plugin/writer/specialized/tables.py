@@ -420,6 +420,21 @@ def _band_cell_names(table: Any, axis: str, idx: int) -> list[str]:
     return _column_band_cells(table, positions, idx)
 
 
+def _row_start_spanning_cell(table: Any, idx: int) -> tuple[str, int] | None:
+    """First cell starting in row *idx* whose RowSpan exceeds 1, or ``None``.
+
+    sw/source/core/table/swnewtable.cxx:SwTable::PrepareDelBoxes transfers only the
+    remaining span to the covered box below, so deleting the start row drops its content.
+    SwTable::CreateSelection also grows the selection by an edge box's span, so a tracked
+    delete would mark the rows below for deletion too.
+    """
+    for name in _band_cell_names(table, "row", idx):
+        row_span = int(table.getCellByName(name).getPropertyValue("RowSpan"))
+        if row_span > 1:
+            return name, row_span
+    return None
+
+
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
     """Return leading *names* whose own creation is a pending Insert redline.
 
@@ -503,15 +518,6 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
     if axis == "row":
         target_cell = band_names[0]
-        # swnewtable.cxx:CreateSelection grows nBottom by the RowSpan of the row's end boxes.
-        for edge_name in dict.fromkeys((band_names[0], band_names[-1])):
-            row_span = int(table.getCellByName(edge_name).getPropertyValue("RowSpan"))
-            if row_span > 1:
-                raise ToolExecutionError(
-                    "Cell '%s' spans %d rows, so LibreOffice would also mark the rows below for deletion. "
-                    "Split that cell first or turn off Track Changes." % (edge_name, row_span),
-                    code="TABLE_DELETE_NOT_TRACKABLE",
-                )
     else:
         col_target = next((n for n in band_names if writer_cell_position(n) == (idx, 0)), None)
         if col_target is None:
@@ -853,6 +859,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
+        "refuses to delete a row in which a cell spanning several rows starts; "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
@@ -911,6 +918,21 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
+                if axis_arg == "row":
+                    spanning = _row_start_spanning_cell(table, idx)
+                    if spanning is not None:
+                        cell_name, row_span = spanning
+                        split_hint = (
+                            "Split it with table_split_cell (direction='rows', parts=%d)" % row_span
+                            if row_span <= 20
+                            else "Split it repeatedly with table_split_cell (direction='rows')"
+                        )
+                        return self._tool_error(
+                            "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
+                            "so its content would be deleted too. %s, move the content to keep into a lower row, "
+                            "then delete the row." % (cell_name, row_span, split_hint),
+                            code="ROW_HAS_SPANNING_CELL",
+                        )
             if insert:
                 edit_table_band(band, action, idx, axis_arg)
                 tracked = False
