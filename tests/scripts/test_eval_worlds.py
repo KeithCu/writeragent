@@ -104,6 +104,7 @@ def test_draw_connect_records_arrowheads() -> None:
 
     res_bad = _call(draw, "shape_connect", start=0, end=1, line_end="triangle")
     assert res_bad["status"] == "error"
+    assert res_bad["code"] == "VALIDATION_ERROR"
     assert len(draw.get_tree()["tree"]) == 4
 
 
@@ -112,6 +113,10 @@ def test_draw_connect_unknown_shape_changes_nothing(bad_end: object) -> None:
     draw = _draw_boxes("Start", "Process")
     res = _call(draw, "shape_connect", start=0, end=bad_end)
     assert res["status"] == "error"
+    if bad_end is True:
+        assert res["code"] == "VALIDATION_ERROR"
+    else:
+        assert res["code"]
     assert len(draw.get_tree()["tree"]) == 2
 
 
@@ -232,6 +237,10 @@ def test_draw_group_rejects_bad_members() -> None:
     for bad in (None, [0], [0, 9]):
         res = _call(draw, "shape_group", indices=bad)
         assert res["status"] == "error"
+        if bad is None:
+            assert res["code"] == "VALIDATION_ERROR"
+        else:
+            assert res["code"]
         assert draw.get_tree() == before
 
     dup = draw.shape_group(indices=[1, 1])
@@ -257,10 +266,12 @@ def test_draw_upsert_records_arrowheads() -> None:
 
     bad_create = _call(draw, "shape_upsert", action="create", shape_type="line", line_end="triangle", **_BOX)
     assert bad_create["status"] == "error"
+    assert bad_create["code"] == "VALIDATION_ERROR"
     assert len(draw.get_tree()["tree"]) == 1
 
     bad_edit = _call(draw, "shape_upsert", action="edit", index=0, line_end="triangle")
     assert bad_edit["status"] == "error"
+    assert bad_edit["code"] == "VALIDATION_ERROR"
     assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
 
 

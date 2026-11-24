@@ -358,11 +358,12 @@ class WriterWorld:
         max_chars = kwargs.get("max_chars")
         text = self._html
         if scope == "range":
-            start = kwargs.get("start") or 0
+            start = kwargs.get("start")
             end = kwargs.get("end")
-            end = len(text) if end is None else end
-            start = max(0, min(start, len(text)))
-            end = max(start, min(end, len(text)))
+            if start is None or end is None:
+                return make_tool_error("scope 'range' requires integer start and end.")
+            if start < 0 or end <= start:
+                return make_tool_error("scope 'range' requires 0 <= start < end.")
             text = text[start:end]
         elif scope == "selection":
             text = self._html
@@ -1075,7 +1076,7 @@ class CalcWorld:
         ranges = kwargs["range"]
         if not ranges:
             return make_tool_error("range is required", code="INVALID_PARAM")
-        if kwargs.get("source"):
+        if (kwargs.get("source") or "").strip():
             return unsupported_in_eval("write_range source")
         if "values" not in kwargs:
             return make_tool_error("values is required when source is omitted", code="INVALID_PARAM")
@@ -1092,7 +1093,7 @@ class CalcWorld:
         for rng_str, flat, bounds in plans:
             dests.append(rng_str.split(":")[0].split(".")[-1])
             written += self._write_a1_range_bounds(bounds, flat, raw_values)
-        recorded_values = plans[-1][1] if plans else []
+        recorded_values = plans[-1][1]
         formula_text = ""
         if isinstance(raw_values, str) and raw_values.lstrip().startswith("="):
             formula_text = raw_values

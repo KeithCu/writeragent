@@ -44,9 +44,7 @@ Today it does not:
 
 - (Shipped) `build_eval_tool_schemas()` uses live `ToolRegistry.get_schemas`
   for that doc type. Unimplemented names still return `unsupported_in_eval`.
-- `WriterWorld` is one HTML string. `CalcWorld` writes values,
-  not formula text or dest. So `style_consistency` and
-  `comment_management` cannot be honest.
+- (Shipped) the worlds keep blocks, styles and comments, and formula text with write destinations.
 - Scoring is result-only. Two models can both leave a correct table;
   one dumped the sheet into chat. IpD sees cost, not *why*.
 

@@ -18,7 +18,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from eval_catalog import headless_registry
-from eval_worlds import CalcWorld, WriterWorld
+from eval_worlds import CalcWorld, DrawWorld, WriterWorld
 from string_eval_tools import _IMPL, dispatch_string_tool
 
 
@@ -89,7 +89,7 @@ def test_apply_full_and_end():
     assert s.get_html().endswith("y")
 
 
-def test_find_text():
+def test_search_case_insensitive_and_max_results():
     s = WriterWorld("AaA")
     r = json.loads(
         dispatch_string_tool(
@@ -128,7 +128,7 @@ def test_calc_write_formula_range_and_snapshot():
     assert "Tax" in dump
 
 
-def test_dispatch_search_in_document_alias():
+def test_dispatch_search():
     s = WriterWorld("hello there")
     out = dispatch_string_tool(s, "search", json.dumps({"pattern": "there"}))
     data = json.loads(out)
@@ -181,8 +181,6 @@ def test_every_string_tool_is_registered() -> None:
 
 
 def test_dispatch_create_without_geometry_fails_as_live() -> None:
-    from eval_worlds import DrawWorld
-
     base = {"action": "create", "shape_type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 200}
     for missing in ("x", "y", "width", "height"):
         draw = DrawWorld()
@@ -210,8 +208,6 @@ def test_dispatch_reports_ignored_parameters() -> None:
 
 
 def test_dispatch_coerces_arguments() -> None:
-    from eval_worlds import DrawWorld
-
     draw = DrawWorld()
     json.loads(
         dispatch_string_tool(
@@ -277,6 +273,24 @@ def test_write_range_without_values_or_with_source_leaves_grid() -> None:
         dispatch_string_tool(calc, "write_range", json.dumps({"range": ["B2"]}))
     )
     assert no_val["status"] == "error"
+    assert no_val["code"] == "INVALID_PARAM"
+    assert no_val["message"] == "values is required when source is omitted"
+    assert calc._grid == before
+
+    null_val = json.loads(
+        dispatch_string_tool(calc, "write_range", json.dumps({"range": ["B2"], "values": None}))
+    )
+    assert null_val["status"] == "error"
+    assert null_val["code"] == "INVALID_PARAM"
+    assert null_val["message"] == "values is required when source is omitted"
+    assert calc._grid == before
+
+    empty_rng = json.loads(
+        dispatch_string_tool(calc, "write_range", json.dumps({"range": [], "values": "x"}))
+    )
+    assert empty_rng["status"] == "error"
+    assert empty_rng["code"] == "INVALID_PARAM"
+    assert empty_rng["message"] == "range is required"
     assert calc._grid == before
 
     with_src = json.loads(
@@ -285,6 +299,21 @@ def test_write_range_without_values_or_with_source_leaves_grid() -> None:
     assert with_src["status"] == "error"
     assert with_src["code"] == "unsupported_in_eval"
     assert calc._grid == before
+
+
+def test_get_content_range_requires_valid_bounds() -> None:
+    s = WriterWorld("<p>Hello</p>")
+    missing = json.loads(
+        dispatch_string_tool(s, "get_content", json.dumps({"scope": "range", "start": 0}))
+    )
+    assert missing["status"] == "error"
+    assert "integer start and end" in missing["message"]
+
+    bad_order = json.loads(
+        dispatch_string_tool(s, "get_content", json.dumps({"scope": "range", "start": 3, "end": 3}))
+    )
+    assert bad_order["status"] == "error"
+    assert "0 <= start < end" in bad_order["message"]
 
 
 def test_removed_eval_only_names_are_unsupported() -> None:

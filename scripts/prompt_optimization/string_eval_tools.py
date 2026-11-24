@@ -63,6 +63,8 @@ def _run(state: World, name: str, args: dict[str, Any]) -> dict[str, Any]:
     if impl is None:
         return unsupported_in_eval(name)
     ctx = ToolContext(doc=None, ctx=None, doc_type=kind, services=None, caller="chat")
+    # ToolRegistry.execute would run the real UNO tool, and it (not prepare_tool_call)
+    # attaches ignored_parameters to a successful result.
     prepared = prepare_tool_call(headless_registry().get(name), ctx, name, args)
     if prepared.error is not None:
         return prepared.error
