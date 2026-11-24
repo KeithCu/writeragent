@@ -11,7 +11,7 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 ### Level 1: Formatting & Precision (Essentials)
 1.  **Format Preservation**: "Replace 'John Doe' with 'Jane Smith' in the header (Bold, 14pt)." -> Verify formatting remains. **[String-ok via apply_content + HTML preservation]**
 2.  **Style Application**: "Make 'Introduction' a Heading 1." -> Verify `set_style` call. **[LO-required for real styles]**
-3.  **Comment Management**: "Add a comment 'Review this' to the word 'Uncertain'." -> Verify `add_comment`. **[LO-required (comments)]**
+3.  **Comment Management**: "Add a comment 'Review this' to the word 'Uncertain'." -> Verify `comment_add`. **[LO-required (comments)]**
 4.  **Bullet Consistency**: "Ensure all bullet points in this list end with a period." -> Agent must iterate and edit. **[String-ok (text cleanup via apply_content)]**
 5.  **Font Audit**: "Change all text in 'Comic Sans' to 'Inter'." -> Search and replace formatting. **[LO-required for font styles; partial with text search]**
 
