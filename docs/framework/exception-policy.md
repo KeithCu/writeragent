@@ -81,9 +81,9 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `HIDDEN_LEADING_SECTION` | error | `full_document` on a document starting with a hidden section (`html_import.py`) | None |
 | `PROTECTED_LEADING_SECTION` | error | `full_document` on a document starting with a protected non-index section (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
-| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
-| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
-| `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; reworded by `page.py` and `styles.py`, returned as-is by `commit_or_rollback_mutation` | None |
+| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
+| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
+| `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; `page.py` rewords the message and keeps the code, `styles.py` rewords both, `commit_or_rollback_mutation` returns it as-is | None |
 | `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` after `coerce_call_args`, only for missing required, unknown, or values coercion cannot settle before `execute` (applies on sub-agent paths too). Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
 | `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_content` parameter conflicts/empty strings; Calc argument refusals, including `range_args` and the sheet-filter criteria | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |
@@ -92,7 +92,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
 | `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
 | `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark, or matches several headings (`html_import_styles.resolve_heading_links`); carries `link_target`; message lists close or colliding heading names | None |
-| `LINK_TARGET_STALE` | warning | Outline hyperlink (`#old\|outline`) over a field could not be rewritten as a tracked change after a heading rename while recording (`html_import_styles.attach_write_report`); carries `link_target` | None |
+| `LINK_TARGET_STALE` | warning | Outline hyperlink (`#old\|outline`) still naming an old heading title because it holds a field while recording or the edit removed that heading with no clear successor (`html_import_styles.attach_write_report`); carries `link_target` | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

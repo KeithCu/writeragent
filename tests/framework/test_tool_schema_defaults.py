@@ -27,7 +27,7 @@ _PO = _prompt_optimization_dir()
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from eval_catalog import _headless_registry  # noqa: E402
+from eval_catalog import headless_registry  # noqa: E402
 from plugin.framework.tool_schema import call_properties, required_keys, value_matches_type  # noqa: E402
 
 
@@ -49,7 +49,7 @@ def _minimal_value(spec: dict[str, Any]) -> Any:
 
 def test_every_registered_schema_default_validates() -> None:
     """Every shipped tool's schema defaults must pass type, enum, and tool.validate()."""
-    tools = _headless_registry().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
+    tools = headless_registry().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
     modules = {type(tool).__module__ for tool in tools}
     for prefix in ("plugin.calc.", "plugin.draw.", "plugin.writer.images."):
         assert any(mod.startswith(prefix) for mod in modules), f"No tools loaded from {prefix}"

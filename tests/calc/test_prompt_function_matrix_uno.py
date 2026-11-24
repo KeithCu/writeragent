@@ -131,3 +131,103 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_array_blocks_survive_save_and_reload(ctx, doc):
+    """=PY array blocks survive save and reload in ODS and XLSX."""
+    import os
+    import tempfile
+
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.uno_context import get_desktop
+    from tests.calc.python.test_function_uno import _wait_spill_settled, _with_repo_venv_for_tests
+
+    is_matrix = libreoffice_version(ctx) >= (26, 8)
+    expected = (
+        {
+            "A": ("10", "20", "30", "40"),
+            "B": ("North", "South"),
+            "C": ("1", "1", "Err:532"),
+            "D": ("a", "", "Err:32767"),
+            "E": ("10", "20", "30"),
+        }
+        if is_matrix
+        else {
+            "A": ("10", "10", "10", "10"),
+            "B": ("North", "North"),
+            "C": ("1", "1", "1"),
+            "D": ("1", "1", "1"),
+            "E": ("10", "10", "10"),
+        }
+    )
+    block_ranges = (
+        (0, 0, 0, 3),
+        (1, 0, 1, 1),
+        (2, 0, 3, 2),
+        (4, 0, 4, 2),
+    )
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    try:
+        with _with_repo_venv_for_tests(ctx):
+            sheet.getCellRangeByPosition(0, 0, 0, 3).setArrayFormula('=PYTHON("result = [10, 20, 30, 40]")')
+            sheet.getCellRangeByPosition(1, 0, 1, 1).setArrayFormula('=PYTHON("result = [\'North\', \'South\']")')
+            sheet.getCellRangeByPosition(2, 0, 3, 2).setArrayFormula(
+                '=PYTHON("result = [[1, \'a\'], [True, None], [\'#DIV/0!\', \'#N/A\']]")'
+            )
+            sheet.getCellRangeByPosition(4, 0, 4, 2).setArrayFormula('=PYTHON("result = data"; A1:A3)')
+            doc.calculateAll()
+
+            got_live = {
+                col: tuple(_shown(sheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                for col, rows in expected.items()
+            }
+            assert got_live == expected, f"live mismatch: {got_live!r} != {expected!r}"
+
+            desktop = get_desktop(ctx)
+            # Before LibreOffice 26.8, XLSX round-trip leaves D3 of the 3x2 scalar block as "(empty)".
+            formats = (("ods", "calc8"), ("xlsx", "Calc MS Excel 2007 XML")) if is_matrix else (("ods", "calc8"),)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for ext, filter_name in formats:
+                    path = os.path.join(tmpdir, f"array_blocks.{ext}")
+                    url = uno.systemPathToFileUrl(path)
+                    doc.storeToURL(url, (PropertyValue(Name="FilterName", Value=filter_name),))
+                    reloaded = desktop.loadComponentFromURL(
+                        url,
+                        "_blank",
+                        0,
+                        (PropertyValue(Name="Hidden", Value=True),),
+                    )
+                    try:
+                        rsheet = reloaded.getSheets().getByIndex(0)
+                        got_load = {
+                            col: tuple(_shown(rsheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                            for col, rows in expected.items()
+                        }
+                        assert got_load == expected, f"{ext} load mismatch: {got_load}"
+
+                        reloaded.calculateAll()
+                        got_recalc = {
+                            col: tuple(_shown(rsheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                            for col, rows in expected.items()
+                        }
+                        assert got_recalc == expected, f"{ext} recalc mismatch: {got_recalc}"
+
+                        for c1, r1, c2, r2 in block_ranges:
+                            af = rsheet.getCellRangeByPosition(c1, r1, c2, r2).getArrayFormula()
+                            assert af.startswith("{=PY"), f"{ext} ({c1},{r1}) array formula={af!r}"
+                    finally:
+                        _wait_spill_settled(reloaded)
+                        reloaded_st = WorkbookState.known(reloaded)
+                        if reloaded_st is not None:
+                            WorkbookState.forget_key(reloaded_st.key)
+                        reloaded.close(True)
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

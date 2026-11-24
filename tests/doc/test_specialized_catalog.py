@@ -411,7 +411,10 @@ def test_indexes_toc_read_rule_reaches_sub_agent_not_catalog() -> None:
 
 
 def test_normalize_inner_result_error_reports_edits() -> None:
-    calls = [InnerToolCall("footnotes_insert", {"status": "ok"}, mutating=True)]
+    calls = [
+        InnerToolCall("footnotes_insert", {"status": "ok"}, mutating=True),
+        InnerToolCall("footnotes_delete", {"status": "error", "message": "boom"}, mutating=True),
+    ]
 
     editing = normalize_inner_result(
         {"status": "error", "code": "USER_STOPPED", "message": "Stopped."},
@@ -420,6 +423,8 @@ def test_normalize_inner_result_error_reports_edits() -> None:
     )
     assert editing["status"] == "error"
     assert editing["code"] == "USER_STOPPED"
+    assert editing["message"] == "Stopped."
+    assert "tool_errors" not in editing
     assert editing["edits"] == {"footnotes_insert": 1}
     assert "note" not in editing
 

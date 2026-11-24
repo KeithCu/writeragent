@@ -448,7 +448,7 @@ def _coerce_calc_cell(raw: str) -> Any:
 
 
 def _parse_tsv_grid(text: str) -> list[list[Any]]:
-    """Mirror CalcStringState TSV/CSV parse so string and lo start from the same grid."""
+    """Mirror CalcWorld TSV/CSV parse so string and lo start from the same grid."""
     grid: list[list[Any]] = []
     for line in (text or "").split("\n"):
         stripped = line.strip()
