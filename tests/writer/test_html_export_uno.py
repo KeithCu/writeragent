@@ -1577,3 +1577,35 @@ def test_titled_frame_omits_title_from_content_uno(ctx, doc):
     html = document_to_content(doc, ctx, scope="full")
     assert "FrameBody" in html
     assert "SecretFrameTitle" not in html
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharWeight", 150.0)
+    cur.setPropertyValue("ParaAdjust", 1)
+    text.insertString(cur, "BoldPara", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    cur.setPropertyValue("ParaAdjust", 0)
+    text.insertString(cur, "Keep StruckRun", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoEnd(False)
+        del_cur.goLeft(len("StruckRun"), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "BoldPara" in html
+    assert "Keep" in html
+    assert "StruckRun" not in html
+    assert "data-lo-para=" in html
+    assert "text-align:right" in html

@@ -67,6 +67,23 @@ def redline_bounds(redline: Any) -> tuple[Any, Any, Any]:
     return end.getText(), start, end
 
 
+def bounds_cover(bounds: tuple[Any, Any, Any], text_range: Any) -> bool:
+    """True when the tracked change spans all of *text_range*, edges included.
+
+    False when the two cannot be compared (another text object). Disposal raises
+    ``DocumentDisposedError``.
+    """
+    text, start, end = bounds
+    # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal
+    # (SwXText::ComparePositions, sw/source/core/unocore/unotext.cxx).
+    return uno_read(
+        lambda: text.compareRegionStarts(start, text_range) >= 0
+        and text.compareRegionEnds(text_range, end) >= 0,
+        False,
+        object_type="TextRange",
+    )
+
+
 def iter_elements(enum: Any) -> Generator[Any, None, None]:
     """Safely iterate a UNO XEnumeration."""
     if enum is None:
@@ -562,7 +579,13 @@ def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> st
 
 
 class TrackedDeletions:
-    """The pending Delete redlines of a Writer document, read once."""
+    """The pending Delete redlines of a Writer document, read once.
+
+    Share one instance across the reads of one request. Build a new one after the
+    document is edited, stored, or exported, because an export hides deletions while
+    it runs and collapses these ranges (``SwXMLExport::exportDoc`` in ``xmlexp.cxx``,
+    ``SwRangeRedline::MoveToSection`` in ``docredln.cxx``).
+    """
 
     def __init__(self, doc: Any) -> None:
         self._bounds: list[tuple[Any, Any, Any]] = []
@@ -613,22 +636,7 @@ class TrackedDeletions:
 
     def covers(self, text_range: Any) -> bool:
         """True when *text_range* lies wholly inside one pending Delete redline."""
-        if not self._bounds:
-            return False
-        rng_start = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
-        rng_end = uno_read(lambda: text_range.getEnd(), None, object_type="TextRange")
-        if rng_start is None or rng_end is None:
-            return False
-        for text, start, end in self._bounds:
-            covered = uno_read(
-                lambda: text.compareRegionStarts(start, rng_start) >= 0
-                and text.compareRegionEnds(rng_end, end) >= 0,
-                False,
-                object_type="TextRange",
-            )
-            if covered:
-                return True
-        return False
+        return any(bounds_cover(b, text_range) for b in self._bounds)
 
 
 def iter_table_paragraphs(table: Any) -> Iterator[tuple[Any, DeletionState]]:

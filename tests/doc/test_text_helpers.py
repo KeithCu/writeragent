@@ -1176,11 +1176,15 @@ def test_tracked_deletions_state_at_and_covers():
 
     class _Text:
         def compareRegionStarts(self, a, b):
+            a = a.getStart()
+            b = b.getStart()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
 
         def compareRegionEnds(self, a, b):
+            a = a.getEnd()
+            b = b.getEnd()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
@@ -1253,6 +1257,34 @@ def test_tracked_deletions_state_at_and_covers():
     assert td.covers(_Range(3, 4)) is True
     assert td.covers(_Range(1, 3)) is False
     assert td.covers(_Range(4, 6)) is False
+
+
+def test_bounds_cover():
+    from plugin.doc.text_helpers import bounds_cover
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class _Text:
+        def compareRegionStarts(self, a, b):
+            if b == "disposed":
+                raise DisposedException("gone")
+            if isinstance(b, str):
+                raise RuntimeError("foreign")
+            return 1 if a < b[0] else (0 if a == b[0] else -1)
+
+        def compareRegionEnds(self, a, b):
+            return 1 if a[1] < b else (0 if a[1] == b else -1)
+
+    bounds = (_Text(), 5, 10)
+    assert bounds_cover(bounds, (6, 9)) is True
+    assert bounds_cover(bounds, (5, 10)) is True
+    assert bounds_cover(bounds, (4, 10)) is False
+    assert bounds_cover(bounds, (5, 11)) is False
+    assert bounds_cover(bounds, "other_text") is False
+    with pytest.raises(DocumentDisposedError):
+        bounds_cover(bounds, "disposed")
 
 
 def test_visible_portions_resets_state_when_enumeration_fails():
