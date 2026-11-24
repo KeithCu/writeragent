@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for LO eval dispatch aliases (mocked get_tools().execute, no soffice)."""
+"""Unit tests for LO eval dispatch (mocked get_tools().execute, no soffice)."""
 from __future__ import annotations
 
 import json
@@ -29,42 +29,6 @@ def test_writer_html_export_unwraps_lo_headings_and_bold() -> None:
     out = tl._compact_writer_html(raw)
     assert "<h1>Introduction</h1>" in out
     assert "<strong>" in out
-
-
-def test_write_cell_range_aliases_to_write_formula_range() -> None:
-    name, params = tl.normalize_lo_tool(
-        "write_cell_range",
-        {"range": "C2:C5", "values": [0.8, 0.4, 0.64, 1.0]},
-        kind="calc",
-    )
-    assert name == "write_range"
-    assert params["range"] == ["C2:C5"]
-    assert json.loads(params["values"]) == [0.8, 0.4, 0.64, 1.0]
-
-
-def test_sort_range_name_to_index_and_used_range() -> None:
-    name, params = tl.normalize_lo_tool(
-        "sort_range",
-        {"sort_column": "Revenue", "ascending": False},
-        kind="calc",
-        headers=["Product", "Revenue"],
-        used_range="A1:B5",
-    )
-    assert name == "sort_range"
-    assert params["sort_column"] == 1
-    assert params["range"] == ["A1:B5"]
-    assert params["ascending"] is False
-
-
-def test_page_index_alias() -> None:
-    name, params = tl.normalize_lo_tool(
-        "get_tree",
-        {"page_index": 0},
-        kind="draw",
-    )
-    assert name == "get_tree"
-    assert params["page"] == 0
-    assert "page_index" not in params
 
 
 def test_execute_impl_uses_execute_unguarded(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,17 +59,34 @@ def test_execute_impl_uses_execute_unguarded(monkeypatch: pytest.MonkeyPatch) ->
     assert call_kwargs["action"] == "create"
 
 
-def test_execute_impl_calc_alias(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_tools = MagicMock()
-    mock_tools.execute_unguarded.return_value = {"status": "ok"}
-    monkeypatch.setattr("plugin.app.get_tools", lambda: mock_tools)
+def test_lo_lane_rejects_names_and_args_live_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    import eval_catalog
+    from plugin.framework.tool import ToolContext
+
+    monkeypatch.setattr("plugin.app.get_tools", eval_catalog.headless_registry)
     monkeypatch.setattr(tl.LOBackend, "acquire_document", classmethod(lambda cls, kind=None: object()))
     monkeypatch.setattr(tl.LOBackend, "current_kind", classmethod(lambda cls: "calc"))
-    monkeypatch.setattr(tl, "_tool_ctx", lambda doc, kind: object())
-    monkeypatch.setattr(tl, "_sheet_headers_and_used", lambda doc: (["Product", "Revenue"], "A1:B5"))
+    monkeypatch.setattr(
+        tl,
+        "_tool_ctx",
+        lambda doc, kind: ToolContext(doc=None, ctx=None, doc_type="calc", services=None, caller="chat"),
+    )
 
-    tl._execute_lo_tool_impl("write_cell_range", {"range": "C1", "values": "Tax"})
-    call_args, call_kwargs = mock_tools.execute_unguarded.call_args
-    assert call_args[0] == "write_range"
-    assert "bypass_thread_guard" not in call_kwargs
-    assert call_kwargs["range"] == ["C1"]
+    unknown = json.loads(tl._execute_lo_tool_impl("write_cell_range", {"range": ["C1"], "values": "Tax"}))
+    assert unknown["code"] == "UNKNOWN_TOOL"
+
+    bad_col = json.loads(
+        tl._execute_lo_tool_impl(
+            "sort_range",
+            {"range": ["A1:B3"], "sort_column": "Revenue", "ascending": False, "has_header": True},
+        )
+    )
+    assert bad_col["code"] == "VALIDATION_ERROR"
+
+    no_rng = json.loads(
+        tl._execute_lo_tool_impl(
+            "sort_range",
+            {"sort_column": 1, "ascending": False, "has_header": True},
+        )
+    )
+    assert no_rng["code"] == "VALIDATION_ERROR"

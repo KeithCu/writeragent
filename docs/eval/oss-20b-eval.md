@@ -51,14 +51,12 @@ that tool for sort.
 
 ## Why the current DSPy job will not move this score
 
-Default `run_optimize.py --student llm` now wraps **`llm_chat_eval`**
+`run_optimize.py` wraps **`llm_chat_eval`**
 (same LlmClient + production schemas + inner specialized loop as
 `make run_eval`) and rewrites a **named slice** (`--slice calc_core`,
-`sort_range`, …). `--student react-mock` still exists for comparison:
-that path is DSPy ReAct + three Writer mocks; its
-`optimized_writer_prompt.json` (`Next Thought:` / `Next Tool Name:`)
-must not be pasted into
-[`plugin/framework/prompts.py`](../../plugin/framework/prompts.py).
+`sort_range`, …). Do not paste `optimized_writer_prompt.json` into
+[`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) because it
+holds ReAct scaffolding (`Next Thought:` / `Next Tool Name:`).
 
 Do not optimize one giant Writer instruction over all 17 tasks. 20b’s
 misses live in Calc/Draw directives and **tool descriptions**.
@@ -194,8 +192,6 @@ production-compatible version of a demo is 2–3 lines in
 
 ## What not to do
 
-- Re-run `python run_optimize.py --model openai/gpt-oss-20b` against the
-  current ReAct program.
 - Copy `optimized_writer_prompt.json` into `DEFAULT_CHAT_SYSTEM_PROMPT`.
 - Use the judge+token metric as the MIPRO objective (20b needs **passes**).
 - Ship a 20b-only prompt without checking 120b still at 17/17.

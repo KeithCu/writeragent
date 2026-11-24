@@ -94,7 +94,7 @@ def _py_writes(trace: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """Return (dest, formula) pairs from write_range calls."""
     out: list[tuple[str, str]] = []
     for item in trace:
-        if item.get("name") not in ("write_range", "write_cell_range"):
+        if item.get("name") != "write_range":
             continue
         args = as_dict(item.get("arguments"))
         values = args.get("values")

@@ -110,7 +110,7 @@ Blocks, not a raw string:
 
 `apply_content` still accepts HTML (production does). Parse
 with `html.parser` into blocks; do not bring in a browser. `search`
-searches block text and returns offsets into the **exported** HTML so
+finds non-overlapping literal spans in the **exported** HTML so
 scripted tests stay stable.
 
 Export HTML for oracles: `<h1>`, `<p class="Quotations">`,
@@ -217,11 +217,11 @@ One table, not a growing `if name ==`:
 
 | Kind | Implemented on the world (minimum) |
 |------|--------------------------------------|
-| Writer | `get_content`, `apply_content`, `search`, `comment_add`, `apply_style` |
-| Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary` |
-| Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range` |
+| Writer | `get_content`, `apply_content`, `search`, `comment_add`, `apply_style`, `workflow_finished` |
+| Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary`, `workflow_finished` |
+| Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range`, `workflow_finished` |
 
-Calls pass through `prepare_tool_call`, so missing, wrong-typed, or unknown arguments behave as live, and `write_range` `source` is unsupported. Everything else in the advertised catalog returns:
+Calls pass through `prepare_tool_call`, so missing, wrong-typed, or unknown arguments behave as live, and `workflow_finished` is validated by the real headless tool on both backends. Arguments that cannot be simulated faithfully return `unsupported_in_eval`: `apply_content` with `start_anchor`/`end_anchor`, `dry_run=true`, `position="before"|"after"`, or (on `target="search"`) `regex=true` or non-blank `hyperlink_url`; `search` with `regex=true`; `comment_add` with `parent_name`; `apply_style` with `target="selection"` or non-Quotations `target="full_document"`; and `write_range` with `source` or `array=true` (when given a `=` formula). Everything else in the advertised catalog returns:
 
 ```json
 {"status": "error", "code": "unsupported_in_eval",

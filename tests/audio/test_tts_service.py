@@ -2000,3 +2000,51 @@ def test_local_clips_play_at_unit_rate(tmp_path):
         assert mock_play.call_args.kwargs["rate"] == 1.0
     finally:
         tts.stop_speech()
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://h.example:1a34/v1",
+        "https://user:hunter2@ho\u2100st/v1",
+        "http://[::1/v1",
+    ],
+)
+def test_speak_text_async_endpoint_invalid_url_no_model_falls_back_to_system_speech(caplog, endpoint: str):
+    import logging
+    from plugin.framework import config as fw_config
+
+    caplog.set_level(logging.DEBUG)
+    fw_config.save({"endpoint": endpoint, "audio.tts_model": ""})
+
+    completed = threading.Event()
+    statuses: list[str] = []
+    threads: list[threading.Thread] = []
+    real_bg = tts.run_in_background
+
+    def _tracking_bg(fn, *args, **kwargs):
+        t = real_bg(fn, *args, **kwargs)
+        if isinstance(t, threading.Thread):
+            threads.append(t)
+        return t
+
+    try:
+        with patch("plugin.audio.tts_service._speak_system") as system, \
+             patch("plugin.audio.tts_service.run_in_background", side_effect=_tracking_bg):
+            speak_text_async(
+                "Hello",
+                provider="endpoint",
+                enabled=True,
+                on_status=statuses.append,
+                on_complete=completed.set,
+            )
+            assert completed.wait(timeout=2.0), "on_complete did not fire"
+        system.assert_called_once()
+        assert system.call_args.args[0] == "Hello"
+        assert any("Invalid URL" in status for status in statuses)
+        assert not any("worker error" in rec.getMessage() for rec in caplog.records)
+        assert "hunter2" not in caplog.text
+    finally:
+        stop_speech()
+        for t in threads:
+            t.join(timeout=2.0)

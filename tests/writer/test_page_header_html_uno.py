@@ -1377,6 +1377,14 @@ def test_header_cell_fields_listed_uno(ctx, doc):
     assert len(got.get("fields", [])) == 1, got
 
 
+@native_test
+@with_native_doc("writer")
+def test_header_html_decodes_html5_entities_uno(ctx, doc):
+    res = _set(doc, ctx, "header", "<p>&check; &lt;b&gt;</p>")
+    assert res.get("status") == "ok", res
+    assert _region_text(doc, "header").getString() == "✓ <b>"
+
+
 def _insert_at_para_logo(ctx, doc, header, at_end: bool, name: str = "LogoPic") -> None:
     from com.sun.star.beans import PropertyValue
     from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH

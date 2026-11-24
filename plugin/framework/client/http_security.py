@@ -144,6 +144,15 @@ def _bracket_ipv6_host(host: str) -> str:
     return f"[{host}]"
 
 
+def _without_userinfo(rest: str, tail: str) -> str:
+    """What follows the last "@" of *rest*, or "" when the cut-off query or fragment *tail* has an "@".
+
+    For text that does not parse as an absolute URL: a raw "/" may be part of the password (keep only
+    what follows the last "@"), and a raw "?" or "#" in the password hides the "@" in *tail*.
+    """
+    return "" if "@" in tail else rest.rpartition("@")[2]
+
+
 def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:
     """``INVALID_URL`` for a URL that ``urlparse`` / ``urljoin`` reject or has a bad port.
 
@@ -156,13 +165,8 @@ def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:
     scheme, sep, rest = shown.partition("://")
     if not sep:
         scheme, rest = "", shown
-    # The URL did not parse, so a raw "/" may be part of the password (keep only what follows the last "@"),
-    # and a raw "?" or "#" in the password hides "@" in the cut-off tail (drop the whole body when "@" is there).
-    if "@" in tail:
-        rest = ""
-    else:
-        rest = rest.rpartition("@")[2]
-        rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
+    rest = _without_userinfo(rest, tail)
+    rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
     return NetworkError(message, code="INVALID_URL", details={"url": f"{scheme}{sep}{rest}"})
 
 
@@ -259,11 +263,15 @@ def apply_redirect(
 
 
 def public_target(url_or_path: str) -> str:
-    """Host and path for logs and error details. Query, userinfo and opaque path segments are dropped or redacted."""
+    """Host and path for logs and error details. Query, fragment, userinfo and opaque path segments are dropped or redacted."""
     raw = url_or_path or ""
-    if "://" not in raw:
-        path = raw.split("?", 1)[0]
-        return _public_path(path or "/")
+    shown, *cut = re.split(r"[?#]", raw, maxsplit=1)
+    # One leading "/" is a request path, where "@" is data ("claude@20240620"). Other text without a
+    # scheme is a host or a network-path reference, which can start with userinfo.
+    if shown.startswith("/") and not shown.startswith("//"):
+        return _public_path(shown)
+    if "://" not in shown:
+        return _public_path(_without_userinfo(shown, "".join(cut)) or "/")
     parsed = _parse_url(raw)
     host = _bracket_ipv6_host(parsed.hostname or "")
     port_num = _explicit_port(parsed)

@@ -1407,7 +1407,7 @@ class _WriterStreamedSessionBase:
         self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
 
     def _retarget_links(self) -> str | None:
-        """Point links at a heading this edit renamed. Returns a warning for links left stale."""
+        """Point links at headings this edit renamed. Returns a warning for links left stale."""
         if not self._headings:
             return None
         try:
@@ -1418,7 +1418,7 @@ class _WriterStreamedSessionBase:
             reraise_if_disposed(exc)
             log.exception("streamed edit: heading link update failed")
             detail = str(exc)
-        return _("Links to the renamed heading could not all be updated: {0}").format(detail) if detail else None
+        return _("Links to a renamed or deleted heading could not all be updated: {0}").format(detail) if detail else None
 
     def _exit_stream_recording(self) -> None:
         """Exit the stream's record_changes(False) context, restoring prior recording state."""
