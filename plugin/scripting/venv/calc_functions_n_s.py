@@ -972,6 +972,7 @@ def subtotal(fn_num: Any, r: Any) -> float | str:
         fn -= 100
     if fn < 1 or fn > 11:
         return float("nan")
+    # ScSubTotal returns the first error except for COUNT (2) and COUNTA (3), so only COUNT and COUNTA reach the loop with a NaN.
     if fn not in (2, 3):
         err = first_error(flat)
         if err is not None:
@@ -1059,7 +1060,7 @@ def sumproduct(*args: Any) -> float | str:
         err = first_error(reversed(cells))
         if err is not None:
             return err
-        total += math.prod(_cell_number(v) or 0.0 for v in cells)
+        total += math.prod(_cell_number(v) or 0.0 for v in reversed(cells))
     # ScSumProduct (TreatDoubleError): overflow produces NaN.
     return finite_or_nan(float(total))
 
@@ -1067,7 +1068,8 @@ def sumproduct(*args: Any) -> float | str:
 @calc_function
 def sumsq(*args: Any) -> float | str:
     flat = [np.asarray(arg, dtype=object).ravel() for arg in args]
-    # ScSumSQ -> IterateParameters (interpr6.cxx) pops arguments from the last.
+    # ScSumSQ -> IterateParameters (interpr6.cxx) pops arguments from the last,
+    # so the first error of the last argument containing one is the result; text and blanks are skipped.
     err = first_error(v for cells in reversed(flat) for v in cells)
     if err is not None:
         return err

@@ -674,6 +674,7 @@ def test_d_h_approx_floor_counts_and_df():
 
     assert math.isclose(calc.fdist(1, 2.5, 5), 0.4312011503716921)
     assert calc.fdist(1, 0.29 * 100, 5) == calc.fdist(1, 29, 5)
+    assert math.isclose(calc.fdist(1, 1e20, 5), calc.fdist(1, 1e10, 5), rel_tol=1e-6)
     assert calc.finv(0.5, 2.5, 5) == calc.finv(0.5, 2, 5)
 
 

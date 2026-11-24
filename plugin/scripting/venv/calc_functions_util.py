@@ -658,7 +658,12 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             return op == "<>"
         # With a text criterion Calc compares every cell by its text for = and <>
         # (isQueryByString, queryevaluator.cxx).
-        v_str = ("TRUE" if val else "FALSE") if isinstance(val, (bool, np.bool_)) else (str(val) if v_num is None else number_text(v_num))
+        if isinstance(val, (bool, np.bool_)):
+            v_str = "TRUE" if val else "FALSE"
+        elif v_num is None:
+            v_str = str(val)
+        else:
+            v_str = number_text(v_num)
         if op == "=":
             return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":

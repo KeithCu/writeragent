@@ -715,7 +715,8 @@ def char(n: Any) -> str:
 def chidist(x: Any, df: Any) -> float:
     # ScChiDist (interpr3.cxx), Excel path: x < 0 is #NUM!. ODFF returns 1
     # for x <= 0; scipy's sf(-1, df) is 1.0, and this helper follows the
-    # Excel path, same as binomdist. x == 0 stays 1. df uses approx_floor.
+    # Excel path, same as binomdist. x == 0 stays 1. df uses approx_floor
+    # (float() accepts text such as "3.5").
     # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
     # ScChiSqDist_MS).
     stats = scipy_stats()
@@ -729,8 +730,8 @@ def chidist(x: Any, df: Any) -> float:
 
 def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
-    # p == 1 stays 0. df uses approx_floor. df > 1e10 matches Excel CHIINV
-    # and the chidist cap above.
+    # p == 1 stays 0. df uses approx_floor (float() accepts text such as "3.5").
+    # df > 1e10 matches Excel CHIINV and the chidist cap above.
     stats = scipy_stats()
     if stats is None:
         return float("nan")
@@ -903,7 +904,8 @@ def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> f
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
-    # alpha == 1 returns n, or 0 when p == 0. trials uses approx_floor.
+    # alpha == 1 returns n, or 0 when p == 0. trials uses approx_floor
+    # (float() accepts text such as "10.9").
     stats = scipy_stats()
     if stats is None:
         return float("nan")

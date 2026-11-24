@@ -724,8 +724,9 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     x_val = float(x)
-    df1 = approx_floor(float(r1))
-    df2 = approx_floor(float(r2))
+    # ScFDist (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
+    df1 = float(approx_floor(float(r1)))
+    df2 = float(approx_floor(float(r2)))
     # st.f.sf of a negative x is 1, and df below 1 is finite. Excel is #NUM!.
     if x_val < 0 or df1 < 1 or df2 < 1:
         return float("nan")
@@ -780,8 +781,9 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     prob = float(p)
-    df1 = approx_floor(float(r1))
-    df2 = approx_floor(float(r2))
+    # ScFInv (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
+    df1 = float(approx_floor(float(r1)))
+    df2 = float(approx_floor(float(r2)))
     # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
     # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
     if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:

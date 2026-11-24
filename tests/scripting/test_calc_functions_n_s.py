@@ -16,6 +16,7 @@ is not an error (text ignored, or a defined zero).
 from __future__ import annotations
 
 import math
+import struct
 
 import numpy as np
 import pytest
@@ -589,21 +590,19 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
 
 
 def test_na_returns_err_na_payload():
-    import struct
-
     val = calc.na()
     assert math.isnan(val)
     assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == 0x7FFF
     assert calc.isna(val) is True
 
 
-def test_n_s_approx_floor_and_error_propagation():
-    import struct
-
+def test_negbinomdist_and_permut_approx_floor():
     assert math.isnan(calc.negbinomdist(-0.5, 2, 0.5))
     assert math.isnan(calc.permut(5, -0.5))
     assert calc.permut(0.29 * 100, 1) == 29
 
+
+def test_sumsq_error_propagation():
     assert calc.sumsq("#N/A", "#DIV/0!") == "#DIV/0!"
     assert calc.sumsq(["#N/A", "#DIV/0!"]) == "#N/A"
     assert calc.sumsq("#N/A", 1e200) == "#N/A"
@@ -612,24 +611,30 @@ def test_n_s_approx_floor_and_error_propagation():
     assert isinstance(na_sq, float) and math.isnan(na_sq)
     assert (struct.unpack("Q", struct.pack("d", na_sq))[0] & 0xFFFFFFFF) == 0x7FFF
 
+
+def test_sumproduct_error_and_text_rules():
     assert calc.sumproduct([1], ["#N/A"]) == "#N/A"
     assert calc.sumproduct(["text"], ["#N/A"]) == 0
+    assert calc.sumproduct(["text"], [calc.na()]) == 0
     assert calc.sumproduct(["#N/A"], ["text"]) == 0
     assert calc.sumproduct([None], ["#N/A"]) == "#N/A"
     assert calc.sumproduct(["#N/A"], ["#DIV/0!"]) == "#DIV/0!"
     assert calc.sumproduct(["#N/A"], [1], ["#DIV/0!"]) == "#DIV/0!"
     assert calc.sumproduct(["#N/A", "#DIV/0!"], [1, 1]) == "#N/A"
     assert calc.sumproduct([1], [True]) == 1
+    assert calc.sumproduct([1e200], [1e200], [None]) == 0.0
 
+
+def test_subtotal_error_propagation():
     assert calc.subtotal(9, ["#N/A", 3]) == "#N/A"
     mixed = ["text", "#N/A", 0.3, "#DIV/0!"]
     assert calc.subtotal(2, mixed) == 1
     assert calc.subtotal(3, mixed) == 4
 
+
+def test_npv_booleans_and_text():
     assert math.isclose(calc.npv(0.1, True), 1.0 / 1.1)
     assert math.isclose(calc.npv(0.1, [1, True]), 1.0 / 1.1 + 1.0 / 1.21)
     assert math.isclose(calc.npv(0.1, [True, False], 10), 1.0 / 1.1 + 10.0 / 1.331)
     assert math.isclose(calc.npv(0.1, ["1"], 10), 10.0 / 1.1)
-
-
 

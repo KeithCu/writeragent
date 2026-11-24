@@ -447,6 +447,7 @@ def test_a_c_approx_floor_counts_and_df():
     assert calc.combin(0.29 * 100, 1) == 29
     assert calc.combina(0.29 * 100, 1) == 29
     assert calc.critbinom(0.29 * 100, 0.5, 1) == 29
+    assert calc.critbinom("10.9", 0.5, 0.5) == calc.critbinom(10, 0.5, 0.5)
 
     assert calc.chidist(5.0, 0.29 * 100) == calc.chidist(5.0, 29)
     assert calc.chiinv(0.5, 0.29 * 100) == calc.chiinv(0.5, 29)
