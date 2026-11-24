@@ -184,6 +184,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         anchor = frame.getAnchor()
         text_obj = ctx.doc.getText()
         paragraph_index = None
+        # getAnchor() is None for an AT_PAGE frame with a page number (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor), so it has no paragraph index.
         if anchor is not None and uno_same(anchor.getText(), text_obj):
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)

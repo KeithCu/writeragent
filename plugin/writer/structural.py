@@ -212,6 +212,7 @@ class GetPageObjects(ToolBase):
                 "cols": t.getColumns().getCount(),
             },
         )
+
         def frame_entry(name: str, frame: Any) -> dict[str, Any]:
             size = frame.getPropertyValue("Size")
             return {"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100}

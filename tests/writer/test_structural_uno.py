@@ -407,4 +407,6 @@ def test_page_get_objects_frames_include_text_boxes_uno(ctx, doc):
     target_name = next(f["name"] for f in box_entries if f["shape_name"] == "AtPageBox1")
     info = FrameGetInfo().execute(tctx, name=target_name)
     assert info.get("status") == "ok", info
+    # AT_PAGE text boxes have no body anchor (getAnchor() is None), so paragraph_index is None.
+    assert info.get("paragraph_index") is None, info
     assert "AtPage box" in info.get("content", ""), info
