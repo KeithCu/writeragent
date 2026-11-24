@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 from dataclasses import dataclass, field
@@ -20,12 +21,15 @@ from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import (
     HELPER_NAMES,
     VISION_IMAGE_MAX_BYTES,
+    error_result,
     merge_vision_params,
 )
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 
 if TYPE_CHECKING:
     from plugin.vision.vision_egress import VisionInsertOutcome
+
+log = logging.getLogger(__name__)
 
 
 def supports_vision_manual(doc: Any) -> bool:
@@ -164,7 +168,7 @@ def run_trusted_vision(
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
     if on_exported is not None:
         on_exported(spec["params"], png_bytes)
-    # venv OCR (up to the long worker budget, ~120s) stays on this thread.
+    # venv OCR (can take minutes; client._resolve_vision_timeout_sec sets the limit) stays on this thread.
     return run_vision(ctx, spec, png_bytes, context=context, cancel=cancel)
 
 
@@ -187,7 +191,7 @@ class VisionBatch:
             err_out: dict[str, Any] = {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
             if self.results:
                 err_out["images_processed"] = len(self.results)
-                err_out["image_names"] = list(self.target_names[: len(self.results)])
+                err_out["image_names"] = [str(r.get("image_name")) for r in self.results]
                 err_out["inserted"] = self.inserted_count > 0
                 err_out["partial"] = True
                 err_out["individual_results"] = list(self.results)
@@ -236,6 +240,9 @@ class VisionBatch:
         elif inserted:
             image_names = list(self.target_names)
             message = _("OCR complete ({count} images).").format(count=len(self.results)) if len(self.results) > 1 else _("OCR complete.")
+        elif self.insert_into_document:
+            image_names = list(self.target_names)
+            message = _("OCR complete. No text detected.")
         else:
             image_names = list(self.target_names)
             message = _("OCR complete (text returned only; not inserted).")
@@ -301,6 +308,11 @@ def run_and_insert_vision_for_selection(
     try:
         batch.target_names = main.call(_discover_names)
 
+        def _insert_one(res: dict[str, Any], per_insert: dict[str, Any]) -> VisionInsertOutcome:
+            from plugin.vision.vision_egress import insert_vision_result
+
+            return insert_vision_result(ctx, doc, res, params=per_insert)
+
         for image_name in batch.target_names:
             if is_cancelled(cancel):
                 if batch.results:
@@ -311,7 +323,25 @@ def run_and_insert_vision_for_selection(
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported)
+            outcome: VisionInsertOutcome | None = None
+            try:
+                result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported)
+                if result.get("status") != "error" and insert_into_document:
+                    outcome = main.call(lambda: _insert_one(result, per_params), bound_scope=None)
+            except SendCancelled:
+                raise
+            except ToolExecutionError as exc:
+                batch.failures.append((image_name, error_result(exc.code, str(exc), helper=name, details=exc.details)))
+                continue
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                if not batch.results:
+                    raise
+                log.exception("Vision OCR failed for image %r", image_name)
+                # An unexpected exception stops the run because the next image would likely hit it too,
+                # while finished images are still reported.
+                batch.failures.append((image_name, error_result("VISION_ERROR", str(exc), helper=name)))
+                break
 
             if result.get("status") == "error":
                 if result.get("code") == "USER_STOPPED":
@@ -322,13 +352,7 @@ def run_and_insert_vision_for_selection(
                 batch.failures.append((image_name, result))
                 continue
 
-            if insert_into_document:
-                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> VisionInsertOutcome:
-                    from plugin.vision.vision_egress import insert_vision_result
-
-                    return insert_vision_result(ctx, doc, res, params=per_insert)
-
-                outcome = main.call(_insert, bound_scope=None)
+            if insert_into_document and outcome is not None:
                 if outcome != "empty":
                     batch.inserted_count += 1
                 if outcome == "image_deleted":

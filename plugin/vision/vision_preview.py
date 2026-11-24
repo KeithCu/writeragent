@@ -25,6 +25,7 @@ from plugin.vision.vision_egress import (
     VisionInsertOutcome,
     insert_vision_item,
     ocr_found_content,
+    source_image_note,
     vision_html_from_result,
 )
 from plugin.vision.vision_runner import (
@@ -150,9 +151,13 @@ def run_vision_insert(
 
             outcomes.append(main.call(_insert_one))
 
+    note = source_image_note(outcomes)
     if result.get("status") == "error":
+        err_msg = str(result.get("message") or _("Vision helper failed."))
+        if note:
+            err_msg += " " + note
         raise ToolExecutionError(
-            str(result.get("message") or _("Vision helper failed.")),
+            err_msg,
             code=str(result.get("code") or "VISION_ERROR"),
         )
 
@@ -163,8 +168,8 @@ def run_vision_insert(
         summary = _("Inserted {count} images.").format(count=len(inserted))
     else:
         summary = _("Inserted: {count} characters.").format(count=len(str(result.get("full_text") or "")))
-    if "image_kept" in inserted:
-        summary += " " + _("Image kept because LibreOffice cannot record deleting it as a tracked change.")
+    if note:
+        summary += " " + note
     return summary
 
 

@@ -385,7 +385,7 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
-        # while keeping the 120s OCR wait on this background thread.
+        # while keeping the OCR wait, which can take minutes, on this background thread.
         result = run_and_insert_vision_for_selection(
             prepared.ctx,
             prepared.doc,
@@ -408,7 +408,7 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
     # Weight: only vision runs load plugin.vision (see _prepare_vision).
-    from plugin.vision.vision_egress import insert_vision_item
+    from plugin.vision.vision_egress import insert_vision_item, ocr_found_content, source_image_note
 
     t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
@@ -419,32 +419,48 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
         indiv_results = result.get("individual_results", [])
         outcomes = [insert_vision_item(prepared.ctx, prepared.doc, indiv_res, prepared.params) for indiv_res in indiv_results]
 
+    note = source_image_note(outcomes)
+
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
     if result.get("status") == "error":
-        return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
+        err_msg = str(result.get("message") or _("Vision helper failed."))
+        if note:
+            err_msg += " " + note
+        return rps_error_outcome(err_msg, t0=t0)
 
     helper_name = prepared.helper_name
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
     inserted = any(o != "empty" for o in outcomes)
+    has_text = any(ocr_found_content(r) for r in result.get("individual_results", []))
     if count > 1:
         if inserted:
             status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(
                 helper=helper_name, count=count, time=formatted_time
             )
-        else:
+        elif has_text:
             status_ok = _(
                 "Vision '{helper}' completed for {count} images. Text returned only (not inserted). (took {time})"
+            ).format(helper=helper_name, count=count, time=formatted_time)
+        else:
+            status_ok = _(
+                "Vision '{helper}' completed for {count} images. No text detected. (took {time})"
             ).format(helper=helper_name, count=count, time=formatted_time)
     elif inserted:
         status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
             helper=helper_name, time=formatted_time
         )
-    else:
+    elif has_text:
         status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
             helper=helper_name, time=formatted_time
         )
+    else:
+        status_ok = _("Vision '{helper}' completed. No text detected. (took {time})").format(
+            helper=helper_name, time=formatted_time
+        )
+    if inserted and note:
+        status_ok += " " + note
     return rps_ok_outcome(status_ok, result=result, stdout=None)
 
 

@@ -638,13 +638,15 @@ def test_run_and_insert_all_empty_reports_not_inserted():
 
     assert result["status"] == "ok"
     assert result["inserted"] is False
+    assert result["message"] == "OCR complete. No text detected."
+    assert "text returned" not in result["message"].lower()
 
 
 @pytest.mark.parametrize(
     ("outcomes", "expected_deleted"),
     [
-        (["image_deleted", "empty", "image_kept_for_review"], ["Img1"]),
-        (["inserted", "empty", "image_kept_for_review"], []),
+        (["image_deleted", "empty", "image_kept"], ["Img1"]),
+        (["inserted", "empty", "image_kept"], []),
     ],
 )
 def test_run_and_insert_tracks_deleted_images(outcomes, expected_deleted):
@@ -714,4 +716,146 @@ def test_run_and_insert_cancelled_after_delete_preserves_deleted_images():
     assert result["code"] == "USER_STOPPED"
     assert result["partial"] is True
     assert result["deleted_images"] == ["Img1"]
+
+
+@pytest.mark.parametrize("fail_at", ["ocr", "insert"])
+def test_run_and_insert_tool_error_on_second_of_three_continues_and_returns_partial(fail_at):
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2", "Img3"]
+
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
+        if fail_at == "ocr" and params["image_name"] == "Img2":
+            raise ToolExecutionError("Image 'Img2' not found.", code="IMAGE_NOT_FOUND")
+        return _fake_run_vision(_ctx, _doc, helper=helper, params=params, cancel=cancel, on_exported=on_exported)
+
+    def _insert(_ctx, _doc, res, *, params=None):
+        if fail_at == "insert" and (params or {}).get("image_name") == "Img2":
+            raise ToolExecutionError("Image 'Img2' not found.", code="IMAGE_NOT_FOUND")
+        return "inserted"
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=_insert),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "error"
+    assert result["code"] == "IMAGE_NOT_FOUND"
+    assert result["partial"] is True
+    assert result["images_processed"] == 2
+    assert result["image_names"] == ["Img1", "Img3"]
+    assert result["failed_image"] == "Img2"
+    assert result["failed_images"] == ["Img2"]
+    assert result["inserted"] is True
+
+
+def test_run_and_insert_first_deleted_then_second_insert_raises_preserves_deleted():
+    from plugin.framework.errors import ToolExecutionError
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2"]
+
+    def _insert(_ctx, _doc, res, *, params=None):
+        if (params or {}).get("image_name") == "Img2":
+            raise ToolExecutionError("Image 'Img2' not found.", code="IMAGE_NOT_FOUND")
+        return "image_deleted"
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_fake_run_vision),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=_insert),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "error"
+    assert result["partial"] is True
+    assert result["deleted_images"] == ["Img1"]
+
+
+def test_run_and_insert_unexpected_exception_stops_after_first_or_raises_when_empty():
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2", "Img3"]
+    seen: list[str] = []
+
+    def _run_second_boom(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
+        seen.append(params["image_name"])
+        if params["image_name"] == "Img2":
+            raise RuntimeError("boom")
+        return _fake_run_vision(_ctx, _doc, helper=helper, params=params, cancel=cancel, on_exported=on_exported)
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run_second_boom),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="inserted"),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert seen == ["Img1", "Img2"]
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert result["partial"] is True
+    assert result["images_processed"] == 1
+    assert result["image_names"] == ["Img1"]
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=RuntimeError("first boom")),
+    ):
+        with pytest.raises(RuntimeError, match="first boom"):
+            run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+
+def test_run_and_insert_disposed_exception_raises_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=DisposedException("disposed")),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+
+def test_run_and_insert_cancelled_after_failure_lists_completed_image_names():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.framework.send_cancellation import SendCancelled
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2", "Img3"]
+
+    def _run(_ctx, _doc, *, helper, params, cancel=None, on_exported=None):
+        if params["image_name"] == "Img1":
+            raise ToolExecutionError("missing", code="IMAGE_NOT_FOUND")
+        if params["image_name"] == "Img3":
+            raise SendCancelled("cancelled")
+        return _fake_run_vision(_ctx, _doc, helper=helper, params=params, cancel=cancel, on_exported=on_exported)
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="inserted"),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert result["image_names"] == ["Img2"]
 

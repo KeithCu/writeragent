@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
@@ -23,6 +23,19 @@ log = logging.getLogger(__name__)
 # - "image_kept": content was inserted, but the document is recording changes
 #   and LibreOffice cannot record deleting this picture.
 VisionInsertOutcome = Literal["inserted", "image_deleted", "empty", "image_kept"]
+
+
+def source_image_note(outcomes: Iterable[Any]) -> str:
+    """Sentence about source images deleted or kept by "Delete image after OCR"; "" when neither happened."""
+    items = list(outcomes)
+    deleted = sum(1 for item in items if item == "image_deleted")
+    kept = any(item == "image_kept" for item in items)
+    parts: list[str] = []
+    if deleted:
+        parts.append(_("Source images deleted: {count}.").format(count=deleted))
+    if kept:
+        parts.append(_("Image kept because LibreOffice cannot record deleting it as a tracked change."))
+    return " ".join(parts)
 
 
 def is_vision_result(value: Any) -> bool:

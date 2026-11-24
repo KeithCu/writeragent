@@ -196,8 +196,34 @@ def test_try_rps_post_venv_vision_empty_reports_not_inserted(helper):
     }
     out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
     assert out is not None
-    assert "not inserted" in out["status_ok_text"]
+    assert "No text detected." in out["status_ok_text"]
     assert "Inserted" not in out["status_ok_text"]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_note"),
+    [
+        ("image_deleted", "Source images deleted: 1."),
+        ("image_kept", "Image kept because LibreOffice cannot record deleting it as a tracked change."),
+    ],
+)
+def test_try_rps_post_venv_vision_source_image_note(outcome, expected_note):
+    from plugin.scripting.python_runner import try_rps_post_venv
+
+    wiring = get_domain_wiring("vision")
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    result_data = {
+        "status": "ok",
+        "helper": "extract_text",
+        "full_text": "hello",
+        "html": "<p>hello</p>",
+        "metrics": {"line_count": 1},
+    }
+    with patch("plugin.vision.vision_egress.insert_vision_result", return_value=outcome):
+        out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
+    assert out is not None
+    assert expected_note in out["status_ok_text"]
 
 
 def test_try_rps_post_venv_vision_inserted_reports_inserted_message():

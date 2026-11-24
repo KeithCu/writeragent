@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import re
 from typing import Any
+
+from plugin.framework.constants import TESSERACT_PROGRAMS
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +220,88 @@ def detect_vision_input_format(data: Any, params: dict[str, Any] | None = None) 
 
 def resolve_ocr_backend(params: dict[str, Any]) -> str:
     return str(params.get("ocr_backend") or "").strip().lower() or DEFAULT_OCR_BACKEND
+
+
+@dataclass(frozen=True, slots=True)
+class OcrBackend:
+    """One ocr_backend id: the Docling OcrOptions class it builds and what must be installed for it."""
+
+    options_class: str  # attribute of docling.datamodel.pipeline_options
+    modules: tuple[str, ...] = ()  # imports that must succeed in the venv: `module`, or `module:attribute` when the module loads the attribute lazily
+    programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
+    install_hint: str = ""
+    rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
+    # OcrOptions field that takes the text_score setting (RapidOCR text_score, EasyOCR confidence_threshold);
+    # empty when the engine has no recognition-confidence filter.
+    threshold_field: str = ""
+    # sys.platform value the engine runs on ("" = any). Docling's OcrMacModel.__init__
+    # (models/stages/ocr/ocr_mac_model.py) refuses anything but "darwin".
+    sys_platform: str = ""
+    # Start of the ImportError/RuntimeError message Docling's model __init__ raises when the
+    # engine passed pre-flight but cannot start (broken dependency, program that does not run).
+    startup_errors: tuple[str, ...] = ()
+
+
+def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
+    return OcrBackend(
+        "RapidOcrOptions",
+        # rapidocr/__init__.py loads RapidOCR lazily via __getattr__, so importing rapidocr alone misses broken cv2.
+        ("rapidocr:RapidOCR", module),
+        install_hint=f"pip install rapidocr {pip_name}",
+        rapidocr_engine=engine,
+        threshold_field="text_score",
+    )
+
+
+# vision_docling runs these engines and venv_diagnostics derives its Test probe from them.
+OCR_BACKENDS: dict[str, OcrBackend] = {
+    "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
+    "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
+    "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
+    "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
+    "easyocr": OcrBackend(
+        "EasyOcrOptions",
+        ("easyocr",),
+        install_hint="pip install easyocr",
+        threshold_field="confidence_threshold",
+    ),
+    "tesseract": OcrBackend(
+        "TesseractCliOcrOptions",
+        programs=TESSERACT_PROGRAMS,
+        install_hint=(
+            "Install the Tesseract OCR program with its eng and osd language data (Linux: your package manager; "
+            "macOS: Homebrew or MacPorts; Windows: the UB Mannheim installer). WriterAgent looks for tesseract "
+            "on PATH and in its default install folder."
+        ),
+        startup_errors=("Tesseract is not available",),
+    ),
+    "nemotron": OcrBackend(
+        "NemotronOcrOptions",
+        # Namespace package, so its real import failure arrives through startup_errors.
+        ("nemotron_ocr",),
+        install_hint=(
+            "Nemotron OCR runs in a Python venv set up for it: Linux x86_64 with an NVIDIA GPU, a CUDA build "
+            "of PyTorch, and pip install nemotron-ocr (Docling 2.151 also checks for Python 3.12 and CUDA 13). "
+            "Point Settings → Python at that venv and keep Device on Auto or CUDA."
+        ),
+        # NemotronOcrModel.validate_runtime (docling/models/stages/ocr/nemotron_ocr_model.py) raises RuntimeError
+        # for the platform, Python, CUDA and device checks; NemotronOcrModel.__init__ re-raises a failed
+        # nemotron_ocr.inference import as "Nemotron OCR is not installed".
+        startup_errors=("Nemotron OCR is not installed", "Nemotron OCR is only supported", "Nemotron OCR requires"),
+    ),
+    "ocrmac": OcrBackend(
+        "OcrMacOptions",
+        ("ocrmac.ocrmac",),
+        sys_platform="darwin",
+        install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
+        startup_errors=("Apple Vision did not report any recognition language",),
+    ),
+}
+
+
+def ocr_module_package(entry: str) -> str:
+    """Return the top-level package name of an OcrBackend.modules entry."""
+    return entry.partition(":")[0].partition(".")[0]
 
 
 def vision_bool(value: Any) -> bool:
