@@ -811,8 +811,8 @@ class PageSetStyleProperties(ToolWriterPageBase):
             return self._tool_error(blocked)
 
         # type/enum checks are done by the tool schema in ToolRegistry
-        # Convert before any UNO write. _mm_to_hmm, _page_style_layout_to_uno, and
-        # _page_color_to_uno still raise on invalid values; execute_safe codes that.
+        # Convert before any UNO write. _mm_to_hmm, _page_style_layout_to_uno and
+        # _page_color_to_uno still raise on negatives, layouts outside 0..3 and strings that are not colors; execute_safe codes that.
         pending: list[tuple[str, str, Any]] = []
         has_landscape = False
         landscape_val: Any = None

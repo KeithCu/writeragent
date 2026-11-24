@@ -1346,9 +1346,9 @@ def test_query_folder_sql_table_headers_non_bool_is_invalid_param(
 ):
     mock_exec.side_effect = lambda fn: fn()
 
-    res = _run(_mk_ctx(), sql="SELECT * FROM t", tables={"t": {"sheet": "Actuals", "headers": "maybe"}})
+    res = _run(_mk_ctx(), sql="SELECT * FROM costs", tables={"costs": {"sheet": "Actuals", "headers": "maybe"}})
 
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
-    assert "t" in res["message"]
+    assert "costs" in res["message"]
     mock_run.assert_not_called()
