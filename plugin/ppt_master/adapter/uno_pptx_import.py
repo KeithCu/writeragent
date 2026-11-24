@@ -20,6 +20,7 @@ from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_S
 from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.draw.shape_clone import clone_shape
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
+from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.thread_guard import main_thread_only
 
@@ -55,12 +56,6 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
     return copied
 
 
-def _hidden_load_props() -> tuple[Any, ...]:
-    import uno
-
-    return (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True),)
-
-
 def load_pptx_as_impress_doc(ctx: Any, pptx_path: Path) -> Any | None:
     """Open a PPTX as a hidden Impress document (LO extension-based filter)."""
     pptx_path = Path(pptx_path).expanduser().resolve()
@@ -68,7 +63,7 @@ def load_pptx_as_impress_doc(ctx: Any, pptx_path: Path) -> Any | None:
         return None
     try:
         desktop = get_desktop(ctx)
-        doc = desktop.loadComponentFromURL(pptx_path.resolve().as_uri(), "_blank", 0, _hidden_load_props())
+        doc = load_scratch_document(desktop, pptx_path.resolve().as_uri())
         return doc
     except Exception as exc:
         log.warning("PPTX load failed for %s: %s", pptx_path, exc)
@@ -217,7 +212,7 @@ def import_pptx_to_doc(
                 result["mirror_odp"] = str(save_mirror_odp)
         return result
     finally:
-        best_effort(lambda: source_doc.close(True), "close source pptx doc")
+        best_effort(lambda: close_scratch_document(source_doc), "close source pptx doc")
 
 
 @main_thread_only
@@ -257,4 +252,4 @@ def import_pptx_slide_to_odp(
         target_doc.storeToURL(odp_path.as_uri(), ())
         return target_doc, page
     finally:
-        best_effort(lambda: source_doc.close(True), "close source pptx doc")
+        best_effort(lambda: close_scratch_document(source_doc), "close source pptx doc")

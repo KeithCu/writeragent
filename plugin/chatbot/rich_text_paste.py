@@ -75,6 +75,7 @@ from plugin.calc.navigation import (
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
+from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 log = logging.getLogger(__name__)
@@ -131,8 +132,6 @@ def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
 def create_hidden_html_writer(ctx: Any) -> Any | None:
     """Load a hidden Writer document for HTML import + direct copy."""
     try:
-        from plugin.framework.scratch_writer import new_blank_writer
-
         return new_blank_writer(ctx)
     except Exception:
         log.exception("create_hidden_html_writer failed")
@@ -669,7 +668,7 @@ def paint_message_items(
 def _close_hidden_doc(doc: Any, context: str) -> None:
     if doc is not None:
         try:
-            doc.close(True)
+            close_scratch_document(doc)
         except Exception:
             log.debug("%s: hidden writer close failed", context, exc_info=True)
 
