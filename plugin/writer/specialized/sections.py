@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import uno
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_elements
+from plugin.doc.text_helpers import DeletionState, get_string_without_tracked_deletions, iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
 from plugin.framework.errors import ToolExecutionError, name_miss_details
@@ -328,16 +328,20 @@ class SectionRead(ToolWriterSectionBase):
 
         enum = anchor.createEnumeration()
         paragraphs = []
+        state = DeletionState()
         for para in iter_elements(enum):
             if para.supportsService("com.sun.star.text.Paragraph"):
-                paragraphs.append(get_string_without_tracked_deletions(para))
+                paragraphs.append(get_string_without_tracked_deletions(para, state))
             elif para.supportsService("com.sun.star.text.TextTable") is True:
-                # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
-                # same walk as text_helpers._table_visible_text).
-                paragraphs.append("\n".join(
-                    get_string_without_tracked_deletions(para.getCellByName(cell_name))
-                    for cell_name in para.getCellNames()
-                ))
+                if state.in_delete:
+                    paragraphs.append("")
+                else:
+                    # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
+                    # same walk as text_helpers._table_visible_text).
+                    paragraphs.append("\n".join(
+                        get_string_without_tracked_deletions(para.getCellByName(cell_name))
+                        for cell_name in para.getCellNames()
+                    ))
             else:
                 paragraphs.append("[Table]")
 

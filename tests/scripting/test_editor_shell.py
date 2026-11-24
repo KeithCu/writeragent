@@ -11,14 +11,47 @@ from pathlib import Path
 import pytest
 
 _SHELL_JS = Path(__file__).resolve().parents[2] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor_shell.js"
+_SCRIPTS_MANAGER_JS = Path(__file__).resolve().parents[2] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "scripts_manager.js"
 
 
-def _run_shell_scenario(script_body: str) -> dict:
+def _run_shell_scenario(script_body: str, *, include_scripts_manager: bool = False) -> dict:
+    load_scripts_manager = (
+        f'vm.runInContext(fs.readFileSync({json.dumps(str(_SCRIPTS_MANAGER_JS))}, "utf8"), ctx);'
+        if include_scripts_manager
+        else ""
+    )
     driver = f"""
 const fs = require("fs");
 const vm = require("vm");
 const src = fs.readFileSync({json.dumps(str(_SHELL_JS))}, "utf8");
 const els = {{}};
+function mkClassList() {{
+  const set = new Set();
+  return {{
+    add(c) {{ set.add(c); }},
+    remove(c) {{ set.delete(c); }},
+    contains(c) {{ return set.has(c); }},
+    toggle(c, f) {{
+      if (f === undefined) {{
+        if (set.has(c)) {{ set.delete(c); return false; }}
+        set.add(c); return true;
+      }}
+      if (f) set.add(c); else set.delete(c);
+      return !!f;
+    }},
+  }};
+}}
+function dispatchListeners(list, ev) {{
+  let stopped = false;
+  ev ||= {{}};
+  ev.stopPropagation ||= () => {{}};
+  ev.stopImmediatePropagation ||= () => {{ stopped = true; }};
+  ev.preventDefault ||= () => {{}};
+  for (const item of list.filter((x) => x.cap).concat(list.filter((x) => !x.cap))) {{
+    item.f(ev);
+    if (stopped) break;
+  }}
+}}
 function el(id) {{
   return (els[id] ||= {{
     id,
@@ -28,13 +61,17 @@ function el(id) {{
     style: {{}},
     textContent: "",
     title: "",
-    h: {{}},
-    classList: {{ add() {{}}, remove() {{}}, toggle() {{}} }},
-    addEventListener(n, f) {{ this.h[n] = f; }},
-    click() {{ this.h.click && this.h.click(); }},
-    trigger(n) {{ this.h[n] && this.h[n](); }},
+    innerHTML: "",
+    options: [],
+    listeners: {{}},
+    classList: mkClassList(),
+    addEventListener(n, f, cap) {{ (this.listeners[n] ||= []).push({{ f, cap: !!cap }}); }},
+    click() {{ dispatchListeners(this.listeners.click || [], {{ type: "click" }}); }},
+    trigger(n, ev) {{ dispatchListeners(this.listeners[n] || [], ev || {{ type: n }}); }},
     setAttribute() {{}},
-    appendChild() {{}},
+    appendChild(child) {{ this.options.push(child); }},
+    querySelector: () => null,
+    focus() {{}},
   }});
 }}
 const sent = [];
@@ -64,31 +101,41 @@ const win = {{
       notify_save: () => sent.push("save"),
       notify_save_script: () => sent.push("save_script"),
       notify_run: () => sent.push("run"),
+      save_script: (name, code, origin, requested) => sent.push({{ type: "save_script", name, code, origin, requested: !!requested }}),
+      request_scripts: () => sent.push("request_scripts"),
+      select_script: (name) => sent.push({{ type: "select_script", name }}),
       poll_messages: () => Promise.resolve(queue.splice(0)),
     }},
   }},
 }};
+const docListeners = {{}};
 const doc = {{
   title: "",
+  readyState: "complete",
   body: el("body"),
   head: {{ appendChild(s) {{ s.onload(); }} }},
   documentElement: el("root"),
   getElementById: el,
-  createElement: () => ({{}}),
-  addEventListener() {{}},
+  createElement: () => ({{ value: "", textContent: "", disabled: false, style: {{}}, dataset: {{}}, appendChild() {{}} }}),
+  addEventListener(n, f, cap) {{ (docListeners[n] ||= []).push({{ f, cap: !!cap }}); }},
   querySelectorAll: () => [],
   querySelector: () => null,
 }};
 win.document = doc;
-vm.runInNewContext(src, {{
+const ctx = vm.createContext({{
   window: win,
   document: doc,
   setTimeout: () => 0,
-  setInterval: (f) => {{ poll = f; return 0; }},
+  setInterval: (f, ms) => {{ if (ms !== 100) poll = f; return 0; }},
+  clearInterval: () => {{}},
   console,
 }});
+vm.runInContext(src, ctx);
+{load_scripts_manager}
+dispatchListeners(docListeners.DOMContentLoaded || [], {{ type: "DOMContentLoaded" }});
 const tick = () => new Promise((r) => setImmediate(r));
 async function deliver(m) {{ queue.push(m); poll(); await tick(); await tick(); }}
+async function deliverBatch(ms) {{ queue.push(...ms); poll(); await tick(); await tick(); }}
 const snaps = {{}};
 function snap(name) {{
   snaps[name] = {{
@@ -109,6 +156,7 @@ function snap(name) {{
     dataDisabled: !!el("data-binding-input").disabled,
     plainDisabled: !!el("chk-plain-text").disabled,
     dataBinding: el("data-binding-input").value,
+    selectValue: el("script-select").value,
     snaps,
   }}));
 }})();
@@ -300,3 +348,68 @@ def test_editor_shell_saved_without_load_follows_unlocks_and_normal_save_does_no
     )
     assert normal_save["text"] == "still_editable"
     assert normal_save["readOnly"] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_requested_named_save_locks_until_load_and_updates_dropdown() -> None:
+    sections_a = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0", "B": "b0"}}]
+    sections_b = [{"id": "user", "title": "My Scripts", "scripts": {"B": "b0", "A": "ab"}}]
+    out = _run_shell_scenario(
+        f"""
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("ab");
+        await deliver({{type: "request_save", session_id: "s1"}});
+        type("ignored_while_locked");
+        snap("after_request_save");
+        await deliverBatch([
+          {{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_b)}, status_ok_text: "Saved.", load_follows: true}},
+          {{type: "load", mode: "run_script", code: "b0", selected_script_name: "B", session_id: "s2"}},
+        ]);
+        snap("after_load");
+        await deliver({{type: "scripts_list", session_id: "s2", sections: {json.dumps(sections_b)}, selected_script_name: "B"}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert out["snaps"]["after_request_save"]["readOnly"] is True
+    assert out["snaps"]["after_request_save"]["text"] == "ab"
+    save_calls = [m for m in out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert save_calls == [{"type": "save_script", "name": "A", "code": "ab", "origin": "user", "requested": True}]
+    # Between load_follows list and load, no dirty=false or select_script was emitted.
+    save_idx = out["sent"].index(save_calls[0])
+    req_idx = out["sent"].index("request_scripts", save_idx)
+    assert out["sent"][save_idx + 1 : req_idx] == []
+    assert out["snaps"]["after_load"]["readOnly"] is False
+    assert out["snaps"]["after_load"]["text"] == "b0"
+    assert out["selectValue"] == "B"
+
+    # Error list unlocks and keeps the edited text.
+    err_out = _run_shell_scenario(
+        f"""
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("ab");
+        await deliver({{type: "request_save", session_id: "s1"}});
+        type("ignored");
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, status_error_text: "Read-only"}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert err_out["readOnly"] is False
+    assert err_out["text"] == "ab"
+
+    # Normal Save does not lock and sends requested=false.
+    norm_out = _run_shell_scenario(
+        f"""
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("ab");
+        el("btn-save").click();
+        type("still_editable");
+        """,
+        include_scripts_manager=True,
+    )
+    assert norm_out["readOnly"] is False
+    assert norm_out["text"] == "still_editable"
+    norm_saves = [m for m in norm_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert norm_saves == [{"type": "save_script", "name": "A", "code": "ab", "origin": "user", "requested": False}]

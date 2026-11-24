@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 import uno
@@ -22,6 +21,11 @@ from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import (
+    close_scratch_document,
+    is_scratch_document,
+    load_scratch_document,
+)
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.framework.thread_guard import assert_main_thread, guard_uno
 from plugin.framework.uno_context import (
@@ -552,29 +556,8 @@ def resolve_path_or_name(
     return None, f"No file matching {raw!r}"
 
 
-# Same CREATE|GLOBAL as rich_html._wa_calc_html (8|55). Named target with
-# flags 0 can search instead of creating.
-_HIDDEN_READONLY_SEARCH_FLAGS = 8 | 55
-_WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
-
 # Extensions list in filter/source/config/fragments/types/generic_HTML.xcu.
 _HTML_EXTENSIONS = frozenset({".html", ".htm", ".xhtml"})
-
-
-def _hidden_readonly_load_args() -> tuple[str, int]:
-    """Target + FrameSearchFlag for a Hidden+ReadOnly sibling open.
-
-    On Windows, ``_default`` and ``_blank`` can pick up a leftover hidden frame (for
-    example a ``_wa_calc_html`` paste Writer), and ``loadComponentFromURL`` then
-    raises "Could not create system bitmap!" or hangs about 30 s. Windows
-    therefore uses one named CREATE|GLOBAL target that nothing else uses
-    (``rich_html.py`` avoids the same names). Hidden+ReadOnly and the reuse /
-    close-flag contract are the same on every platform. POSIX keeps ``_default``
-    with flags 0.
-    """
-    if sys.platform == "win32":
-        return _WINDOWS_HIDDEN_READONLY_TARGET, _HIDDEN_READONLY_SEARCH_FLAGS
-    return "_default", 0
 
 
 def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None, bool]:
@@ -615,14 +598,16 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     try:
         desktop = get_desktop(ctx)
         load_props: list[Any] = [
-            create_property_value("Hidden", True),
             create_property_value("ReadOnly", True),
         ]
         if os.path.splitext(path)[1].lower() in _HTML_EXTENSIONS:
             # Without FilterName, LibreOffice loads Writer/Web, which get_document_type reports as UNKNOWN.
             load_props.append(create_property_value("FilterName", HTML_WRITER_FILTER))
-        target, flags = _hidden_readonly_load_args()
-        model = desktop.loadComponentFromURL(url, target, flags, tuple(load_props))
+        # _blank, because _default can return a document the user already has open
+        # (LoadEnv::impl_searchAlreadyLoaded in framework/source/loadenv/loadenv.cxx),
+        # which would then be closed after the read. Registered as scratch so a
+        # research read does not change the MCP catalog.
+        model = load_scratch_document(desktop, url, props=tuple(load_props))
         if model is None:
             return None, None, f"Failed to open {path}", False
         doc_type = doc_type_family_label(get_document_type(model))
@@ -646,12 +631,10 @@ def close_document_research_document(model: Any, *, opened_for_document_research
     *opened_for_document_research* is True (not when reusing a
     user-visible open doc).
     """
-    if not opened_for_document_research or model is None:
+    if not opened_for_document_research:
         return
     try:
-        close_fn = getattr(model, "close", None)
-        if callable(close_fn):
-            close_fn(True)
+        close_scratch_document(model)
     except Exception:
         log.exception("Failed to close document_research read document")
 
@@ -700,11 +683,12 @@ def document_entry(model: Any) -> dict[str, Any]:
 
 
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
-    """Retrieve all open documents from the desktop context with metadata.
+    """Retrieve open real documents from the desktop context with metadata.
 
-    An empty desktop is ``[]``. A disposed desktop is not that list: it
-    leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
-    not as disposal and not as ``[]``.
+    WriterAgent scratch documents (including files opened hidden for research)
+    are excluded. An empty desktop is ``[]``. A disposed desktop is not that
+    list: it leaves as ``ListenerBoundary``. A runtime error is re-raised as
+    itself, not as disposal and not as ``[]``.
     """
     try:
         assert_main_thread("document_research.get_open_documents")
@@ -742,6 +726,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             lambda: model.supportsService("com.sun.star.document.OfficeDocument"),
             True,
         ):
+            continue
+        if is_scratch_document(model):
             continue
         entry = document_entry(model)
         entry["is_active"] = _is_same_document(model, active_model)

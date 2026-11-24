@@ -465,7 +465,7 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
 
     monkeypatch.setattr(
         "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
-        lambda el: getattr(el, "text", ""),
+        lambda el, state=None: getattr(el, "text", ""),
     )
 
     class FakeEnum:
@@ -531,7 +531,7 @@ def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
 
     monkeypatch.setattr(
         "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
-        lambda el: getattr(el, "text", ""),
+        lambda el, state=None: getattr(el, "text", ""),
     )
 
     class FakeDoc:
@@ -1098,6 +1098,45 @@ def test_linguistic_profile_skips_empty_pos(monkeypatch: pytest.MonkeyPatch) -> 
 
     res = vta.analyze_text("some text")
     assert res["result"]["linguistic_profile"]["pos_proportions"] == {"NOUN": 1.0}
+
+
+def test_get_writer_sections_hides_multi_paragraph_tracked_deletions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
+
+    p_head = FakeUnoPara([FakeUnoPortion("Text", "Heading One")], OutlineLevel=1)
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Visible start "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "deleted one"),
+    ], OutlineLevel=0)
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "deleted middle paragraph")], OutlineLevel=0)
+    p3 = FakeUnoPara([
+        FakeUnoPortion("Text", "deleted tail "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "and visible ending that is long enough."),
+    ], OutlineLevel=0)
+
+    class Doc:
+        def getText(self):
+            return self
+
+        def createEnumeration(self):
+            return FakeUnoEnum([p_head, p1, p2, p3])
+
+        def getRedlines(self):
+            class _Redlines:
+                def hasElements(self):
+                    return True
+
+            return _Redlines()
+
+    sections = ta._get_writer_sections(Doc())
+    assert len(sections) == 1
+    assert "Visible start" in sections[0]
+    assert "visible ending" in sections[0]
+    assert "deleted" not in sections[0]
 
 
 

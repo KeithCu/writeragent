@@ -84,12 +84,10 @@ def _direct_flat_tools(label):
     """
     bases = _app_bases()
     wanted = tuple(bases.values()) if label is None else (bases[label],)
-    sidebar_only = _sidebar_only_domains()
     return {cls.name: getattr(cls, "specialized_domain", None)
             for cls in _all_tool_classes()
             if issubclass(cls, wanted)
-            and getattr(cls, "tier", None) not in MCP_DIRECT_FLAT_EXCLUDE_TIERS
-            and getattr(cls, "specialized_domain", None) not in sidebar_only}
+            and getattr(cls, "tier", None) not in MCP_DIRECT_FLAT_EXCLUDE_TIERS}
 
 
 def _concrete_tools(label):
@@ -234,9 +232,9 @@ def test_calc_base_does_not_import_writer_or_draw():
 
 
 _MARKER_ALLOWLIST = {
-    "Writer": frozenset({"document_research", "mcp", "python", "vision"}),
-    "Calc": frozenset({"document_research", "mcp", "vision", "images"}),
-    "Draw": frozenset({"document_research", "mcp", "python", "vision"}),
+    "Writer": frozenset({"document_research", "python", "vision"}),
+    "Calc": frozenset({"document_research", "vision", "images"}),
+    "Draw": frozenset({"document_research", "python", "vision"}),
 }
 
 
@@ -286,4 +284,20 @@ def test_catalog_domains_have_tools_or_marker_allowlist(label, _initialized_app_
         assert domain in allowlist or domain in tool_domains, (
             f"{label}: Catalog domain {domain!r} has no concrete tools and is not in marker allowlist"
         )
+
+
+def test_sidebar_only_domain_tools_are_unlisted():
+    """Every tool in a sidebar-only domain must be tier 'unlisted' so MCP hides and refuses it."""
+    import plugin.app
+
+    sidebar_only = _sidebar_only_domains()
+    seen_domains: set[str] = set()
+    for tool in plugin.app.get_tools().get_tools(exclude_tiers=(), filter_doc_type=False):
+        domain = getattr(tool, "specialized_domain", None)
+        if domain in sidebar_only:
+            seen_domains.add(domain)
+            assert tool.tier == "unlisted", (
+                f"Sidebar-only tool {tool.name!r} (domain={domain!r}) must be tier 'unlisted'"
+            )
+    assert seen_domains == sidebar_only
 
