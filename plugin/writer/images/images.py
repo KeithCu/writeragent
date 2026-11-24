@@ -1290,7 +1290,7 @@ class ImageInsert(ToolWriterImageBase):
             "path": {"type": "string", "description": ("Local file path or URL of the image to insert.")},
             "locator": {"type": "string", "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title').")},
             "paragraph": {"type": "integer", "description": "Paragraph index for insertion point."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted."},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. The user's page or sheet 2 is page=1. Active page or sheet if omitted."},
             "x_mm": {"type": "number", "description": "Draw/Impress: X position in millimetres (default: centered). Ignored on Calc."},
             "y_mm": {"type": "number", "description": "Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc."},
             "width_mm": {"type": "number", "description": "Width in millimetres (must be positive; omitted derives from aspect ratio)."},

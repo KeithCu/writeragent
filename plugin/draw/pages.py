@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, page_size
-from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY
+from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY, DRAW_REQUIRED_PAGE_PROPERTY
 from plugin.draw.masters import iter_masters
 from plugin.draw.placeholders import slide_title
 from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
@@ -96,7 +96,7 @@ class AddSlide(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
+            "page": {"type": "integer", "description": "0-based index where to insert the new slide (page=1 makes it the user's slide 2; defaults to appending at the end if omitted)"},
             "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"},
             "layout": {"type": "string", "default": _DEFAULT_IMPRESS_LAYOUT, "description": ("Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
         },
@@ -180,7 +180,7 @@ class _SlideMutationTool(ToolBase):
 class DeleteSlide(_SlideMutationTool):
     name: str | None = "slide_delete"
     description: str = "Deletes the slide (page) at the specified index."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_REQUIRED_PAGE_PROPERTY}, "required": ["page"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = DrawBridge(ctx.doc)
@@ -223,7 +223,7 @@ def page_entries(pages: Any) -> list[dict[str, Any]]:
 class ListPages(ToolBase):
     name: str | None = "slide_list"
     description: str = (
-        "Lists pages (slides) in deck order as {index, name, title}; index is 0-based. "
+        "Lists pages (slides) in deck order as {index, name, title}; index is 0-based (the user's slide 2 is index 1). "
         "Unnamed slides have LibreOffice's positional default 'pageN' "
         "(N = 1-based position) and include default_name: true."
     )
@@ -430,7 +430,7 @@ class GetPresentationInfo(ToolBase):
 class SetActivePage(ToolBase):
     name: str | None = "slide_set_active"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_REQUIRED_PAGE_PROPERTY}, "required": ["page"]}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     # View change only. None would still detect a mutation: the name
     # slide_set_active is not a read prefix. read_only_target and the MCP
@@ -451,7 +451,7 @@ class SetActivePage(ToolBase):
 class DuplicateSlide(_SlideMutationTool):
     name: str | None = "slide_duplicate"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_REQUIRED_PAGE_PROPERTY, "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"}}, "required": ["page"]}
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -476,8 +476,8 @@ class MoveSlide(_SlideMutationTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "from_page": {"type": "integer", "description": "0-based source slide index"},
-            "to_page": {"type": "integer", "description": "0-based index the slide ends at"},
+            "from_page": {"type": "integer", "description": "0-based source slide index (the user's slide 2 is from_page=1)"},
+            "to_page": {"type": "integer", "description": "0-based index the slide ends at (to_page=1 makes it the user's slide 2)"},
         },
         "required": ["from_page", "to_page"],
     }
@@ -509,7 +509,7 @@ class MoveSlide(_SlideMutationTool):
 class RenameSlide(_SlideMutationTool):
     name: str | None = "slide_rename"
     description: str = "Sets the Name of a slide (0-based page index). The name must not already be used by another slide; LibreOffice refuses names that start with its default slide label (e.g. 'Slide 3')."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_REQUIRED_PAGE_PROPERTY, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

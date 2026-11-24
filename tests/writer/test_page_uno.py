@@ -1029,3 +1029,29 @@ def test_page_style_clone_copies_cell_and_nested_cell_logos_uno(ctx, doc):
     cloned_style = resolve_page_style(doc, "ClonedWithCellLogos")
     scan = _scan_region_content(doc, cloned_style.getPropertyValue("HeaderText"))
     assert len(scan["images"]) == 2, scan
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_back_color_string_transparent_and_alpha_roundtrip_uno(ctx, doc):
+    from com.sun.star.drawing.FillStyle import NONE, SOLID
+    from plugin.writer.page import get_page_style_properties
+
+    tool = PageSetStyleProperties()
+    tool_ctx = _tool_ctx(doc, ctx)
+    style, s_name = _style(doc)
+
+    res = tool.execute(tool_ctx, style=s_name, back_color="red")
+    assert res["status"] == "ok", res
+    assert style.getPropertyValue("FillStyle") == SOLID
+    assert style.getPropertyValue("FillColor") == 0xFF0000
+
+    style.setPropertyValue("FillTransparence", 50)
+    props = get_page_style_properties(doc, s_name)["properties"]
+    res_rt = tool.execute(tool_ctx, style=s_name, back_color=props["back_color"])
+    assert res_rt["status"] == "ok", res_rt
+    assert style.getPropertyValue("FillTransparence") == 50
+
+    res_none = tool.execute(tool_ctx, style=s_name, back_color="transparent")
+    assert res_none["status"] == "ok", res_none
+    assert style.getPropertyValue("FillStyle") == NONE
