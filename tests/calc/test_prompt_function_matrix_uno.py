@@ -58,8 +58,9 @@ def _matrix_diag(ctx, doc, code):
         ret_desc = _describe_addin_return(PythonFunction(ctx).python(doc, code))
     except Exception as exc:
         ret_desc = f"call-error:{exc!r}"
-    entries = get_diagnostics_store().entries(diagnostics_workbook_key(doc))
-    last = entries[-1] if entries else None
+    store = get_diagnostics_store()
+    entries = store.list_entries(diagnostics_workbook_key(doc)) or store.list_entries("unknown")
+    last = entries[0] if entries else None
     diag_desc = (
         f"status={last.status} msg={last.message!r} tb={last.traceback!r}"
         if last is not None
