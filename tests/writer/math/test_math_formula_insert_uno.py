@@ -317,7 +317,11 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             if ptype == "Frame":
                 out.append("Frame")
             elif p.getString():
-                out.append(p.getString())
+                s = p.getString()
+                if out and out[-1] != "Frame":
+                    out[-1] += s
+                else:
+                    out.append(s)
         return out
 
     def _clear_untracked() -> None:
@@ -407,7 +411,7 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
                 assert _embed_count(doc) == 0 and not text.getString().strip()
 
-            # 6. Inline search replace mid-paragraph (with and without edge whitespace)
+            # 6. Inline search replace mid-paragraph (with and without edge whitespace, Accept and Reject)
             for new_c, expected_portions in (
                 (r"\(x\)", ["hello ", "Frame", " world"]),
                 (r" \(x\) ", ["hello  ", "Frame", "  world"]),
@@ -426,6 +430,39 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
                     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
                     paras6 = _paras()
                 assert _portions(paras6[0]) == expected_portions, (new_c, _portions(paras6[0]))
+
+                if rec:
+                    _clear_untracked()
+                    doc.setPropertyValue("RecordChanges", False)
+                    text.setString("hello MATCH world")
+                    doc.setPropertyValue("RecordChanges", True)
+                    r6_rej = get_tools().execute(
+                        "apply_content", ctx_tool, target="search", old_content="MATCH", content=new_c
+                    )
+                    assert r6_rej.get("status") == "ok", r6_rej
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                    assert text.getString() == "hello MATCH world"
+                    assert _embed_count(doc) == 0
+
+            # 6b. Heading inline replace with trailing newline does not add a line break or split
+            _clear_untracked()
+            doc.setPropertyValue("RecordChanges", False)
+            text.setString("Old title")
+            cur_h = text.createTextCursor()
+            cur_h.gotoStart(False)
+            cur_h.gotoEnd(True)
+            cur_h.setPropertyValue("ParaStyleName", "Heading 1")
+            doc.setPropertyValue("RecordChanges", rec)
+            r6h = get_tools().execute(
+                "apply_content", ctx_tool, target="search", old_content="Old title", content="<b>New title</b>\n"
+            )
+            assert r6h.get("status") == "ok", r6h
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            paras6h = _paras()
+            assert len(paras6h) == 1
+            assert paras6h[0].getString() == "New title"
+            assert paras6h[0].getPropertyValue("ParaStyleName") == "Heading 1"
 
             # 7. Inline search replace inside a table cell keeps cell paragraph and anchor
             _clear_untracked()

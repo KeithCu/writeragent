@@ -241,6 +241,19 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     assert frag.call_args.kwargs["advance"] is True
 
 
+@pytest.mark.parametrize("fragment", ["<b>x</b>\n", "\r\n<b>x</b>"])
+def test_insert_inline_at_cursor_drops_edge_newlines(fragment):
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    text = cursor.getText.return_value
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, fragment)
+    text.insertString.assert_not_called()
+    frag.assert_called_once()
+    assert frag.call_args.args[1] == "<b>x</b>"
+
+
 def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
     """apply_document_content.py decodes only complete references; a second html.unescape turned "&sect 2o"
     into "§ 2o"."""

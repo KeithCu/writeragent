@@ -697,17 +697,23 @@ def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str
     return inline_html, ruby_spans, formulas, nonce
 
 
+def _edge_inline_ws(run: str) -> str:
+    return "" if ("\n" in run or "\r" in run) else run
+
+
 def _insert_raw_inline_html(text: Any, cursor: Any, inline_html: str) -> None:
-    """Import *inline_html* raw at *cursor*, keeping edge whitespace and leaving *cursor* at the end."""
+    """Import *inline_html* raw at *cursor*, keeping horizontal edge whitespace and leaving *cursor* at the end."""
     core = inline_html.strip()
     if not core:
-        if inline_html:
-            text.insertString(cursor, inline_html, False)
+        edge = _edge_inline_ws(inline_html)
+        if edge:
+            text.insertString(cursor, edge, False)
         return
     # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
-    # its trailing space and fuse with the next word. Put edge whitespace in as text.
-    lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
-    trail = inline_html[len(inline_html.rstrip()):]
+    # its trailing space and fuse with the next word. Put horizontal edge whitespace in as text;
+    # runs containing CR/LF are dropped as the HTML filter did, avoiding line breaks or splits.
+    lead = _edge_inline_ws(inline_html[: len(inline_html) - len(inline_html.lstrip())])
+    trail = _edge_inline_ws(inline_html[len(inline_html.rstrip()):])
     if lead:
         text.insertString(cursor, lead, False)
     insert_html_fragment_at_cursor(cursor, core, wrap=False, advance=True)
@@ -1231,8 +1237,10 @@ def replace_single_range_with_content(
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an
-            # extra body paragraph). advance=False leaves the cursor at the end of the
-            # INSERTED content (not the document end), so [anchor, cursor] bounds it.
+            # extra body paragraph). The import uses advance=True, so anchor (parked at
+            # the insert point) can end up after it too; [anchor, cursor] still lies in
+            # the host paragraph, and apply_paragraph_style_preserving_direct_char expands
+            # to whole paragraphs.
             inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
             ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
             _insert_raw_inline_html(text_obj, cursor, inline_html)
