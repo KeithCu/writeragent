@@ -101,6 +101,113 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
     assert cleared == [(16383, 5), (16383, 6)]
     assert all(row not in (0, 1) for _col, row, _formula in written)
 
+
+def test_measure_array_single_value_is_1x1():
+    cleared: list[tuple[int, int]] = []
+    written: dict[tuple[int, int], str] = {}
+
+    class _Cursor:
+        def gotoEndOfUsedArea(self, _expand):
+            return None
+
+        def getRangeAddress(self):
+            return _used(0, 0, 0)
+
+    class _Probe:
+        def __init__(self, col: int, row: int) -> None:
+            self.col = col
+            self.row = row
+
+        def setArrayFormula(self, formula: str) -> None:
+            written[(self.col, self.row)] = formula
+
+        def clearContents(self, _flags: int) -> None:
+            cleared.append((self.col, self.row))
+
+    class _Cell:
+        def __init__(self, col: int, row: int) -> None:
+            self.col = col
+            self.row = row
+
+        @property
+        def Error(self) -> int:
+            formula = written.get((self.col, self.row), "")
+            if formula.startswith(("=ROWS(", "=COLUMNS(")):
+                return 504
+            return 0
+
+        def getString(self) -> str:
+            return "Err:504" if self.Error else "5"
+
+    class _Sheet:
+        def createCursor(self) -> _Cursor:
+            return _Cursor()
+
+        def getCellRangeByPosition(self, col: int, row: int, _c2: int, _r2: int) -> _Probe:
+            return _Probe(col, row)
+
+        def getCellByPosition(self, col: int, row: int) -> _Cell:
+            return _Cell(col, row)
+
+    rows, cols = CellManipulator(MagicMock())._measure_array(_Sheet(), "=SUM(1;2)", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+
+    assert (rows, cols) == (1, 1)
+    assert cleared == [(2, 0), (2, 1)]
+
+
+def test_measure_array_reports_the_formulas_own_error():
+    cleared: list[tuple[int, int]] = []
+    written: dict[tuple[int, int], str] = {}
+
+    class _Cursor:
+        def gotoEndOfUsedArea(self, _expand):
+            return None
+
+        def getRangeAddress(self):
+            return _used(0, 0, 0)
+
+    class _Probe:
+        def __init__(self, col: int, row: int) -> None:
+            self.col = col
+            self.row = row
+
+        def setArrayFormula(self, formula: str) -> None:
+            written[(self.col, self.row)] = formula
+
+        def clearContents(self, _flags: int) -> None:
+            cleared.append((self.col, self.row))
+
+    class _Cell:
+        def __init__(self, col: int, row: int) -> None:
+            self.col = col
+            self.row = row
+
+        @property
+        def Error(self) -> int:
+            formula = written.get((self.col, self.row), "")
+            if formula.startswith(("=ROWS(", "=COLUMNS(")):
+                return 504
+            if formula.startswith("=("):
+                return 532
+            return 0
+
+        def getString(self) -> str:
+            return "#DIV/0!" if self.Error == 532 else "Err:504"
+
+    class _Sheet:
+        def createCursor(self) -> _Cursor:
+            return _Cursor()
+
+        def getCellRangeByPosition(self, col: int, row: int, _c2: int, _r2: int) -> _Probe:
+            return _Probe(col, row)
+
+        def getCellByPosition(self, col: int, row: int) -> _Cell:
+            return _Cell(col, row)
+
+    with pytest.raises(CalcError, match="code 532"):
+        CellManipulator(MagicMock())._measure_array(_Sheet(), "=1/0", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+    assert cleared == [(2, 0), (2, 1)]
+
 def test_write_formula_range_rejects_wide_array():
     bridge = MagicMock()
     rng = MagicMock()
@@ -624,6 +731,44 @@ def test_plan_write_array_py_repairs_literal_newlines():
     )
     assert plan.kind == "array"
     assert plan.values == '=PY("x = 2\nresult = x")'
+
+
+def test_plan_write_refuses_py_array_before_268():
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=2, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    with (
+        patch("plugin.calc.manipulator.accepts_returned_any", return_value=False),
+        patch.object(manipulator, "_probe_array_formula") as mock_probe,
+    ):
+        with pytest.raises(CalcError) as exc_info:
+            manipulator.plan_write("A1:A3", '=PY("result = [1, 2]")', array=True)
+        assert exc_info.value.code == "INVALID_PARAM"
+        assert exc_info.value.details["suggested_call"]["arguments"]["range"] == ["Sheet1.A1"]
+        mock_probe.assert_not_called()
+
+        plan_nested = manipulator.plan_write(
+            "A1:B1",
+            '=TRANSPOSE(PY("result = [1, 2]"))',
+            array=True,
+            premeasured_array_size=(1, 2),
+        )
+        assert plan_nested.kind == "array"
+
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        plan_ok = manipulator.plan_write(
+            "A1:A3",
+            '=PY("result = [1, 2]")',
+            array=True,
+            premeasured_array_size=(2, 1),
+        )
+        assert plan_ok.kind == "array"
 
 
 def test_commit_write_always_returns_a_message_record():

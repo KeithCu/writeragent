@@ -431,13 +431,6 @@ class ChildSpec:
     log_start_failure: bool = True
 
 
-@dataclass(frozen=True)
-class Death:
-    returncode: int | None
-    stderr_tail: str
-    during: str
-
-
 class Lease:
     """Pipe ownership for one warm-child request while ``begin_io`` is held."""
 
@@ -478,18 +471,15 @@ class WarmChild(ChildSlot):
         spec: ChildSpec,
         *,
         supervisor: Supervisor | None = None,
-        on_death: Callable[[Death], None] | None = None,
     ) -> None:
         super().__init__()
         self.spec: ChildSpec = spec
         self._supervisor: Supervisor = supervisor if supervisor is not None else _default_supervisor()
-        self._on_death: Callable[[Death], None] | None = on_death
         self._io_lock: threading.Lock = threading.Lock()
         self._generation: int = 0
         self._last_active: float = time.monotonic()
         self._retired: bool = False
         self._killed_by_us: bool = False
-        self._death_hook_fired: bool = False
         # Stop scope of the lease in progress; only the pipe-lock holder reads or writes it.
         self._lease_cancel: SendCancellation | None = None
         self._supervisor._register(self)
@@ -674,34 +664,14 @@ class WarmChild(ChildSlot):
                 on_fail=leased.fail,
             )
 
-    def _notify_unexpected_death(self, *, during: str) -> None:
-        if self._death_hook_fired or self._killed_by_us:
-            return
-        child = self.child
-        rc = None
-        tail = ""
-        if child is not None:
-            popen = child.managed.popen
-            if popen is not None:
-                rc = popen.poll()
-            tail = child.diagnostic_tail()
-        death = Death(returncode=rc, stderr_tail=tail, during=during)
-        self._death_hook_fired = True
-        log.warning(
-            "%s child died unexpectedly (returncode=%s, during=%s)%s",
-            self.spec.name,
-            rc,
-            during,
-            f" stderr={tail!r}" if tail else "",
-        )
-        if self._on_death is not None:
-            self._on_death(death)
-
     def _ensure_live(self, deadline: Deadline) -> dict[str, Any] | None:
         child = self.child
         if child is not None and not self.is_alive():
             if not self._killed_by_us:
-                self._notify_unexpected_death(during="idle")
+                popen = child.managed.popen
+                assert popen is not None
+                tail = child.diagnostic_tail()
+                log.warning("%s child died unexpectedly while idle (returncode=%s)%s", self.spec.name, popen.poll(), f" stderr={tail!r}" if tail else "")
             self._drop_child(child)
             child = None
         if child is not None:
@@ -712,7 +682,6 @@ class WarmChild(ChildSlot):
         if spawn_for is None:
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         self._killed_by_us = False
-        self._death_hook_fired = False
         managed = ManagedSubprocess(
             self.spec.argv,
             base_env=self.spec.env,
@@ -950,7 +919,6 @@ __all__ = [
     "Child",
     "ChildSlot",
     "ChildSpec",
-    "Death",
     "FailPhase",
     "FramedRequestOnFail",
     "Lease",
