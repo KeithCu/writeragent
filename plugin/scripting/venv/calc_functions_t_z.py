@@ -19,7 +19,9 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    ILLEGAL_PARAMETER_NAN,
     NA_NAN,
+    RegressionError,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -206,12 +208,10 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         delim = str(delimiter)
         inst = int(float(instance_num))
         if inst == 0:
-            raise ValueError("instance_num cannot be 0")
-        # "".split("") raises. re.finditer("") matches at every position, so a
-        # blank delimiter would look like a hit. TEXTBEFORE / TEXTAFTER turn
-        # this ValueError into NaN.
+            return NA_NAN
+        # An empty delimiter is skipped in ScTextBeforeOrAfter (interpr1.cxx), returning if_not_found (default #N/A).
         if not delim:
-            raise ValueError("empty separator")
+            return if_not_found
         # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
         # past each delimiter. lower() of İ is i + combining dot, so an index
         # into the lowered string no longer lines up with s: textbefore of
@@ -245,11 +245,11 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         return float("nan")
 
 
-def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=True)
 
 
-def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=False)
 
 
@@ -283,7 +283,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
             if is_calc_error(val):
                 if isinstance(val, str):
                     return val.strip()
-                return float("nan")
+                return float(val)
             if is_blank_value(val):
                 if not skip_empty:
                     parts.append("")
@@ -401,6 +401,8 @@ def trend(*args: Any) -> Any:
             args[2] if len(args) > 2 else None,
             args[3] if len(args) > 3 else True,
         ).tolist()
+    except RegressionError as exc:
+        return str(exc)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -808,7 +810,8 @@ _SEARCH_MODES = (-2, -1, 1, 2)
 
 
 def _modes_supported(match_mode: int | float, search_mode: int | float) -> bool:
-    # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (IllegalParameter).
+    # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (callers return Err:504);
+    # mode 3 (regex) is valid in Calc but not supported here.
     return int(float(match_mode)) in _MATCH_MODES and int(float(search_mode)) in _SEARCH_MODES
 
 
@@ -871,7 +874,7 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
-        return "#VALUE!"
+        return "Err:504"
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         # ScXLookup pushes #N/A when the 4th argument is omitted. None
@@ -911,7 +914,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
     if not _modes_supported(match_mode, search_mode):
-        return float("nan")
+        return ILLEGAL_PARAMETER_NAN
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
         return float(best_idx + 1)

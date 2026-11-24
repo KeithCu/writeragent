@@ -20,6 +20,7 @@ import numpy as np
 from .calc_functions_util import (
     DIV0_NAN,
     NESTED_ARRAY_NAN,
+    RegressionError,
     approx_floor,
     as_nonzero,
     coupon_schedule,
@@ -28,6 +29,7 @@ from .calc_functions_util import (
     extract_numeric_array,
     finite_or_nan,
     format_quantized,
+    is_calc_error,
     is_criteria_blank,
     match_criteria,
     npf_result,
@@ -756,16 +758,16 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         # an empty mask would otherwise select nothing and return if_empty.
         if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
             return "#VALUE!"
-        # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric
-        # text too, is an error there; an empty cell is 0; an error element is the result.
+        # ScFilter (interpr1.cxx) reads include in order: an error element is the result,
+        # other non-empty text is an error (Calc's internal 536, shown here as #VALUE!),
+        # and an empty cell is 0.
         include: list[bool] = []
         for x in crit.ravel():
+            if is_calc_error(x):
+                return x.strip() if isinstance(x, str) else float(x)
             if isinstance(x, str) and x != "":
                 return "#VALUE!"
-            number = 0.0 if x is None or x == "" else float(x)
-            if math.isnan(number):
-                return number
-            include.append(number > 0)
+            include.append(x is not None and x != "" and float(x) > 0)
         mask = np.asarray(include, dtype=bool)
         out = arr[mask] if row else arr[:, mask]
     except (ValueError, TypeError, IndexError, OverflowError):
@@ -949,10 +951,14 @@ def gestep(number: Any, step: Any = 0) -> float:
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
         y = np.asarray(known_y, dtype=float)
-        # Excel/Calc GROWTH returns #NUM! when any known y is <= 0 or non-finite.
-        if y.size and (not np.all(np.isfinite(y)) or np.any(y <= 0)):
+        # Calc GROWTH returns #NUM! for non-finite y and Err:502 for y <= 0 (CheckMatrix with _bLOG, interpr5.cxx).
+        if y.size and not np.all(np.isfinite(y)):
             return "#NUM!"
+        if y.size and np.any(y <= 0):
+            return "Err:502"
         return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
+    except RegressionError as exc:
+        return str(exc)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 

@@ -514,10 +514,23 @@ def test_py_addin_token_formula_errors(ctx, doc):
             sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
             sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
             sheet.getCellByPosition(2, 3).setFormula('=IFNA(A4;"na")')
+            helper_cases = [
+                ("result=calc.filter([1,2],['#DIV/0!',1])", 532),
+                ("result=calc.ifna(lambda: float('nan'), 0)", 503),
+                ("result=calc.xmatch(1,[1],9)", 504),
+                ("result=calc.xlookup(1,[1],[2],'m',9)", 504),
+                ("result=calc.growth([1,2],[1,2,3])", 502),
+                ("result=calc.textafter('abc','z')", 32767),
+            ]
+            for offset, (helper_code, _expected) in enumerate(helper_cases):
+                sheet.getCellByPosition(0, 5 + offset).setFormula(f'=PY("{helper_code}")')
             doc.calculateAll()
             for row_idx, (_token, expected_err) in enumerate(cases):
                 assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
             assert sheet.getCellByPosition(0, 4).getError() == 502
+            for offset, (helper_code, expected_err) in enumerate(helper_cases):
+                cell = sheet.getCellByPosition(0, 5 + offset)
+                assert cell.getError() == expected_err, f"{helper_code}: got {cell.getError()} ({cell.getString()!r})"
             a3 = sheet.getCellByPosition(0, 2)
             a4 = sheet.getCellByPosition(0, 3)
             assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
@@ -597,6 +610,24 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
         cell_f1 = sheet.getCellByPosition(5, 0)
         assert cell_f1.getError() == 502
         assert sheet.getCellByPosition(5, 1).getValue() == 1.0
+
+        # Unpublished error payloads in spill neighbors are written as =#ERR503!.
+        unpub_code = "result = [[1, float('nan')]]"
+        sheet.getCellByPosition(7, 0).setFormula(f'=PY("{unpub_code}")')
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            7,
+            [[1, calc_formula_error_double(999)]],
+            doc=doc,
+            sheet=sheet,
+            code=unpub_code,
+            key=WorkbookState.for_doc(doc).key,
+        )
+        doc.calculateAll()
+        cell_i1 = sheet.getCellByPosition(8, 0)
+        assert cell_i1.getError() == 503
+        assert cell_i1.getFormula() in ("=#ERR503!", "=#NUM!"), cell_i1.getFormula()
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

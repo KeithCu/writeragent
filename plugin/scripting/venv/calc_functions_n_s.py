@@ -524,7 +524,8 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
     d = np.asarray(data, dtype=float).ravel()
     p = np.asarray(probs, dtype=float).ravel()
     if len(d) != len(p) or len(d) == 0:
-        return float("nan")
+        # ScProbability (interpr3.cxx) returns #N/A on empty or mismatched ranges.
+        return NA_NAN
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)
@@ -563,11 +564,9 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     # array/compare work below into NaN instead of letting them surface.
     try:
         target = float(val)
-        # Keep this. Not-found below is "#N/A", and list.index(nan) raises
-        # ValueError, so a NaN lookup would become #N/A. A NaN lookup is
-        # #NUM! (plain NaN is IllegalFPOperation).
+        # An error value to rank is the result; otherwise it would fall through to the miss below.
         if math.isnan(target):
-            return float("nan")
+            return target
         descending = int(float(order)) == 0
     except OverflowError:
         return float("nan")

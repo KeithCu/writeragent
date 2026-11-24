@@ -293,11 +293,15 @@ def test_rank_small_extract_numeric():
     assert calc.small([1, "a", 3], 1) == 1.0
     assert calc.small([1, True, 3], 1) == 1.0
 
-    # Missing number is #N/A. A NaN lookup and an empty numeric list stay #NUM!.
+    # Missing number is #N/A. A NaN lookup keeps its payload, and an empty numeric list stays #NUM!.
     assert calc.rank(4, [1, 2, 3]) == "#N/A"
     assert calc.rank(0, [1, 2, 3], 1) == "#N/A"
     assert calc.rank(2, [1, 3]) == "#N/A"
     assert math.isnan(calc.rank(float("nan"), [1, 2, 3]))
+    import struct
+    na_rank = calc.rank(calc.na(), [1])
+    assert isinstance(na_rank, float) and math.isnan(na_rank)
+    assert (struct.unpack("Q", struct.pack("d", na_rank))[0] & 0xFFFFFFFF) == 0x7FFF
     assert math.isnan(calc.rank(1, []))
     assert math.isnan(calc.rank(1, ["a", "b"]))
     assert math.isnan(calc.rank(1, [float("nan")]))

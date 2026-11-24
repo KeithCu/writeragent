@@ -136,8 +136,8 @@ def test_duration_huge_yield_is_nan():
 
 
 def test_growth_rejects_non_positive_known_y():
-    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
-    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
+    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "Err:502"
+    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "Err:502"
     assert calc.growth([1.0, 2.0, float("inf")], [1.0, 2.0, 3.0], 4) == "#NUM!"
     fitted = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4)
     assert math.isclose(fitted[0], 8.0, rel_tol=1e-9)
@@ -155,12 +155,12 @@ def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "") == through_origin
     # Text "abc" fails GetDouble and returns #VALUE!
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "abc") == "#VALUE!"
-    assert calc.growth([]) == "#VALUE!"
-    assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
-    assert calc.growth(5, 3) == "#VALUE!"
-    assert calc.growth(5) == "#VALUE!"
-    assert calc.growth([1, 2, 4], 5, None, False) == "#VALUE!"
-    assert calc.growth([1, 2, 4], 5, [6, 7], False) == "#VALUE!"
+    assert calc.growth([]) == "Err:504"
+    assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "Err:502"
+    assert calc.growth(5, 3) == "Err:504"
+    assert calc.growth(5) == "Err:504"
+    assert calc.growth([1, 2, 4], 5, None, False) == "Err:502"
+    assert calc.growth([1, 2, 4], 5, [6, 7], False) == "Err:502"
     assert len(calc.growth([[1, 2], [4, 8]], [[1, 2], [3, 4]])) == 4
     assert math.isclose(calc.growth(5, 3, 4, False)[0], math.exp(math.log(5.0) * 4.0 / 3.0), rel_tol=1e-9)
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
@@ -186,7 +186,8 @@ def test_growth_multivariate_and_edge_cases():
     )
     assert calc.growth([1, 2, 4], [7, 7, 7]) == "#VALUE!"
     assert calc.growth([1, 2, 4], [0, 0, 0], None, False) == "#VALUE!"
-    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "#VALUE!"
+    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "Err:502"
+    assert calc.growth([1, 2, 4], [[1, 1], [2, 4], [3, 9]], [6]) == "Err:502"
 
 
 def test_days360_us_february_month_end():
@@ -597,8 +598,12 @@ def test_filter_criteria_truthiness():
     import struct
     import numpy as np
     from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import NA_NAN
+    from plugin.scripting.venv.calc_functions_util import NA_NAN, formula_error_nan
 
+    assert calc.filter([1, 2], ["#DIV/0!", 1]) == "#DIV/0!"
+    assert calc.filter([1, 2], [" Err:502 ", 1]) == "Err:502"
+    assert calc.filter([1, 2], ["#N/A", 1]) == "#N/A"
+    assert calc.filter([1, 2], ["x", formula_error_nan(532)]) == "#VALUE!"
     assert calc.filter([1, 2], ["0", 1]) == "#VALUE!"
     assert calc.filter([1, 2], ["1", 1]) == "#VALUE!"
     assert calc.filter([1, 2], ["text", 1]) == "#VALUE!"
