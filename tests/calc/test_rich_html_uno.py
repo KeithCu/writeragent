@@ -266,3 +266,36 @@ def test_paste_formatting_does_not_reach_the_next_paste_uno(ctx, doc):
         assert float(portion.getPropertyValue("CharHeight")) == 12.0
         assert int(portion.getPropertyValue("CharColor")) == -1
         assert int(para.getPropertyValue("ParaAdjust")) == 0
+
+
+@native_test
+def test_manage_changes_survives_unclearable_paste_writer_uno(ctx):
+    from unittest.mock import patch
+
+    from plugin.calc import rich_html
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.framework.uno_context import get_service_manager
+    from plugin.tests.testing_utils import TestingFactory
+
+    with (
+        TestingFactory.native_doc(ctx, "writer", reuse=False) as writer_doc,
+        TestingFactory.native_doc(ctx, "calc") as calc_doc,
+    ):
+        writer_doc.getText().setString("keep")
+        with patch.object(rich_html, "clear_writer_body", return_value=False):
+            try:
+                rich_html.insert_cell_html_rich(calc_doc, ctx, "A1", "<b>x</b>")
+            except ToolExecutionError:
+                pass
+            else:
+                raise AssertionError("Expected ToolExecutionError when Writer cannot be emptied")
+            finally:
+                note_windows_html_paste_leftover()
+
+        dispatcher = get_service_manager(ctx).createInstanceWithContext(
+            "com.sun.star.frame.DispatchHelper", ctx
+        )
+        frame = writer_doc.getCurrentController().getFrame()
+        dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+        dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+        assert writer_doc.getText().getString() == "keep"

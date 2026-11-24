@@ -152,3 +152,28 @@ def test_nonzero_reason_unchanged():
 def test_source_label_replaces_ai_provider():
     msg = format_http_error_response(500, "Internal Server Error", "", source="https://lite.duckduckgo.com")
     assert msg == "HTTP Error 500 from https://lite.duckduckgo.com: Internal Server Error"
+
+
+def test_parse_provider_envelope_redacts_path_secret_and_query():
+    import pytest
+    from plugin.framework.client.errors import parse_provider_envelope
+    from plugin.framework.errors import NetworkError
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    with pytest.raises(NetworkError) as exc_info:
+        parse_provider_envelope(b"[]", f"/s/{secret_uuid}/v1/chat/completions?key=secret")
+    assert exc_info.value.code == "BAD_RESPONSE"
+    assert secret_uuid not in exc_info.value.details["url"]
+    assert "secret" not in exc_info.value.details["url"]
+    assert exc_info.value.details["url"] == "/s/<redacted>/v1/chat/completions"
+
+
+def test_full_url_for_request_path_redacts_userinfo_and_path_secret():
+    from plugin.framework.client.errors import _full_url_for_request_path
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    out = _full_url_for_request_path(
+        "https://user:topsecret@proxy.example",
+        f"/s/{secret_uuid}/v1/models/gemini-3.1-pro-preview:generateContent?key=k",
+    )
+    assert out == "https://proxy.example/s/<redacted>/v1/models/gemini-3.1-pro-preview:generateContent"

@@ -15,6 +15,7 @@ import uno
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, compute_doc_key
 from plugin.framework.errors import is_disposal
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
 from plugin.framework.uno_context import get_desktop, get_runtime_uid, uno_same
 from plugin.framework.uno_listeners import BaseModifyListener, controller_alive, install_view_doc_listener
 from plugin.writer import change_context_menu, review_click_popup
@@ -265,7 +266,7 @@ def register_controller(controller: Any) -> None:
     cleanup_disposed_controllers()
     try:
         model = controller.getModel()
-        if not is_writer(model):
+        if not is_writer(model) or is_scratch_document(model):
             return
         if not hasattr(controller, "registerContextMenuInterceptor"):
             return
@@ -380,6 +381,14 @@ def _sweep_open_frames(ctx: Any) -> None:
         log.debug("review_view_attachment: current frame skipped", exc_info=True)
 
 
+def _register_after_scratch_loads(controller: Any) -> None:
+    """Defer controller registration until any in-flight scratch load registers its RuntimeUID.
+
+    ``OnViewCreated`` arrives inside the load, before the scratch id is registered.
+    """
+    run_after_scratch_loads(lambda: register_controller(controller))
+
+
 def install(ctx: Any) -> None:
     """Register review hooks on open Writer views and on views opened later."""
     global _doc_listener
@@ -392,7 +401,7 @@ def install(ctx: Any) -> None:
             return
     listener = install_view_doc_listener(
         ctx,
-        register_controller,
+        _register_after_scratch_loads,
         "review_view_attachment",
         on_unload=_on_document_unload,
     )

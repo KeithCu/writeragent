@@ -36,7 +36,7 @@ from plugin.vision.vision_runner import (
 )
 from plugin.writer.html_import import insert_html_at_cursor
 from plugin.writer.images.image_tools import graphic_from_bytes
-from plugin.writer.page_png import render_writer_page_png
+from plugin.writer.page_png import export_current_page_png
 
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
@@ -186,7 +186,7 @@ def render_preview_page(ctx: Any, html: str, summary: str) -> PreviewImage:
             style.setPropertyValue(side, _PREVIEW_MARGIN)
         insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)  # the call Insert uses (vision_egress.py:183)
         height = round(_PREVIEW_PIXEL_WIDTH * style.getPropertyValue("Height") / style.getPropertyValue("Width"))
-        png, reason = render_writer_page_png(doc, 0, pixel_size=(_PREVIEW_PIXEL_WIDTH, height))
+        png, reason = export_current_page_png(doc, 0, pixel_size=(_PREVIEW_PIXEL_WIDTH, height))
         if png is None:
             raise ToolExecutionError(reason or _("Could not render the preview page."), code="VISION_ERROR")
         return PreviewImage(graphic_from_bytes(ctx, png), _PREVIEW_PIXEL_WIDTH, height, summary)

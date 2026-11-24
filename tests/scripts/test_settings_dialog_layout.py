@@ -383,7 +383,7 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="dummy_text"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="dummy_image"),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="default"),
-        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value="secret"),
+        patch("plugin.chatbot.settings_dialog.api_key_field_text", return_value="secret"),
         patch("plugin.chatbot.settings_fields.get_config", return_value=""),
         patch("plugin.chatbot.settings_fields.call_options_provider", return_value=[{"label": "Stub", "value": "stub"}]),
     ):

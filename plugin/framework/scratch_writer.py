@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.errors import _uno_disposal_message, reraise_if_disposed
+from plugin.framework.errors import _uno_disposal_message, best_effort, reraise_if_disposed
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import create_property_value, get_desktop, get_runtime_uid
 
@@ -35,7 +35,20 @@ log = logging.getLogger("writeragent.scratch_writer")
 _scratch_lock = threading.Lock()
 _scratch_uids: set[str] = set()
 _scratch_loads = 0
-_after_loads: Callable[[], object] | None = None
+_after_loads: list[Callable[[], object]] = []
+
+
+def page_preview_view_prop() -> Any:
+    """Load property that gives a hidden Writer document a page-preview view (SwPagePreview).
+
+    Closing a normal SwView clears Writer's active-view pointer (view.cxx
+    ~SwViewGlueDocShell), and the Manage Changes dialog dereferences that pointer
+    (redlndlg.cxx, SwRedlineAcceptDlg constructor), so LibreOffice would abort. A page
+    preview never sets the pointer and still has a layout. Its controller has no view
+    cursor. 7 is the id from sw/source/uibase/app/swmodule.cxx; Calc, Draw, Impress and
+    Math have no view 7 and use their default view (docfac.cxx GetViewNo_Impl).
+    """
+    return create_property_value("ViewId", 7)
 
 
 def load_scratch_document(
@@ -64,13 +77,13 @@ def load_scratch_document(
                 _scratch_uids.add(uid)
         return doc
     finally:
-        deferred = None
+        deferred: list[Callable[[], object]] = []
         with _scratch_lock:
             _scratch_loads -= 1
-            if _scratch_loads == 0:
-                deferred, _after_loads = _after_loads, None
-        if deferred is not None:
-            deferred()
+            if _scratch_loads == 0 and _after_loads:
+                deferred, _after_loads = _after_loads, []
+        for report in deferred:
+            best_effort(report, "scratch load: deferred report failed")
 
 
 def close_scratch_document(doc: Any) -> None:
@@ -84,11 +97,17 @@ def close_scratch_document(doc: Any) -> None:
         _scratch_uids.discard(uid)
 
 
-def is_scratch_document(doc: Any) -> bool:
-    """Return True when *doc* is a currently registered WriterAgent scratch document."""
-    uid = get_runtime_uid(doc)
+def is_scratch_uid(uid: str) -> bool:
+    """Return True when *uid* is a currently registered WriterAgent scratch RuntimeUID."""
+    if not uid:
+        return False
     with _scratch_lock:
         return uid in _scratch_uids
+
+
+def is_scratch_document(doc: Any) -> bool:
+    """Return True when *doc* is a currently registered WriterAgent scratch document."""
+    return is_scratch_uid(get_runtime_uid(doc))
 
 
 def run_after_scratch_loads(report: Callable[[], object]) -> None:
@@ -97,13 +116,12 @@ def run_after_scratch_loads(report: Callable[[], object]) -> None:
     ``OnViewCreated`` is broadcast inside ``loadComponentFromURL`` when the model is already
     enumerated on the desktop, so an immediate report would count it before its ``RuntimeUID``
     can be registered (``sfxbasemodel.cxx`` assigns the uid; the caller sees the model only
-    when the load returns). One pending report is kept: there is one catalog listener and
-    the report reads current state.
+    when the load returns). Each distinct report runs once, in order.
     """
-    global _after_loads
     with _scratch_lock:
         if _scratch_loads:
-            _after_loads = report
+            if report not in _after_loads:
+                _after_loads.append(report)
             return
     report()
 
@@ -195,7 +213,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
         return False
 
 
-def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
+def new_blank_writer(ctx: Any = None) -> Any:
     """Hidden, **empty** Writer used as a scratch buffer.
 
     ``private:factory/swriter`` is the only way to get a Writer with the
@@ -207,13 +225,15 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
     conversions, and full-document rewrites. Empty the body before the
     caller sees the document.
 
-    Returns None when the desktop is unavailable (no-VCL helper processes).
+    Returns None when the desktop is unavailable (no-VCL helper processes). The
+    returned document has a page-preview view, so ``getViewCursor`` is not
+    available.
     """
     desktop = get_desktop(ctx)
     if desktop is None:
         return None
 
-    doc = load_scratch_document(desktop, "private:factory/swriter", target)
+    doc = load_scratch_document(desktop, "private:factory/swriter", props=(page_preview_view_prop(),))
     if doc is None:
         return None
     if not clear_writer_body(doc):

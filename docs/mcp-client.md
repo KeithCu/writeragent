@@ -54,7 +54,7 @@ All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server 
 
 Accepted keys per entry: `url` (required), `headers`, `enabled` (default `true`; `false`/`0`/`"false"`/`"no"`/`"off"` or any unrecognized value disables), `timeout` (tool-call socket idle budget in seconds, default `300`), `connect_timeout` (connect/initialize/list budget in seconds, default `60`), `tools.include`, `tools.exclude`, `trust` (exact `"full"` trusts; anything else = untrusted, default `"untrusted"`), `token`.
 
-When an OS keystore is available, Settings OK stores each server's `token` in the keystore under `mcp_client.servers:<server>.token` and keeps only a `keystore:<hex>` reference in `writeragent.json` (see [secret-storage.md](framework/secret-storage.md)). A pasted `Bearer ` prefix is stripped automatically. If a `keystore:` reference cannot be read when connecting (the keyring is locked or was reset), the client raises `MCP_CLIENT_CONFIG` naming the server and keyring backend rather than calling the server without auth.
+When an OS keystore is available, Settings OK stores each server's `token` in the keystore under `mcp_client.servers:<server>.token` and keeps only a `keystore:<hex>` reference in `writeragent.json` (see [secret-storage.md](framework/secret-storage.md)). A pasted `Bearer ` prefix is stripped automatically. If a `keystore:` reference cannot be read when connecting (the keyring is locked or was reset), the client raises `MCP_CLIENT_CONFIG` naming the server and keyring backend rather than calling the server without auth; in Settings, the Token field shows the raw ref and can be cleared to remove it.
 
 ### Tool list cache
 

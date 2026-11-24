@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.doc.visual_helpers import AmbiguousGraphicNameError
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_runner import (
     _resolve_locale_language,
@@ -65,6 +66,37 @@ def test_get_selected_image_bytes_raises_when_export_returns_none():
         with pytest.raises(ToolExecutionError) as exc:
             get_selected_image_bytes(ctx, doc)
     assert exc.value.code == "NO_IMAGE_SELECTED"
+
+
+class DisposedException(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("fn_name", "call_kwargs"),
+    [
+        ("get_selected_image_bytes", {}),
+        ("resolve_vision_image_bytes", {"image_name": "Img1"}),
+    ],
+)
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        lambda: DisposedException("disposed"),
+        lambda: DocumentDisposedError("closed"),
+    ],
+)
+def test_image_export_reraises_disposed_document(fn_name, call_kwargs, exc_factory):
+    ctx = MagicMock()
+    doc = MagicMock()
+    fn = get_selected_image_bytes if fn_name == "get_selected_image_bytes" else resolve_vision_image_bytes
+    with (
+        patch("plugin.vision.vision_runner.selected_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=exc_factory()),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            fn(ctx, doc, **call_kwargs)
 
 
 
@@ -643,13 +675,14 @@ def test_run_and_insert_all_empty_reports_not_inserted():
 
 
 @pytest.mark.parametrize(
-    ("outcomes", "expected_deleted"),
+    ("outcomes", "expected_deleted", "expected_kept"),
     [
-        (["image_deleted", "empty", "image_kept"], ["Img1"]),
-        (["inserted", "empty", "image_kept"], []),
+        (["image_deleted", "empty", "image_kept"], ["Img1"], ["Img3"]),
+        (["inserted", "empty", "image_kept"], [], ["Img3"]),
+        (["image_deleted", "empty", "inserted"], ["Img1"], []),
     ],
 )
-def test_run_and_insert_tracks_deleted_images(outcomes, expected_deleted):
+def test_run_and_insert_tracks_deleted_images(outcomes, expected_deleted, expected_kept):
     ctx = MagicMock()
     doc = MagicMock()
     names = ["Img1", "Img2", "Img3"]
@@ -667,9 +700,20 @@ def test_run_and_insert_tracks_deleted_images(outcomes, expected_deleted):
         assert result["deleted_images"] == expected_deleted
     else:
         assert "deleted_images" not in result
+    if expected_kept:
+        assert result["kept_images_delete_not_trackable"] == expected_kept
+    else:
+        assert "kept_images_delete_not_trackable" not in result
 
 
-def test_run_and_insert_partial_failure_preserves_deleted_images():
+@pytest.mark.parametrize(
+    ("outcome", "expected_key"),
+    [
+        ("image_deleted", "deleted_images"),
+        ("image_kept", "kept_images_delete_not_trackable"),
+    ],
+)
+def test_run_and_insert_partial_failure_preserves_deleted_images(outcome, expected_key):
     ctx = MagicMock()
     doc = MagicMock()
     names = ["Img1", "Img2"]
@@ -683,16 +727,23 @@ def test_run_and_insert_partial_failure_preserves_deleted_images():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
         patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
-        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value=outcome),
     ):
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
 
     assert result["status"] == "error"
     assert result["partial"] is True
-    assert result["deleted_images"] == ["Img1"]
+    assert result[expected_key] == ["Img1"]
 
 
-def test_run_and_insert_cancelled_after_delete_preserves_deleted_images():
+@pytest.mark.parametrize(
+    ("outcome", "expected_key"),
+    [
+        ("image_deleted", "deleted_images"),
+        ("image_kept", "kept_images_delete_not_trackable"),
+    ],
+)
+def test_run_and_insert_cancelled_after_delete_preserves_deleted_images(outcome, expected_key):
     from plugin.framework.send_cancellation import SendCancelled
 
     ctx = MagicMock()
@@ -708,14 +759,14 @@ def test_run_and_insert_cancelled_after_delete_preserves_deleted_images():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
         patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
-        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value=outcome),
     ):
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
     assert result["partial"] is True
-    assert result["deleted_images"] == ["Img1"]
+    assert result[expected_key] == ["Img1"]
 
 
 @pytest.mark.parametrize("fail_at", ["ocr", "insert"])
@@ -832,6 +883,33 @@ def test_run_and_insert_disposed_exception_raises_document_disposed():
             run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=True)
 
 
+def test_run_and_insert_disposed_during_export_ends_the_run():
+    ctx = MagicMock()
+    doc = MagicMock()
+    names = ["Img1", "Img2"]
+
+    def _export(_ctx, graphic_obj):
+        if graphic_obj is second_graphic:
+            raise DisposedException("closed")
+        return b"png"
+
+    first_graphic = MagicMock()
+    second_graphic = MagicMock()
+    graphics = {"Img1": first_graphic, "Img2": second_graphic}
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, graphics[n]) for n in names]),
+        patch("plugin.vision.vision_runner._get_graphic_object", side_effect=lambda _doc, name: graphics[name]),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"),
+        patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=_export),
+        patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "helper": "extract_structure", "full_text": "ok", "html": "<p>ok</p>"}),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False)
+
+
 def test_run_and_insert_cancelled_after_failure_lists_completed_image_names():
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.send_cancellation import SendCancelled
@@ -943,4 +1021,41 @@ def test_run_and_insert_worker_cancelled_returns_stopped_without_failed_image():
     assert result["images_processed"] == 1
     assert "failed_image" not in result
     assert "failed_images" not in result
+
+
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        lambda: DisposedException("SwXTextDocument not valid"),
+        lambda: DocumentDisposedError("closed"),
+    ],
+)
+def test_run_trusted_vision_closed_document_raises_document_disposed(exc_factory):
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", side_effect=exc_factory()),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Img1"})
+    mock_run_vision.assert_not_called()
+
+
+def test_run_trusted_vision_lookup_error_keeps_its_type():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch(
+            "plugin.vision.vision_runner._get_graphic_object",
+            side_effect=AmbiguousGraphicNameError("Several objects named 'Img1'"),
+        ),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(AmbiguousGraphicNameError, match="Several objects named 'Img1'"):
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Img1"})
+    mock_run_vision.assert_not_called()
+
 

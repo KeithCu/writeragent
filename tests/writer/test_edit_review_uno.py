@@ -379,3 +379,55 @@ def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, 
             payload = session.wait_for_review(0)
         assert payload["complete"] is True, payload
         assert payload["changes"][0]["outcome"] == expected_outcome, payload
+
+
+@native_test
+@with_native_doc("writer")
+def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc):
+    import pytest
+    from plugin.writer.edit_review import TrackedChangesInSelection, refuse_tracked_insert_or_delete
+
+    text = doc.getText()
+    text.setString("ABCDE")
+    del_cur = text.createTextCursor()
+    del_cur.gotoStart(False)
+    del_cur.goRight(1, False)
+    del_cur.goRight(3, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    inner_del = text.createTextCursor()
+    inner_del.gotoStart(False)
+    inner_del.goRight(2, False)
+    inner_del.goRight(1, True)
+    with pytest.raises(TrackedChangesInSelection):
+        refuse_tracked_insert_or_delete(doc, inner_del)
+    assert text.getString() == "ABCDE"
+
+    # Interior selection inside a tracked Insert.
+    text.setString("StartEnd")
+    ins_cur = text.createTextCursor()
+    ins_cur.gotoStart(False)
+    ins_cur.goRight(5, False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        text.insertString(ins_cur, "INS", False)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    inner_ins = text.createTextCursor()
+    inner_ins.gotoStart(False)
+    inner_ins.goRight(6, False)
+    inner_ins.goRight(1, True)
+    with pytest.raises(TrackedChangesInSelection):
+        refuse_tracked_insert_or_delete(doc, inner_ins)
+    assert text.getString() == "StartINSEnd"
+
+    # Collapsed caret inside an Insert is not refused by refuse_tracked_insert_or_delete.
+    caret_ins = text.createTextCursor()
+    caret_ins.gotoStart(False)
+    caret_ins.goRight(6, False)
+    refuse_tracked_insert_or_delete(doc, caret_ins)

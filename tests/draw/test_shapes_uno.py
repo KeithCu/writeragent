@@ -1049,10 +1049,13 @@ def test_placeholder_text_keeps_direct_right_alignment(ctx, doc):
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
     page = DrawBridge(doc).get_pages().getByIndex(0)
-    title_idx = next(
-        i for i in range(page.getCount()) if "TitleTextShape" in page.getByIndex(i).getShapeType()
-    )
-    title = page.getByIndex(title_idx)
+    # Look each shape up once and keep the proxies. Releasing a shape proxy over URP is asynchronous
+    # (binaryurp/source/bridge.cxx: Bridge::makeReleaseCall), and a late SvxShape::~SvxShape
+    # (svx/source/unodraw/unoshape.cxx) detaches a newer wrapper fetched for the same shape, which
+    # GraphicExportFilter.setSourceDocument then rejects.
+    shapes = [page.getByIndex(i) for i in range(page.getCount())]
+    title_idx = next(i for i, shape in enumerate(shapes) if "TitleTextShape" in shape.getShapeType())
+    title = shapes[title_idx]
     width = title.getSize().Width
     edit_res = UpsertShape().execute(tctx, action="edit", page=0, index=title_idx, h_align="right")
     assert edit_res.get("status") == "ok", edit_res

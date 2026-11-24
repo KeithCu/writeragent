@@ -22,7 +22,7 @@ import logging
 from typing import Any, Generator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
-from plugin.doc.text_helpers import iter_elements_limited
+from plugin.doc.text_helpers import iter_elements_limited, redline_bounds
 from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
@@ -99,9 +99,7 @@ def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:
     redlines = doc.getRedlines()
     for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
         try:
-            start = rl.getPropertyValue("RedlineStart")
-            end = rl.getPropertyValue("RedlineEnd")
-            text = start.getText()
+            text, start, end = redline_bounds(rl)
             # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal.
             if text.compareRegionStarts(start, text_range) >= 0 and text.compareRegionEnds(text_range, end) >= 0:
                 kinds.add(str(rl.getPropertyValue("RedlineType")))

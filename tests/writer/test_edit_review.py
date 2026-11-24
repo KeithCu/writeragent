@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.edit_review import (
+    WriterStreamedRewriteSession,
     annotate_review_status,
     edit_review_wait_seconds,
     flag_style_unreviewed,
@@ -1261,5 +1262,43 @@ def test_record_mutation_multi_text_anchors_in_changing_cell():
     assert session.changes[0].rejected_text == "old"
     text_changed.insertTextContent.assert_called_once()
     text_unchanged.insertTextContent.assert_not_called()
+
+
+def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+
+    def _fail(*_args, **_kwargs):
+        text_range.setString.reset_mock()
+        raise RuntimeError("boom")
+
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", side_effect=_fail),
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=True)
+        session.generated_text = "New"
+        warning = session.finish()
+    assert warning is not None and "boom" in warning
+    text_range.setString.assert_not_called()
+
+
+def test_streamed_plain_mode_retargets_even_after_write_error():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
+        session.generated_text = "New"
+        session.last_write_error = RuntimeError("chunk failed")
+        warning = session.finish()
+    mock_retarget.assert_called_once()
+    assert warning is not None and "chunk failed" in warning
 
 
