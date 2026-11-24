@@ -19,7 +19,7 @@
 Each direct subclass of ``ToolCalcSpecialBase`` is one row of the Calc
 delegate's domain list: ``specialized_catalog.catalog_entries_from_base`` walks
 ``ToolCalcSpecialBase.__subclasses__()`` (direct subclasses only) and
-``DelegateToSpecializedBase.domains_for_services`` calls it. A class
+``DelegateToSubagent.domains_for_services`` calls it. A class
 here owns its row's domain and description, ``tier``,
 ``required_core_tools`` and ``uno_services``; it owns no tool behaviour.
 One row is defined elsewhere: ``ToolWriterFormBase`` (forms) in

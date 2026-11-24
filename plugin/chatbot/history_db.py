@@ -56,8 +56,8 @@ def _get_db_path() -> str:
 AUDIO_ATTACHED_PLACEHOLDER = "[Voice message]"
 
 
-# Local {role, content, tool_calls?} row for SQLite and JSON.
-def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
+# Local {role, content} row for SQLite and JSON.
+def message_to_dict(role: str, content: Any) -> dict[str, Any]:
     # Don't persist MBs of base64 audio or images to history db.
     if isinstance(content, list):
         from plugin.chatbot.chat_session import message_text
@@ -77,12 +77,7 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
             markers.append("[Image Attached]")
         content = " ".join(p for p in [text, *markers] if p)
 
-    row: dict[str, Any] = {"role": role, "content": content}
-    # tool_calls: null on user and system rows makes strict
-    # OpenAI-compatible servers reject the transcript after a restart.
-    if tool_calls is not None:
-        row["tool_calls"] = tool_calls
-    return row
+    return {"role": role, "content": content}
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +162,8 @@ class SQLite3History:
     def _insert_message(self, conn: Any, msg: dict[str, Any]) -> None:
         conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg)))
 
-    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
-        msg_dict = message_to_dict(role, content, tool_calls)
+    def add_message(self, role: str, content: Any) -> None:
+        msg_dict = message_to_dict(role, content)
         with self._connect() as conn:
             self._insert_message(conn, msg_dict)
             conn.commit()
@@ -288,8 +283,8 @@ class JSONHistory:
             log.exception(error)
             raise
 
-    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
-        msg_dict = message_to_dict(role, content, tool_calls)
+    def add_message(self, role: str, content: Any) -> None:
+        msg_dict = message_to_dict(role, content)
         self._modify(lambda msgs: msgs.append(msg_dict), "JSONHistory: Error saving message")
 
     def update_last_user_content(self, content: Any) -> None:
