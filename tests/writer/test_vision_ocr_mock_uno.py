@@ -488,7 +488,7 @@ def test_mock_ocr_delete_after_insert_skips_empty_and_reports_deleted_images_uno
     names = fixture["names"]
     assert len(names) == 2
 
-    def fake_run_trusted_vision(_ctx, _doc, *, helper, params=None, cancel=None, on_exported=None):
+    def fake_run_trusted_vision(_ctx, _doc, *, helper, params=None, cancel=None, on_exported=None, graphic=None):
         del cancel, on_exported
         image_name = str((params or {}).get("image_name") or "")
         if image_name == names[0]:

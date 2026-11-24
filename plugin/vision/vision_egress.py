@@ -234,7 +234,7 @@ def _enter_paragraph_after_break(cursor: Any) -> None:
     cursor.goRight(1, False)
 
 
-def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None, graphic: Any | None = None) -> Any:
+def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None) -> Any:
     """Return a collapsed text cursor in a new paragraph after the target graphic.
 
     StarWriter HTML import at the graphic anchor can absorb/replace the embedded
@@ -242,29 +242,17 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     at the model layer first, then collapse the UI caret there (Monaco may still
     hold focus during Run Script).
 
-    Resolve order: explicit *graphic*, then *image_name*, then current single
-    graphic selection. Collapse any range/graphic selection **before** anchor math
-    and model edits so StarWriter does not treat a multi-character selection as the
-    insert target (which would delete intervening text between images).
+    Resolve order: *image_name*, then current single graphic selection. Collapse
+    any range/graphic selection **before** anchor math and model edits so
+    StarWriter does not treat a multi-character selection as the insert target
+    (which would delete intervening text between images).
     """
-    from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
+    from plugin.doc.visual_helpers import find_image, selected_graphic_object
 
     name = str(image_name or "").strip()
-    resolved = graphic
     # Prefer name over a live selection so multi-image OCR can insert after each
     # graphic by stable name after the user's range selection was collapsed.
-    if resolved is None and name:
-        resolved = get_graphic_object_by_name(doc, name)
-    if resolved is None and not name:
-        resolved = selected_graphic_object(doc)
-    if resolved is None:
-        if name:
-            raise ToolExecutionError(
-                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
-                code="IMAGE_NOT_FOUND",
-                details={"image_name": name},
-            )
-        raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+    resolved = find_image(doc, name)
 
     graphic_name = str(resolved.getName() or "")
     if name and not graphic_name:
@@ -382,7 +370,14 @@ def insert_vision_result_into_writer(
     return run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
 
 
-def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> VisionInsertOutcome:
+def insert_vision_result(
+    ctx: Any,
+    doc: Any,
+    result: dict[str, Any],
+    *,
+    params: dict[str, Any] | None = None,
+    graphic: Any | None = None,
+) -> VisionInsertOutcome:
     """Insert vision output into Writer or Calc."""
     from plugin.framework.doc_type import is_calc, is_writer
 
@@ -406,7 +401,7 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
         if insert_mode == "structured" and helper == "extract_structure":
             with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
                 try:
-                    row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name)
+                    row_count = insert_vision_structure_into_calc(doc, result, image_name=image_name, graphic=graphic)
                     log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
                 except ToolExecutionError as exc:
                     if exc.code != "VISION_ERROR":
@@ -419,24 +414,31 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                         fallback_html = preserved
                     else:
                         fallback_html = vision_html_from_result(result)
-                    insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
+                    insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name, graphic=graphic)
                 if delete_image:
                     _delete_inserted_image(ctx, doc, image_name)
             return outcome
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
-            insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
+            insert_vision_html_into_calc(doc, ctx, html, image_name=image_name, graphic=graphic)
             if delete_image:
                 _delete_inserted_image(ctx, doc, image_name)
         return outcome
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 
 
-def insert_vision_item(ctx: Any, doc: Any, result: dict[str, Any], params: dict[str, Any] | None = None) -> VisionInsertOutcome:
-    """Insert one OCR result item, passing its ``image_name`` so a collapsed selection never replaces text."""
+def insert_vision_item(
+    ctx: Any,
+    doc: Any,
+    result: dict[str, Any],
+    params: dict[str, Any] | None,
+    graphics: dict[str, Any | None],
+) -> VisionInsertOutcome:
+    """Insert one OCR result item, passing its ``image_name`` and any kept shape."""
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
         insert_params["image_name"] = img_name
-    return insert_vision_result(ctx, doc, result, params=insert_params)
+    graphic = graphics.get(img_name) if isinstance(img_name, str) else None
+    return insert_vision_result(ctx, doc, result, params=insert_params, graphic=graphic)
