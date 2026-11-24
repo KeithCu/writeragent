@@ -183,3 +183,18 @@ def test_resolve_delete_image_after_insert():
         assert resolve_delete_image_after_insert(None, None) is True
         assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": False}) is False
 
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("2.144.0", True),
+        ("2.145.0", False),
+        ("2.151.1", False),
+        ("unknown", False),
+    ],
+)
+def test_docling_too_old(version: str, expected: bool):
+    from plugin.vision.vision_common import docling_too_old
+
+    assert docling_too_old(version) is expected
+

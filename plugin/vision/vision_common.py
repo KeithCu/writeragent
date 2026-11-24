@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,16 @@ LOAD_MODELS_HELPER = "load_models"
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})
 DEFAULT_OCR_BACKEND = "rapidocr"
+
+# Floor 2.145: iso: language tags arrived in 2.127, RapidOCR model_size in 2.133, and detect_orientation in 2.145.
+DOCLING_MIN_VERSION: tuple[int, int] = (2, 145)
+DOCLING_REQUIREMENT = "docling>=%d.%d" % DOCLING_MIN_VERSION
+
+
+def docling_too_old(version: str) -> bool:
+    """True when *version* is below DOCLING_MIN_VERSION; a string without major.minor is not."""
+    match = re.match(r"(\d+)\.(\d+)", version)
+    return match is not None and (int(match[1]), int(match[2])) < DOCLING_MIN_VERSION
 
 # Financial statements and comparison tables often exceed 50 body rows.
 MAX_TABLE_ROWS = 200

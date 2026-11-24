@@ -889,27 +889,44 @@ def test_named_probe_uses_group_specific_timeout(name, expected_timeout_attr):
 
 def test_ocr_engine_probe_lists_tesseract_in_default_install_folder():
     ns: dict[str, Any] = {"out": {}}
-    with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
+
+    def fake_run(cmd, **_kwargs):
+        if cmd[1] == "--version":
+            return subprocess.CompletedProcess(cmd, 0, stdout="tesseract 5.5.4\n leptonica-1.85.0\n", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="List of available languages in \"/usr/share/tesseract-ocr/5/tessdata/\" (2):\neng\nosd\n", stderr=""
+        )
+
+    with (
+        patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
         exec(_OCR_ENGINE_PROBE_BODY, ns)
     assert ns["out"]["tesseract"] == "present"
+    assert ns["out"]["tesseract_version"] == "tesseract 5.5.4"
+    assert ns["out"]["tesseract_langs"] == ["eng", "osd"]
 
 
-def test_docling_pip_token_matches_vision_docling_floor():
-    """Host diagnostics cannot import vision_docling at runtime, so pin the shared floor in tests."""
-    from plugin.scripting.venv_diagnostics import _PROBE_KEY_TO_PIP
-    from plugin.vision.venv.vision_docling import _DOCLING_MIN_VERSION
-
-    assert _PROBE_KEY_TO_PIP["docling"] == '"docling>=%d.%d"' % _DOCLING_MIN_VERSION
+def test_ocr_engine_probe_reports_broken_tesseract():
+    ns: dict[str, Any] = {"out": {}}
+    with (
+        patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None),
+        patch("subprocess.run", side_effect=OSError("Exec format error")),
+    ):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+    assert ns["out"]["tesseract"] is None
+    assert "Exec format error" in ns["out"]["tesseract_broken"]
 
 
 @pytest.mark.parametrize(
-    ("raises", "expected"),
+    ("raises", "broken_import", "expected"),
     [
-        (RuntimeError("Nemotron OCR requires Python 3.12."), "Nemotron OCR requires Python 3.12."),
-        (None, None),
+        (RuntimeError("Nemotron OCR requires Python 3.12."), False, "Nemotron OCR requires Python 3.12."),
+        (None, True, "nemotron_ocr.inference.pipeline_v2"),
+        (None, False, None),
     ],
 )
-def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, expected):
+def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_import, expected):
     import types
 
     class _FakeNemotronOcrModel:
@@ -922,23 +939,33 @@ def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, expected):
     accel_mod.AcceleratorOptions = lambda: None  # type: ignore[attr-defined]
     nemotron_mod = types.ModuleType("docling.models.stages.ocr.nemotron_ocr_model")
     nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
+    nemo_root = types.ModuleType("nemotron_ocr")
+    nemo_inf = types.ModuleType("nemotron_ocr.inference")
+    nemo_pipe = types.ModuleType("nemotron_ocr.inference.pipeline_v2")
+    nemo_pipe.NemotronOCRV2 = object  # type: ignore[attr-defined]
 
-    ns: dict[str, Any] = {"out": {}}
+    ns: dict[str, Any] = {"out": {"nemotron_ocr": "present"}}
     with (
-        patch("importlib.util.find_spec", side_effect=lambda name: object() if name == "nemotron_ocr" else None),
         patch("shutil.which", return_value=None),
         patch.dict(
             sys.modules,
             {
                 "docling.datamodel.accelerator_options": accel_mod,
                 "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
+                "nemotron_ocr": nemo_root,
+                "nemotron_ocr.inference": nemo_inf,
+                "nemotron_ocr.inference.pipeline_v2": None if broken_import else nemo_pipe,
             },
         ),
     ):
         exec(_OCR_ENGINE_PROBE_BODY, ns)
 
     assert ns["out"]["nemotron_ocr"] == "present"
-    assert ns["out"].get(_NEMOTRON_RUNTIME_ERROR_KEY) == expected
+    actual = ns["out"].get(_NEMOTRON_RUNTIME_ERROR_KEY)
+    if expected is None:
+        assert actual is None
+    else:
+        assert actual is not None and expected in actual
 
 
 def test_vision_nemotron_runtime_error_shown_not_missing():
@@ -967,3 +994,156 @@ def test_vision_nemotron_runtime_error_shown_not_missing():
     assert "nemotron_ocr" in vision_line
     assert "Nemotron OCR cannot start in this venv: Nemotron OCR requires CUDA 13.x" in msg
     assert "uv pip install " not in msg
+
+
+def test_import_probe_reports_broken_not_absent(tmp_path):
+    (tmp_path / "wa_broken_mod.py").write_text("import wa_no_such_dep_xyz\n", encoding="utf-8")
+    lazy_pkg = tmp_path / "wa_lazy_pkg"
+    lazy_pkg.mkdir()
+    (lazy_pkg / "__init__.py").write_text(
+        "def __getattr__(name):\n    raise ImportError('libGL.so.1 missing')\n",
+        encoding="utf-8",
+    )
+    script = _import_probe_script(
+        _import_try_block("wa_absent_pkg", "wa_absent_pkg", report_broken=True),
+        _import_try_block("wa_broken_mod", "wa_broken_mod", report_broken=True),
+        _import_try_block("wa_lazy_pkg", "wa_lazy_pkg", name="LazyCls", report_broken=True),
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", "")},
+    )
+    assert proc.returncode == 0
+    parsed = _parse_probe_stdout(proc.stdout)
+    assert parsed is not None
+    assert parsed["wa_absent_pkg"] is None
+    assert "wa_absent_pkg_broken" not in parsed
+    assert parsed["wa_broken_mod"] is None
+    assert "wa_no_such_dep_xyz" in parsed["wa_broken_mod_broken"]
+    assert parsed["wa_lazy_pkg"] is None
+    assert "libGL.so.1 missing" in parsed["wa_lazy_pkg_broken"]
+
+
+@pytest.mark.parametrize(
+    ("extra_probes", "expected_ocr", "expect_upgrade_footer"),
+    [
+        ({}, "OCR: not ready", True),
+        ({"paddleocr": "present", "paddle": "present"}, "OCR: ready (Paddle)", False),
+    ],
+)
+def test_self_check_old_docling_is_missing_with_upgrade_line(
+    extra_probes, expected_ocr, expect_upgrade_footer
+):
+    from plugin.vision.vision_common import DOCLING_MIN_VERSION, DOCLING_REQUIREMENT
+
+    old_ver = "%d.%d.0" % (DOCLING_MIN_VERSION[0], DOCLING_MIN_VERSION[1] - 1)
+    mock_mgr = MagicMock()
+    mock_mgr.execute.side_effect = [
+        {"status": "ok", "result": {"v": "3.13.0", "arch": "x86_64"}},
+        *({"status": "ok", "result": "present"} for _ in range(50)),
+    ]
+
+    def fake_probe(_exe, group):
+        if group == "vision":
+            return (
+                {
+                    "docling": "present",
+                    "docling_version": old_ver,
+                    "rapidocr": "present",
+                    "onnxruntime": "present",
+                    "css_inline": "present",
+                    **extra_probes,
+                },
+                None,
+            )
+        return ({}, None)
+
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", side_effect=fake_probe),
+    ):
+        ok, msg = run_venv_self_check_with_progress(
+            "/x/python",
+            lambda _text: None,
+            include_vector_search=False,
+            include_audio=False,
+        )
+
+    assert ok is True
+    assert expected_ocr in msg
+    assert f"docling is installed but does not work: version {old_ver}" in msg
+    if expect_upgrade_footer:
+        assert "Missing (OCR): docling" in msg
+        uv_line = next(line for line in msg.splitlines() if line.startswith("uv pip install "))
+        assert f'"{DOCLING_REQUIREMENT}"' in uv_line
+    else:
+        assert "Missing (OCR)" not in msg
+
+
+def test_self_check_current_docling_shows_version():
+    from plugin.vision.vision_common import DOCLING_MIN_VERSION
+
+    cur_ver = "%d.%d.0" % DOCLING_MIN_VERSION
+    mock_mgr = MagicMock()
+    mock_mgr.execute.side_effect = [
+        {"status": "ok", "result": {"v": "3.13.0", "arch": "x86_64"}},
+        *({"status": "ok", "result": "present"} for _ in range(50)),
+    ]
+
+    def fake_probe(_exe, group):
+        if group == "vision":
+            return (
+                {
+                    "docling": "present",
+                    "docling_version": cur_ver,
+                    "rapidocr": "present",
+                    "onnxruntime": "present",
+                    "css_inline": "present",
+                },
+                None,
+            )
+        return ({}, None)
+
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", side_effect=fake_probe),
+    ):
+        ok, msg = run_venv_self_check_with_progress(
+            "/x/python",
+            lambda _text: None,
+            include_vector_search=False,
+            include_audio=False,
+        )
+
+    assert ok is True
+    assert "OCR: ready (Docling)" in msg
+    assert f"Docling: {cur_ver}" in msg
+
+
+def test_vision_broken_engine_shown_not_optional():
+    report = ProbeReport(
+        version="3.13.0",
+        packages={
+            "docling": "present",
+            "rapidocr": "present",
+            "onnxruntime": "present",
+            "css_inline": "present",
+            "paddle": None,
+            "paddle_broken": "libcuda.so.1 missing",
+        },
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    msg = report.render(include_install_footer=True)
+    assert "paddle is installed but does not work: libcuda.so.1 missing" in msg
+    optional_line = next(line for line in msg.splitlines() if line.startswith("Optional (not installed):"))
+    assert "paddle," not in optional_line and not optional_line.endswith(" paddle")

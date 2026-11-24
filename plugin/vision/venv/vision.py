@@ -48,8 +48,8 @@ def _apply_paddle_fallback(
     # Fall back only for DOCLING_UNAVAILABLE (package missing) or
     # DOCLING_API_MISMATCH (installed Docling older than the version vision_docling requires).
     # OCR_BACKEND_UNAVAILABLE (the chosen engine is missing, on the wrong platform, or found
-    # but cannot start — vision_docling `_installed_ocr_backend` / `startup_errors`) and
-    # OCR_LANGUAGE_UNSUPPORTED are configuration errors for the requested engine and must not fall back.
+    # but cannot start — vision_docling `_installed_ocr_backend` / `startup_errors`),
+    # OCR_MODELS_MISSING, and OCR_LANGUAGE_UNSUPPORTED do not fall back.
     code = docling_result.get("code")
     if (
         docling_result.get("status") != "error"
