@@ -28,7 +28,7 @@ from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.contrib.smolagents.utils import AgentToolExecutionError
 from plugin.chatbot import smol_examples
-from plugin.framework.errors import ToolExecutionError, make_tool_error
+from plugin.framework.errors import ToolExecutionError, make_tool_error, resolve_exception_message
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
@@ -179,8 +179,9 @@ class InnerCallRecorder(SmolToolAdapter):
     """SmolToolAdapter that logs every call as InnerToolCall(name, result, mutating) into *calls*.
 
     Specialized loops hand that log to apply_inner_outcome to grade the delegation.
-    ``safe=True`` turns a raising tool into an error result, so it is still recorded;
-    an exception that leaves ``forward`` means the tool did not run (except at interpreter shutdown).
+    ``safe=True`` turns a raising tool into an error result. An exception that leaves
+    ``forward`` means the tool did not run (except at interpreter shutdown); it is logged
+    as a failed call and re-raised, which ends the model's current turn.
     """
 
     _calls: list[InnerToolCall]
@@ -195,7 +196,13 @@ class InnerCallRecorder(SmolToolAdapter):
         self._calls = calls
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        result = super().forward(*args, **kwargs)
+        try:
+            result = super().forward(*args, **kwargs)
+        except Exception as exc:
+            error = make_tool_error(f"Tool '{self.name}' did not run: {resolve_exception_message(exc)}")
+            # mutating=False: no editing tool ran, so record_edits keeps NO_EDIT_TOOL_NOTE.
+            self._calls.append(InnerToolCall(self.name, error, mutating=False))
+            raise
         self._calls.append(InnerToolCall(self.name, result, self.mutating))
         return result
 

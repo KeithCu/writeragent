@@ -51,6 +51,8 @@ COMPLETION TOOLS:
 class WritingResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
     """Web research for writing plans (public topics); returns plain text for the sub-agent to format as HTML."""
 
+    # Needed here because ToolWriterSpecialBase (tier "specialized") comes first in the MRO.
+    tier: str = "unlisted"
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "writing_plan_search_web"
