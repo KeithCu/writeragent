@@ -224,3 +224,38 @@ def test_multi_para_deletion_hides_table_in_span_uno(ctx):
 
     _run(ctx=ctx)
 
+
+@native_test
+def test_read_visible_body_offsets_uno(ctx):
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.tests.testing_utils import strike_across_paragraphs, strike_across_table, with_native_doc
+
+    @with_native_doc("writer")
+    def _run(ctx, doc):
+        text = doc.getText()
+        strike_across_paragraphs(doc, text)
+        whole = text.createTextCursor()
+        whole.gotoStart(False)
+        whole.gotoEnd(True)
+
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        after_start = paras[-1].getStart()
+        end_pos = text.getEnd()
+
+        body_text, offsets = read_visible_body(doc, [after_start, end_pos])
+        assert body_text == get_string_without_tracked_deletions(whole)
+        assert offsets == [18, 23]
+
+        tbl = strike_across_table(doc, text)
+        whole.gotoStart(False)
+        whole.gotoEnd(True)
+        cell_pos = tbl.getCellByName("A1").getStart()
+        tbl_text, tbl_offsets = read_visible_body(doc, [cell_pos, text.getEnd()])
+        assert tbl_text == get_string_without_tracked_deletions(whole)
+        assert tbl_offsets == [None, 14]
+
+    _run(ctx=ctx)
+
