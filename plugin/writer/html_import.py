@@ -426,6 +426,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     if leftover.getString() != "":
         return
     # A trailing inline picture or formula stays in this paragraph and has no text.
+    # Joining the paragraph keeps its bookmarks, so they need not block it.
     if any(
         _paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
         for para in iter_elements(leftover.createEnumeration())
@@ -509,7 +510,8 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
         return
     if not _uno_service_true(next_elem, "com.sun.star.text.TextTable"):
         return
-    # Markers (Redline, Bookmark, SoftPageBreak) carry no visible content.
+    # Redline and SoftPageBreak portions carry no content. A bookmark does count here:
+    # dispose() would delete it.
     if _paragraph_has_non_text_portion(first_para, ignore_markers=True):
         return
     first_para.dispose()
@@ -556,10 +558,11 @@ def _paragraph_has_non_text_portion(
     ``getString()`` is empty for those, so a paragraph holding only a picture
     would look empty and the import would merge its first block into it. When
     *ignore_markers* is True, ``Redline`` and ``SoftPageBreak`` markers are
-    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions (used by
-    ``_drop_leftover_paragraph`` so cross-reference heading marks do not block
-    joining, while ``_drop_empty_paragraph_before_table`` still keeps user
-    bookmarks). ``ReferenceMark`` and ``DocumentIndexMark`` always count as content.
+    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions
+    (``_drop_leftover_paragraph`` joins the paragraph, which keeps its
+    bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes the
+    paragraph and must keep user bookmarks). ``ReferenceMark`` and
+    ``DocumentIndexMark`` always count as content.
     """
     ignored: tuple[str, ...] = ("Text",)
     if ignore_markers:
