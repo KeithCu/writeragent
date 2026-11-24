@@ -106,7 +106,8 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
-* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`) are
+* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`,
+  including `target='selection'` and streamed Extend/Edit Selection) are
   recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
   resolves them, and omitted from `ChangeRecord` so `wait_for_review` neither waits for them nor
   reports them in `review.changes`. Both the link deletion and insertion are authored
@@ -128,8 +129,9 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. A one-run unlinked plain replace (`replace_preserving_format`) inserts the new
-  text after the struck text so the new text inherits its formatting. Whole-paragraph block replaces
+  stranded mid-import. A single-paragraph plain replace (`replace_preserving_format`) inserts the new
+  text after the longest run so the new text inherits that run's formatting, and carries the common
+  link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
   paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (leaving
