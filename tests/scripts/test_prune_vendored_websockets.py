@@ -34,13 +34,15 @@ def pruned_websockets(tmp_path, websockets_src):
 def test_prune_websockets_removes_dead_paths(pruned_websockets):
     root = pruned_websockets
     assert not (root / "legacy").is_dir()
-    assert not (root / "sync").is_dir()
     assert not (root / "trio").is_dir()
     assert not (root / "asyncio" / "server.py").is_file()
+    assert not (root / "sync" / "server.py").is_file()
+    assert not (root / "sync" / "router.py").is_file()
     assert not (root / "server.py").is_file()
     assert not (root / "cli.py").is_file()
-    # Client stack must remain.
+    # Asyncio and sync client stacks must remain.
     assert (root / "asyncio" / "client.py").is_file()
+    assert (root / "sync" / "client.py").is_file()
     assert (root / "client.py").is_file()
 
 
@@ -59,17 +61,19 @@ def test_pruned_websockets_import_closure(pruned_websockets):
                 del sys.modules[key]
 
         import websockets
+        import websockets.sync.client
         from websockets.asyncio.client import ClientConnection
         from websockets.exceptions import WebSocketException
 
         _ = websockets.connect
+        _ = websockets.sync.client.connect
         _ = ClientConnection
         _ = WebSocketException
 
         loaded = {k for k in sys.modules if k.startswith("websockets")}
         assert "websockets.asyncio.client" in loaded
+        assert "websockets.sync.client" in loaded
         assert not any(k.startswith("websockets.legacy") for k in loaded)
-        assert not any(k.startswith("websockets.sync") for k in loaded)
         assert not any(k.startswith("websockets.trio") for k in loaded)
     finally:
         sys.path = old_path

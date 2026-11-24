@@ -188,6 +188,10 @@ class ManagedSubprocess:
         self._lock = threading.Lock()
 
     @property
+    def label(self) -> str:
+        return self._label
+
+    @property
     def popen(self) -> subprocess.Popen[bytes] | None:
         """Return the underlying subprocess.Popen instance or None if not started."""
         return cast("subprocess.Popen[bytes] | None", self._proc)

@@ -42,7 +42,7 @@ In [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.py), `We
 
 When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via delegate `domain=web_research`) and in dedicated **Web Research** sidebar mode. Deep research asks once. Reject returns `USER_STOPPED` and does not start the loop. Change uses the edited query for the preview, the research loop, and the cache write. Sub-queries do not ask again: the sidebar has one approval slot, and a second prompt is treated as Stop. If approval setup itself fails, the search does not run. After an `mcp` delegation in the same chat turn, `web_research` also asks for approval even when `chatbot.prompt_for_web_research` is off.
 
-`PageStore` (`plugin/chatbot/web_pages.py`) records a URL only after the fetch returns non-empty, non-error page text (`is_page_text`). An error string (`Error…` / `Failed…`) or an empty extract is not stored, so a later call or sub-query can retry that URL. When Chromium-family CDP (Chrome, Chromium, or Brave) is on, research runs in this process share one local browser. That browser is closed only after the last of those runs leaves, and only once that run's in-flight page reads have returned. A failed deep-research synthesis is returned as notes and is not written to the research cache.
+`PageStore` (`plugin/chatbot/web_pages.py`) records a URL only after the fetch returns non-empty, non-error page text (`is_page_text`). An error string (`Error…` / `Failed…`) or an empty extract is not stored, so a later call or sub-query can retry that URL. When a local browser (Chrome, Chromium, or Brave over CDP; Firefox over WebDriver BiDi via `plugin/chatbot/web_research_firefox.py`) is on, research runs in this process share one local browser. That browser is closed only after the last of those runs leaves, and only once that run's in-flight page reads have returned. A failed deep-research synthesis is returned as notes and is not written to the research cache.
 
 ### Page store and chunked reading
 
@@ -161,7 +161,7 @@ Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web
 
 ---
 
-While default page reads use standard, unauthenticated HTTP requests via DuckDuckGo Lite and `urllib.request`, JS-heavy page rendering via a local Chromium-family CDP instance (Chrome, Chromium, or Brave) is now shipped (`plugin/contrib/cdp/browser_cdp_tool.py`, `VisitWebpageCdpTool` in `plugin/chatbot/web_research.py`). The following sections cover what remains future reference (authenticated sites, cookie extraction, and connecting to an already-running user browser):
+While default page reads use standard, unauthenticated HTTP requests via DuckDuckGo Lite and `urllib.request`, JS-heavy page rendering via a local browser (Chrome, Chromium, or Brave over CDP via `plugin/contrib/cdp/browser_cdp_tool.py`; Firefox over WebDriver BiDi via `plugin/chatbot/web_research_firefox.py`, `VisitWebpageBrowserTool` in `plugin/chatbot/web_research.py`) is now shipped. The following sections cover what remains future reference (authenticated sites, cookie extraction, and connecting to an already-running user browser):
 
 ### A) yt-dlp cookie extraction (reference implementation)
 If there is a need to mimic the user's browser via cookies (to avoid blocks/CAPTCHAs):
@@ -175,11 +175,9 @@ If the sub-agent needs to render JS-heavy search result pages, we can avoid heav
 - **Pydoll**: Lightweight, CDP-based, async alternative.
 
 ### C) Lightweight option for Firefox
-Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
-- **Marionette**: Firefox's built-in remote protocol via `-marionette` (port 2828). JSON over TCP. 
-- Python clients include `marionette_driver` (Mozilla's maintained client) or the tiny `k0s/marionette_client`.
+Firefox removed CDP in v141. WriterAgent drives Firefox over WebDriver BiDi (`plugin/chatbot/web_research_firefox.py`, requires vendored `websockets` via `make vendor` when deploying from source): one session per process at `ws://127.0.0.1:9222/session`, with a dedicated reader thread (`firefox-bidi-reader`) correlating command IDs so concurrent workers can share the socket; a dropped socket kills and relaunches the process because Firefox keeps the session reserved.
 
-*Phase 2 roadmap*: Local Chromium-family CDP (`plugin/contrib/cdp/browser_cdp_tool.py`, `VisitWebpageCdpTool` in `plugin/chatbot/web_research.py`) is shipped for JS-heavy pages. Connecting to the user's already-running Chrome (CDP) or Firefox (Marionette) with their cookies for authenticated or deeply embedded SPAs remains open as an opt-in launch-script feature.
+*Phase 2 roadmap*: Local browser rendering (`plugin/contrib/cdp/browser_cdp_tool.py`, `plugin/chatbot/web_research_firefox.py`, `VisitWebpageBrowserTool` in `plugin/chatbot/web_research.py`) is shipped for JS-heavy pages. Connecting to the user's already-running Chrome (CDP) or Firefox with their cookies for authenticated or deeply embedded SPAs remains open as an opt-in launch-script feature.
 
 ## 7. Document full-text index (`advanced_search`)
 
@@ -194,4 +192,4 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 
 ## Open
 
-- `[feature L few]` Connect to the user's running Chrome (CDP) or Firefox (Marionette) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)
+- `[feature L few]` Connect to the user's running Chrome (CDP) or Firefox (WebDriver BiDi) with their cookies to read JS-heavy or authenticated pages, as an opt-in launch-script feature. (§ 6. Future Considerations)

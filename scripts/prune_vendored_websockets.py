@@ -5,9 +5,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Remove unused websockets subpackages before shipping in plugin/lib/.
 
-WriterAgent CDP (browser_cdp_tool, browser_supervisor) is a **client-only**
-asyncio user: ``websockets.connect``, ``WebSocketException``, ``ClientConnection``.
-The full PyPI tree includes legacy, sync, and server APIs we never import.
+WriterAgent CDP (browser_cdp_tool, browser_supervisor) uses the asyncio client
+(``websockets.connect``, ``WebSocketException``, ``ClientConnection``), and the
+Firefox WebDriver BiDi client (web_research_firefox) uses
+``websockets.sync.client``. The full PyPI tree includes legacy, trio, and
+server APIs we never import.
 
 Called from ``scripts/build_oxt.py`` after copying vendor/websockets into the
 bundle. Do not run on the dev ``vendor/`` tree (``make vendor`` would overwrite
@@ -22,10 +24,9 @@ import os
 import shutil
 import sys
 
-# Directories safe to drop for CDP client use.
+# Directories safe to drop for client-only CDP + WebDriver BiDi use.
 _PRUNE_DIRS = (
     "legacy",
-    "sync",
     "trio",
 )
 
@@ -33,6 +34,8 @@ _PRUNE_DIRS = (
 _PRUNE_FILES = (
     "asyncio/server.py",
     "asyncio/router.py",
+    "sync/server.py",
+    "sync/router.py",
     "server.py",
     "cli.py",
     "__main__.py",

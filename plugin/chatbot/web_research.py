@@ -20,12 +20,13 @@
 # raise at class-body time and abort ChatbotModule.initialize.
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Callable, final
+from typing import TYPE_CHECKING, Any, Callable, Protocol, final
 
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.i18n import _
@@ -38,11 +39,14 @@ if TYPE_CHECKING:
 from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client.errors import format_context_window_label
 from plugin.framework.client.model_fetcher import resolve_context_window
+from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
+from plugin.contrib.cdp import browser_cdp_tool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.tools import Tool
+from plugin.chatbot import web_research_firefox
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_pages import (
     MIN_WEB_RESEARCH_CONTEXT_TOKENS,
@@ -76,7 +80,7 @@ class WebAgentRunParams:
     cache_path: str | None
     cache_max_mb: int
     cache_max_age_days: int
-    cdp_url: str | None
+    browser: BrowserPageDriver | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
     approval_callback: Any
@@ -209,7 +213,7 @@ def _write_research_cache(
 
 @final
 class CdpRefCount:
-    """Shared-Chrome refcount and condition variable for page visits and teardown."""
+    """Shared local browser refcount and condition variable for page visits and teardown."""
 
     cond: threading.Condition
     visits_inflight: int
@@ -257,12 +261,10 @@ class CdpRefCount:
     def finish(self) -> None:
         """Release this research run's hold on the shared local browser.
 
-        Visit state and the Chrome process are process-global. Count active
+        Visit state and the browser process are process-global. Count active
         runs. Only the last one sets the closing flag, waits until in-flight
-        visits leave forward, and then terminates Chrome.
+        visits leave forward, and then terminates the browser.
         """
-        from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
-
         with self.cond:
             if self.runs <= 0:
                 return
@@ -277,9 +279,11 @@ class CdpRefCount:
                     log.warning("Timeout waiting for in-flight CDP visits to finish")
                     break
         try:
-            cleanup_local_chrome()
+            web_research_firefox.close_firefox_bidi()
+            browser_cdp_tool.cleanup_local_chrome()
+            web_research_firefox.remove_pidfile()
         except Exception as exc:
-            log.warning("Failed to clean up local Chrome process: %s", exc)
+            log.warning("Failed to clean up local browser process: %s", exc)
         finally:
             with self.cond:
                 self.closing = False
@@ -300,81 +304,102 @@ def _stop_checker_from_cancel(cancel: SendCancellation | None) -> Callable[[], b
     return cancel.is_cancelled if cancel is not None else None
 
 
-def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
-    """Attach this run to the process-wide local browser."""
-    from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
+class BrowserPageDriver(Protocol):
+    """Protocol for driving tabs and reading page text in a local browser."""
 
+    def open_tab(self) -> str: ...
+    def navigate(self, tab: str, url: str) -> None: ...
+    def page_text(self, tab: str) -> str: ...
+    def close_tab(self, tab: str) -> None: ...
+
+
+@final
+class CdpPageDriver:
+    """Chromium-family page driver; each method is one stateless browser_cdp call."""
+
+    @staticmethod
+    def _call(
+        method: str,
+        params: dict[str, Any],
+        fail_prefix: str,
+        target_id: str | None = None,
+    ) -> dict[str, Any]:
+        data = json.loads(browser_cdp_tool.browser_cdp(method, params, target_id=target_id))
+        if not data.get("success"):
+            raise RuntimeError(f"{fail_prefix}: {data.get('error')}")
+        return data
+
+    def open_tab(self) -> str:
+        created = self._call("Target.createTarget", {"url": "about:blank"}, "Failed to create page target")
+        target_id = created.get("result", {}).get("targetId")
+        if not target_id:
+            raise RuntimeError("Failed to find or create page target")
+        return str(target_id)
+
+    def navigate(self, tab: str, url: str) -> None:
+        self._call("Page.navigate", {"url": url}, f"Failed to navigate to {url}", tab)
+
+    def page_text(self, tab: str) -> str:
+        eval_res = self._call(
+            "Runtime.evaluate",
+            {"expression": "document.body.innerText", "returnByValue": True},
+            "Failed to retrieve page text content",
+            tab,
+        )
+        inner = eval_res.get("result", {}).get("result", {})
+        return str(inner.get("value") or inner.get("description") or "")
+
+    def close_tab(self, tab: str) -> None:
+        browser_cdp_tool.browser_cdp("Target.closeTarget", {"targetId": tab})
+
+
+def _begin_shared_browser(uno_ctx: Any, browser_type: str) -> BrowserPageDriver:
+    """Attach this run to the process-wide local browser."""
     with _cdp_refcount.launch_lock:
         _cdp_refcount.run_enter()
         try:
-            return get_local_chrome_cdp_url(uno_ctx, browser_type)
+            if browser_type == BIDI_BROWSER_TYPE:
+                return web_research_firefox.begin_firefox_bidi()
+            browser_cdp_tool.get_local_chrome_cdp_url(uno_ctx, browser_type)
+            return CdpPageDriver()
         except Exception:
             _cdp_refcount.finish()
             raise
 
 
-class VisitWebpageCdpTool(Tool):
+class VisitWebpageBrowserTool(Tool):
     name: str = "visit_webpage"
-    description: str = "Visits a webpage via CDP and returns its text."
+    description: str = "Visits a webpage in the local browser and returns its text."
     inputs: dict[str, dict[str, Any]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
-    cdp_url: str
+    driver: BrowserPageDriver
     stop_checker: Callable[[], bool] | None
 
-    def __init__(self, cdp_url: str, *, stop_checker: Callable[[], bool] | None = None) -> None:
+    def __init__(self, driver: BrowserPageDriver, *, stop_checker: Callable[[], bool] | None = None) -> None:
         super().__init__()
-        self.cdp_url = cdp_url
+        self.driver = driver
         self.stop_checker = stop_checker
 
     def forward(self, url: str) -> str:
-        from plugin.contrib.cdp.browser_cdp_tool import browser_cdp
-        import json
-
         lower_url = str(url).strip().lower()
         if not (lower_url.startswith("http://") or lower_url.startswith("https://")):
-            return "Error visiting webpage via CDP: URL must use http or https scheme."
+            return "Error visiting webpage via browser: URL must use http or https scheme."
 
-        # Each visit opens and closes its own target. Reusing the first page
+        # Each visit opens and closes its own tab. Reusing the first page
         # tab meant two deep-research workers navigated the same document.
         if not _cdp_refcount.visit_enter():
-            return "Error visiting webpage via CDP: browser is closing"
-        target_id = None
+            return "Error visiting webpage via browser: browser is closing"
+        tab: str | None = None
         try:
-            def _cdp(method: str, params: dict[str, Any], fail_prefix: str, target_id: str | None = None) -> dict[str, Any] | str:
-                data = json.loads(browser_cdp(method, params, target_id=target_id))
-                if not data.get("success"):
-                    return f"{fail_prefix}: {data.get('error')}"
-                return data
-
-            created = _cdp("Target.createTarget", {"url": "about:blank"}, "Failed to create page target")
-            if isinstance(created, str):
-                return created
-            target_id = created.get("result", {}).get("targetId")
-            if not target_id:
-                return "Failed to find or create page target"
-
-            nav = _cdp("Page.navigate", {"url": url}, f"Failed to navigate to {url}", target_id)
-            if isinstance(nav, str):
-                return nav
+            tab = self.driver.open_tab()
+            self.driver.navigate(tab, url)
 
             for _ in range(12):
                 if self.stop_checker and self.stop_checker():
-                    return "Error visiting webpage via CDP: stopped by user."
+                    return "Error visiting webpage via browser: stopped by user."
                 time.sleep(0.25)
 
-            eval_res = _cdp(
-                "Runtime.evaluate",
-                {"expression": "document.body.innerText", "returnByValue": True},
-                "Failed to retrieve page text content",
-                target_id,
-            )
-            if isinstance(eval_res, str):
-                return eval_res
-
-            text = eval_res.get("result", {}).get("result", {}).get("value") or ""
-            if not text:
-                text = eval_res.get("result", {}).get("result", {}).get("description") or ""
-
+            text = self.driver.page_text(tab)
             if len(text) > PAGE_TEXT_MAX_CHARS:
                 return (
                     text[:PAGE_TEXT_MAX_CHARS]
@@ -382,12 +407,12 @@ class VisitWebpageCdpTool(Tool):
                 )
             return text
         except Exception as e:
-            return f"Error visiting webpage via CDP: {e}"
+            return f"Error visiting webpage via browser: {e}"
         finally:
-            if target_id:
+            if tab:
                 best_effort(
-                    lambda: browser_cdp("Target.closeTarget", {"targetId": target_id}),
-                    f"visit_webpage: closeTarget failed for {target_id}",
+                    lambda: self.driver.close_tab(tab),
+                    f"visit_webpage: close_tab failed for {tab}",
                 )
             _cdp_refcount.visit_leave()
 
@@ -462,8 +487,8 @@ def _run_web_agent(
 
     stop_checker = _stop_checker_from_cancel(params.cancel)
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=stop_checker)
-        if params.cdp_url
+        VisitWebpageBrowserTool(params.browser, stop_checker=stop_checker)
+        if params.browser
         else VisitWebpageTool(
             cache_path=params.cache_path,
             cache_max_mb=params.cache_max_mb,
@@ -789,12 +814,11 @@ class WebResearchTool(ToolBase):
         max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
-        from plugin.framework.constants import CDP_BROWSER_TYPES
 
         browser_type = get_config("chatbot.web_research_browser")
-        cdp_enabled = browser_type in CDP_BROWSER_TYPES
-        cdp_url = None
-        cdp_held = False
+        browser_enabled = browser_type == BIDI_BROWSER_TYPE or browser_type in CDP_BROWSER_TYPES
+        browser: BrowserPageDriver | None = None
+        browser_held = False
 
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
@@ -821,13 +845,20 @@ class WebResearchTool(ToolBase):
                 )
             pages = PageStore(budget_chars=page_budget_chars(window_tokens))
 
-            if cdp_enabled:
+            if browser_enabled:
                 try:
-                    cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
-                    cdp_held = True
-                    log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
+                    browser = _begin_shared_browser(ctx.ctx, browser_type)
+                    browser_held = True
+                    log.info("Browser web research enabled (%s).", browser_type)
                 except Exception as e:
-                    log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
+                    log.warning("Failed to launch or connect to local %s browser: %s. Falling back to static HTTP.", browser_type, e)
+                    if isinstance(e, ImportError) and browser_type == BIDI_BROWSER_TYPE and ctx.chat_append_callback:
+                        ctx.chat_append_callback(
+                            _(
+                                "Warning: Firefox web research unavailable ({0}; run `make vendor` if deploying from source). "
+                                "Falling back to static HTTP.\n"
+                            ).format(e)
+                        )
 
             scope = ctx.send_cancellation
 
@@ -837,7 +868,7 @@ class WebResearchTool(ToolBase):
                 cache_path=cache_path,
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
-                cdp_url=cdp_url,
+                browser=browser,
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
                 approval_callback=ctx.approval_callback,
@@ -889,7 +920,7 @@ class WebResearchTool(ToolBase):
                         log.warning("Failed to write to web research cache: %s", e)
             return {**final_ans, **cache_fields}
         finally:
-            if cdp_held:
+            if browser_held:
                 _cdp_refcount.finish()
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
 
