@@ -834,6 +834,10 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
 
 
+# ScXLookup / ScXMatch (interpr1.cxx) modes supported here; Calc also has 3 (regex).
+_MATCH_MODES = (-1, 0, 1, 2)
+
+
 def _find_match_index(
     lookup_val: Any,
     lookup_arr: Any,
@@ -864,8 +868,6 @@ def _find_match_index(
             (idx for idx in indices if isinstance(l_flat[idx], str) and wildcard_fullmatch(lookup_val, l_flat[idx])),
             None,
         )
-    if mm not in (0, -1, 1, 2):
-        return None
     exact = next((idx for idx in indices if _is_exact(l_flat[idx], lookup_val)), None)
     if mm == 0 or mm == 2 or exact is not None:
         return exact
@@ -894,6 +896,9 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
+    # ScXLookup (interpr1.cxx) validates match_mode before searching.
+    if int(float(match_mode)) not in _MATCH_MODES:
+        return "#VALUE!"
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         # ScXLookup pushes #N/A when the 4th argument is omitted. None
@@ -932,14 +937,17 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
+    # ScXMatch (interpr1.cxx) validates match_mode before searching (IllegalParameter);
+    # 3 (regex) is not supported here.
+    if int(float(match_mode)) not in _MATCH_MODES:
+        return float("nan")
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
         return float(best_idx + 1)
-    # ScXMatch (interpr1.cxx): a miss is #N/A. A match mode Calc rejects is IllegalParameter;
-    # 3 (regex) is not supported here. An error lookup value is the result.
+    # ScXMatch (interpr1.cxx): a miss is #N/A; an error lookup value is the result.
     if isinstance(lookup_val, (float, np.floating)) and math.isnan(lookup_val):
         return float(lookup_val)
-    return NA_NAN if int(float(match_mode)) in (-1, 0, 1, 2) else float("nan")
+    return NA_NAN
 
 
 def xnpv(rate: Any, values: Any, dates: Any) -> float:
