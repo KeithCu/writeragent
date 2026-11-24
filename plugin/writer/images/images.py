@@ -33,8 +33,8 @@ import typing
 from typing import Any, Callable
 import urllib.parse
 
-# Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.client.http_security import log_target
+# Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
     NetworkError,

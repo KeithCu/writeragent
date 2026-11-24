@@ -199,6 +199,9 @@ def test_invalid_url_details_redact_path_secret(bad_url):
         ("https://user:hunter2/x9@host/v1", ("hunter2", "x9")),
         ("https://user:hunter2@ho\u2100st/x", ("hunter2",)),
         ("https://[::1#token=hunter2", ("hunter2",)),
+        ("https://us[er:hunter2#x@host/v1", ("hunter2",)),
+        ("https://u:a]hunter2?x@h/v1", ("hunter2",)),
+        ("https://[::1/v1?e=a@b&key=hunter2", ("hunter2",)),
     ],
 )
 def test_invalid_url_details_strip_userinfo(bad_url, secrets):
@@ -230,6 +233,7 @@ def test_invalid_url_traceback_hides_userinfo():
     from plugin.framework.client.http_security import origin_and_path
     from plugin.framework.errors import NetworkError
 
+    # Split so pytest's source-line traceback frame does not echo the secret.
     bad_url = "https://user:hunter2" + "@ho\u2100st/x"
     with pytest.raises(NetworkError) as exc_info:
         origin_and_path(bad_url)

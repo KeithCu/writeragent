@@ -150,13 +150,19 @@ def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:
     Userinfo, query strings and fragments stay out of the details, and opaque
     path segments are redacted.
     """
-    shown = re.split(r"[?#]", url or "", maxsplit=1)[0]
+    parts = re.split(r"[?#]", url or "", maxsplit=1)
+    shown = parts[0]
+    tail = parts[1] if len(parts) > 1 else ""
     scheme, sep, rest = shown.partition("://")
     if not sep:
         scheme, rest = "", shown
-    # The URL did not parse, so a raw "/" may be part of the password. Keep only what follows the last "@".
-    rest = rest.rpartition("@")[2]
-    rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
+    # The URL did not parse, so a raw "/" may be part of the password (keep only what follows the last "@"),
+    # and a raw "?" or "#" in the password hides "@" in the cut-off tail (drop the whole body when "@" is there).
+    if "@" in tail:
+        rest = ""
+    else:
+        rest = rest.rpartition("@")[2]
+        rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
     return NetworkError(message, code="INVALID_URL", details={"url": f"{scheme}{sep}{rest}"})
 
 

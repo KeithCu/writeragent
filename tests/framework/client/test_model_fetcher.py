@@ -2370,6 +2370,7 @@ def test_catalog_missing_key_log_hides_userinfo(caplog):
         ):
             mf.fetch_available_models("https://u:Hunter2pw@api.together.xyz", api_key_override="")
         assert "api.together.xyz" in caplog.text
+        assert "unauthenticated" in caplog.text
         assert "Hunter2pw" not in caplog.text
     finally:
         mf._catalog_memos.clear()
