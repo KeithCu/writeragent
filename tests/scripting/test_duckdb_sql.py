@@ -800,9 +800,7 @@ def test_sandboxed_reset_session_duckdb_keeps_other_workbook(fresh_sandbox_sessi
 
 def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions, monkeypatch):
     """SIGALRM fallback thread must not open another workbook's catalog."""
-    import signal
-
-    from tests.scripting.sandbox_support import sandbox_run
+    from tests.scripting.sandbox_support import refuse_sigalrm, sandbox_run
 
     other = "calc:file:///other-workbook-timeout"
     seed = sandbox_run(
@@ -814,14 +812,7 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_se
     )
     assert seed["status"] == "ok", seed
 
-    real_signal = signal.signal
-
-    def _refuse_alarm(signum, handler):
-        if signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return real_signal(signum, handler)
-
-    monkeypatch.setattr(signal, "signal", _refuse_alarm)
+    refuse_sigalrm(monkeypatch)
     stolen = sandbox_run(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook-timeout').execute("

@@ -18,6 +18,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     LocalPythonExecutor,
     evaluate_generatorexp,
 )
+from tests.scripting.sandbox_support import refuse_sigalrm
 
 _MIXED_GRID = [
     [1.0, "label", 10.0],
@@ -1974,20 +1975,13 @@ except Exception as result:
 
 def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest.MonkeyPatch):
     # Tip: thread-pool fallback waits for the worker thread to finish before abandoning.
-    import signal
     import time
-    from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
 
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=["time"], timeout_seconds=1)
     executor.send_tools({})
@@ -2009,21 +2003,14 @@ def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest
 
 
 def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: pytest.MonkeyPatch):
-    import signal
     import threading
-    from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
     release = threading.Event()
 
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -3147,18 +3134,6 @@ def test_user_traceback_survives_failing_str_in_chain() -> None:
     assert tb.splitlines()[-1].startswith("ValueError:")
 
 
-def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
-    import signal
-    from typing import Any
-
-    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
-
-
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="SIGALRM path; thread-pool timeouts print without the chain",
@@ -3190,7 +3165,7 @@ def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.Mo
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
@@ -3216,7 +3191,7 @@ def test_thread_pool_timeout_wins_over_later_worker_error(monkeypatch: pytest.Mo
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})

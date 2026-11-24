@@ -25,7 +25,7 @@ from plugin.scripting.venv.venv_sandbox import (
     reset_sandbox_session,
     serialize_result,
 )
-from tests.scripting.sandbox_support import sandbox_run
+from tests.scripting.sandbox_support import refuse_sigalrm, sandbox_run
 
 
 @pytest.fixture(autouse=True)
@@ -118,25 +118,11 @@ def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     assert out.get("result") != "caught"
 
 
-def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force local_python_executor.timeout onto its ThreadPoolExecutor path."""
-    import signal
-
-    real_signal = signal.signal
-
-    def _signal(signum, handler):
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return real_signal(signum, handler)
-
-    monkeypatch.setattr(signal, "signal", _signal)
-
-
 def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.MonkeyPatch):
     """Windows / non-main timeout thread must still see the workbook session."""
     from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id, sandbox_execute_active
 
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
     seen: dict[str, object] = {}
 
     def probe() -> int:
@@ -746,7 +732,6 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
 ) -> None:
     """Thread-pool fallback (Windows / non-main thread) must write EXECUTION_TIMEOUT before draining."""
     import io
-    import signal
     import time
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
@@ -757,12 +742,7 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
-    def refuse_sigalrm(signum: int, handler: object) -> object:
-        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
-            raise ValueError("SIGALRM unavailable")
-        return signal.SIG_DFL
-
-    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+    refuse_sigalrm(monkeypatch)
 
     req_data = pack_pickle_frame(
         {
@@ -833,7 +813,7 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
     monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
-    _refuse_sigalrm(monkeypatch)
+    refuse_sigalrm(monkeypatch)
 
     req_data = pack_pickle_frame(
         {
