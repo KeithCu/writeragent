@@ -2887,7 +2887,6 @@ def test_failed_insert_restores_selection_uno(ctx: Any, doc: Any) -> None:
     """A failed inline insert after clearing the selection rolls back the cleared text."""
     from unittest.mock import patch
 
-    import pytest
     from plugin.writer.html_import import insert_content_at_position
 
     text = doc.getText()
@@ -2897,8 +2896,12 @@ def test_failed_insert_restores_selection_uno(ctx: Any, doc: Any) -> None:
     vc.gotoEnd(True)
 
     with patch("plugin.writer.html_import._insert_inline", side_effect=RuntimeError("boom")):
-        with pytest.raises(RuntimeError, match="boom"):
+        try:
             insert_content_at_position(doc, ctx, "New", "selection")
+        except RuntimeError as exc:
+            assert "boom" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError")
 
     assert doc.getText().getString() == "Keep this"
 
@@ -2955,7 +2958,6 @@ def test_failed_insert_on_full_undo_stack_does_not_undo_prior_insert_uno(ctx: An
     """An empty failing group on a full undo stack must not undo the previous insert with the same title."""
     from unittest.mock import patch
 
-    import pytest
     from plugin.writer.html_import import insert_content_at_position
 
     text = doc.getText()
@@ -2974,7 +2976,11 @@ def test_failed_insert_on_full_undo_stack_does_not_undo_prior_insert_uno(ctx: An
     assert "keep" in doc.getText().getString()
 
     with patch("plugin.writer.html_import._insert_inline", side_effect=RuntimeError("refused")):
-        with pytest.raises(RuntimeError, match="refused"):
+        try:
             insert_content_at_position(doc, ctx, "drop", "selection")
+        except RuntimeError as exc:
+            assert "refused" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError")
 
     assert "keep" in doc.getText().getString()
