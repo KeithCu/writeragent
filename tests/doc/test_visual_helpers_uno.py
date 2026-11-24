@@ -304,6 +304,7 @@ def test_delete_graphic_page_anchored_uno(ctx: Any, doc: Any) -> None:
     graphic.setPropertyValue("AnchorType", AT_PAGE)
     graphic.setPropertyValue("AnchorPageNo", 1)
     assert graphic.getAnchor() is None
+    expected_body = text.getString()
 
     doc.setPropertyValue("RecordChanges", False)
     assert delete_graphic(ctx, doc, graphic) is False
@@ -320,7 +321,8 @@ def test_delete_graphic_page_anchored_uno(ctx: Any, doc: Any) -> None:
     shape.setName("PageDrawPic")
     shape.setPropertyValue("AnchorType", AT_PAGE)
     shape.setPropertyValue("AnchorPageNo", 1)
+    assert shape.getAnchor() is None
     assert delete_graphic(ctx, doc, shape) is False
     assert page.getCount() == count_before
-    assert "Keep this body text" in text.getString()
+    assert text.getString() == expected_body
 
