@@ -46,7 +46,7 @@ from plugin.audio.tts_voices import (
 )
 from plugin.framework import config
 from plugin.framework.client.http_security import log_target
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
@@ -1506,7 +1506,11 @@ def speak_text_async(
             if provider_code == "endpoint" and not model_name:
                 from plugin.framework.client.model_fetcher import get_tts_model
 
-                model_name = get_tts_model() or "hexgrad/Kokoro-82M"
+                try:
+                    model_name = get_tts_model() or "hexgrad/Kokoro-82M"
+                except ConfigError:
+                    # An invalid endpoint URL raises here; download_endpoint_speech reports it and falls back to system speech.
+                    model_name = "hexgrad/Kokoro-82M"
 
             if voice and voice.strip():
                 voice_name = clean_voice_name(voice)
