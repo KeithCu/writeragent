@@ -1008,6 +1008,32 @@ def test_delegate_detects_mutation_read_only_domains(writer_gateway: DelegateToS
     assert writer_gateway.detects_mutation({"domain": ["a"]}) is True
 
 
+@pytest.mark.parametrize("domain", ["web_research", "mcp"])
+def test_chat_tier_domain_refused_for_mcp_caller(
+    writer_gateway: DelegateToSubagent, mock_ctx: ToolContext, domain: str
+) -> None:
+    from plugin.chatbot.web_research import WebResearchTool
+
+    mock_ctx.caller = "mcp"
+    with patch.object(WebResearchTool, "execute", return_value={"status": "ok"}) as mock_exec:
+        res = writer_gateway.execute(mock_ctx, domain=domain, task="anything")
+    assert res["status"] == "error"
+    assert res["code"] == "DOMAIN_CHAT_ONLY"
+    mock_exec.assert_not_called()
+
+
+def test_chat_tier_web_research_allowed_for_chat_caller(
+    writer_gateway: DelegateToSubagent, mock_ctx: ToolContext
+) -> None:
+    from plugin.chatbot.web_research import WebResearchTool
+
+    mock_ctx.caller = "chat"
+    with patch.object(WebResearchTool, "execute", return_value={"status": "ok"}) as mock_exec:
+        res = writer_gateway.execute(mock_ctx, domain="web_research", task="pizza")
+    assert res == {"status": "ok"}
+    mock_exec.assert_called_once()
+
+
 def _fake_upsert_tool() -> Any:
     from plugin.writer.specialized_base import ToolWriterShapeBase
 

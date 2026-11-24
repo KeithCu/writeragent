@@ -760,3 +760,31 @@ def test_sidebar_only_tool_names_registry_failure_is_raised_not_an_empty_set():
     registry.get_tools.side_effect = RuntimeError("registry broken")
     with pytest.raises(RuntimeError, match="registry broken"):
         sidebar_only_tool_names(registry, None, doc_type="writer", uno_services_supported=frozenset())
+
+
+def test_web_research_domain_not_discoverable():
+    reg = _real_registry()
+    ctx = _ctx_real(reg)
+
+    catalog = FindTools().execute(ctx)
+    assert "web_research" not in _domain_ids(catalog["available_domains"])
+
+    res = FindTools().execute(ctx, domain="web_research")
+    assert res["status"] == "error"
+    assert res["code"] == "UNKNOWN_DOMAIN"
+
+
+@pytest.mark.parametrize("mode", ["direct_flat", "direct_discovery"])
+def test_web_research_tool_call_rejected_in_direct_modes(mode: str):
+    import json
+    from plugin.chatbot.web_research import WebResearchTool
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(WebResearchTool())
+    handler = _handler_real(mode, reg)
+    res = handler._mcp_tools_call(
+        {"name": "web_research", "arguments": {"query": "pizza"}},
+        cancel=SendCancellation(),
+    )
+    assert res["isError"] is True
+    assert json.loads(res["content"][0]["text"])["code"] == "UNKNOWN_TOOL"

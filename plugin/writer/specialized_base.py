@@ -257,15 +257,17 @@ class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpec
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
+    # Sidebar chat only; MCP clients never see this domain.
+    tier: str = "chat"
     specialized_domain: ClassVar[str | None] = "web_research"
-    specialized_domain_description: ClassVar[str | None] = DELEGATION_PUBLIC_WEB_HINT
+    specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_PUBLIC_WEB_HINT}: public facts you cannot answer yourself"
 
 
 class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_domain_description: ClassVar[str | None] = (
         f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), matching descriptions; "
-        "searches only the user's own files; answer public facts yourself or via web_research"
+        "searches only the user's own files; answer public facts yourself"
     )
 
 

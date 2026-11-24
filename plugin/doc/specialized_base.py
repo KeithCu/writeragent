@@ -352,6 +352,10 @@ class DelegateToSpecializedBase(ToolBase):
         if not isinstance(domain, str):
             return self._tool_error(no_tools)
 
+        # Chat-tier domains are off every MCP list; refuse a client that calls one anyway.
+        if ctx.caller == "mcp" and domain in chat_tier_domains():
+            return self._tool_error(f"Domain '{domain}' runs only in the sidebar chat.", code="DOMAIN_CHAT_ONLY")
+
         # The web_research, vision and embeddings imports below stay lazy: each pulls a
         # heavy or optional stack (web cache, the OCR venv probe, the indexer's
         # subprocess and IPC) that only its own domain uses.
@@ -590,7 +594,7 @@ _DELEGATE_RESULT_LINE = (
 _WRITER_DELEGATE_DESCRIPTION = (
     "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
     f"{_DELEGATE_RESULT_LINE} "
-    "For document_research and web_research, describe what to research in task (topics, sections, depth). "
+    "For the research domains, describe what to research in task (topics, sections, depth). "
     f"{PYTHON_ROUTING_HINT}"
 )
 

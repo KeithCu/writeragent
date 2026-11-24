@@ -714,13 +714,12 @@ class WebResearchTool(ToolBase):
     name: str | None = "web_research"
     description: str = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
-    # The main chat and MCP reach web research only through
-    # delegate_to_subagent(domain="web_research"), so this tool stays off the
-    # default chat and MCP lists. The sidebar Web Research mode and
-    # wa.web.research still call it by name. Setting tier on the class rather
-    # than inheriting it from a domain base keeps a future base change from
-    # putting it back on the main list.
-    tier: str = "specialized"
+    # Main chat reaches this through delegate_to_subagent(domain="web_research"),
+    # and the sidebar Web Research mode and wa.web.research call it by name.
+    # MCP clients cannot list or call it. Setting tier on the class rather than
+    # inheriting it from a domain base keeps a future base change from putting
+    # it back on a list.
+    tier: str = "unlisted"
     # Web research only reads the web and the document locale; it never writes
     # the document. The name has no read verb, so without this flag it would be
     # treated as an edit, and the sidebar would re-read the live selection into

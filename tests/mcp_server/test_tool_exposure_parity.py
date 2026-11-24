@@ -234,9 +234,9 @@ def test_calc_base_does_not_import_writer_or_draw():
 
 
 _MARKER_ALLOWLIST = {
-    "Writer": frozenset({"document_research", "mcp", "python", "vision", "web_research"}),
-    "Calc": frozenset({"document_research", "mcp", "web_research", "vision", "images"}),
-    "Draw": frozenset({"document_research", "mcp", "python", "vision", "web_research"}),
+    "Writer": frozenset({"document_research", "mcp", "python", "vision"}),
+    "Calc": frozenset({"document_research", "mcp", "vision", "images"}),
+    "Draw": frozenset({"document_research", "mcp", "python", "vision"}),
 }
 
 
