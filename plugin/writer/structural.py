@@ -36,6 +36,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
 
+from .specialized.textframes import text_box_frame
 from .specialized_base import ToolWriterStructuralBase
 
 if TYPE_CHECKING:
@@ -211,15 +212,11 @@ class GetPageObjects(ToolBase):
                 "cols": t.getColumns().getCount(),
             },
         )
-        frames = _scan(
-            doc.getTextFrames(),
-            "text frame",
-            lambda fname, fr: {
-                "name": fname,
-                "width_mm": fr.getPropertyValue("Size").Width // 100,
-                "height_mm": fr.getPropertyValue("Size").Height // 100,
-            },
-        )
+        def frame_entry(name: str, frame: Any) -> dict[str, Any]:
+            size = frame.getPropertyValue("Size")
+            return {"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100}
+
+        frames = _scan(doc.getTextFrames(), "text frame", frame_entry)
 
         # Do not jumpToEndOfPage + body createTextCursorByRange: end-of-page often sits in a
         # table/frame, and the body XText then raises RuntimeException ("End of content node
@@ -269,6 +266,15 @@ class GetPageObjects(ToolBase):
                     reraise_if_disposed(exc)
                     log.warning("Failed to read geometry for draw shape '%s': %s", shape_name, exc)
                 shapes.append(shape_info)
+                # getTextFrames().getElementNames() omits the hidden frame of a Word text box, so it is
+                # listed here, on the page of the shape that owns it. A failed read skips only this entry.
+                try:
+                    box = text_box_frame(shape)
+                    if box is not None:
+                        frames.append({**frame_entry(box.getName(), box), "shape_index": i, "shape_name": shape.getName()})
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.warning("Failed to read text box frame of draw shape '%s': %s", shape_name, exc)
 
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
 

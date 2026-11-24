@@ -671,3 +671,102 @@ def test_execute_paragraph_reports_zero_based_page():
     res = GetPageObjects().execute(ctx, paragraph=5)
     assert res["status"] == "ok"
     assert res["page"] == 2
+
+
+def test_scan_page_lists_text_box_frame(monkeypatch):
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    def _make_box_shape(page_no: int, shape_name: str, frame_name: str):
+        frame = MagicMock()
+        frame.getName.return_value = frame_name
+        frame.getPropertyValue.side_effect = (
+            lambda p: SimpleNamespace(Width=4006, Height=2004) if p == "Size" else None
+        )
+        shape = MagicMock()
+        shape.Name = shape_name
+        shape.getName.return_value = shape_name
+        shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+        shape.getString.return_value = "box text"
+        shape.getSize.return_value = SimpleNamespace(Width=4006, Height=2004)
+        shape.getPosition.return_value = SimpleNamespace(X=10, Y=20)
+        props = {
+            "AnchorType": at_page,
+            "AnchorPageNo": page_no,
+            "TextBox": True,
+            "TextBoxContent": frame,
+        }
+        shape.getPropertyValue.side_effect = lambda p: props[p] if p in props else (_ for _ in ()).throw(RuntimeError(p))
+        return shape
+
+    s1 = _make_box_shape(2, "Text Box 2", "Frame1")
+    s2 = _make_box_shape(3, "Text Box 3", "Frame2")
+    draw = MagicMock()
+    draw.getCount.return_value = 2
+    draw.getByIndex.side_effect = [s1, s2]
+    doc = _make_doc(draw=draw)
+
+    result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    assert result["frames"] == [
+        {"name": "Frame1", "width_mm": 40, "height_mm": 20, "shape_index": 0, "shape_name": "Text Box 2"}
+    ]
+    assert [s["name"] for s in result["shapes"]] == ["Text Box 2"]
+
+
+@pytest.mark.parametrize(
+    "exc, expect_disposed",
+    [
+        pytest.param(RuntimeError("bad TextBoxContent"), False, id="skips_frame_on_runtime_error"),
+        pytest.param(DocumentDisposedError("Document was closed"), True, id="reraises_disposal"),
+    ],
+)
+def test_scan_page_text_box_frame_read_failure(monkeypatch, exc, expect_disposed):
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    def _props(p: str):
+        if p == "AnchorType":
+            return at_page
+        if p == "AnchorPageNo":
+            return 2
+        if p == "TextBox":
+            return True
+        if p == "TextBoxContent":
+            raise exc
+        raise RuntimeError(p)
+
+    shape = MagicMock()
+    shape.Name = "BrokenBox"
+    shape.getName.return_value = "BrokenBox"
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shape.getString.return_value = ""
+    shape.getSize.return_value = SimpleNamespace(Width=100, Height=200)
+    shape.getPosition.return_value = SimpleNamespace(X=0, Y=0)
+    shape.getPropertyValue.side_effect = _props
+
+    draw = MagicMock()
+    draw.getCount.return_value = 1
+    draw.getByIndex.return_value = shape
+    doc = _make_doc(draw=draw)
+
+    if expect_disposed:
+        with pytest.raises(DocumentDisposedError):
+            GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    else:
+        result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
+        assert [s["name"] for s in result["shapes"]] == ["BrokenBox"]
+        assert result["frames"] == []
