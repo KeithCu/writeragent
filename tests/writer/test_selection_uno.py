@@ -108,7 +108,7 @@ def test_cross_tool_offsets_search_select_content_and_length_uno(ctx, doc):
         assert sel_res["status"] == "ok", sel_res
         assert controller.getSelection().getByIndex(0).getString() == word
 
-        c_res = GetDocumentContent().execute(tctx, scope="range", range_start=r["start"], range_end=r["end"])
+        c_res = GetDocumentContent().execute(tctx, scope="range", start=r["start"], end=r["end"])
         assert c_res["status"] == "ok", c_res
         plain = re.sub(r"<[^>]+>", "", c_res["content"]).strip()
         assert plain == word
