@@ -30,7 +30,7 @@ from plugin.framework.doc_type import (
     doc_type_label_for_enum,
     get_document_type,
 )
-from plugin.doc.text_helpers import FAILED
+from plugin.doc.text_helpers import FAILED, KeepViewSelection
 from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
 
@@ -757,8 +757,50 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     return False
 
 
-def delete_graphic(doc: Any, graphic: Any) -> None:
-    """Remove a graphic object from a Writer, Calc, Draw, or Impress document."""
+# offapi/com/sun/star/frame/DispatchResultState.idl: SUCCESS = 1.
+_DISPATCH_SUCCESS = 1
+
+
+def _delete_writer_graphic_tracked(ctx: Any, doc: Any, graphic: Any) -> None:
+    """Delete a Writer text graphic via .uno:Delete so Track Changes records it.
+
+    SwXFrame::dispose (removeTextContent) leaves no redline; SwWrtShell::DelRight
+    (sw/source/uibase/wrtsh/delete.cxx, Graphic case) records a Delete redline for
+    TextGraphicObject (and moves non-character anchors to the character). Checks
+    controller.getSelection() after select() because SwXTextView::select returns true
+    even when GotoFly fails (e.g. hidden section), which would otherwise delete text.
+    Checks DispatchResultEvent.State rather than redline count because adjacent
+    same-author deletions merge without increasing the count.
+    """
+    controller = doc.getCurrentController()
+    result = None
+    if controller is not None and graphic.supportsService(WRITER_GRAPHIC_SERVICE):
+        try:
+            with KeepViewSelection(controller):
+                controller.select(graphic)
+                sel = controller.getSelection()
+                if (
+                    sel is not None
+                    and sel.supportsService(WRITER_GRAPHIC_SERVICE)
+                    and sel.getName() == graphic.getName()
+                ):
+                    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+                    result = helper.executeDispatch(controller.getFrame(), ".uno:Delete", "", 0, ())
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
+    if result is None or result.State != _DISPATCH_SUCCESS:
+        raise ToolExecutionError(
+            _("LibreOffice cannot record deleting this image as a tracked change, so it was kept. Turn off Track Changes recording to delete it."),
+            code="IMAGE_DELETE_NOT_TRACKABLE",
+        )
+
+
+def delete_graphic(ctx: Any, doc: Any, graphic: Any) -> bool:
+    """Remove a graphic object from a Writer, Calc, Draw, or Impress document.
+
+    Returns True when Writer recorded the deletion as a tracked change.
+    """
     doc_type = get_visual_doc_type(doc)
     if not is_writer_like(doc_type):
         try:
@@ -767,7 +809,13 @@ def delete_graphic(doc: Any, graphic: Any) -> None:
             raise ToolExecutionError(str(exc), code="AMBIGUOUS_NAME") from exc
         if not removed:
             raise ToolExecutionError(_("Image not found."), code="IMAGE_NOT_FOUND")
-        return
+        return False
+    # Call time: plugin.writer's package init imports modules (styles.py) that import this one.
+    from plugin.writer.record_changes import is_recording_changes
+
+    if is_recording_changes(doc):
+        _delete_writer_graphic_tracked(ctx, doc, graphic)
+        return True
     try:
         anchor = graphic.getAnchor()
         text = anchor.getText()
@@ -775,6 +823,7 @@ def delete_graphic(doc: Any, graphic: Any) -> None:
     except Exception as exc:
         reraise_if_disposed(exc)
         raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
+    return False
 
 
 def get_graphic_object_by_name(
