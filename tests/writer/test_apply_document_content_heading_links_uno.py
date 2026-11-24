@@ -980,3 +980,76 @@ def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) ->
                         assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
                 finally:
                     doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
+    from unittest.mock import patch
+
+    import pytest
+    from plugin.writer import apply_document_content as adc
+    from plugin.writer.review_authors import office_author
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=(
+            "<h1>Old Heading</h1>"
+            '<p>See <a href="#Old Heading|outline">go</a>.</p>'
+            "<table><tbody><tr><td>only</td></tr></tbody></table>"
+        ),
+    )
+    assert res.get("status") == "ok", res
+    doc.getUndoManager().clear()
+
+    def _select_heading() -> None:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEndOfParagraph(True)
+        doc.getCurrentController().select(cur)
+
+    def _snapshot() -> tuple[Any, ...]:
+        return (
+            doc.getText().getString(),
+            list(doc.getTextTables().getElementNames()),
+            doc.getRedlines().getCount(),
+            list(doc.getUndoManager().getAllUndoActionTitles()),
+            bool(doc.getPropertyValue("RecordChanges")),
+            office_author(ctx),
+            sorted(doc.getBookmarks().getElementNames()),
+        )
+
+    _select_heading()
+    before = _snapshot()
+
+    def _fail_retarget(*_args: Any, **_kwargs: Any) -> Any:
+        assert doc.getRedlines().getCount() > 0
+        raise RuntimeError("boom")
+
+    real_record_table_deletions = adc.record_table_deletions
+
+    def _fail_after_table_delete(session: Any, d: Any, uno_ctx: Any, doomed: Any) -> bool:
+        assert real_record_table_deletions(session, d, uno_ctx, doomed)
+        assert d.getRedlines().getCount() > 0
+        raise RuntimeError("boom")
+
+    with patch.object(adc, "review_recording_enabled", return_value=True):
+        for kwargs in (
+            {"target": "search", "old_content": "Old Heading", "content": "New Heading"},
+            {"target": "selection", "content": "<h1>New Heading</h1>"},
+            {"target": "full_document", "content": "<h1>New Heading</h1>"},
+        ):
+            _select_heading()
+            with patch.object(adc, "retarget_renamed_links", side_effect=_fail_retarget):
+                with pytest.raises(RuntimeError, match="boom"):
+                    tool.execute(tool_ctx, **kwargs)
+            assert _snapshot() == before
+
+        with patch.object(adc, "record_table_deletions", side_effect=_fail_after_table_delete):
+            with pytest.raises(RuntimeError, match="boom"):
+                tool.execute(tool_ctx, target="search", old_content="only", content="")
+        assert _snapshot() == before
+
