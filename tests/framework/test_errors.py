@@ -423,13 +423,9 @@ class TestSuppressDisposed:
             ("ValueError", ValueError("bad value"), False),
         ]
 
-        try:
-            import uno  # noqa: F401
-            from com.sun.star.lang import IllegalArgumentException
+        from com.sun.star.lang import IllegalArgumentException
 
-            exceptions.append(("IllegalArgumentException", IllegalArgumentException("arg"), False))
-        except (ImportError, AttributeError):
-            pass
+        exceptions.append(("IllegalArgumentException", IllegalArgumentException("arg", None, 0), False))
 
         for exc_name, exc, exp_disposal in exceptions:
             assert is_disposal(exc) is exp_disposal, f"{exc_name} is_disposal mismatch"
@@ -519,19 +515,13 @@ class TestSuppressDisposed:
 
 
 def test_illegal_argument_is_not_document_disposal():
-    """Real pyuno: IllegalArgumentException subclasses RuntimeException.
+    """``IllegalArgumentException`` subclasses ``RuntimeException``.
 
-    ``IllegalArgumentException`` subclasses ``RuntimeException``. Treating every
-    ``RuntimeException`` as disposal mislabels real argument errors; ``uno_call``
-    must wrap a bare ``RuntimeException`` as ``UnoObjectError``.
+    Treating every ``RuntimeException`` as disposal mislabels real argument errors;
+    ``uno_call`` must wrap a bare ``RuntimeException`` as ``UnoObjectError``.
     """
-    uno = pytest.importorskip("uno")
-    del uno
-    try:
-        from com.sun.star.lang import DisposedException, IllegalArgumentException, IndexOutOfBoundsException
-        from com.sun.star.uno import RuntimeException
-    except ImportError:
-        pytest.skip("pyuno type library is not available")
+    from com.sun.star.lang import DisposedException, IllegalArgumentException, IndexOutOfBoundsException
+    from com.sun.star.uno import RuntimeException
 
     from plugin.framework.errors import (
         UnoObjectError,

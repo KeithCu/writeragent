@@ -101,19 +101,21 @@ def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
         assert "shape_delete" in ambig.get("message", ""), ambig
 
         dp = reloaded.getDrawPage()
-        assert len([i for i in range(dp.getCount()) if dp.getByIndex(i).getName() == "Image 1"]) == 2
+        # Bind each shape once (docs/framework/uno-test-lifecycle.md): a late release of a dropped
+        # proxy can detach the next one, and a detached shape reports no GraphicObjectShape service.
+        shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
+        assert [s.getName() for s in shapes].count("Image 1") == 2
         assert reloaded.getGraphicObjects().hasByName("Image 1")
 
         refused = ImageDelete().execute(tctx, name="Image 11")
         assert refused.get("status") == "error", refused
         assert refused.get("code") == "IMAGE_DELETE_NOT_TRACKABLE", refused
-        assert "Image 11" in [dp.getByIndex(i).getName() for i in range(dp.getCount())]
+        shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
+        assert "Image 11" in [s.getName() for s in shapes]
 
         reloaded.setPropertyValue("RecordChanges", False)
         del11 = ImageDelete().execute(tctx, name="Image 11")
         assert del11.get("status") == "ok", del11
-        # Bind each shape once (docs/framework/uno-test-lifecycle.md): a late release of a dropped
-        # proxy can detach the next one, and a detached shape reports no GraphicObjectShape service.
         shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
         assert "Image 11" not in [s.getName() for s in shapes]
 
