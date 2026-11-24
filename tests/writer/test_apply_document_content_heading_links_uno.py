@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import uno  # noqa: F401
 from com.sun.star.beans import PropertyValue
 
@@ -290,14 +292,38 @@ def _dispatch(ctx, doc, command: str) -> None:
     helper.executeDispatch(doc.getCurrentController().getFrame(), command, "", 0, ())
 
 
-def _body_paragraphs(doc) -> list[str]:
+def _snapshot_paragraphs(doc) -> list[tuple[str, list[tuple[str, str, str, str, Any, Any]]]]:
+    """Capture paragraph text and per-Text-portion link/formatting properties."""
     out = []
     e = doc.getText().createEnumeration()
     while e.hasMoreElements():
         p = e.nextElement()
-        if p.supportsService("com.sun.star.text.Paragraph"):
-            out.append(str(p.getString() or ""))
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        runs = []
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getPropertyValue("TextPortionType") or "") != "Text":
+                continue
+            runs.append((
+                str(por.getString() or ""),
+                str(por.getPropertyValue("HyperLinkURL") or ""),
+                str(por.getPropertyValue("HyperLinkName") or ""),
+                str(por.getPropertyValue("HyperLinkTarget") or ""),
+                por.getPropertyValue("CharColor"),
+                por.getPropertyValue("CharWeight"),
+            ))
+        out.append((str(p.getString() or ""), runs))
     return out
+
+
+def _office_author(ctx) -> tuple[str, str]:
+    from plugin.writer import review_authors
+
+    prior = review_authors.begin(ctx)
+    review_authors.end(ctx, prior)
+    return prior
 
 
 @native_test
@@ -331,12 +357,17 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
             if str(por.getPropertyValue("HyperLinkURL") or "") == "#Old Alpha|outline":
                 por.setPropertyValue("CharColor", 0x112233)
 
+    start_snap = _snapshot_paragraphs(doc)
+
     # 1. old_content plain rename of Old Alpha
     res = tool.execute(tool_ctx, target="search", old_content="Old Alpha", content="New Alpha")
     assert res.get("status") == "ok", res
     assert res.get("links_retargeted", 0) >= 1, res
-    urls = _read_portion_urls(doc)
-    assert all(url == "#New Alpha|outline" for text, url in urls if text in ("link ", "half")), urls
+    assert _read_portion_urls(doc) == [
+        ("link ", "#New Alpha|outline"),
+        ("half", "#New Alpha|outline"),
+        ("beta link", "#Old Beta|outline"),
+    ]
     _jump_to_mark(ctx, doc, "New Alpha|outline")
     assert _view_cursor_paragraph_text(doc) == "New Alpha"
 
@@ -363,9 +394,9 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
     assert half_props[2] == "L1"
     assert half_props[3] == "_top"
 
-    # One undo restores Old Alpha and #Old Alpha|outline.
+    # One undo restores Old Alpha and #Old Alpha|outline, matching start state.
     doc.getUndoManager().undo()
-    assert any(url == "#Old Alpha|outline" for _t, url in _read_portion_urls(doc))
+    assert _snapshot_paragraphs(doc) == start_snap
 
     # 2. anchor span rename
     res = tool.execute(
@@ -376,7 +407,13 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
         content="Anchor Alpha",
     )
     assert res.get("status") == "ok", res
-    assert any(url == "#Anchor Alpha|outline" for _t, url in _read_portion_urls(doc))
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#Old Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Anchor Alpha|outline")
+    assert _view_cursor_paragraph_text(doc) == "Anchor Alpha"
 
     # 3. old_content HTML rename
     res = tool.execute(
@@ -386,7 +423,13 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
         content='<h2 data-lo-style="Heading 2">Html Beta</h2>',
     )
     assert res.get("status") == "ok", res
-    assert any(url == "#Html Beta|outline" for _t, url in _read_portion_urls(doc))
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#Html Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Html Beta|outline")
+    assert _view_cursor_paragraph_text(doc) == "Html Beta"
 
     # 4. all_matches rename
     res = tool.execute(
@@ -397,7 +440,13 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
         all_matches=True,
     )
     assert res.get("status") == "ok", res
-    assert any(url == "#All Beta|outline" for _t, url in _read_portion_urls(doc))
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#All Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "All Beta|outline")
+    assert _view_cursor_paragraph_text(doc) == "All Beta"
 
     # 5. full_document rename
     res = tool.execute(
@@ -411,7 +460,12 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
         ],
     )
     assert res.get("status") == "ok", res
-    assert any(url == "#Final Alpha|outline" for _t, url in _read_portion_urls(doc))
+    assert _read_portion_urls(doc) == [
+        ("link half", "#Final Alpha|outline"),
+        ("beta link", "#All Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Final Alpha|outline")
+    assert _view_cursor_paragraph_text(doc) == "Final Alpha"
 
 
 @native_test
@@ -501,12 +555,26 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
         content=[
             '<h1 data-lo-style="Heading 1">One</h1>',
             '<p><a href="#One|outline">whole para link</a></p>',
-            '<p>end link <a href="#Two|outline">to two</a></p>',
-            '<h2 data-lo-style="Heading 2">Two</h2>',
+            '<p>end link <a href="#Two part|outline" name="L2" target="_top">to <b>two</b></a></p>',
+            '<h2 data-lo-style="Heading 2">Two <b>part</b></h2>',
         ],
     )
     assert res.get("status") == "ok", res
-    initial_paras = len(_body_paragraphs(doc))
+
+    # Apply direct colour on the split link so Reject/Accept formatting preservation is pinned.
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        p = e.nextElement()
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getPropertyValue("HyperLinkURL") or "") == "#Two part|outline":
+                por.setPropertyValue("CharColor", 0x224466)
+
+    start_snap = _snapshot_paragraphs(doc)
+    user_author = _office_author(ctx)
 
     doc.setPropertyValue("RecordChanges", True)
     doc.setPropertyValue("ShowChanges", False)
@@ -514,9 +582,28 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
     assert res.get("status") == "ok", res
     assert res.get("links_retargeted", 0) >= 1, res
 
-    res = tool.execute(tool_ctx, target="search", old_content="Two", content="Two B")
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
     assert res.get("status") == "ok", res
-    assert res.get("links_retargeted", 0) >= 1, res
+    assert res.get("links_retargeted", 0) >= 2, res
+
+    # Verify link redlines are authored WriterAgent, heading redlines keep the user's author,
+    # and the office author was restored afterwards.
+    assert _office_author(ctx) == user_author
+    redlines = doc.getRedlines()
+    link_authors = []
+    heading_authors = []
+    for i in range(redlines.getCount()):
+        rl = redlines.getByIndex(i)
+        author = str(rl.getPropertyValue("RedlineAuthor") or "")
+        cur = rl.getPropertyValue("RedlineStart").getText().createTextCursorByRange(rl.getPropertyValue("RedlineStart"))
+        cur.gotoRange(rl.getPropertyValue("RedlineEnd"), True)
+        rtext = str(cur.getString() or "")
+        if rtext in ("whole para link", "to ", "two"):
+            link_authors.append(author)
+        elif rtext in ("One", "One B", "Two part", "Two B"):
+            heading_authors.append(author)
+    assert link_authors and all(a == "WriterAgent" for a in link_authors), link_authors
+    assert heading_authors and all(a != "WriterAgent" for a in heading_authors), heading_authors
 
     # Rename a second time while recording is still active.
     res = tool.execute(tool_ctx, target="search", old_content="One B", content="One C")
@@ -524,23 +611,51 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
 
     doc.setPropertyValue("ShowChanges", True)
     _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-    assert len(_body_paragraphs(doc)) == initial_paras
-    assert [u for _t, u in _read_portion_urls(doc)] == ["#One|outline", "#Two|outline"]
+    assert _snapshot_paragraphs(doc) == start_snap
 
-    # Re-apply and Accept All.
+    # Also reject once with the renames made under ShowChanges=True, and verify one Undo.
     res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
     assert res.get("status") == "ok", res
-    res = tool.execute(tool_ctx, target="search", old_content="Two", content="Two B")
+    doc.getUndoManager().undo()
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    # Re-apply and Accept All: check paragraphs, URLs, and preserved link look.
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
     assert res.get("status") == "ok", res
     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-    assert len(_body_paragraphs(doc)) == initial_paras
-    assert [u for _t, u in _read_portion_urls(doc)] == ["#One B|outline", "#Two B|outline"]
+    accepted = _snapshot_paragraphs(doc)
+    assert len(accepted) == len(start_snap)
+    assert [u for _t, u in _read_portion_urls(doc)] == [
+        "#One B|outline",
+        "#Two B|outline",
+        "#Two B|outline",
+    ]
+    two_runs = [r for _pt, runs in accepted for r in runs if r[0] in ("to ", "two")]
+    assert len(two_runs) == 2
+    for text_val, url_val, name_val, target_val, color_val, weight_val in two_runs:
+        assert url_val == "#Two B|outline"
+        assert name_val == "L2"
+        assert target_val == "_top"
+        assert color_val == 0x224466
+        if text_val == "two":
+            assert weight_val > 100.0
 
 
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
     from unittest.mock import patch
+    from plugin.writer.edit_review import EditReviewSession
+    from plugin.writer.hyperlink_fixup import retarget_outline_links
     from plugin.writer.inline_review import resolve_all_with_feedback
 
     tool_ctx = native_writer_tool_context(doc, ctx)
@@ -559,10 +674,16 @@ def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
         res = tool.execute(tool_ctx, target="search", old_content="Rev Old", content="Rev New")
         assert res.get("status") == "ok", res
 
-    # Link redlines carry wa-review: tokens.
+    # Every redline covering the link text ("here") carries a wa-review: token.
     redlines = doc.getRedlines()
-    comments = [str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "") for i in range(redlines.getCount())]
-    assert any(c.startswith("wa-review:") for c in comments), comments
+    link_comments = []
+    for i in range(redlines.getCount()):
+        rl = redlines.getByIndex(i)
+        cur = rl.getPropertyValue("RedlineStart").getText().createTextCursorByRange(rl.getPropertyValue("RedlineStart"))
+        cur.gotoRange(rl.getPropertyValue("RedlineEnd"), True)
+        if str(cur.getString() or "") == "here":
+            link_comments.append(str(rl.getPropertyValue("RedlineComment") or ""))
+    assert len(link_comments) >= 2 and all(c.startswith("wa-review:") for c in link_comments), link_comments
 
     count, msg = resolve_all_with_feedback(doc, ctx, True)
     assert count > 0 and msg == "", (count, msg)
@@ -577,6 +698,16 @@ def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
     assert count > 0 and msg == "", (count, msg)
     assert doc.getRedlines().getCount() == 0
     assert [u for _t, u in _read_portion_urls(doc)] == ["#Rev New|outline"]
+
+    # Direct EditReviewSession.tag_side_effects check: tokens are stamped, no ChangeRecord is added,
+    # and _pending_tokens does not wait for them.
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}))
+        assert session.changes == []
+        pending, reliable = session._pending_tokens()
+        assert pending == set() and reliable is True
+    assert doc.getRedlines().getCount() >= 2
+    resolve_all_with_feedback(doc, ctx, True)
 
 
 @native_test

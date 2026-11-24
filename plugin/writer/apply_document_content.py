@@ -452,12 +452,13 @@ _ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
 
 
 def _document_headings(doc: Any) -> list[tuple[int, str]]:
-    """Collect ``(level, text)`` headings from the body, table cells, and text frames.
+    """Collect ``(level, text)`` headings from the body, table cells, and text frames (Word text boxes included).
 
     ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
     with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
     (sw/source/core/doc/docnum.cxx) searches that list. The body-only ``build_heading_tree``
-    misses headings inside tables and text frames.
+    misses headings inside tables and text frames. When *tracked* deletions exist, every
+    paragraph is walked so a deletion's end marker in a non-heading paragraph updates state.
     """
     texts: list[Any] = []
     body_text = uno_read(lambda: doc.getText(), None)
@@ -491,15 +492,17 @@ def _document_headings(doc: Any) -> list[tuple[int, str]]:
 
 def _touches_heading(text_range: Any) -> bool:
     """True when any paragraph intersecting *text_range* has ``OutlineLevel > 0``."""
-    def check() -> bool:
-        cursor = text_range.getText().createTextCursorByRange(text_range)
-        for para in iter_elements(cursor.createEnumeration()):
-            level = para.getPropertyValue("OutlineLevel")
-            if isinstance(level, int) and level > 0:
-                return True
+    enum = uno_read(
+        lambda: text_range.getText().createTextCursorByRange(text_range).createEnumeration(),
+        None,
+    )
+    if enum is None:
         return False
-
-    return uno_read(check, False)
+    for para in iter_elements(enum):
+        level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
+        if isinstance(level, int) and level > 0:
+            return True
+    return False
 
 
 def _headings_if_touched(doc: Any, ranges: list[Any]) -> list[tuple[int, str]] | None:
@@ -826,7 +829,8 @@ class ApplyDocumentContent(ToolBase):
         replace verify its table inside the undo group. Returns the hyperlink reports;
         failures raise ToolExecutionError with the code the caller publishes.
         """
-        # Only whole-link search matches carry a matched-link URL to restore.
+        # Anchor spans skip this because their text never equals one link's title;
+        # renamed headings are handled separately below.
         anchor = None
         snapshot = None
         needs_fix = False
@@ -1442,6 +1446,7 @@ class ApplyDocumentContent(ToolBase):
         plain = params.plain
         has_table = params.has_table
         headings = _document_headings(ctx.doc)
+        # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
         with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.

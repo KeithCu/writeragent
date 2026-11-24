@@ -627,13 +627,14 @@ def _linked_ranges(doc: Any) -> list[Any]:
 def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list[str]]:
     """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
 
-    When recording changes, assigning ``HyperLinkURL`` directly is stripped by
-    ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx``) and cleared on
-    Reject by ``lcl_RejectRedline`` (``DocumentRedlineManager.cxx``). Plain-text
-    runs therefore re-insert the text with the new URL and delete the old run,
-    while runs already inside a tracked Insert are written directly because
-    Reject removes them whole. Field runs cannot be retyped and are reported
-    in the returned stale-URL list.
+    When recording changes, a tracked attribute write keeps the new URL, but
+    ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx:1318``) clears
+    ``RES_TXTATR_INETFMT`` from the saved old attributes so ``lcl_RejectRedline``
+    (``DocumentRedlineManager.cxx:956``, ``ResetAttrs``) loses the old link on
+    Reject. Plain-text runs therefore re-insert the text with the new URL and
+    delete the old run, while runs already inside a tracked Insert are written
+    directly because Reject removes them whole. Field runs cannot be retyped and
+    are reported in the returned stale-URL list.
     """
     urls = {f"#{old}{_OUTLINE_SUFFIX}": f"#{new}{_OUTLINE_SUFFIX}" for old, new in renames.items()}
     recording = is_recording_changes(doc)
@@ -666,6 +667,7 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
                 with record_changes(doc, False):
                     _write_plan_on_cursor(target, plan, look)
             else:
+                # Text inserted at a link's end does not inherit the link, so name and target are set explicitly.
                 plan["new_name"], plan["new_target"] = _prop(portion, _NAME), _prop(portion, _TARGET)
                 start = text.createTextCursorByRange(target.getStart())
                 retyped = text.createTextCursorByRange(target.getEnd())

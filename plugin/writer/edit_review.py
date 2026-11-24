@@ -534,9 +534,9 @@ class EditReviewSession:
         if not self._active:
             if not is_recording_changes(self.doc):
                 return apply_fn()
-            # LibreOffice merges same-author redlines across a paragraph mark (IsPrevPos /
-            # SwRedlineData::CanCombine in DocumentRedlineManager.cxx), so Reject would join
-            # the paragraphs; switch author to WriterAgent for these side-effect redlines.
+            # LibreOffice merges same-author redlines across a paragraph mark (IsPrevPos in
+            # DocumentRedlineManager.cxx and SwRedlineData::CanCombine in docredln.cxx), so Reject
+            # would join the paragraphs; switch author to WriterAgent for these side-effect redlines.
             prior = review_authors.begin(self.ctx)
             try:
                 return apply_fn()
