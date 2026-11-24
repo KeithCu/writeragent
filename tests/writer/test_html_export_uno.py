@@ -1582,17 +1582,19 @@ def test_titled_frame_omits_title_from_content_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
+    import re
+
     from plugin.writer.html_export import document_to_content
 
     text = doc.getText()
     cur = text.createTextCursor()
-    cur.setPropertyValue("CharWeight", 150.0)
-    cur.setPropertyValue("ParaAdjust", 1)
     text.insertString(cur, "BoldPara", False)
     text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("CharWeight", 100.0)
-    cur.setPropertyValue("ParaAdjust", 0)
     text.insertString(cur, "Keep StruckRun", False)
+
+    bold_cur = text.createTextCursorByRange(text.getStart())
+    bold_cur.gotoEndOfParagraph(True)
+    bold_cur.setPropertyValue("CharWeight", 150.0)
 
     doc.setPropertyValue("RecordChanges", True)
     try:
@@ -1604,8 +1606,11 @@ def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
     html = document_to_content(doc, ctx, scope="full")
-    assert "BoldPara" in html
-    assert "Keep" in html
     assert "StruckRun" not in html
-    assert "data-lo-para=" in html
-    assert "text-align:right" in html
+    blocks = re.findall(r"<p\b.*?</p>", re.sub(r"\s+", " ", html))
+    bold_block = next(b for b in blocks if "BoldPara" in b)
+    keep_block = next(b for b in blocks if "Keep" in b)
+    bold_open = bold_block.split(">", 1)[0]
+    keep_open = keep_block.split(">", 1)[0]
+    assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
+    assert "data-lo-para=" not in keep_open, keep_block
