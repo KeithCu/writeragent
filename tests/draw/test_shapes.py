@@ -259,6 +259,8 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
     pages = MagicMock()
     pages.getByIndex.return_value = page
 
+    page.group.return_value.getPropertyValue.return_value = 0
+
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
     ):
@@ -269,7 +271,7 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         result = GroupShapes().execute(tool_ctx, indices=[0, 1])
 
     assert result["status"] == "ok", result
-    assert result["index"] == page.getCount() - 1
+    assert result["index"] == 0
     doc.createInstance.assert_not_called()
     uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
         "com.sun.star.drawing.ShapeCollection",
@@ -719,6 +721,9 @@ def test_shape_group_name_failure_adds_warning():
         def Name(self, _value: str) -> None:
             raise RuntimeError("Name is read-only")
 
+        def getPropertyValue(self, _name: str) -> int:
+            return 0
+
     page.group.return_value = _ReadOnlyNameGroup()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
@@ -726,6 +731,7 @@ def test_shape_group_name_failure_adds_warning():
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = GroupShapes().execute(ctx, indices=["Left", "Right"])
     assert out["status"] == "ok"
+    assert out["index"] == 0
     assert out["name"] == ""
     assert out["warnings"] == ["Failed to assign group name"]
 
@@ -1248,13 +1254,25 @@ def test_shape_group_nested_ref_does_not_group():
     page.group.assert_not_called()
 
 
-def test_shape_group_rejects_duplicate_indices():
-    left = MagicMock()
-    left.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+def _make_fresh_proxy_page() -> tuple[MagicMock, list[MagicMock]]:
+    proxies: list[MagicMock] = []
+
+    def _get_by_index(_idx: int) -> MagicMock:
+        proxy = MagicMock()
+        proxy.Name = "Left"
+        proxy.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+        proxies.append(proxy)
+        return proxy
+
     page = MagicMock()
     page.getCount.return_value = 1
-    page.getByIndex.return_value = left
+    page.getByIndex.side_effect = _get_by_index
+    return page, proxies
 
+
+@pytest.mark.parametrize("refs", [[0, 0], [0, "0"], [0, "Left"]])
+def test_shape_group_rejects_duplicate_indices(refs: list[int | str]) -> None:
+    page, _proxies = _make_fresh_proxy_page()
     ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.ctx = MagicMock()
@@ -1262,9 +1280,32 @@ def test_shape_group_rejects_duplicate_indices():
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
     ):
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = GroupShapes().execute(ctx, indices=[0, 0])
+        out = GroupShapes().execute(ctx, indices=refs)
     assert out["status"] == "error"
     page.group.assert_not_called()
+
+
+def test_shape_align_rejects_duplicate_indices() -> None:
+    page, proxies = _make_fresh_proxy_page()
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = AlignShapes().execute(ctx, indices=[0, "Left"], alignment="left")
+    assert out["status"] == "error"
+    assert all(p.setPosition.call_count == 0 for p in proxies)
+
+
+def test_shape_group_null_group_returns_error() -> None:
+    ctx, _doc, page, _shapes, _created = _make_name_test_env(["Left", "Right"])
+    page.group.return_value = None
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=["Left", "Right"])
+    assert out["status"] == "error"
 
 
 def test_apply_shape_properties_sets_fill_and_line_style_via_uno_enum() -> None:

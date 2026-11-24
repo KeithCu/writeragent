@@ -76,6 +76,8 @@ New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, `sh
 
 Writer shapes must not use an as-character anchor (`XShapeGrouper` rejects those). `shape_upsert` sets `AnchorType=AT_PAGE` before `page.add`, which grouping accepts.
 
+`shape_group` returns the group's real page `index` (its topmost member's slot), read from `ZOrder`. Each shape may be passed once, whether by index or by Name; `shape_align` and `shape_distribute` enforce the same duplicate check. Grouping only Writer text frames is an error (`page.group` returns `None`).
+
 ## Edit Selection (Draw and Impress)
 
 Extend Selection and Edit Selection (menu, hamburger, and rewrite slash presets) stream LLM output into the selected text shape(s). A partial in-shape text highlight still rewrites the **whole** shape string (`setString` replaces all text). Character formatting inside the shape is dropped on write. Groups are descended in index order (children only); table shapes are skipped (cells are not read). Several selected shapes queue one stream task each, capped at 250 shapes, under one compound undo step for `/undo`. With no qualifying text target, the user is asked to select a text shape (with an extra note when only a table was selected). An empty slide selection does not fall back to rewriting the whole slide.
