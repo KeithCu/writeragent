@@ -879,13 +879,25 @@ def next_agent_edit_undo_title() -> str:
     return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
 
 
-def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
-                           **record_kwargs: Any) -> Any:
-    """Record an HTML/import mutation that DELETES before it inserts."""
+def record_html_atomically(
+    session: EditReviewSession,
+    doc: Any,
+    mutate: Callable[[], Any],
+    *,
+    clear_first: Callable[[], None] | None = None,
+    **record_kwargs: Any,
+) -> Any:
+    """Record an HTML/import mutation that DELETES before it inserts.
+
+    When *clear_first* is provided, it runs in the same undo group before
+    ``session.record_mutation`` (outside the recorded change).
+    """
     undo_title = next_agent_edit_undo_title()
     result_holder: list[Any] = []
 
     def do_mutate() -> None:
+        if clear_first is not None:
+            clear_first()
         res = session.record_mutation(mutate, **record_kwargs)
         result_holder.append(res)
 

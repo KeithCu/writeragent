@@ -138,8 +138,8 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     undo_mgr.enterUndoContext.assert_called_once()
     undo_mgr.leaveUndoContext.assert_called_once()
     undo_mgr.undo.assert_called_once()
-    assert len(cursor.setString.call_args_list) == 1
-    assert cursor.setString.call_args_list[0].args == ("",)
+    assert len(text.setString.call_args_list) == 1
+    assert text.setString.call_args_list[0].args == ("",)
 
 
 def _undo_model():
@@ -227,7 +227,7 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     with pytest.raises(ToolExecutionError, match="Could not enter undo context"):
         replace_xtext_with_html(text, "<p>New</p>", model=model)
 
-    cursor.setString.assert_not_called()
+    text.setString.assert_not_called()
 
 
 
@@ -532,6 +532,9 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
         def getString(self):
             return self._text
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             if self._boom is not None:
                 raise self._boom
@@ -542,6 +545,9 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()
@@ -593,6 +599,9 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
         def getString(self):
             return self._text
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             return _Enum(self._walk)
 
@@ -604,6 +613,9 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()
@@ -646,12 +658,18 @@ def test_trailing_paragraph_disposal_is_not_success():
         def getString(self):
             return ""
 
+        def supportsService(self, _service):
+            return False
+
         def createEnumeration(self):
             raise type("DisposedException", (Exception,), {})("gone")
 
     class _Text:
         def getString(self):
             return ""
+
+        def setString(self, _s):
+            pass
 
         def createTextCursor(self):
             cursor = MagicMock()

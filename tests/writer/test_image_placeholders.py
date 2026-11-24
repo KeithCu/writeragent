@@ -26,11 +26,11 @@ def _graphics_doc(*names):
 
 
 def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
-    from plugin.writer.image_placeholders import _swap_image_placeholders
+    from plugin.writer.image_placeholders import capture_placeholder_images
 
     model = _graphics_doc("Assinatura", "Selo")
     content = _FRAME + '<p>Texto <span class="graphic-fr2" id="Selo"><img src=""/></span> depois.</p>'
-    swapped, kept = _swap_image_placeholders(model, content)
+    swapped, kept = capture_placeholder_images(model, content)
     assert [k.name for k in kept] == ["Assinatura", "Selo"]
     assert "<img" not in swapped and "clear:both" not in swapped  # no stray empty paragraph either
     assert swapped.count(kept[0].marker) == 1 and "Pelotas." in swapped
@@ -39,11 +39,11 @@ def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
 def test_swap_image_placeholders_keeps_a_picture_inside_a_heading():
     # The export puts a <p> between the wrapper and the <img> when the picture sits in a heading;
     # the edit was refused as "an image without its data" before.
-    from plugin.writer.image_placeholders import _swap_image_placeholders
+    from plugin.writer.image_placeholders import capture_placeholder_images
 
     content = ('<h1 data-lo-style="Heading1"><a id="a__1423bb33"><span/></a><span class="graphic-fr1" id="Image2">'
                '<p><img alt="" src=""/></p></span>AO DOUTO JUIZO</h1>')
-    swapped, kept = _swap_image_placeholders(_graphics_doc("Image2"), content)
+    swapped, kept = capture_placeholder_images(_graphics_doc("Image2"), content)
     assert [k.name for k in kept] == ["Image2"]
     assert "<img" not in swapped and "<p>" not in swapped and swapped.count(kept[0].marker) == 1
     assert "AO DOUTO JUIZO</h1>" in swapped
@@ -53,12 +53,12 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     """Losing a signature silently is worse than failing before anything changed."""
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.image_placeholders import _swap_image_placeholders
+    from plugin.writer.image_placeholders import capture_placeholder_images
 
     with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-        _swap_image_placeholders(_graphics_doc(), _FRAME)
+        capture_placeholder_images(_graphics_doc(), _FRAME)
     with pytest.raises(ToolExecutionError, match="without its data"):
-        _swap_image_placeholders(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
+        capture_placeholder_images(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
 
 
 @pytest.mark.parametrize("markup", [
@@ -68,18 +68,18 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
 ])
 def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.image_placeholders import _swap_image_placeholders
+    from plugin.writer.image_placeholders import capture_placeholder_images
 
     with pytest.raises(ToolExecutionError, match="without its data"):
-        _swap_image_placeholders(_graphics_doc("Selo"), markup)
+        capture_placeholder_images(_graphics_doc("Selo"), markup)
 
 
 def test_swap_image_placeholders_leaves_other_content_alone():
-    from plugin.writer.image_placeholders import _swap_image_placeholders
+    from plugin.writer.image_placeholders import capture_placeholder_images
 
     model = MagicMock()
     content = '<p>Sem imagem</p><img src="data:image/png;base64,AAAA"/>'
-    assert _swap_image_placeholders(model, content) == (content, [])
+    assert capture_placeholder_images(model, content) == (content, [])
     model.getGraphicObjects.assert_not_called()
 
 

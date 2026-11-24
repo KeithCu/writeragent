@@ -147,7 +147,10 @@ made in `record_preserve_replace` in
   synthetic leftover paragraph opened before the import is also dropped untracked (`RecordChanges`
   temporarily off) via `_drop_leftover_paragraph` — merging forward after a trailing table — so
   the paragraph break is not a tracked delete, keeping separate paragraphs intact without word
-  concatenation. Before a leading table, `_insert_mixed_or_plain_html` is the single owner that
+  concatenation. In `full_document`, leading tables are out of reach of the body cursor, so
+  `_edit_full_document` deletes them first via `delete_leading_tables` (when recording, one
+  tracked deletion per table before the new content; own pending-insertion tables are removed
+  outright). Before a leading table, `_insert_mixed_or_plain_html` is the single owner that
   disposes the empty split-node paragraph untracked via `_drop_empty_paragraph_before_table`
   across all body write paths, while `insert_html_after_paragraph` owns only the trailing
   leftover. A change starting at a table has no text range for per-change inline resolution and

@@ -22,6 +22,7 @@ import uuid
 from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from .range_copy import table_is_all_deleted
 from .record_changes import is_recording_changes, redline_kinds_covering
 
 log = logging.getLogger("writeragent.writer")
@@ -61,7 +62,7 @@ class _KeptImage(NamedTuple):
     props: dict[str, Any]
 
 
-def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
+def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
     """Swap each data-less image wrapper that names a picture of *model* for a text marker.
 
     Runs BEFORE the edit deletes anything: the picture is read now, while it still exists (with
@@ -86,7 +87,7 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
             try:
                 props[prop] = obj.getPropertyValue(prop)
             except Exception as exc:
-                log.debug("_swap_image_placeholders: skip property %s: %s", prop, exc)
+                log.debug("capture_placeholder_images: skip property %s: %s", prop, exc)
         marker = "wa%simg%d" % (nonce, len(kept))
         kept.append(_KeptImage(marker, name, obj, obj.getPropertyValue("Graphic"),
                                obj.getPropertyValue("AnchorType"), obj.getSize(), props))
@@ -134,7 +135,15 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
             point = anchor.getText().createTextCursorByRange(anchor.getStart())
             point.gotoEndOfParagraph(False)
             if not point.goRight(1, True):
-                return False  # the last paragraph has no break: it stays
+                if not uno_read(
+                    lambda: anchor.getText().supportsService("com.sun.star.text.CellProperties") is True,
+                    False,
+                ):
+                    return False  # the last paragraph has no break: it stays
+                # A cell's last paragraph has no trailing break; restore only when the whole
+                # table is struck (not on a search-replace inside the cell).
+                table = uno_read(lambda: point.getPropertyValue("TextTable"), None)
+                return table is not None and table_is_all_deleted(model, table)
         except Exception as exc:
             reraise_if_disposed(exc)
             return False
@@ -212,9 +221,19 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
 
 
 @contextlib.contextmanager
-def keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
-    """Yield *content* with data-less images swapped for markers; put the pictures back after."""
-    swapped, kept = _swap_image_placeholders(model, content)
+def keep_placeholder_images(
+    model: Any,
+    content: str,
+    *,
+    pre_swapped: tuple[str, list[_KeptImage]] | None = None,
+) -> Generator[str, None, None]:
+    """Yield *content* with data-less images swapped for markers; put the pictures back after.
+
+    Callers that delete content before entering this context (such as
+    ``_edit_full_document`` clearing leading tables) pass *pre_swapped* from
+    ``capture_placeholder_images`` so pictures are read before anything is deleted.
+    """
+    swapped, kept = pre_swapped if pre_swapped is not None else capture_placeholder_images(model, content)
     yield swapped
     if kept:
         _restore_image_placeholders(model, kept)
