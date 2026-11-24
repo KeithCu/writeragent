@@ -134,14 +134,10 @@ def test_execute_and_insert_vision_rejects_unsupported_doc(mock_venv):
     mock_venv.assert_not_called()
 
 
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_surfaces_no_image_selected(mock_resolve):
-    from plugin.framework.errors import ToolExecutionError
-
+def test_execute_and_insert_vision_surfaces_no_image_selected():
     ctx = MagicMock()
     doc = MagicMock()
     code = get_vision_script_templates()["extract_text"]
-    mock_resolve.side_effect = ToolExecutionError("Select an embedded image, then Run again.", code="NO_IMAGE_SELECTED")
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
@@ -206,10 +202,9 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+    ), patch(
         "plugin.scripting.client.run_vision"
     ) as mock_run_vision:
-        mock_resolve.return_value = b"png"
         mock_run_vision.return_value = {
             "status": "ok",
             "html": "<p>mock</p>",
@@ -247,10 +242,9 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+    ), patch(
         "plugin.scripting.client.run_vision"
     ) as mock_run_vision:
-        mock_resolve.return_value = b"png"
         mock_run_vision.return_value = {
             "status": "ok",
             "html": "<p>mock</p>",
