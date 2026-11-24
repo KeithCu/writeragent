@@ -97,23 +97,15 @@ def _stub_gc_policy_install_for_headless_tests(request, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_main_thread_policy_for_tests():
-    """Ensure MainThread policy, designated thread, and queued posts do not leak across tests."""
-    import queue
+    """Ensure MainThread policy, designated thread, context, AsyncCallback, and queued posts do not leak across tests."""
+    from tests.harness.main_thread import reset_main_thread
 
-    from plugin.framework.queue_executor import Policy, main
-
+    # Reset before the test too: a background thread from the previous test can post late.
+    reset_main_thread()
     try:
         yield
     finally:
-        main.install(Policy.production, designated=None, poke=None)
-        while not main._work_queue.empty():
-            try:
-                main._work_queue.get_nowait()
-            except queue.Empty:
-                break
-        with main._pending_lock:
-            main._pending_posts.clear()
-            main._pending_lock.notify_all()
+        reset_main_thread()
 
 
 @pytest.fixture(autouse=True)
