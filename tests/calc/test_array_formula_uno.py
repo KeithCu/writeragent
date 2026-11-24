@@ -6,6 +6,7 @@
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, libreoffice_version, with_native_doc
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
 
 @native_test
@@ -149,11 +150,10 @@ def test_single_row_array_repeats_down_the_range(ctx, doc):
 @with_native_doc("calc")
 def test_array_true_py_list(ctx, doc):
     from plugin.calc.python.workbook_state import WorkbookState
-    from tests.calc.python.test_function_uno import _with_repo_venv_for_tests
 
     sheet = doc.getCurrentController().getActiveSheet()
     try:
-        with _with_repo_venv_for_tests(ctx):
+        with repo_venv_in_profile():
             res = _execute_calc_tool(
                 doc,
                 ctx,

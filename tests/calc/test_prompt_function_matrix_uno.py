@@ -4,6 +4,7 @@ import unittest.mock
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import libreoffice_version, with_native_doc
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
 
 _MATRIX: dict[str, tuple[str, ...]] = {
@@ -45,17 +46,16 @@ def _shown(sheet, col: int, row: int) -> str:
     return f"Err:{code}" if code else cell.getString()
 
 
-@native_test
+@native_test(timeout=60)
 @with_native_doc("calc")
 def test_live_array_formula_block_and_recalc(ctx, doc):
     """Real {=PY} array blocks return every element on 26.8+ (top-left before), stay stable on recalc, and support Calc formulas."""
     from plugin.calc.python.workbook_state import WorkbookState
-    from tests.calc.python.test_function_uno import _with_repo_venv_for_tests
 
     expected = _MATRIX if libreoffice_version(ctx) >= (26, 8) else _TOP_LEFT
     sheet = doc.getCurrentController().getActiveSheet()
     try:
-        with _with_repo_venv_for_tests(ctx):
+        with repo_venv_in_profile():
             # Unique code per block so on-main calls resolve each origin and is_matrix suppresses spill
             # (off-main build_cell_context sets no origin and returns the native matrix directly).
             sheet.getCellRangeByPosition(0, 0, 0, 3).setArrayFormula('=PYTHON("result = [10, 20, 30, 40]")')
@@ -145,7 +145,7 @@ def test_array_blocks_survive_save_and_reload(ctx, doc):
 
     from plugin.calc.python.workbook_state import WorkbookState
     from plugin.framework.uno_context import get_desktop
-    from tests.calc.python.test_function_uno import _wait_spill_settled, _with_repo_venv_for_tests
+    from tests.calc.python.test_function_uno import _wait_spill_settled
 
     is_matrix = libreoffice_version(ctx) >= (26, 8)
     expected = (
@@ -174,7 +174,7 @@ def test_array_blocks_survive_save_and_reload(ctx, doc):
 
     sheet = doc.getCurrentController().getActiveSheet()
     try:
-        with _with_repo_venv_for_tests(ctx):
+        with repo_venv_in_profile():
             sheet.getCellRangeByPosition(0, 0, 0, 3).setArrayFormula('=PYTHON("result = [10, 20, 30, 40]")')
             sheet.getCellRangeByPosition(1, 0, 1, 1).setArrayFormula('=PYTHON("result = [\'North\', \'South\']")')
             sheet.getCellRangeByPosition(2, 0, 3, 2).setArrayFormula(
