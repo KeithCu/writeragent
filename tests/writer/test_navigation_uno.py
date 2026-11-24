@@ -128,3 +128,56 @@ def test_navigate_table(ctx, doc):
     res2 = tool.execute(mock_ctx, locator="table:UnknownTable", radius=2)
     assert res2.get("status") == "error", res2
     assert "Table 'UnknownTable' not found" in res2.get("message", ""), res2
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_get_surroundings_frames_include_text_boxes_uno(ctx, doc):
+    from com.sun.star.awt import Point, Size
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PAGE, AT_PARAGRAPH
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for idx in range(4):
+        text.insertString(cur, f"Paragraph {idx}", False)
+        if idx < 3:
+            text.insertControlCharacter(cur, 0, False)
+
+    para_enum = text.createEnumeration()
+    paras = []
+    while para_enum.hasMoreElements():
+        paras.append(para_enum.nextElement())
+
+    plain = doc.createInstance("com.sun.star.text.TextFrame")
+    plain.setPropertyValue("Size", Size(3000, 1500))
+    plain.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    text.insertTextContent(paras[1].getStart(), plain, False)
+    plain.setName("PlainFrame")
+
+    def _add_box(shape_name: str, anchor_type, anchor_range, *, page_no: int | None = None) -> str:
+        shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+        shape.setName(shape_name)
+        shape.setSize(Size(3000, 1500))
+        shape.setPosition(Point(500, 500))
+        shape.setPropertyValue("AnchorType", anchor_type)
+        if page_no is not None:
+            shape.setPropertyValue("AnchorPageNo", page_no)
+        text.insertTextContent(anchor_range, shape, False)
+        shape.setPropertyValue("TextBox", True)
+        shape.setString(shape_name)
+        return shape.getPropertyValue("TextBoxContent").getName()
+
+    para_box_name = _add_box("ParaBox", AT_PARAGRAPH, paras[0].getStart())
+    as_char_box_name = _add_box("AsCharBox", AS_CHARACTER, paras[2].getEnd())
+    page_box_name = _add_box("PageBox", AT_PAGE, paras[0].getStart(), page_no=1)
+
+    res = NavSurroundings().execute(MockContext(doc, ctx), locator="paragraph:1", radius=5, include=["frames"])
+    assert res.get("status") == "ok", res
+    by_name = {f["name"]: f for f in res["frames"]}
+    assert "PlainFrame" in by_name, by_name
+    assert by_name["PlainFrame"]["paragraph_index"] == 1
+    assert para_box_name in by_name, by_name
+    assert by_name[para_box_name]["paragraph_index"] == 0
+    assert as_char_box_name in by_name, by_name
+    assert by_name[as_char_box_name]["paragraph_index"] == 2
+    assert page_box_name not in by_name, by_name

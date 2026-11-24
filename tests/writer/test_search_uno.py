@@ -290,3 +290,39 @@ def test_explicit_case_sensitive_chains_paragraphs_uno(ctx, doc):
     )
     assert miss.get("status") == "ok", miss
     assert miss.get("replaceable_count") == 0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_search_miss_names_closest_text_box_text_uno(ctx, doc):
+    from com.sun.star.awt import Point, Size
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.search import get_search_miss_haystack
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Body paragraph.", False)
+
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    shape.setName("HintBox")
+    shape.setSize(Size(4000, 2000))
+    shape.setPosition(Point(1000, 1000))
+    text.insertTextContent(cur, shape, False)
+    shape.setPropertyValue("TextBox", True)
+    box_phrase = "atchar box unique text"
+    shape.setString(box_phrase)
+
+    hay = get_search_miss_haystack(doc)
+    assert hay.count(box_phrase) == 1, hay
+
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="atchar box unique texe",
+        content="updated",
+    )
+    assert res.get("status") == "error", res
+    msg = res.get("message", "")
+    assert "closest match" in msg, res
+    assert "atchar box" in msg, res

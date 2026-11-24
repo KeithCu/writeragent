@@ -45,6 +45,7 @@ from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
 from plugin.contrib.cdp import browser_cdp_tool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot import web_research_firefox
 from plugin.chatbot.tool_loop_state import as_dict
@@ -497,6 +498,7 @@ def _run_web_agent(
         )
     )
     visit_tool = PagedVisitTool(visit_inner, params.pages, stop_checker=stop_checker)
+    # See build_toolcalling_agent: the agent console is not redacted.
     agent = WebResearchToolCallingAgent(
         tools=[
             DuckDuckGoSearchTool(
@@ -513,6 +515,7 @@ def _run_web_agent(
         max_steps=max_steps,
         instructions=instructions,
         system_prompt_examples=get_examples_block("web_research"),
+        verbosity_level=LogLevel.OFF,
     )
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"

@@ -15,17 +15,20 @@ import urllib.parse
 from typing import Any
 
 from plugin.framework.errors import NetworkError
+from plugin.framework.logging import is_secret_key
 
 
-# Header names whose values are credentials. Matched case-insensitively.
-# Cookie and proxy-authorization are credentials too. They are stripped on
-# cross-origin redirect hops and redacted from logs, along with authorization
-# and API-key variants.
-_SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "proxy-authorization"})
-# Query keys that carry credentials. ``output_modalities`` is not one of these.
-_SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
 # urllib followed these. 304/300 are not automatic hops.
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def is_credential_name(name: str) -> bool:
+    """True when an HTTP header or URL query parameter called *name* carries a credential.
+
+    Broader than is_secret_key, which also judges tool arguments, where names such as
+    ``sort_key`` are data. ``max_tokens`` and ``output_modalities`` are not credentials.
+    """
+    return is_secret_key(name) or name.lower().endswith(("key", "token"))
 
 
 def redact_secrets(text: str, secrets: list[str] | None) -> str:
@@ -40,12 +43,12 @@ def redact_secrets(text: str, secrets: list[str] | None) -> str:
 
 
 def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
-    """Bearer tokens and API-key header values that must not appear in errors."""
+    """Bearer tokens and credential header values that must not appear in errors."""
     secrets: list[str] = []
     for key, value in (headers or {}).items():
-        low = str(key).lower()
-        if not value or low not in _SECRET_HEADER_NAMES:
+        if not value or not is_credential_name(str(key)):
             continue
+        low = str(key).lower()
         raw = str(value).strip()
         parts = raw.split(None, 1)
         token = parts[1].strip() if low == "authorization" and len(parts) == 2 else raw
@@ -55,24 +58,22 @@ def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
 
 
 def secrets_from_target(url_or_path: str) -> list[str]:
-    """Credential query values and URL userinfo passwords."""
+    """Credential query values and the URL userinfo password, as written and percent-decoded."""
     raw = url_or_path or ""
     if "://" not in raw:
         raw = "http://placeholder.invalid" + (raw if raw.startswith("/") else "/" + raw)
     try:
         parsed = urllib.parse.urlparse(raw)
-        pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=False)
     except (ValueError, TypeError):
         return []
     secrets: list[str] = []
-    for key, value in pairs:
-        if key.lower() in _SECRET_QUERY_KEYS and value:
-            secrets.append(value)
+    for pair in parsed.query.split("&"):
+        raw_key, _sep, raw_value = pair.partition("=")
+        if raw_value and is_credential_name(urllib.parse.unquote_plus(raw_key)):
+            secrets.extend((raw_value, urllib.parse.unquote_plus(raw_value)))
     password = parsed.password
     if password:
-        revealed = urllib.parse.unquote(password)
-        if revealed:
-            secrets.append(revealed)
+        secrets.extend((password, urllib.parse.unquote(password)))
     return secrets
 
 
@@ -191,7 +192,7 @@ def apply_redirect(
         new_headers = {key: value for key, value in new_headers.items() if key.lower() not in ("content-length", "content-type")}
     cross_origin = _origin_key(current_url) != _origin_key(origin)
     if cross_origin:
-        new_headers = {key: value for key, value in new_headers.items() if key.lower() not in _SECRET_HEADER_NAMES}
+        new_headers = {key: value for key, value in new_headers.items() if not is_credential_name(key)}
     return new_method, new_body, new_headers, origin, path, cross_origin
 
 

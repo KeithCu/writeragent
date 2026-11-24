@@ -1655,3 +1655,47 @@ def test_web_research_prompt_overhead_fits_within_minimum_window():
     wire_tools = json.dumps([get_tool_json_schema(t) for t in agent.tools.values()])
     overhead_tokens = (len(agent.system_prompt) + len(wire_tools)) // 4
     assert 1_000 < overhead_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS // 3
+
+
+def test_run_web_agent_prints_nothing(capsys):
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+
+    smol_model = MagicMock()
+    smol_model.generate.side_effect = [
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="final_answer", arguments={"answer": "web-answer"}),
+                    id="call_1",
+                    type="function",
+                )
+            ],
+        )
+    ]
+    params = WebAgentRunParams(
+        smol_model=smol_model,
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="secret-query",
+    )
+    ctx = MagicMock()
+    ctx.send_cancellation = None
+
+    result = _run_web_agent(ctx, "secret-query", None, params)
+    assert result == "web-answer"
+    assert capsys.readouterr().out == ""
