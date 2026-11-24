@@ -1254,24 +1254,18 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
     from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
     from plugin.framework.tool import ToolRegistry
-    from plugin.framework.tool_schema import to_mcp_schema
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
 
     register_writeragent_prompt_hooks()
     services = MagicMock()
     services.document.get_active_document.return_value = None
     registry = ToolRegistry(services)
-    delegate_tool = DelegateToSubagent()
-    registry.register(delegate_tool)
+    registry.register(DelegateToSubagent())
     register_writeragent_tool_filters(registry)
 
     with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
-        no_doc_delegate = to_mcp_schema(delegate_tool, doc_type=None)
-        no_doc_domain = no_doc_delegate["inputSchema"]["properties"]["domain"]
-        assert "mcp" not in no_doc_domain["enum"]
-        assert "web_research" not in no_doc_domain["enum"]
-
         for kwargs in (
+            {"doc_type": None, "filter_doc_type": False},
             {"doc_type": "writer"},
             {"doc_type": "calc", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[0]})},
             {"doc_type": "draw", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[2]})},
@@ -1283,6 +1277,9 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
             assert "web_research" not in domain_prop["enum"]
             assert "mcp" not in domain_prop["description"]
             assert "mcp" not in delegate["description"]
+            if kwargs.get("doc_type") is None:
+                assert "sheets" in domain_prop["enum"]
+                assert "slide_layouts" in domain_prop["enum"]
 
         chat_schemas = registry.get_schemas("openai", doc_type="writer", ctx=object())
         chat_delegate = next(s for s in chat_schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)

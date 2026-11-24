@@ -713,7 +713,6 @@ class WarmChild(ChildSlot):
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         self._killed_by_us = False
         self._death_hook_fired = False
-        cap_sec = SPAWN_READY_TIMEOUT_SEC
         managed = ManagedSubprocess(
             self.spec.argv,
             base_env=self.spec.env,
@@ -732,7 +731,7 @@ class WarmChild(ChildSlot):
             worker_id=0,
             start=functools.partial(self._supervisor.spawn, timeout_sec=spawn_for),
             deadline=deadline,
-            cap_sec=cap_sec,
+            cap_sec=SPAWN_READY_TIMEOUT_SEC,
             max_payload_bytes=self.spec.max_payload_bytes,
             unpacker=self.spec.unpacker,
         )

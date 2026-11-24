@@ -537,6 +537,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         label = agent_label_for(doc_type=doc_type)
         props["domain"]["description"] = format_specialized_domains_description(agent_label=label)
         # get_parameters keeps chat-tier domains so execute() can refuse them by name; MCP lists omit them.
+        # With no doc_type, agent_label_for answers "Writer" while the enum must merge all apps.
         props["domain"]["enum"] = [
             e["domain"] for e in get_specialized_domain_catalog(agent_label=label if doc_type else None, for_mcp=True)
         ]
