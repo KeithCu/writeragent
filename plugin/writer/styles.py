@@ -855,6 +855,27 @@ def _is_paragraph_property(name: str) -> bool:
     return name.startswith("Para") or name in _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES
 
 
+# Writer rejects setting these to their own default, so a reset of them cannot be recorded.
+_UNRECORDABLE_CHAR_RESETS = frozenset({"CharStyleName", "CharAutoStyleName", "CharInteropGrabBag"})
+
+
+def _recordable_reset_values(cursor: Any, names: Iterable[str]) -> dict[str, Any]:
+    """Values to set before a reset so Track Changes records it.
+
+    SwDoc::ResetAttrs (docfmt.cxx) records nothing. lcl_SetRedline
+    (DocumentContentOperationsManager.cxx) stores each portion's old character
+    attributes when a value is set. The value itself is irrelevant because the
+    reset drops it.
+    """
+    values: dict[str, Any] = {}
+    for name in names:
+        if name.startswith("Char") and name not in _UNRECORDABLE_CHAR_RESETS:
+            default = cursor.getPropertyDefault(name)
+            if default is not None:  # void for property-map entries without a pool item
+                values[name] = default
+    return values
+
+
 def _convert_value(prop_name: str, value: Any) -> Any:
     """Convert color strings and validate CharPosture before passing to UNO."""
     if prop_name in _COLOR_PROPERTIES:
@@ -1561,6 +1582,7 @@ class ApplyStyle(FrameworkToolBase):
         family: str,
         target: str,
         reports: list[ParagraphStyleApplyReport | None],
+        doc: Any = None,
     ) -> dict[str, Any]:
         res: dict[str, Any] = {
             "status": "ok",
@@ -1575,7 +1597,7 @@ class ApplyStyle(FrameworkToolBase):
         else:
             res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
         res.update(self._merge_reports(reports))
-        flag_style_unreviewed(res)
+        flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
         return res
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1629,7 +1651,7 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        res = self._success(style_name, family, target, reports)
+        res = self._success(style_name, family, target, reports, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -1725,11 +1747,15 @@ class StyleFormatText(ToolWriterStyleBase):
         if prop_err is not None:
             return prop_err
 
+        reset_values = _recordable_reset_values(cursors[0], reset_names)
+        tracked = False
+
         # One body-spanning cursor covers tables (including nested tables) because
         # lcl_InsAttr and ResetAttrs walk every node in the range.
         def apply_one(cursor: Any) -> list[str]:
-            if updates:
-                set_cursor_properties(cursor, updates)
+            pre_updates = {**reset_values, **updates} if tracked else updates
+            if pre_updates:
+                set_cursor_properties(cursor, pre_updates)
             if not reset_names:
                 return []
             cleared = reset_properties_to_default(cursor, reset_names)
@@ -1747,15 +1773,14 @@ class StyleFormatText(ToolWriterStyleBase):
                 actually_cleared.append(name)
             return actually_cleared
 
-        # SwDoc::ResetAttrs has no redline branch, so resets cannot be tracked and flag style_unreviewed instead.
-        record = review_recording_enabled() and bool(updates)
+        record = review_recording_enabled() and bool(updates or reset_values)
         label = "direct formatting"
         # Catch ValueError here so a single-cursor type rejection from setPropertyValues
         # reports INVALID_PARAM with "Nothing was changed" (matching the multi-cursor path)
         # instead of escaping to execute_safe as a generic tool crash; disposal already re-raised.
         try:
             with (record_changes(ctx.doc, True) if record else nullcontext()):
-                tracked = bool(updates) and is_recording_changes(ctx.doc)
+                tracked = bool(updates or reset_values) and is_recording_changes(ctx.doc)
                 reports, err = apply_to_cursors(
                     self, ctx, cursors, apply_one, label, single_action=not reset_names
                 )
@@ -1826,8 +1851,9 @@ class StyleFormatText(ToolWriterStyleBase):
 
         if tracked:
             res = annotate_review_status(res)
-        if reset_done or not tracked:
-            flag_style_unreviewed(res)
+        untracked_resets = [n for n in reset_done if not (tracked and n in reset_values)]
+        if untracked_resets or not tracked:
+            flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -1951,7 +1977,7 @@ class StyleUpdate(ToolWriterStyleBase):
             if warning:
                 result["warning"] = warning
 
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result
 
 
@@ -2076,7 +2102,7 @@ class StyleCreate(ToolWriterStyleBase):
             warning = _font_not_installed_warning(ctx, applied["CharFontName"])
             if warning:
                 result["warning"] = warning
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result
 
 
@@ -2147,7 +2173,7 @@ class StyleClone(ToolWriterStyleBase):
             "new_style": new_name,
             **stats,
         }
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, doc)
         return result
 
 
@@ -2205,5 +2231,5 @@ class StyleImport(ToolWriterStyleBase):
         ctx.doc.loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result

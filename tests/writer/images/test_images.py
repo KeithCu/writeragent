@@ -755,6 +755,26 @@ def test_image_delete_draw_ambiguous_name():
     assert "Several shapes named 'Pic'" in res["message"]
 
 
+@pytest.mark.parametrize("tracked", [True, False])
+def test_image_delete_tracked_vs_untracked(tracked):
+    ctx = MagicMock()
+    graphic = MagicMock()
+    with (
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
+        patch("plugin.doc.visual_helpers.delete_graphic", return_value=tracked) as mock_del,
+    ):
+        res = ImageDelete().execute(ctx, name="Pic")
+
+    mock_del.assert_called_once_with(ctx.ctx, ctx.doc, graphic)
+    assert res["status"] == "ok"
+    assert res["deleted"] == "Pic"
+    if tracked:
+        assert res["tracked"] is True
+        assert "marked for deletion" in res["message"]
+    else:
+        assert "tracked" not in res
+
+
 def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"

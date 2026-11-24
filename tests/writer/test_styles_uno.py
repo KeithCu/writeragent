@@ -452,8 +452,17 @@ def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, 
         count_before_reset = doc.getRedlines().getCount()
         res_reset = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
         assert res_reset["status"] == "ok", res_reset
-        assert res_reset["tracked"] is False
-        assert doc.getRedlines().getCount() == count_before_reset
+        assert res_reset["tracked"] is True
+        assert "style_unreviewed" not in res_reset
+        assert doc.getRedlines().getCount() > count_before_reset
+        style_font = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard").getPropertyValue("CharFontName")
+        after_reset = dict(_portion_fonts(text))
+        assert after_reset["Body"]["CharFontName"] == style_font
+        assert after_reset["Cell"]["CharFontName"] == style_font
+        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        restored_after_reset = dict(_portion_fonts(text))
+        assert restored_after_reset["Body"]["CharFontName"] == "Liberation Serif"
+        assert restored_after_reset["Cell"]["CharFontName"] == "Liberation Mono"
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -571,5 +580,97 @@ def test_style_format_text_bad_value_leaves_document_unchanged_uno(ctx, doc):
     assert "CharFontName" in res["message"] and "CharWeight" in res["message"]
     assert all(p[1]["CharFontName"] == "Liberation Serif" for p in _portion_fonts(text))
     assert len(undo_mgr.getAllUndoActionTitles()) == undo_before
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_mixed_set_and_reset_including_unrecordable_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharFontName", "Liberation Mono")
+    text.insertString(cur, "Mixed", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = StyleFormatText().execute(
+            tool_ctx,
+            properties={"CharWeight": 150.0},
+            reset=["CharFontName", "CharStyleName"],
+            target="full_document",
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert res["style_unreviewed"] is True
+        assert doc.getRedlines().getCount() > 0
+
+        doc.getUndoManager().undo()
+        restored = dict(_portion_fonts(text))
+        assert restored["Mixed"]["CharFontName"] == "Liberation Mono"
+        assert restored["Mixed"]["CharWeight"] == 100.0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_reset_accept_leaves_style_font_also_after_style_edit_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharFontName", "Liberation Mono")
+    text.insertString(cur, "Styled", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+        std = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard")
+        assert dict(_portion_fonts(text))["Styled"]["CharFontName"] == std.getPropertyValue("CharFontName")
+
+        std.setPropertyValue("CharFontName", "DejaVu Sans")
+        assert dict(_portion_fonts(text))["Styled"]["CharFontName"] == "DejaVu Sans"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_para_reset_is_untracked_and_flagged_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("ParaLeftMargin", 1000)
+    text.insertString(cur, "Indented", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        before = doc.getRedlines().getCount()
+        res = StyleFormatText().execute(tool_ctx, reset=["ParaLeftMargin"], target="full_document")
+        assert res["status"] == "ok", res
+        assert res["tracked"] is False
+        assert res["style_unreviewed"] is True
+        assert doc.getRedlines().getCount() == before
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
 
 

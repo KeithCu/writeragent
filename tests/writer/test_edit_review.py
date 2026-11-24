@@ -11,6 +11,7 @@ import pytest
 from plugin.writer.edit_review import (
     annotate_review_status,
     edit_review_wait_seconds,
+    flag_style_unreviewed,
     get_agent_edit_review_mode,
     review_recording_enabled,
 )
@@ -1150,5 +1151,23 @@ def test_wait_mode_also_annotated():
 def test_error_result_not_annotated(value, value_2, value_3):
     out = _annotate_review_status_with_mode(value, {"status": value_2, "message": value_3})
     assert "pending_review" not in out
+
+
+@pytest.mark.parametrize(
+    "mode,recording,pass_doc,expected",
+    [
+        pytest.param("off", True, True, True, id="off_recording_doc_flags"),
+        pytest.param("off", False, True, False, id="off_nonrecording_doc_does_not_flag"),
+        pytest.param("off", False, False, False, id="off_no_doc_does_not_flag"),
+        pytest.param("record", False, False, True, id="record_no_doc_flags"),
+    ],
+)
+def test_flag_style_unreviewed(mode, recording, pass_doc, expected):
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda name: recording if name == "RecordChanges" else None
+    result = {"status": "ok"}
+    with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
+        flag_style_unreviewed(result, doc if pass_doc else None)
+    assert ("style_unreviewed" in result) is expected
 
 
