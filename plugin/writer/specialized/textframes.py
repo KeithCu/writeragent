@@ -396,7 +396,6 @@ class FrameInsert(ToolWriterTextFramesBase):
             what="the text frame",
             undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
-            review=True,
         )
         if err is not None:
             return err

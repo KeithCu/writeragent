@@ -323,7 +323,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             container_name = res
             return None
 
-        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE", review=True)
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE")
         if error is not None:
             return error
 

@@ -11,6 +11,7 @@ from plugin.writer.edit_review import next_agent_edit_undo_title, run_in_review_
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.writer.edit_review import EditReviewSession
 
 
 def cursor_spanning_range(rng: Any) -> Any:
@@ -127,7 +128,6 @@ def insert_at_target(
     replace_match: bool = True,
     undo_title: str | None = None,
     code: str = "TOOL_EXECUTION_ERROR",
-    review: bool = False,
 ) -> dict[str, Any] | None:
     """Resolve `target` / `old_content` / `case_sensitive` from kwargs (the triple
     `target_params` declares), then run one undo step that deletes the search match
@@ -142,8 +142,8 @@ def insert_at_target(
     UNDO_UNAVAILABLE "Cannot insert {what} as one undo step (no usable undo context);
     the document was not changed."; or `code` with "Failed to insert {what}; the change
     was rolled back (cause)." when insert raises. undo_title defaults to
-    next_agent_edit_undo_title(). When `review` is True, run inside an agent review
-    session, so the search-match deletion and the insert are one tagged change in
+    next_agent_edit_undo_title(). The step runs inside an agent review session, so what
+    LibreOffice records of the match deletion and the insert is one tagged change in
     Record/Wait.
     """
     target = kwargs.get("target", "selection")
@@ -171,17 +171,16 @@ def insert_at_target(
         # attaches at its start.
         return insert(cursor)
 
-    def commit(session: Any | None = None) -> dict[str, Any] | None:
-        apply = mutate if session is None else (lambda: session.record_mutation(mutate))
+    def commit(session: EditReviewSession) -> dict[str, Any] | None:
         return commit_or_rollback_mutation(
             tool,
             ctx.doc,
             undo_title or next_agent_edit_undo_title(),
-            apply,
+            lambda: session.record_mutation(mutate),
             f"Cannot insert {what} as one undo step (no usable undo context); the document was not changed.",
             f"Failed to insert {what}; the change was rolled back",
             code=code,
             session=session,
         )
 
-    return run_in_review_session(ctx.doc, ctx.ctx, commit) if review else commit()
+    return run_in_review_session(ctx.doc, ctx.ctx, commit)
