@@ -305,7 +305,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         dirty: list[str] = []
         for i in range(count):
             idx = indexes.getByIndex(i)
-            if range_has_tracked_insert_or_delete(idx.getAnchor()):
+            if range_has_tracked_insert_or_delete(doc, idx.getAnchor()):
                 dirty.append(uno_read(idx.getName, "index_%d" % i))
         if dirty:
             return self._tool_error(
