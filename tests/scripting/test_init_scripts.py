@@ -567,3 +567,44 @@ def test_init_class_instance_is_seeded():
     assert isolated["result"] == 8
 
 
+@pytest.mark.parametrize(
+    "case",
+    ["never_stored", "cleared", "whitespace", "empty_init_over_legacy"],
+)
+def test_removed_init_names_session_for_shared_only(case: str) -> None:
+    from plugin.scripting.document_scripts import set_document_scripts
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    if case == "cleared":
+        set_calc_init_script(doc, "x = 1")
+        set_calc_init_script(doc, "")
+    elif case == "whitespace":
+        set_calc_init_script(doc, "  \n ")
+    elif case == "empty_init_over_legacy":
+        set_document_scripts(doc, {"INIT": "", "Init": "stale"})
+
+    with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
+        assert build_python_eval_init_kwargs(doc, shared_session=True) == {"init_session_id": "calc:doc-1:init"}
+        assert build_python_eval_init_kwargs(doc) == {}
+
+
+@pytest.mark.parametrize(
+    "raw_payload",
+    [
+        "{bad json",
+        '{"version":99,"scripts":{}}',
+        '{"scripts":{}}',
+    ],
+)
+def test_unreadable_script_map_does_not_name_init_session(raw_payload: str) -> None:
+    from plugin.doc.udprops import set_document_property
+    from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, raw_payload)
+    with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
+        assert build_python_eval_init_kwargs(doc, shared_session=True) == {}
+
+
