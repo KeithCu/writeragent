@@ -914,12 +914,12 @@ def test_matrix_result_shapes_and_types() -> None:
 
         err_res = _addin_values.matrix_result(["#N/A", "#DIV/0!"])
         assert err_res[0] == "[][]any"
-        assert _addin_values.nan_error_code(err_res[1][0][0]) == 0x7FFF
-        assert _addin_values.nan_error_code(err_res[1][1][0]) == 532
+        assert struct.unpack("Q", struct.pack("d", err_res[1][0][0]))[0] & 0xFFFF == 0x7FFF
+        assert struct.unpack("Q", struct.pack("d", err_res[1][1][0]))[0] & 0xFFFF == 532
 
         nested_res = _addin_values.matrix_result([[[1, 2], 3]])
         assert nested_res[0] == "[][]any"
-        assert _addin_values.nan_error_code(nested_res[1][0][0]) == 519
+        assert struct.unpack("Q", struct.pack("d", nested_res[1][0][0]))[0] & 0xFFFF == 519
         assert nested_res[1][0][1] == 3.0
 
 
