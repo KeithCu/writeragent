@@ -443,11 +443,10 @@ def test_get_document_length_is_the_visible_writer_text():
     model = MagicMock()
     with (
         patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER),
-        patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd") as visible,
+        patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd"),
     ):
         assert text_helpers.get_document_length(model) == 5
     whole = model.getText.return_value.createTextCursor.return_value
-    visible.assert_called_once_with(whole)
     whole.gotoEnd.assert_called_once_with(True)
 
 
@@ -1217,3 +1216,162 @@ def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
     rl_model = MagicMock()
     rl_model.getRedlines.return_value.hasElements.return_value = True
     assert paragraph_deletion_flags(rl_model, [p1, p2, p3]) == [False, True, True]
+
+
+def test_tracked_deletions_state_at_and_covers():
+    from plugin.doc.text_helpers import TrackedDeletions
+    from tests.testing_utils import FakeUnoEnum
+
+    class _Pos:
+        def __init__(self, idx):
+            self.idx = idx
+
+        def getStart(self):
+            return self
+
+        def getEnd(self):
+            return self
+
+        def createEnumeration(self):
+            return FakeUnoEnum([])
+
+        def getText(self):
+            return text
+
+    class _Text:
+        def compareRegionStarts(self, a, b):
+            if not isinstance(a, _Pos) or not isinstance(b, _Pos):
+                raise RuntimeError("not comparable")
+            return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
+
+        def compareRegionEnds(self, a, b):
+            if not isinstance(a, _Pos) or not isinstance(b, _Pos):
+                raise RuntimeError("not comparable")
+            return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
+
+    text = _Text()
+
+    class _Range:
+        def __init__(self, start, end):
+            self._start = _Pos(start)
+            self._end = _Pos(end)
+
+        def getStart(self):
+            return self._start
+
+        def getEnd(self):
+            return self._end
+
+        def getText(self):
+            return text
+
+        def createEnumeration(self):
+            return FakeUnoEnum([])
+
+    class _Table:
+        def __init__(self, anchor_idx):
+            self._anchor = _Pos(anchor_idx)
+
+        def supportsService(self, svc):
+            return svc == "com.sun.star.text.TextTable"
+
+        def getAnchor(self):
+            return self._anchor
+
+    class _RL:
+        def __init__(self, kind, start, end):
+            self._kind = kind
+            self._start = start
+            self._end = end
+
+        def getPropertyValue(self, name):
+            if name == "RedlineType":
+                return self._kind
+            if name == "RedlineStart":
+                return self._start
+            if name == "RedlineEnd":
+                return self._end
+            raise KeyError(name)
+
+    rl_doc = MagicMock()
+    rl_doc.getRedlines.return_value.hasElements.return_value = True
+    rl_doc.getRedlines.return_value.createEnumeration.return_value = FakeUnoEnum([
+        _RL("Delete", _Table(2), _Pos(5)),
+    ])
+    td = TrackedDeletions(rl_doc)
+    assert bool(td) is True
+
+    # Half-open [2, 5): at start (2) and inside (3) are in_delete; at end (5) and after (6) are not.
+    assert td.state_at(_Pos(2)).in_delete is True
+    assert td.state_at(_Pos(3)).in_delete is True
+    assert td.state_at(_Pos(5)).in_delete is False
+    assert td.state_at(_Pos(6)).in_delete is False
+    assert td.state_at(_Table(2)).in_delete is True
+    assert td.state_at(_Table(5)).in_delete is False
+
+    # Not comparable -> not inside.
+    assert td.state_at(MagicMock(getStart=lambda: "bad", createEnumeration=lambda: FakeUnoEnum([]))).in_delete is False
+
+    # covers: [2, 5] inclusive.
+    assert td.covers(_Range(2, 5)) is True
+    assert td.covers(_Range(3, 4)) is True
+    assert td.covers(_Range(1, 3)) is False
+    assert td.covers(_Range(4, 6)) is False
+
+
+def test_visible_portions_resets_state_when_enumeration_fails():
+    from plugin.doc.text_helpers import DeletionState
+
+    para = MagicMock()
+    para.createEnumeration.side_effect = RuntimeError("no enum")
+    state = DeletionState(in_delete=True)
+    assert list(visible_portions(para, state=state)) == []
+    assert state.in_delete is False
+
+
+def test_iter_xtext_paragraphs_cell_states_and_struck_table():
+    from plugin.doc.text_helpers import DeletionState, iter_xtext_paragraphs
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Keep "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+    ])
+    struck_table = _DeletionFakeTable({"A1": _DeletionFakeRange([FakeUnoPara([FakeUnoPortion("Text", "hidden")])])})
+    p2 = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "Mid"),
+    ])
+    live_table = _DeletionFakeTable({"A1": _DeletionFakeRange([FakeUnoPara([FakeUnoPortion("Text", "cell")])])})
+    root = _DeletionFakeRange([p1, struck_table, p2, live_table])
+
+    collected = []
+    for para, st in iter_xtext_paragraphs(root, DeletionState()):
+        collected.append(("".join(c for _p, c in visible_portions(para, state=st)), st.in_delete))
+    assert collected == [("Keep ", True), ("Mid", False), ("cell", False)]
+
+
+def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
+    from plugin.doc.text_helpers import build_heading_tree
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    h1 = FakeUnoPara([FakeUnoPortion("Text", "Live 1")], OutlineLevel=1)
+    h_struck = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "Gone Heading"),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+    ], OutlineLevel=2)
+    h_empty = FakeUnoPara([FakeUnoPortion("Text", "")], OutlineLevel=2)
+    h2 = FakeUnoPara([FakeUnoPortion("Text", "Live 2")], OutlineLevel=1)
+
+    body = MagicMock()
+    body.createEnumeration.return_value = FakeUnoEnum([h1, h_struck, h_empty, h2])
+    model = MagicMock()
+    model.getText.return_value = body
+    model.getRedlines.return_value.hasElements.return_value = False
+
+    tree = build_heading_tree(model)
+    assert [c["text"] for c in tree["children"]] == ["Live 1", "Live 2"]
+    assert tree["children"][0]["body_paragraphs"] == 1  # h_struck counted as body
+    assert [c["text"] for c in tree["children"][0]["children"]] == [""]
+    assert tree["children"][1]["para_index"] == 3

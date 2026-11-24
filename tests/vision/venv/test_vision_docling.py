@@ -904,6 +904,21 @@ def test_extract_text_real_docling_rejects_bad_device():
 
 
 @pytest.mark.timeout(300)
+def test_extract_text_real_docling_missing_accelerator_is_invalid_param():
+    _require_supported_docling()
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("torch")
+    device = "cuda" if sys.platform == "darwin" else "mps"
+    res = extract_text(_tiny_hello_ocr_png(), {"device": device})
+    if res.get("status") != "ok" and _is_missing_weight_or_network_error(res):
+        pytest.skip(f"Docling convert needs weights/network: {res.get('message')}")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "vision.device" in res["message"]
+
+
+@pytest.mark.timeout(300)
 def test_extract_text_real_docling_non_latin_lang():
     _require_supported_docling()
     pytest.importorskip("PIL.Image")
@@ -1016,6 +1031,20 @@ def test_rapidocr_model_size_not_supported_maps_to_invalid_param():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert "RapidOCR has no tiny model" in res["message"]
+
+
+def test_missing_accelerator_maps_to_invalid_param():
+    class AcceleratorDeviceNotAvailableError(RuntimeError):
+        pass
+
+    err = AcceleratorDeviceNotAvailableError("MPS is not available in the system. Please use --device auto/cpu.")
+    with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
+        res = extract_text(b"png", {"device": "mps"})
+
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "vision.device" in res["message"]
+    assert "MPS is not available" in res["message"]
 
 
 def test_extract_text_real_docling_tiny_japanese_is_invalid_param():

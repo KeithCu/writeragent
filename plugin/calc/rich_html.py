@@ -29,9 +29,9 @@ from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import (
     clear_writer_body,
     is_scratch_document,
-    new_blank_writer,
+    load_scratch_document,
 )
-from plugin.framework.uno_context import get_service_manager
+from plugin.framework.uno_context import get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import FORMULA, query_interface
 import plugin.writer.html_import as html_import
@@ -63,8 +63,16 @@ def _take_hidden_writer(uno_ctx: Any) -> Any:
         ):
             return doc
         log.debug("insert_cell_html_rich: dropping an unusable hidden Writer")
-    doc = new_blank_writer(uno_ctx)
+    desktop = get_desktop(uno_ctx)
+    doc = load_scratch_document(desktop, "private:factory/swriter") if desktop is not None else None
     if doc is None:
+        raise ToolExecutionError("Could not create temporary Writer document")
+    if not clear_writer_body(doc):
+        # The paste needs select and getTransferable, which only a normal Writer view has
+        # (SwPagePreview has neither). Closing a normal view clears Writer's active-view
+        # pointer (sw/source/uibase/uiview/view.cxx ~SwViewGlueDocShell), which Manage Changes
+        # dereferences (sw/source/uibase/misc/redlndlg.cxx SwRedlineAcceptDlg), so a Writer
+        # that cannot be emptied stays open, hidden and registered as scratch.
         raise ToolExecutionError("Could not create temporary Writer document")
     doc.getText().setString(_GUARD_TEXT)
     return doc

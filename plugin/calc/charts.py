@@ -34,7 +34,7 @@ import math
 import time
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterator, Literal, NamedTuple, NoReturn, cast
 
-from plugin.doc.visual_helpers import parse_color_to_uno_int
+from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -474,9 +474,8 @@ CHART_PROPERTIES: dict[str, Any] = {
     "legend_position": {"type": "string", "enum": ["none", "top", "bottom", "left", "right"], "description": "Legend position."},
     "has_legend": {"type": "boolean", "description": "Whether the chart has a legend."},
     "position": {"type": "string", "description": "Cell address (Calc) or anchoring position (Writer/Draw)."},
-    "bg_color": {"type": "string", "description": "Chart area background color (hex: #FF0000 or name: green)."},
-    # Integers are 24-bit RGB values; the union keeps coerce_call_args from turning 255 into the hex string "255".
-    "colors": {"type": "array", "items": {"type": ["string", "integer"]}, "description": "List of hex/named colors to apply to each data series."},
+    "bg_color": color_param("Chart area background color (hex: #FF0000 or name: green)."),
+    "colors": {"type": "array", "items": color_param("Series color (hex: #FF0000 or name: green)."), "description": "List of hex/named colors to apply to each data series."},
 }
 
 # List/get/delete: sheet/page narrow the search, not placement (wording differs from upsert create).
@@ -622,7 +621,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
 
     # 5. Background Color
     bg_color = kwargs.get("bg_color")
-    if bg_color:
+    if bg_color not in (None, ""):
         parsed_bg = parse_color_to_uno_int(bg_color)
         if parsed_bg is not None:
             def _set_bg() -> None:

@@ -65,8 +65,9 @@ from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
+from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
-from plugin.writer.record_changes import is_recording_changes, record_changes
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
 from plugin.writer.review_view_attachment import refresh_review_toolbar
 from plugin.writer.word_diff_split import split_change
 
@@ -1052,7 +1053,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     for se in result.sub_edits:
         if _select_verified(se) is None:
-            # split_change offsets are Python code points. goRight counts UNO characters (UTF-16 code units). A mismatch falls back to a whole-block replace. Do not convert the offsets.
+            # split_change offsets count code points, as goRight does (breakiterator_unicode.cxx: nextCharacters). A mismatch (field, hidden text) falls back to a whole-block replace.
             log.debug("edit_review: surgical pre-flight offset mismatch; falling back to whole-block")
             _whole()
             return
@@ -1210,15 +1211,23 @@ def _is_blocking_redline(node: Any) -> bool:
     return kind in _BLOCKING_REDLINE_TYPES
 
 
-def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
-    """True when *text_range* contains a tracked Insert or Delete.
+def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
+    """True when *text_range* contains, or (if non-collapsed) lies wholly inside, a tracked Insert or Delete.
 
-    A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
-    are leaves — calling ``createEnumeration`` on them is not part of this walk.
-    ``iter_elements`` (``enum_has_more``) stops on a MagicMock enum. When the walk
-    starts and then fails, the result is True: ``setString`` must not run on a
-    range we could not prove is free of Insert/Delete redlines.
+    A selection inside one change has no redline marker portions of its own, so
+    we first check ``redline_kinds_covering`` for non-collapsed ranges and then
+    walk the range's elements and portions. When the walk starts and then fails,
+    the result is True: ``setString`` must not run on a range we could not prove
+    is free of Insert/Delete redlines.
     """
+    # A collapsed caret selects nothing, and redline_kinds_covering is edge-inclusive,
+    # so checking it on a caret at either edge would refuse before "Select text first".
+    cmp_val = uno_read(
+        lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
+        None,
+    )
+    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
+        return True
     top = _open_enum(text_range)
     if top is None:
         return False
@@ -1255,18 +1264,17 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
     return False
 
 
-def refuse_tracked_insert_or_delete(text_range: Any) -> None:
-    """Raise before any streamed-edit write when the range has an Insert or Delete.
+def refuse_tracked_insert_or_delete(doc: Any, text_range: Any) -> None:
+    """Raise before any streamed-edit write when the range touches an Insert or Delete.
 
-    Extend/Edit Selection reads the selection with
-    ``get_string_without_tracked_deletions`` (Delete text dropped,
-    Insert text kept as ordinary characters).
-    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off
-    and calls ``setString("")``. ``WriterStreamedAppendSession``
-    streams with ``setString(original + continuation)`` and ``finish``
-    calls ``setString(original_text)``. With tracking off, ``setString``
-    accepts every redline in the range — struck text disappears and
-    insertions flatten — before the model returns anything.
+    Extend/Edit Selection reads the selection with ``visible_range_text``
+    (Delete text dropped, Insert text kept as ordinary characters).
+    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off and calls
+    ``setString("")``. ``WriterStreamedAppendSession`` streams with
+    ``setString(original + continuation)`` and ``finish`` calls
+    ``setString(original_text)``. With tracking off, ``setString`` accepts or
+    splits every redline covering or inside the range before the model returns
+    anything.
 
     Both session constructors call this before the undo context,
     before ``RecordChanges`` is changed, and before the first
@@ -1275,7 +1283,7 @@ def refuse_tracked_insert_or_delete(text_range: Any) -> None:
     rewrite path. An empty model result restores the original text
     and does not record a deletion.
     """
-    if range_has_tracked_insert_or_delete(text_range):
+    if range_has_tracked_insert_or_delete(doc, text_range):
         log.warning(
             "streamed selection edit refused: selection contains a tracked Insert or "
             "Delete; RecordChanges was not changed and setString was not called")
@@ -1289,7 +1297,7 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
 
 
 def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
-    refuse_tracked_insert_or_delete(text_range)
+    refuse_tracked_insert_or_delete(doc, text_range)
 
     record_cm = record_changes(doc, False)
     was_recording = record_cm.__enter__()
@@ -1324,6 +1332,7 @@ class _WriterStreamedSessionBase:
     track_reviewable: bool
     was_recording: bool
     last_write_error: Exception | None
+    _headings: list[tuple[int, str]] | None
     _compound_undo: WriterCompoundUndo
     _record_cm: Any
 
@@ -1333,7 +1342,22 @@ class _WriterStreamedSessionBase:
         self.original_text = original_text
         self.track_reviewable = track_reviewable
         self.last_write_error = None
+        self._headings = headings_if_touched(doc, [text_range])
         self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
+
+    def _retarget_links(self) -> str | None:
+        """Point links at a heading this edit renamed. Returns a warning for links left stale."""
+        if not self._headings:
+            return None
+        try:
+            with record_changes(self.doc, self.was_recording or self.track_reviewable), \
+                 EditReviewSession(self.doc, get_ctx(), enabled=self.track_reviewable) as session:
+                detail = ", ".join(retarget_renamed_links(session, self.doc, self._headings)[1])
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("streamed edit: heading link update failed")
+            detail = str(exc)
+        return _("Links to the renamed heading could not all be updated: {0}").format(detail) if detail else None
 
     def _exit_stream_recording(self) -> None:
         """Exit the stream's record_changes(False) context, restoring prior recording state."""
@@ -1354,8 +1378,9 @@ class _WriterStreamedSessionBase:
         """Finalize the streamed edit, collapsing it into a single tracked change."""
         try:
             if not (self.was_recording or self.track_reviewable):
+                link_warning = self._retarget_links()
                 self._exit_stream_recording()
-                return _stream_write_warning(self.last_write_error)
+                return _stream_write_warning(self.last_write_error) or link_warning
 
             try:
                 before_ids = None
@@ -1383,7 +1408,7 @@ class _WriterStreamedSessionBase:
                     except Exception:
                         log.debug("%s: redline tagging failed", label, exc_info=True)
                 # restore prior recording so the user's later typing isn't tracked
-                return None
+                return self._retarget_links()
             except Exception as exc:
                 # A closed document is not "the text was kept".
                 reraise_if_disposed(exc)

@@ -43,7 +43,7 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline), `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, …) | No | No | No |
 
-Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
+Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
 before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
 The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.
@@ -109,7 +109,8 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
-* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`) are
+* Secondary link-target updates after a heading rename (`EditReviewSession.tag_side_effects`,
+  including `target='selection'` and streamed Extend/Edit Selection) are
   recorded as tracked Delete + Insert of the link text, tagged with an agent token so Accept/Reject
   resolves them, and omitted from `ChangeRecord` so `wait_for_review` neither waits for them nor
   reports them in `review.changes`. Both the link deletion and insertion are authored
@@ -131,8 +132,9 @@ made in `record_preserve_replace` in
 * Pre-flight offset checks and right-to-left apply avoid UNO position drift; grouped undo context
   rolls back on failure.
 * HTML/import paths use atomic delete-then-import so review mode never leaves a bare deletion
-  stranded mid-import. A one-run unlinked plain replace (`replace_preserving_format`) inserts the new
-  text after the struck text so the new text inherits its formatting. Whole-paragraph block replaces
+  stranded mid-import. A single-paragraph plain replace (`replace_preserving_format`) inserts the new
+  text after the longest run so the new text inherits that run's formatting, and carries the common
+  link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
   paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (leaving
@@ -228,7 +230,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
 1. **Inline resolve** — [`plugin/writer/inline_review.py`](../../plugin/writer/inline_review.py),
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
-   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
+   menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak. Scratch documents are skipped (view registration is deferred via `run_after_scratch_loads` so `is_scratch_document` sees the registered `RuntimeUID`).
 2. **Review toolbar** — [`plugin/writer/review_view_attachment.py`](../../plugin/writer/review_view_attachment.py)
    (`refresh_review_toolbar`, dock-once): **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
@@ -280,7 +282,7 @@ resolve-all returns user-facing messages when verification fails.
 When the user turns on Track Changes > Record while agent review is Off, operations that Writer cannot natively record are either flagged (`style_unreviewed: true`) or left undone with a reason:
 
 * **Character resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`) before resetting it. `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
-* **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
+* **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`, listed in `kept_images_delete_not_trackable` on the agent result). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
 * **Paragraph `apply_style` (`SwUnoCursorHelper::makeRedline`):** Applying a paragraph style while `RecordChanges` is on temporarily turns recording off so the `Char*` restore does not create `Format` redlines whose Reject drops the run's formatting, then records one `ParagraphFormat` redline per changed non-empty paragraph (authored as the current office user) carrying `ParaStyleName`, direct paragraph properties, and `NumberingRules`. If the paragraph already has a `ParagraphFormat` redline, no second one is added so Reject restores the state before both changes.
 * **Known paths that still bypass recording:** `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, non-inline `frame_insert`, and `index_update_all` (these return `tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` when any index holds pending insertions or deletions; `index_delete_toc_entry` is recorded), picture properties/replace, table formatting/merge/split, page break, hyperlink on existing text, and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
 

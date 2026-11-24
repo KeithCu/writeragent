@@ -167,3 +167,34 @@ def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
     assert idx1 != -1 and idx2 != -1 and idx3 != -1, html
     assert idx1 < idx2 < idx3, html
 
+
+@native_test
+@with_native_doc("writer")
+def test_struck_math_formula_skipped_and_live_tex_injected_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.math.math_mml_export import iter_writer_math_objects
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    insert_writer_math_formula(doc, cur, "a + 1", display_block=False)
+    del_cur = text.createTextCursor()
+    del_cur.gotoStart(False)
+    del_cur.gotoEnd(True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    insert_writer_math_formula(doc, cur, "x + 2", display_block=False)
+
+    hits = list(iter_writer_math_objects(doc))
+    assert len(hits) == 1
+    assert "x + 2" in hits[0].starmath or "x+2" in hits[0].starmath
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "x + 2" in html or "x+2" in html, html
+    assert "a + 1" not in html and "a+1" not in html, html
+

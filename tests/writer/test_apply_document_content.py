@@ -1892,3 +1892,18 @@ def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() 
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
     assert res["partial_failure"] is True
+
+
+def test_dry_run_rejects_non_string_content_list_items() -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    res = ApplyDocumentContent().execute(
+        _edit_ctx(),
+        target="search",
+        old_content="HIT",
+        content=[None],
+        dry_run=True,
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert res["message"] == "content list items must be strings."

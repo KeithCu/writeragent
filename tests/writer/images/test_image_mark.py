@@ -330,4 +330,22 @@ def test_bake_lowers_page_scale_for_wide_region():
     page.setPropertyValue.assert_any_call("Height", 5400)
 
 
+def test_image_mark_highlights_coerced_from_strings_and_int_color():
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.images.images import ImageCropAndHighlight
+
+    prep = prepare_tool_call(
+        ImageCropAndHighlight(),
+        SimpleNamespace(doc_type="writer"),
+        "image_crop_and_highlight",
+        {
+            "name": "Image1",
+            "highlights": [{"box": ["1", "2", "3", "4"], "style": "Highlights", "color": 255}],
+        },
+    )
+    assert prep.error is None
+    marks = image_mark.parse_marks(prep.kwargs["highlights"], "px", 100, 100, (0, 0, 100, 100))
+    assert marks == [((1, 2, 3, 4), "highlight", 0x0000FF)]
+
+
 

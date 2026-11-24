@@ -15,9 +15,10 @@ from typing import Any
 from unittest.mock import patch
 
 from plugin.doc.visual_helpers import list_graphic_objects
+from plugin.framework.errors import DocumentDisposedError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.vision.vision_runner import run_and_insert_vision_for_selection
+from plugin.vision.vision_runner import run_and_insert_vision_for_selection, run_trusted_vision
 from plugin.writer.images.image_tools import insert_image_at_locator
 
 _PNG_COLORS = ((255, 0, 0), (0, 255, 0), (0, 0, 255))
@@ -562,5 +563,60 @@ def test_mock_ocr_image_removed_mid_run_continues_and_returns_partial_uno(ctx, d
         assert tok1 in body
         assert tok3 in body
         assert body.index(tok1) < body.index(tok3)
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_mock_ocr_reports_image_kept_when_delete_cannot_be_tracked_uno(ctx, doc):
+    """Protected image cannot be deleted while recording changes, so it is kept and reported."""
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    names = fixture["names"]
+    assert len(names) == 2
+
+    captured: list[tuple[str, str]] = []
+    try:
+        fixture["graphics"][1].setPropertyValue("ContentProtected", True)
+        doc.RecordChanges = True
+        _select_whole_document(doc)
+        with patch("plugin.vision.vision_runner.run_vision", side_effect=_make_fake_run_vision(captured)):
+            result = run_and_insert_vision_for_selection(
+                ctx,
+                doc,
+                helper="extract_structure",
+                params={"delete_image_after_insert": True},
+            )
+
+        assert result["status"] == "ok"
+        assert result["deleted_images"] == [names[0]]
+        assert result["kept_images_delete_not_trackable"] == [names[1]]
+
+        doc.RecordChanges = False
+        dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+        remaining = [name for name, _unused in list_graphic_objects(doc)]
+        assert remaining == [names[1]]
+        body = doc.getText().getString()
+        assert _ocr_token_for_name(captured, names[0]) in body
+        assert _ocr_token_for_name(captured, names[1]) in body
+    finally:
+        doc.RecordChanges = False
+        _cleanup_temp_paths(fixture["temp_paths"])
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_named_image_on_closed_document_is_document_disposed_uno(ctx, doc):
+    fixture = _build_labeled_fixture(ctx, doc, image_count=1)
+    try:
+        doc.close(True)
+        with patch("plugin.vision.vision_runner.run_vision") as mock_run_vision:
+            try:
+                run_trusted_vision(ctx, doc, helper="extract_structure", params={"image_name": fixture["names"][0]})
+            except DocumentDisposedError as exc:
+                assert exc.code == "DOCUMENT_DISPOSED"
+            else:
+                raise AssertionError("Expected DocumentDisposedError for closed Writer document")
+        mock_run_vision.assert_not_called()
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])

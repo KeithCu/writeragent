@@ -1049,10 +1049,13 @@ def test_placeholder_text_keeps_direct_right_alignment(ctx, doc):
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
     page = DrawBridge(doc).get_pages().getByIndex(0)
-    title_idx = next(
-        i for i in range(page.getCount()) if "TitleTextShape" in page.getByIndex(i).getShapeType()
-    )
-    title = page.getByIndex(title_idx)
+    # Look each shape up once and keep the proxies. Releasing a shape proxy over URP is asynchronous
+    # (binaryurp/source/bridge.cxx: Bridge::makeReleaseCall), and a late SvxShape::~SvxShape
+    # (svx/source/unodraw/unoshape.cxx) detaches a newer wrapper fetched for the same shape, which
+    # GraphicExportFilter.setSourceDocument then rejects.
+    shapes = [page.getByIndex(i) for i in range(page.getCount())]
+    title_idx = next(i for i, shape in enumerate(shapes) if "TitleTextShape" in shape.getShapeType())
+    title = shapes[title_idx]
     width = title.getSize().Width
     edit_res = UpsertShape().execute(tctx, action="edit", page=0, index=title_idx, h_align="right")
     assert edit_res.get("status") == "ok", edit_res
@@ -1335,4 +1338,55 @@ def test_shape_delete_writer_picture_while_recording_uno(ctx, doc):
         assert doc.getGraphicObjects().getCount() == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_integer_colors_and_nested_arrowhead_uno(ctx, doc):
+    from plugin.draw.shapes import CreateDiagram, UpsertShape
+    from plugin.framework.tool import prepare_tool_call
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+
+    upsert = UpsertShape()
+    prep_shape = prepare_tool_call(
+        upsert,
+        tctx,
+        "shape_upsert",
+        {
+            "action": "create",
+            "shape_type": "rectangle",
+            "x": 1000,
+            "y": 1000,
+            "width": 2000,
+            "height": 1000,
+            "line_color": 255,
+            "fill_color": 0,
+        },
+    )
+    assert prep_shape.error is None, prep_shape.error
+    res_shape = upsert.execute(tctx, **prep_shape.kwargs)
+    assert res_shape.get("status") == "ok", res_shape
+    shape = page.getByIndex(res_shape["index"])
+    assert int(shape.getPropertyValue("LineColor")) == 0x0000FF
+    assert int(shape.getPropertyValue("FillColor")) == 0
+
+    diagram = CreateDiagram()
+    prep_diag = prepare_tool_call(
+        diagram,
+        tctx,
+        "shape_create_diagram",
+        {
+            "layout": "horizontal_flow",
+            "nodes": [{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+            "connections": [{"from": "a", "to": "b", "line_end": "Arrow", "line_color": 255}],
+        },
+    )
+    assert prep_diag.error is None, prep_diag.error
+    res_diag = diagram.execute(tctx, **prep_diag.kwargs)
+    assert res_diag.get("status") == "ok", res_diag
+    conn = page.getByIndex(res_diag["connections"][0]["index"])
+    assert conn.getPropertyValue("LineEndName") == "Arrow"
+    assert int(conn.getPropertyValue("LineColor")) == 0x0000FF
 

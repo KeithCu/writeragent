@@ -181,7 +181,7 @@ def test_page_count_in_print_preview_uno(ctx):
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:PrintPreview")
         assert not hasattr(doc.getCurrentController(), "getViewCursor")
         ds = DocumentService()
-        assert ds.get_page_count(doc) == 0
+        assert ds.get_page_count(doc) == 1
         try:
             ds.get_page_for_paragraph(doc, 0)
         except UnoObjectError as exc:

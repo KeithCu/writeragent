@@ -106,3 +106,86 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     assert "Cookie" in same_headers
     assert "Proxy-Authorization" in same_headers
     assert "Ocp-Apim-Subscription-Key" in same_headers
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(
+            "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent?key=secret",
+            "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent",
+            id="rel-gemini-model-kept",
+        ),
+        pytest.param(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent?key=secret",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent",
+            id="abs-gemini-model-kept",
+        ),
+        pytest.param(
+            "/openai/deployments/gpt-4o-mini-2024-07-18/chat/completions",
+            "/openai/deployments/gpt-4o-mini-2024-07-18/chat/completions",
+            id="rel-azure-deployment-kept",
+        ),
+        pytest.param(
+            "https://my.openai.azure.com/openai/deployments/gpt-4o-mini-2024-07-18/chat/completions",
+            "https://my.openai.azure.com/openai/deployments/gpt-4o-mini-2024-07-18/chat/completions",
+            id="abs-azure-deployment-kept",
+        ),
+        pytest.param(
+            "/api/v1/models/anthropic/claude-sonnet-4-20250514/endpoints",
+            "/api/v1/models/anthropic/claude-sonnet-4-20250514/endpoints",
+            id="rel-openrouter-model-kept",
+        ),
+        pytest.param(
+            "/s/123e4567-e89b-12d3-a456-426614174000/v1/models",
+            "/s/<redacted>/v1/models",
+            id="rel-uuid-redacted",
+        ),
+        pytest.param(
+            "https://proxy.example/s/123e4567-e89b-12d3-a456-426614174000/v1/models",
+            "https://proxy.example/s/<redacted>/v1/models",
+            id="abs-uuid-redacted",
+        ),
+        pytest.param(
+            "/s/AbCdEfGhIjKlMnOpQr%3D%3D/v1/chat/completions",
+            "/s/<redacted>/v1/chat/completions",
+            id="rel-base64-redacted",
+        ),
+        pytest.param(
+            "https://user:pass@proxy.example/s/AbCdEfGhIjKlMnOpQr%3D%3D/v1/chat/completions",
+            "https://proxy.example/s/<redacted>/v1/chat/completions",
+            id="abs-base64-redacted",
+        ),
+    ],
+)
+def test_public_target_redacts_path_secrets_and_keeps_model_names(raw, expected):
+    from plugin.framework.client.http_security import public_target
+
+    assert public_target(raw) == expected
+
+
+def test_secrets_from_target_collects_path_secret_before_models():
+    from plugin.framework.client.http_security import secrets_from_target
+
+    secrets = secrets_from_target("https://proxy.example/s/AbCdEfGhIjKlMnOpQr%3D%3D/v1/models/claude-sonnet-4-20250514")
+    assert "AbCdEfGhIjKlMnOpQr%3D%3D" in secrets
+    assert "AbCdEfGhIjKlMnOpQr==" in secrets
+    assert "claude-sonnet-4-20250514" not in secrets
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "https://proxy.example:1a34/s/123e4567-e89b-12d3-a456-426614174000/v1/models",
+        "https://[::1/s/123e4567-e89b-12d3-a456-426614174000/v1/models",
+    ],
+)
+def test_invalid_url_details_redact_path_secret(bad_url):
+    from plugin.framework.client.http_security import public_target
+    from plugin.framework.errors import NetworkError
+
+    with pytest.raises(NetworkError) as exc_info:
+        public_target(bad_url)
+    assert exc_info.value.code == "INVALID_URL"
+    assert "123e4567-e89b-12d3-a456-426614174000" not in exc_info.value.details["url"]
+    assert "<redacted>" in exc_info.value.details["url"]

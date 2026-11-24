@@ -1,6 +1,7 @@
 from plugin.framework.queue_executor import main
 
 import builtins
+import os
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -699,20 +700,47 @@ def test_enum_has_more():
     assert enum_has_more(mock) is False
 
 
-def test_iter_open_models_stops_at_enum_cap():
-    from plugin.framework.uno_context import iter_open_models
+def test_resolve_document_by_url_finds_document_past_32():
+    from plugin.framework.thread_guard import unwrap_uno
+    from plugin.framework.uno_context import resolve_document_by_url
 
-    desktop = MagicMock()
-    comps = MagicMock()
-    desktop.getComponents.return_value = comps
+    others = [MagicMock(name=f"other_{i}") for i in range(39)]
+    for i, m in enumerate(others):
+        m.getURL.return_value = f"file:///tmp/other_{i}.odt"
+        m.getRuntimeUID.return_value = str(100 + i)
+    target = MagicMock(name="target")
+    target.getURL.return_value = "file:///tmp/target.odt"
+    target.getRuntimeUID.return_value = "999"
+    all_models = [*others, target]
 
     enum = MagicMock()
-    enum.hasMoreElements.return_value = True
+    enum.hasMoreElements.side_effect = [True] * len(all_models) + [False]
+    enum.nextElement.side_effect = all_models
+    comps = MagicMock()
     comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
 
-    with patch("plugin.framework.uno_context._ENUM_CAP", 2):
-        list(iter_open_models(desktop))
-    assert enum.nextElement.call_count == 2
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found_by_url, doc_type = resolve_document_by_url(MagicMock(), "file:///tmp/target.odt")
+        assert unwrap_uno(found_by_url) is target
+        assert doc_type == "writer"
+
+    enum2 = MagicMock()
+    enum2.hasMoreElements.side_effect = [True] * len(all_models) + [False]
+    enum2.nextElement.side_effect = all_models
+    comps.createEnumeration.return_value = enum2
+
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found_by_uid, doc_type = resolve_document_by_url(MagicMock(), "999")
+        assert unwrap_uno(found_by_uid) is target
+        assert doc_type == "writer"
 
 
 def test_iter_open_models_strict_false_probes_and_skips_broken():
@@ -1008,4 +1036,59 @@ def test_resolve_reraises_when_next_element_is_disposed():
         with pytest.raises(DocumentDisposedError):
             resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
     assert calls["next"] == 1
+
+
+@pytest.mark.parametrize("kind", ["file_symlink", "dir_symlink", "hardlink"])
+def test_match_by_url_same_file(tmp_path, kind):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real_file = real_dir / "doc.odt"
+    real_file.write_bytes(b"content")
+
+    try:
+        if kind == "file_symlink":
+            alt = tmp_path / "link.odt"
+            os.symlink(real_file, alt)
+        elif kind == "dir_symlink":
+            link_dir = tmp_path / "linkdir"
+            os.symlink(real_dir, link_dir)
+            alt = link_dir / "doc.odt"
+        else:
+            alt = tmp_path / "hard.odt"
+            os.link(real_file, alt)
+    except OSError as exc:
+        pytest.skip(f"links unsupported: {exc}")
+
+    open_doc = _resolve_model(real_file.as_uri(), "uid-real")
+    doc, doc_type = _resolve_by_url([open_doc], alt.as_uri())
+    assert doc is open_doc
+    assert doc_type == "writer"
+
+
+def test_exact_url_match_wins_over_same_file(tmp_path):
+    real_file = tmp_path / "real.odt"
+    real_file.write_bytes(b"content")
+    link_file = tmp_path / "link.odt"
+    try:
+        os.symlink(real_file, link_file)
+    except OSError as exc:
+        pytest.skip(f"symlinks unsupported: {exc}")
+
+    same_file_doc = _resolve_model(real_file.as_uri(), "uid-real")
+    exact_doc = _resolve_model(link_file.as_uri(), "uid-link")
+    doc, doc_type = _resolve_by_url([same_file_doc, exact_doc], link_file.as_uri())
+    assert doc is exact_doc
+    assert doc_type == "writer"
+
+
+def test_same_file_needs_file_identity(tmp_path):
+    first = tmp_path / "first.odt"
+    second = tmp_path / "second.odt"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+
+    open_doc = _resolve_model(first.as_uri(), "uid-first")
+    zero_stat = os.stat_result((0o100644, 0, 0, 1, 0, 0, 3, 0, 0, 0))
+    with patch("plugin.framework.uno_context.os.stat", return_value=zero_stat):
+        assert _resolve_by_url([open_doc], second.as_uri()) == (None, None)
 

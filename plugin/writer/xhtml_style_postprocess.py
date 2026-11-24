@@ -444,3 +444,91 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     tr.close()
     out = _drop_trailing_empty_paragraphs(tr.result())
     return out.strip()
+
+
+_ODF_TAG_RE = re.compile(r"<(/?)([\w.-]+:[\w.-]+)((?:\s[^<>]*?)?)(/?)>")
+_TRACKED_CHANGES_RE = re.compile(r"<text:tracked-changes\b.*?</text:tracked-changes>", re.DOTALL)
+_CHANGED_REGION_RE = re.compile(
+    r'<text:changed-region\b[^<>]*?\btext:id="([^"]+)"[^<>]*>(.*?)</text:changed-region>',
+    re.DOTALL,
+)
+_DELETION_BODY_RE = re.compile(r"<text:deletion>(.*?)</text:deletion>", re.DOTALL)
+_CHANGE_ID_RE = re.compile(r'text:change-id="([^"]+)"')
+_XML_ID_ATTR_RE = re.compile(r'\s+xml:id="[^"]*"')
+_START_VALUE_ATTR_RE = re.compile(r'\s+text:start-value="[^"]*"')
+
+
+def _deleted_paragraph_tags(deletion: str) -> list[tuple[str, str]]:
+    """Return ``(name, attrs)`` of top-level ``text:p`` / ``text:h`` blocks in *deletion*.
+
+    Tracks nesting depth across ``table:table``, ``text:p``, and ``text:h`` so
+    paragraphs inside tables, annotations, notes, or text boxes are not counted.
+    """
+    tags: list[tuple[str, str]] = []
+    depth = 0
+    for close, name, attrs, empty in _ODF_TAG_RE.findall(deletion):
+        if name not in ("table:table", "text:p", "text:h"):
+            continue
+        if close:
+            depth = max(0, depth - 1)
+            continue
+        if name in ("text:p", "text:h") and not depth:
+            tags.append((name, attrs))
+        if not empty:
+            depth += 1
+    return tags
+
+
+def split_deleted_breaks(fodt: str) -> str | None:
+    """Split paragraphs joined across tracked-deletion breaks in flat ODF, or return None.
+
+    ``SwXMLExport::exportDoc`` sets ``RedlineFlags::ShowInsert`` and ``odf2xhtml``
+    ``body.xsl`` has no ``text:change`` rule, so XHTML export otherwise joins
+    paragraphs across a multi-paragraph deletion. A deletion of *n* top-level
+    blocks produces *n* - 1 breaks, each taking the deleted block's tag and style.
+    """
+    # crosshair: off
+    breaks: dict[str, list[tuple[str, str]]] = {}
+    for cid, region in _CHANGED_REGION_RE.findall(fodt):
+        del_match = _DELETION_BODY_RE.search(region)
+        if del_match:
+            breaks[cid] = _deleted_paragraph_tags(del_match.group(1))[1:]
+    if not any(breaks.values()):
+        return None
+    skip = iter([m.span() for m in _TRACKED_CHANGES_RE.finditer(fodt)])
+    span = next(skip, None)
+    out: list[str] = []
+    pos = 0
+    stack: list[tuple[str, str]] = []
+    for m in _ODF_TAG_RE.finditer(fodt):
+        while span and m.start() >= span[1]:
+            span = next(skip, None)
+        if span and m.start() >= span[0]:
+            continue
+        close, name, attrs, empty = m.groups()
+        if close:
+            stack.pop()
+            continue
+        if not empty:
+            stack.append((name, attrs))
+            continue
+        if name != "text:change":
+            continue
+        para = next((i for i in reversed(range(len(stack))) if stack[i][0] in ("text:p", "text:h")), None)
+        cid_match = _CHANGE_ID_RE.search(attrs)
+        tags = breaks.get(cid_match.group(1), []) if cid_match else []
+        if para is None or not tags:
+            continue
+        # A paragraph in a list item becomes a new item, so it keeps its number.
+        top = para - 1 if para > 0 and stack[para - 1][0] == "text:list-item" else para
+        out.append(fodt[pos:m.start()])
+        pos = m.end()
+        for tag in tags:
+            out.extend("</%s>" % n for n, _a in reversed(stack[top:]))
+            stack[para] = tag
+            for idx, (n, a) in enumerate(stack[top:], start=top):
+                cleaned = _XML_ID_ATTR_RE.sub("", a)
+                if idx != para:
+                    cleaned = _START_VALUE_ATTR_RE.sub("", cleaned)
+                out.append("<%s%s>" % (n, cleaned))
+    return "".join(out) + fodt[pos:] if out else None
