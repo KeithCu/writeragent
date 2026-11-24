@@ -146,7 +146,7 @@ On Collabora Online the AddIn sends one argument as `data` itself and several as
 
 - Stock Calc (desktop, and Online without Gerrit 21286, in review as of 2026-11-23): an error cell in a range argument makes the call `Err:504` and Python does not run.
 - With 21286: an error cell in a range, or a matrix element holding a Calc error code, arrives as English text (`#DIV/0!`, `#VALUE!`, `#REF!`, `#NUM!`, `#N/A`, `#NAME?`, `#NULL!`, else `Err:<n>`). Two exceptions are a circular reference, which fails the call, and an error in a single-cell or scalar argument, which propagates without calling Python.
-- A plain `NaN` or infinity in a matrix argument is sent as JSON `null`, so Python sees `None`.
+- On Online, a plain `NaN` or infinity in a matrix argument is sent as JSON `null`, so Python sees `None`.
 - In a result, the compute service sends `NaN`/`Inf` as `null`, which Online shows as an empty cell. That includes `calc.na()`.
 
 **Example — weighted average across regions** (multi-arg: index with `data[i]` or loop `ranges`):

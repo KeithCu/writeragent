@@ -127,7 +127,7 @@ def test_editor_shell_stays_dirty_when_edited_during_save(edit_during_save: str)
         """
     )
     assert out["dirty"] is True
-    assert out["sent"][-1] is True
+    assert out["sent"][out["sent"].index("save") + 1 :] == [True]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -158,7 +158,21 @@ def test_editor_shell_run_edited_during_run_stays_dirty() -> None:
         """
     )
     assert out["dirty"] is True
-    assert out["sent"][-1] is True
+    assert out["sent"][out["sent"].index("run") + 1 :] == [True]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_run_no_typing_clears_dirty() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "run_script", code: "a", session_id: "s"});
+        text = "ab"; onCh();
+        el("btn-run").click();
+        await deliver({type: "saved", session_id: "s"});
+        """
+    )
+    assert out["dirty"] is False
+    assert out["sent"][-1] is False
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

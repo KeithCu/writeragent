@@ -935,8 +935,8 @@ def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
         return float(best_idx + 1)
-    # ScXMatch (interpr1.cxx): a miss is #N/A. A match mode it rejects is IllegalParameter,
-    # and an error lookup value is the result.
+    # ScXMatch (interpr1.cxx): a miss is #N/A. A match mode Calc rejects is IllegalParameter;
+    # 3 (regex) is not supported here. An error lookup value is the result.
     if isinstance(lookup_val, (float, np.floating)) and math.isnan(lookup_val):
         return float(lookup_val)
     return NA_NAN if int(float(match_mode)) in (-1, 0, 1, 2) else float("nan")

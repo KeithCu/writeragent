@@ -307,10 +307,13 @@
                 if (typeof msg.data_binding === "string" && dataInput && dataKept) {
                   dataInput.value = msg.data_binding;
                 }
-                // The host clears its own flag on each successful save, so dirty must be sent again.
-                markDirty(false);
+                // The host clears its own flag on each successful save; send one call because
+                // pywebview dispatches each API call on a separate thread and does not order them.
                 if (stillDirty) {
+                  isDirty = false;
                   markDirty(true);
+                } else {
+                  markDirty(false);
                 }
                 var okText = msg.status_ok_text || defaultStatusOkText;
                 setStatus(okText, "ok");

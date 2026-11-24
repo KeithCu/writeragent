@@ -371,22 +371,8 @@ def to_wire(
 
         # 9. Scalars
         # np.str_, np.bytes_, and np.complex128 subclass the leaf types but pickle as numpy globals;
-        # convert numpy scalars via .item() before the HOST_PICKLE_LEAF_TYPES pass-through.
-        if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
-            try:
-                plain = val.item()
-            except Exception:
-                plain = val
-            if plain is not val and not isinstance(plain, np_mod.generic):
-                return _walk(plain, depth, is_packing_root)
-
-        if type(val).__name__ == "clongdouble":
-            raise ValueError(
-                "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
-                ".item() returns another clongdouble, not a builtin complex"
-            )
-
-        if isinstance(val, HOST_PICKLE_LEAF_TYPES):
+        # the .item() step below converts them to builtins.
+        if isinstance(val, HOST_PICKLE_LEAF_TYPES) and not (np_mod is not None and isinstance(val, np_mod.generic)):
             return val
 
         if isinstance(val, datetime.datetime):
@@ -406,6 +392,20 @@ def to_wire(
         if converted_scalar is not val:
             return _walk(converted_scalar, depth, is_packing_root)
 
+        if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
+            try:
+                np_val: Any = val
+                plain = np_val.item()
+            except Exception:
+                plain = val
+            if plain is not val and not isinstance(plain, np_mod.generic):
+                return _walk(plain, depth, is_packing_root)
+
+        if type(val).__name__ == "clongdouble":
+            raise ValueError(
+                "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
+                ".item() returns another clongdouble, not a builtin complex"
+            )
         raise ValueError(
             f"Result type {type(val).__module__}.{type(val).__name__} "
             "cannot cross the LibreOffice pickle boundary"

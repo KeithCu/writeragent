@@ -45,9 +45,14 @@ NA_NAN: float = struct.unpack("d", struct.pack("Q", 0x7FF8000000007FFF))[0]
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
-    """Require at least one sample per fitted coefficient (CalculateRGPRKP, CalculateTrendGrowth, interpr5.cxx)."""
+    """Require at least one sample per fitted coefficient: K slopes plus the intercept when const is on.
+
+    Fewer samples have no unique fit, and Calc reports an error (LINEST(5;3), TREND(5;3),
+    and GROWTH(5;3) are Err:504; CalculateRGPRKP and CalculateTrendGrowth, interpr5.cxx).
+    """
     if n < k + int(const):
         raise ValueError
+
 
 _SERIAL_OFFSET: int = 693594
 

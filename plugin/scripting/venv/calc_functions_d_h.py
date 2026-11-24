@@ -749,6 +749,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
             or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
         )
         elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
+        # An empty mask would otherwise select nothing and return if_empty.
         if arr.size == 0 or crit.size == 0 or not (row or col or elem):
             return "#VALUE!"
         # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric

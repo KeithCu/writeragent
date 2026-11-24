@@ -581,6 +581,7 @@ def test_filter_criteria_truthiness():
 
     cr_include = CalcRange([[None], [1.0]])
     assert calc.filter([[10], [20]], cr_include) == [[20]]
+    assert calc.filter([], [], "none") == "#VALUE!"
 
 
 def test_duration_and_mduration_excel_doc_examples():

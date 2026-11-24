@@ -50,6 +50,7 @@ def test_pickle_numpy_scalar_subclasses_become_builtins():
     assert type(to_wire(np.str_("hello"))) is str
     assert type(to_wire(np.bytes_(b"raw"))) is bytes
     assert type(to_wire(np.complex128(1 + 2j))) is complex
+    assert to_wire(np.complex64(complex("nan"))) is None
 
 
 def test_pickle_dataframe_depth_nine():
