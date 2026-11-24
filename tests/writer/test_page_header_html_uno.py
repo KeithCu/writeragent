@@ -1527,3 +1527,39 @@ def test_header_recorded_trailing_table_without_tail_clears_uno(ctx, doc):
         assert struct == ["P:z", "P:"], struct
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_omits_nested_struck_table_uno(ctx, doc):
+    from plugin.writer.specialized.tables import TableDelete
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), outer, False)
+    outer.setName("HdrOuter")
+    host_cell = outer.getCellByName("A1")
+    host_cur = host_cell.createTextCursor()
+    host_cell.insertString(host_cur, "HdrHost", False)
+    host_cell.insertControlCharacter(host_cur, 0, False)
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host_cell.insertTextContent(host_cur, inner, False)
+    inner.setName("HdrInner")
+    inner.getCellByName("A1").setString("HdrInnerGone")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = TableDelete().execute(_tool_ctx(doc, ctx), name="HdrInner")
+        assert res["status"] == "ok", res
+        got = _get(doc, ctx, "header")
+        assert got["status"] == "ok", got
+        html = got["content"]
+        assert "HdrHost" in html, html
+        assert "HdrInnerGone" not in html, html
+        assert html.count("<table") == 1, html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

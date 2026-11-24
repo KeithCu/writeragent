@@ -491,7 +491,8 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   from `getCellNames()`; they do not return `matrix` (Draw still does).
 - **HTML export copies nested `TextTable`s.** `_copy_cell_xtext` in
   [`plugin/writer/range_copy.py`](../../plugin/writer/range_copy.py) recreates an
-  in-cell table via `copy_table(..., dest_text=dest_cell, ...)` and recurses. Copy walks
+  in-cell table via `copy_table(..., dest_text=dest_cell, ...)` and recurses (leaving out
+  nested tables Accept All removes). Copy walks
   `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
   helper stays in this shipped file, not `specialized.tables`). Cell images are copied
   across body range reads, header/footer reads, and page-style clones.

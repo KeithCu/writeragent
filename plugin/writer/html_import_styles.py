@@ -223,6 +223,13 @@ class _OpenBlock:
         self.slot_index: int | None = slot_index
 
 
+# StarWriter import keeps a block that holds one of these, and drops a block with no text at all.
+_CONTENT_TAGS: frozenset[str] = frozenset({
+    "table", "br", "hr", "img", "input", "select", "textarea", "button",
+    "object", "embed", "iframe", "video", "audio", "svg",
+})
+
+
 class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
@@ -236,6 +243,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         super().__init__()
         self.styles: list[str | None] = []
         self.paras: list[str | None] = []
+        self.filled: list[bool] = []
         self.skipped_para: list[str] = []
         # Open block-level elements: _OpenBlock(tag, shared?), or _OpenBlock(tag, None) for a transparent <div>.
         self._open: list[_OpenBlock] = []
@@ -284,12 +292,36 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         slot_idx = len(self.styles)
         self.styles.append(style)
         self.paras.append(para)
+        self.filled.append(False)
         self._on_slot_created(slot_idx, tag, style)
         return slot_idx
+
+    def _innermost_slot(self) -> int | None:
+        return next((b.slot_index for b in reversed(self._open) if b.slot_index is not None), None)
+
+    def _mark_filled(self) -> None:
+        slot = self._innermost_slot()
+        if slot is not None and not self._table_depth:
+            self.filled[slot] = True
+
+    def handle_data(self, data: str) -> None:
+        super().handle_data(data)
+        if data.strip(" \t\r\n\f"):
+            self._mark_filled()
+
+    def handle_entityref(self, name: str) -> None:
+        super().handle_entityref(name)
+        self._mark_filled()
+
+    def handle_charref(self, name: str) -> None:
+        super().handle_charref(name)
+        self._mark_filled()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
+        if t in _CONTENT_TAGS:
+            self._mark_filled()
         if t == "table":
             self._table_depth += 1
             para = self._para_of(attrs)
@@ -319,6 +351,8 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
         t = tag.lower()
+        if t in _CONTENT_TAGS:
+            self._mark_filled()
         if self._table_depth == 0 and self._is_block(t, attrs):
             slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
             self._on_block_popped(_OpenBlock(t, False, slot_idx))
@@ -428,10 +462,9 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
     def _append_text(self, text: str) -> None:
         if self._table_depth > 0 or self._ignored_depth > 0:
             return
-        for item in reversed(self._open):
-            if item.slot_index is not None and item.slot_index < len(self.slots):
-                self.slots[item.slot_index].text_parts.append(text)
-                break
+        slot_index = self._innermost_slot()
+        if slot_index is not None and slot_index < len(self.slots):
+            self.slots[slot_index].text_parts.append(text)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         t = tag.lower()
@@ -584,6 +617,8 @@ def extract_block_lo_styles(
 ) -> tuple[str, list[str | None], list[str | None], list[str]]:
     """Return ``(clean_html, styles, para_css, skipped_para)`` per top-level block.
 
+    Drops empty blocks before a non-empty one (StarWriter import makes no paragraph
+    for them) and reports their ``data-lo-para`` in ``skipped_para``.
     Short-circuits (returns the html unchanged, three empty lists) when neither data-lo-style
     nor data-lo-para is present in the markup."""
     if not html or ("data-lo-style" not in html and "data-lo-para" not in html):
@@ -591,7 +626,18 @@ def extract_block_lo_styles(
     ex = _BlockLoStyleExtractor()
     ex.feed(html)
     ex.close()
-    return "".join(ex._out), ex.styles, ex.paras, ex.skipped_para
+    # StarWriter import makes no paragraph for an empty block, so its slot would push every later
+    # style one paragraph down. Trailing empty slots have nothing after them to push.
+    last = max((i for i, f in enumerate(ex.filled) if f), default=-1)
+    keep_list = [i for i, f in enumerate(ex.filled) if f or i > last]
+    keep_set = set(keep_list)
+    dropped = [p for i, p in enumerate(ex.paras) if p and i not in keep_set]
+    return (
+        "".join(ex._out),
+        [ex.styles[i] for i in keep_list],
+        [ex.paras[i] for i in keep_list],
+        ex.skipped_para + dropped,
+    )
 
 
 def resolve_paragraph_style_token(

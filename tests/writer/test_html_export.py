@@ -981,3 +981,80 @@ def test_full_export_of_split_copy_reads_its_own_flat_odf():
     assert 'data-lo-para="font-weight:bold"' in html
     assert "#111111" not in html
 
+
+def test_export_full_disposes_struck_tables_even_without_split():
+    from plugin.writer import html_export as hx
+
+    fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0">'
+        '<office:automatic-styles/></office:document>'
+    )
+    xhtml = '<html><body><p>After</p></body></html>'
+
+    struck_table = MagicMock()
+    live_table = MagicMock()
+    src_tables = MagicMock()
+    src_tables.getElementNames.return_value = ("Table1", "Table2")
+    src_tables.getByName.side_effect = lambda n: struck_table if n == "Table1" else live_table
+    src_doc = MagicMock()
+    src_doc.getTextTables.return_value = src_tables
+
+    copy_t1 = MagicMock()
+    copy_tables = MagicMock()
+    copy_tables.hasByName.side_effect = lambda n: n == "Table1"
+    copy_tables.getByName.return_value = copy_t1
+    copy_doc = MagicMock()
+    copy_doc.getTextTables.return_value = copy_tables
+
+    def fake_read(_doc, filter_name, **_kwargs):
+        return fodt if filter_name == hx.FLAT_ODF_FILTER else xhtml
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.range_copy.table_is_struck", side_effect=lambda _d, t, _s: t is struck_table), \
+         patch("plugin.writer.xhtml_style_postprocess.expand_tracked_deletions", return_value=None), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
+        html, _has_ruby = hx._export_full(src_doc, MagicMock())
+
+    copy_t1.dispose.assert_called_once()
+    assert "After" in html
+
+
+def test_raise_if_empty_export_uses_visible_text_when_deletions_pending():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_export as hx
+
+    model = MagicMock()
+    model.getText.return_value.getString.return_value = "\nSECRET\n"
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export.visible_range_text", return_value="\n\n"):
+        hx._raise_if_empty_export(model, "", "empty")
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export.visible_range_text", return_value="Visible"):
+        with pytest.raises(ToolExecutionError, match="empty"):
+            hx._raise_if_empty_export(model, "", "empty")
+
+
+def test_starwriter_fallback_warning_mentions_struck_text_only_when_deletions_pending():
+    from plugin.writer import html_export as hx
+
+    def _run(has_deletions: bool) -> list[str]:
+        warnings: list[str] = []
+        with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \
+             patch("plugin.writer.html_export._export_starwriter_html", return_value="<p>Body</p>"), \
+             patch("plugin.writer.html_export.TrackedDeletions", return_value=has_deletions):
+            hx.document_to_content(MagicMock(), MagicMock(), scope="full", walk_warnings=warnings)
+        return warnings
+
+    w_clean = _run(False)
+    assert len(w_clean) == 1
+    assert "pending tracked deletions" not in w_clean[0]
+
+    w_del = _run(True)
+    assert len(w_del) == 1
+    assert "pending tracked deletions" in w_del[0]
+

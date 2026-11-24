@@ -9,7 +9,7 @@ from typing import Any
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from tests.testing_utils import with_native_doc
+from tests.testing_utils import TestingFactory, with_native_doc
 
 
 @native_test
@@ -1799,3 +1799,300 @@ def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
     keep_open = keep_block.split(">", 1)[0]
     assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
     assert "data-lo-para=" not in keep_open, keep_block
+
+
+def _insert_tiny_png(doc: Any, target_text: Any, cursor: Any, anchor_type: Any, name: str) -> str:
+    import os
+    import tempfile
+    import uno
+
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc`\x00\x00"
+        b"\x00\x02\x00\x01H\xaf\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+    g.setPropertyValue("AnchorType", anchor_type)
+    g.setPropertyValue("Width", 400)
+    g.setPropertyValue("Height", 400)
+    target_text.insertTextContent(cursor, g, False)
+    g.setName(name)
+    return img_path
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_delete_table_omitted_from_full_and_range_reads_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_document_length
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.specialized.tables import TableDelete
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Before", False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(cur, tbl, False)
+    tbl.setName("DelTbl")
+    tbl.getCellByName("A1").setString("CellOne")
+    tbl.getCellByName("B2").setString("CellTwo")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "After", False)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = TableDelete().execute(tctx, name="DelTbl")
+        assert res["status"] == "ok", res
+        len_before = get_document_length(doc)
+        full_html = document_to_content(doc, ctx, scope="full")
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len_before)
+        assert get_document_length(doc) == len_before
+        for html in (full_html, range_html):
+            assert "<table" not in html, html
+            assert "CellOne" not in html, html
+            assert "CellTwo" not in html, html
+            assert "Before" in html and "After" in html, html
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getTextTables().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_body_with_only_struck_table_returns_empty_full_read_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.specialized.tables import TableDelete
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    tbl.setName("OnlyTbl")
+    tbl.getCellByName("A1").setString("SECRET")
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = TableDelete().execute(tctx, name="OnlyTbl")
+        assert res["status"] == "ok", res
+        html = document_to_content(doc, ctx, scope="full")
+        assert "SECRET" not in html, html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_nested_delete_table_omitted_from_full_and_range_reads_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_document_length
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.specialized.tables import TableDelete
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    text.insertTextContent(cur, outer, False)
+    outer.setName("OuterTbl")
+    host_cell = outer.getCellByName("A1")
+    host_cur = host_cell.createTextCursor()
+    host_cell.insertString(host_cur, "HostText", False)
+    host_cell.insertControlCharacter(host_cur, 0, False)
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host_cell.insertTextContent(host_cur, inner, False)
+    inner.setName("InnerTbl")
+    inner.getCellByName("A1").setString("InnerGone")
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = TableDelete().execute(tctx, name="InnerTbl")
+        assert res["status"] == "ok", res
+        full_html = document_to_content(doc, ctx, scope="full")
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc))
+        for html in (full_html, range_html):
+            assert "HostText" in html, html
+            assert "InnerGone" not in html, html
+            assert html.count("<table") == 1, html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_delete_row_and_struck_cell_para_marks_agree_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_document_length
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 1)
+    text.insertTextContent(cur, tbl, False)
+    tbl.setName("RowTbl")
+
+    a1 = tbl.getCellByName("A1")
+    c1 = a1.createTextCursor()
+    a1.insertString(c1, "Top", False)
+    a1.insertControlCharacter(c1, 0, False)
+    a1.insertString(c1, "MidGone", False)
+    a1.insertControlCharacter(c1, 0, False)
+    a1.insertString(c1, "Bot", False)
+    a2 = tbl.getCellByName("A2")
+    a2.setString("Row2Gone")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        # Strike MidGone (middle paragraph of A1)
+        del_cur = a1.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.gotoNextParagraph(False)
+        del_cur.gotoEndOfParagraph(True)
+        del_cur.setString("")
+        # Delete row 2 via dispatch
+        doc.getCurrentController().select(a2.getStart())
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:DeleteRows")
+
+        full_html = document_to_content(doc, ctx, scope="full")
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc))
+        assert "Row2Gone" not in full_html and "Row2Gone" not in range_html
+        assert full_html.count("<tr") == 2 and range_html.count("<tr") == 2
+        assert _deleted_flags_from_html(full_html) == _deleted_flags_from_html(range_html)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_struck_as_character_image_only_table_omitted_uno(ctx: Any, doc: Any) -> None:
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.doc.text_helpers import DeletionState, get_document_length
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.range_copy import table_is_struck
+    from plugin.writer.specialized.tables import TableDelete
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Lead", False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    tbl.setName("ImgTbl")
+    a1 = tbl.getCellByName("A1")
+    img_path = _insert_tiny_png(doc, a1, a1.createTextCursor(), AS_CHARACTER, "CellImg")
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = TableDelete().execute(tctx, name="ImgTbl")
+        assert res["status"] == "ok", res
+        assert table_is_struck(doc, tbl, DeletionState()) is True
+        full_html = document_to_content(doc, ctx, scope="full")
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc))
+        assert "<table" not in full_html and "<table" not in range_html
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getTextTables().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        if os.path.exists(img_path):
+            os.remove(img_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_deletion_ending_on_inline_image_marked_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.doc.text_helpers import get_document_length
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "AA", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "BB", False)
+    text.insertControlCharacter(cur, 0, False)
+    img_path = _insert_tiny_png(doc, text, cur, AS_CHARACTER, "InlineEndImg")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "CC", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.gotoNextParagraph(False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.gotoEndOfParagraph(True)
+        del_cur.setString("")
+
+        full_html = document_to_content(doc, ctx, scope="full", include_images=True)
+        range_html = document_to_content(
+            doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc), include_images=True
+        )
+        assert _deleted_flags_from_html(full_html) == [False, True, True, False], full_html
+        assert _deleted_flags_from_html(range_html) == [False, True, True, False], range_html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        if os.path.exists(img_path):
+            os.remove(img_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_deletion_spanning_at_paragraph_image_omits_image_in_range_and_accept_uno(ctx: Any, doc: Any) -> None:
+    import os
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.doc.text_helpers import get_document_length
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "AA", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "BB", False)
+    img_cur = text.createTextCursorByRange(cur)
+    img_path = _insert_tiny_png(doc, text, img_cur, AT_PARAGRAPH, "MidAtParaImg")
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "CC", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "DD", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.goRight(1, False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.gotoNextParagraph(True)
+        del_cur.goRight(1, True)
+        del_cur.setString("")
+
+        full_html = document_to_content(doc, ctx, scope="full", include_images=True)
+        range_html = document_to_content(
+            doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc), include_images=True
+        )
+        assert _deleted_flags_from_html(full_html) == [False, True, False, False], full_html
+        assert _deleted_flags_from_html(range_html) == [False, True, False, False], range_html
+        assert "<img" not in full_html and "<img" not in range_html
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        if os.path.exists(img_path):
+            os.remove(img_path)
