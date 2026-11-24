@@ -181,12 +181,38 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
     return error_result(message=f"Unknown action: {action!r}")
 
 
+class _PerRecordFileHandler(logging.FileHandler):
+    """Append each record with its own open and close, so no handle outlives a record.
+
+    The host rotates the file by renaming it (OptionalFlushFileHandler._rotate_if_large).
+    A handle kept open would go on writing the renamed backup, which nothing
+    size-checks, and on Windows it would make the rename fail.
+    """
+
+    # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
+    stream: Any
+
+    def __init__(self, path: str) -> None:
+        super().__init__(path, encoding="utf-8", delay=True)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)
+            if self.stream is not None:
+                self.stream.close()
+        except OSError:
+            # FileHandler.emit opens outside its own guard; a log call must not raise.
+            self.handleError(record)
+        finally:
+            self.stream = None
+
+
 def _init_logging() -> None:
     log_path = os.environ.get("WRITERAGENT_DEBUG_LOG_PATH")
     if not log_path:
         return
     try:
-        handler = logging.FileHandler(log_path, encoding="utf-8")
+        handler = _PerRecordFileHandler(log_path)
         formatter = RedactingFormatter("%(asctime)s | %(name)s[Worker] | %(levelname)s | %(message)s")
         handler.setFormatter(formatter)
         root = logging.getLogger()

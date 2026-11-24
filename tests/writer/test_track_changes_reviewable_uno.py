@@ -1001,7 +1001,7 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header_uno(ctx, doc):
+def test_recording_doc_with_review_off_records_styles_and_flags_header_uno(ctx, doc):
     from plugin.writer.page import PageSetHeaderFooterText
     from plugin.writer.styles import ApplyStyle
 
@@ -1037,7 +1037,9 @@ def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header
             tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none"
         )
         assert para_res["status"] == "ok", para_res
-        assert para_res.get("style_unreviewed") is True
+        assert para_res.get("tracked") is True
+        assert "style_unreviewed" not in para_res
+        assert "ParagraphFormat" in _redline_types(doc)
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
@@ -1184,3 +1186,392 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         fmt.replace_preserving_format(doc, rng, "New", ctx)
     _reject_all(doc, ctx)
     assert _runs() == [("😀 ", float(BOLD)), ("plain", float(NORMAL))], _runs()
+
+
+def _paragraphs(doc):
+    out = []
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        el = e.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            out.append(el)
+    return out
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "First bold rest.\rSecond plain.")
+    paras = _paragraphs(doc)
+    p0_cur = doc.getText().createTextCursorByRange(paras[0].getStart())
+    p0_cur.gotoEndOfParagraph(True)
+    p0_cur.setPropertyValue("ParaLeftMargin", 500)
+    p0_cur.setPropertyValue("ParaAdjust", 3)  # CENTER
+    bold_cur = doc.getText().createTextCursorByRange(paras[0].getStart())
+    bold_cur.goRight(5, True)
+    bold_cur.setPropertyValue("CharWeight", 150.0)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", family="ParagraphStyles",
+            target="full_document", clear_direct="none",
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert _redline_types(doc) == ["ParagraphFormat", "ParagraphFormat"]
+
+        _reject_all(doc, ctx)
+        assert len(doc.getRedlines()) == 0
+        paras = _paragraphs(doc)
+        assert paras[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert paras[1].getPropertyValue("ParaStyleName") == "Standard"
+        assert abs(paras[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
+        assert paras[0].getPropertyValue("ParaAdjust") == 3
+        runs = []
+        pe = paras[0].createEnumeration()
+        while pe.hasMoreElements():
+            p = pe.nextElement()
+            if p.getPropertyValue("TextPortionType") == "Text":
+                runs.append((p.getString(), p.getPropertyValue("CharWeight")))
+        assert runs == [("First", 150.0), (" bold rest.", 100.0)]
+
+        # Accept All keeps the new style and leaves no redlines.
+        res2 = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", family="ParagraphStyles",
+            target="full_document", clear_direct="none",
+        )
+        assert res2["tracked"] is True
+        _accept_all(doc, ctx)
+        assert len(doc.getRedlines()) == 0
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert _paragraphs(doc)[1].getPropertyValue("ParaStyleName") == "Heading 1"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_twice_and_all_matches_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Alpha token and token end.")
+    p0 = _paragraphs(doc)[0]
+    p0.setPropertyValue("ParaLeftMargin", 400)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tool = ApplyStyle()
+        tctx = _tool_ctx(doc, ctx)
+        res1 = tool.execute(tctx, style="Heading 1", target="full_document", clear_direct="none")
+        res2 = tool.execute(tctx, style="Heading 2", target="full_document", clear_direct="none")
+        assert res1["tracked"] is True and res2["tracked"] is True
+        assert _redline_types(doc) == ["ParagraphFormat"]
+
+        _reject_all(doc, ctx)
+        p0 = _paragraphs(doc)[0]
+        assert p0.getPropertyValue("ParaStyleName") == "Standard"
+        assert p0.getPropertyValue("ParaLeftMargin") == 400
+
+        # Two search matches in the same paragraph produce only one ParagraphFormat redline.
+        res3 = tool.execute(
+            tctx, style="Heading 1", target="search", old_content="token",
+            all_matches=True, clear_direct="none",
+        )
+        assert res3["applied_count"] == 2
+        assert _redline_types(doc) == ["ParagraphFormat"]
+        _reject_all(doc, ctx)
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert _paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") == 400
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_table_cell_and_body_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Body para.")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(cur, table, False)
+    cell = table.getCellByName("A1")
+    cell.setString("Cell text.")
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        _reject_all(doc, ctx)
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+        ce = cell.createEnumeration()
+        assert ce.nextElement().getPropertyValue("ParaStyleName") == "Table Contents"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_over_insert_and_delete_redlines_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Keep drop end.")
+    p0 = _paragraphs(doc)[0]
+    p0.setPropertyValue("ParaLeftMargin", 600)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(5, False)
+        cur.goRight(5, True)
+        cur.setString("")  # tracked Delete of "drop "
+        cur.gotoEnd(False)
+        doc.getText().insertString(cur, " added", False)  # tracked Insert
+
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        assert "ParagraphFormat" in _redline_types(doc)
+
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "Keep drop end."
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert _paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") == 600
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_numbered_paragraph_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Numbered item.")
+    p0 = _paragraphs(doc)[0]
+    p0.setPropertyValue("NumberingStyleName", "Numbering 123")
+    assert p0.getPropertyValue("ListLabelString") == "1."
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        assert res.get("style_unreviewed") is True
+        assert "list" in res["warning"].lower()
+
+        _reject_all(doc, ctx)
+        p0 = _paragraphs(doc)[0]
+        assert p0.getPropertyValue("ParaStyleName") == "Standard"
+        assert p0.getPropertyValue("ListLabelString") == "1."
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_fill_tabstop_border_survive_reject_uno(ctx, doc):
+    import uno
+    from com.sun.star.style import TabStop
+    from com.sun.star.table import BorderLine2
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Decorated paragraph.")
+    p0 = _paragraphs(doc)[0]
+    solid = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    p0.setPropertyValue("FillStyle", solid)
+    p0.setPropertyValue("FillColor", 0xDDEEFF)
+    ts = TabStop()
+    ts.Position = 2000
+    uno.invoke(p0, "setPropertyValue", ("ParaTabStops", uno.Any("[]com.sun.star.style.TabStop", (ts,))))
+    border = BorderLine2()
+    border.OuterLineWidth = 50
+    border.Color = 0x112233
+    p0.setPropertyValue("LeftBorder", border)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        _reject_all(doc, ctx)
+        p0 = _paragraphs(doc)[0]
+        assert p0.getPropertyValue("FillStyle") == solid
+        assert p0.getPropertyValue("FillColor") == 0xDDEEFF
+        assert len(p0.getPropertyValue("ParaTabStops")) == 1
+        assert p0.getPropertyValue("ParaTabStops")[0].Position == 2000
+        left_border = p0.getPropertyValue("LeftBorder")
+        assert abs(left_border.OuterLineWidth - 50) <= 2
+        assert left_border.Color == 0x112233
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_clear_direct_warns_without_format_redline_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Big font text.")
+    cur = _para_range(doc)
+    cur.setPropertyValue("CharHeight", 20.0)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert res.get("style_unreviewed") is True
+        assert "warning" in res
+        assert _redline_types(doc) == ["ParagraphFormat"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_uses_office_author_uno(ctx, doc):
+    from plugin.writer import review_authors
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Author test.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        assert review_authors.set_office_author(ctx, "Test User") is True
+        cur = doc.getText().createTextCursor()
+        cur.gotoEnd(False)
+        doc.getText().insertString(cur, " typed", False)
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        authors = {r["RedlineAuthor"] for r in _redlines(doc)}
+        assert authors == {"Test User"}
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_empty_paragraph_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "")
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="selection", clear_direct="none"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is False
+        assert res.get("style_unreviewed") is True
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert doc.getPropertyValue("RecordChanges") is True
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
+    import os
+    import tempfile
+    from com.sun.star.beans import PropertyValue
+    import uno
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Roundtrip body.")
+    _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    reloaded = None
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "para_style.docx")
+            url = uno.systemPathToFileUrl(path)
+            fv = PropertyValue()
+            fv.Name = "FilterName"
+            fv.Value = "Office Open XML Text"
+            doc.storeToURL(url, (fv,))
+            desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            hv = PropertyValue()
+            hv.Name = "Hidden"
+            hv.Value = True
+            reloaded = desktop.loadComponentFromURL(url, "_blank", 0, (hv,))
+            assert "ParagraphFormat" in _redline_types(reloaded)
+            _reject_all(reloaded, ctx)
+            p0 = _paragraphs(reloaded)[0]
+            assert p0.getPropertyValue("ParaStyleName") == "Standard"
+            assert abs(p0.getPropertyValue("ParaLeftMargin") - 500) <= 2
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)

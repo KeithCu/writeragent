@@ -139,6 +139,33 @@ def test_delegate_status_inner_tool_error(
     assert result["tool_errors"] == [{"tool": "failing_structural_tool", "message": "Failed to read page objects"}]
 
 
+def test_delegate_unstarted_call_is_error(
+    writer_gateway: DelegateToSubagent,
+) -> None:
+    """An inner tool call that raises before running (e.g. marshal TimeoutError) fails the delegation."""
+    from unittest.mock import patch
+
+    ctx = _structural_registry(writer_gateway)
+
+    def _call(fn, *a, **kw):
+        if getattr(getattr(fn, "__self__", None), "name", None) == "dummy_structural_tool":
+            raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        with pytest.raises(TimeoutError):
+            tool_map["dummy_structural_tool"]()
+        return tool_map["workflow_finished"](answer="Finished anyway")
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
+
+    assert result["status"] == "error"
+    assert result["code"] == "SPECIALIZED_TOOL_ERROR"
+
+
 def test_delegate_status_incomplete_no_finish_no_tool_error(
     writer_gateway: DelegateToSubagent,
 ) -> None:
@@ -1265,6 +1292,7 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
 
     with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
         for kwargs in (
+            {"doc_type": None, "filter_doc_type": False},
             {"doc_type": "writer"},
             {"doc_type": "calc", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[0]})},
             {"doc_type": "draw", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[2]})},
@@ -1273,8 +1301,12 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
             delegate = next(s for s in schemas if s["name"] == DELEGATE_SUBAGENT_TOOL)
             domain_prop = delegate["inputSchema"]["properties"]["domain"]
             assert "mcp" not in domain_prop["enum"]
+            assert "web_research" not in domain_prop["enum"]
             assert "mcp" not in domain_prop["description"]
             assert "mcp" not in delegate["description"]
+            if kwargs.get("doc_type") is None:
+                assert "sheets" in domain_prop["enum"]
+                assert "slide_layouts" in domain_prop["enum"]
 
         chat_schemas = registry.get_schemas("openai", doc_type="writer", ctx=object())
         chat_delegate = next(s for s in chat_schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)

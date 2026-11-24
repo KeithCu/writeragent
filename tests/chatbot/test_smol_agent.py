@@ -1342,6 +1342,102 @@ def test_inner_call_recorder_records_editing_tool_that_raises():
     assert "note" not in payload
 
 
+def _make_unstarted_test_recorders():
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    class _EditTool(ToolBase):
+        name = "edit_doc"
+        description = "Mutates document."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs):
+            del ctx, kwargs
+            return {"status": "ok"}
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+    calls: list[InnerToolCall] = []
+    edit_rec = InnerCallRecorder(_EditTool(), ctx, calls)
+    finish_rec = InnerCallRecorder(SpecializedWorkflowFinished(), ctx, calls)
+    return edit_rec, finish_rec, calls
+
+
+def test_inner_call_recorder_unstarted_call_fails_delegation():
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE, normalize_inner_result
+
+    edit_rec, finish_rec, calls = _make_unstarted_test_recorders()
+
+    def _call(fn, *a, **kw):
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        with pytest.raises(TimeoutError):
+            edit_rec.forward()
+        ans = finish_rec.forward(answer="done")
+
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "error"
+    assert out["code"] == "SPECIALIZED_TOOL_ERROR"
+    assert len(out["tool_errors"]) == 1
+    assert out["tool_errors"][0]["tool"] == "edit_doc"
+    assert out["edits"] == {}
+    assert out["note"] == NO_EDIT_TOOL_NOTE
+
+
+def test_inner_call_recorder_unstarted_call_recovered_by_retry():
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    edit_rec, finish_rec, calls = _make_unstarted_test_recorders()
+    attempts = 0
+
+    def _call(fn, *a, **kw):
+        nonlocal attempts
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        with pytest.raises(TimeoutError):
+            edit_rec.forward()
+        edit_rec.forward()
+        ans = finish_rec.forward(answer="done")
+
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "ok"
+    assert len(out["recovered_tool_errors"]) == 1
+    assert out["edits"] == {"edit_doc": 1}
+
+
+def test_inner_call_recorder_cancelled_call_keeps_no_edit_note_on_stop():
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE, normalize_inner_result
+    from plugin.framework.send_cancellation import SendCancelled
+
+    edit_rec, _finish_rec, calls = _make_unstarted_test_recorders()
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=SendCancelled()):
+        with pytest.raises(SendCancelled):
+            edit_rec.forward()
+
+    stopped = {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+    out = normalize_inner_result(stopped, ["structural"], calls)
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
+    assert out["edits"] == {}
+    assert out["note"] == NO_EDIT_TOOL_NOTE
+
+
 def test_build_toolcalling_agent_prints_nothing_when_tool_with_password_fails(capsys):
     from plugin.contrib.smolagents.models import (
         ChatMessage,

@@ -350,7 +350,7 @@ ALL_EXAMPLES = [
 
 
 # Org Chart Gen — native Draw (backend=lo). Ten labeled boxes + nine connectors.
-# String DrawWorld cannot prove production connector nodes (connected_start/end).
+# Runs on LibreOffice: string DrawWorld has no connector routing or page layout.
 ORG_CHART_GEN = {
     "document_content": "Create a company org chart.",
     "user_question": (
@@ -378,7 +378,7 @@ ORG_CHART_GEN = {
     ),
 }
 
-# Flowchart Gen (from archive/eval/ideas.md Draw #3) - tests non-LO shapes via DrawDocState
+# Flowchart Gen (from archive/eval/ideas.md Draw #3) - tests non-LO shapes via DrawWorld
 FLOWCHART_GEN = {
     "document_content": "Create a simple login flowchart.",
     "user_question": (

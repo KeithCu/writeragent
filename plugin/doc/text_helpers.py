@@ -855,7 +855,7 @@ def get_selection_text(model: Any) -> str | None:
         if doc_type == _doc_type.DocumentType.WRITER:
             rng = selected_text_range(controller)
             if not rng:
-                vc = uno_call(controller.getViewCursor, "Get view cursor")
+                vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
                 if vc:
                     return uno_call(vc.getString, "Get view cursor string")
             else:
