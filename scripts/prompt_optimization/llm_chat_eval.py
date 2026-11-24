@@ -40,13 +40,7 @@ from eval_catalog import apply_schema_density, apply_schema_patches, prepare_eva
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld
 from string_eval_tools import dispatch_string_tool
 
-DELEGATE_TOOL_NAMES = frozenset(
-    {
-        "delegate_to_subagent",
-        "delegate_to_subagent",
-        "delegate_to_subagent",
-    }
-)
+DELEGATE_TOOL_NAMES = frozenset({"delegate_to_subagent"})
 SPECIALIZED_FINISH = "workflow_finished"
 INNER_MAX_ROUNDS = 12
 

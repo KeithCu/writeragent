@@ -119,7 +119,7 @@ Docs: [multi-document-dev-plan.md](multi-document-dev-plan.md). Phase 0 decision
 
 ### 2.3 Specialized delegation (contrast — A2 only)
 
-`DelegateToSpecializedBase` + `build_toolcalling_agent` + `SmolAgentExecutor.execute_safe` is the closest shipped “task in, compact result out” loop. Writer / Calc / Draw already have `delegate_to_subagent` (`DrawingDocument` + `PresentationDocument` on the Draw gateway).
+`DelegateToSubagent` + `build_toolcalling_agent` + `SmolAgentExecutor.execute_safe` is the closest shipped “task in, compact result out” loop. Writer / Calc / Draw already have `delegate_to_subagent` (`DrawingDocument` + `PresentationDocument` on the Draw gateway).
 
 That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until `workflow_finished`. It is the right shape for **A2** (optional later / documented escape hatch). It is **not** v1. Draw is already first-class on this path; A1 does not need a Draw-specific send factory — same panel map + extracted send as Calc.
 
