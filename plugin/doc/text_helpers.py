@@ -778,7 +778,9 @@ def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     state = DeletionState(starts_deleted)
     text = get_string_without_tracked_deletions(para, state)
     if not (starts_deleted or state.saw_delete):
-        return normalize_linebreaks(para.getString())  # nothing struck, so raw text is the visible text
+        # No marker seen, so raw text is the visible text, except for a deletion wholly inside a
+        # content control or metadata field: its markers are in the child list.
+        return normalize_linebreaks(para.getString())
     if not text.strip() and (starts_deleted or para.getString().strip()):
         return None
     return text
