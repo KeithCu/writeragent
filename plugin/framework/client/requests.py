@@ -107,6 +107,7 @@ def sync_request(
     include_meta: bool = False,
     max_bytes: int | None = None,
     ok_statuses: frozenset[int] = frozenset({200}),
+    fresh_connection: bool = False,
 ) -> Any:
     """Blocking HTTP GET or POST on the shared transport.
 
@@ -122,6 +123,8 @@ def sync_request(
     ``include_meta``, returns ``http_transport.HttpResult`` (status, body, content type).
     Statuses in ``ok_statuses`` are returned without raising ``NetworkError``;
     callers passing extra statuses need ``include_meta=True`` to tell them apart.
+    With ``fresh_connection=True``, any pooled keep-alive socket for that
+    origin is closed under the transport lock before sending.
     HTTP errors are labelled with the origin rather than "AI Provider".
 
     Redirects follow ``LlmHttpTransport.exchange``.
@@ -141,6 +144,9 @@ def sync_request(
         if is_cancelled(cancel):
             raise stopped_error()
         entry.timeout = timeout
+        if fresh_connection:
+            # Drop the pooled keep-alive socket so this request opens a new connection.
+            entry.transport.close()
         if cancel is not None:
             cancel.register_on_cancel(entry.transport.close)
         try:

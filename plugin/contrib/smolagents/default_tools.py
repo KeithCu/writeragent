@@ -296,15 +296,17 @@ _SEARCH_STOPPED = f"{SEARCH_ERROR_PREFIX} stopped by user."
 _SEARCH_MIN_GAP_SEC: float = 1.5
 _SEARCH_CHALLENGE_STATUSES: frozenset[int] = frozenset({202, 403})
 _SEARCH_OK_STATUSES: frozenset[int] = frozenset({200}) | _SEARCH_CHALLENGE_STATUSES
-_SEARCH_CHALLENGE_DELAYS_SEC: tuple[float, ...] = (2.0, 5.0, 12.0)
+_SEARCH_CHALLENGE_DELAYS_SEC: tuple[float, ...] = (3.0, 3.0, 6.0)
+# After a challenge, keep the next queries further apart for a while.
+_SEARCH_CHALLENGE_COOLDOWN_SEC: float = 3.0
 _RECENCY_MAX_AGE_DAYS: dict[str, int] = {"day": 1, "week": 7}
 _SEARCH_GATE = threading.Lock()
 _search_next_allowed: float = 0.0
 
 
 def _challenge_delay_sec(retry_index: int) -> float:
-    """Return challenge retry wait with ±30% jitter."""
-    return _SEARCH_CHALLENGE_DELAYS_SEC[retry_index] * random.uniform(0.7, 1.3)
+    """Return challenge retry wait with ±20% jitter."""
+    return _SEARCH_CHALLENGE_DELAYS_SEC[retry_index] * random.uniform(0.8, 1.2)
 
 
 def _norm_recency(value):
@@ -373,16 +375,21 @@ class DuckDuckGoSearchTool(Tool):
                     # Connection errors, 429/503, and Stop are handled by the shared transport;
                     # challenge statuses (202/403) come back as HttpResult and are retried here.
                     # Shared transport connects directly; system proxies are not used, same as LLM traffic.
+                    # A challenged keep-alive connection stays challenged for ~55 s whatever the
+                    # query, so every retry opens a fresh connection and uses a plain Lite GET.
+                    retry = retry_index > 0
+                    url = _SEARCH_URL + "?" + data.decode("ascii") if retry else _SEARCH_URL
                     result = sync_request(
-                        _SEARCH_URL,
-                        data,
-                        headers,
+                        url,
+                        None if retry else data,
+                        {"User-Agent": headers["User-Agent"]} if retry else headers,
                         parse_json=False,
                         timeout=_SEARCH_READ_TIMEOUT_SEC,
                         connect_timeout=_SEARCH_CONNECT_TIMEOUT_SEC,
                         cancel=self._cancel,
                         include_meta=True,
                         ok_statuses=_SEARCH_OK_STATUSES,
+                        fresh_connection=retry,
                     )
                     if result.status == 200:
                         return result.body.decode("utf-8")
@@ -396,6 +403,10 @@ class DuckDuckGoSearchTool(Tool):
                 if retry_index == retries:
                     break
                 delay = _challenge_delay_sec(retry_index)
+                _search_next_allowed = max(
+                    _search_next_allowed,
+                    time.monotonic() + delay + _SEARCH_CHALLENGE_COOLDOWN_SEC,
+                )
                 log.warning(
                     "web_search: DuckDuckGo bot challenge (HTTP %s); retry %s/%s in %.1fs",
                     result.status,

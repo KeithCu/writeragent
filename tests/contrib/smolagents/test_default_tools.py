@@ -240,17 +240,21 @@ def test_web_search_exhausted_retries_returns_unavailable_uncached(tmp_path):
 
 
 def test_web_search_http_202_then_200_returns_results():
-    conn = _keepalive_conn([
-        _response(202, b"<html><body>challenge</body></html>", "Accepted"),
-        _response(200, _ddg_html("Recovered"), "OK"),
-    ])
-    patcher, _created = _patch_https([conn])
+    conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn2 = _keepalive_conn([_response(200, _ddg_html("Recovered"), "OK")])
+    patcher, created = _patch_https([conn1, conn2])
     with patcher:
         result = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
 
     assert "Recovered" in result
     assert "No results found" not in result
-    assert conn.request.call_count == 2
+    assert len(created) == 2
+    conn1.close.assert_called()
+    assert conn1.request.call_args.args == ("POST", "/lite/")
+    assert conn1.request.call_args.kwargs["body"] == b"q=AI+news"
+    assert conn2.request.call_args.args == ("GET", "/lite/?q=AI+news")
+    assert conn2.request.call_args.kwargs["body"] is None
+    assert "Content-Type" not in conn2.request.call_args.kwargs["headers"]
 
 
 def test_web_search_stop_returns_without_connecting():
@@ -366,11 +370,11 @@ def test_concurrent_searches_from_separate_runs_never_overlap():
 
 def test_web_search_challenge_on_all_attempts_returns_unavailable_uncached(tmp_path):
     db_file = str(tmp_path / "writeragent_web_cache.db")
-    conn = _keepalive_conn([
-        _response(202, b"<html><body>challenge</body></html>", "Accepted")
+    conns = [
+        _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
         for _idx in range(4)
-    ])
-    patcher, _created = _patch_https([conn])
+    ]
+    patcher, created = _patch_https(conns)
     with (
         patcher,
         patch("plugin.framework.client.http_transport.remember_host_gap") as remember_gap,
@@ -378,22 +382,23 @@ def test_web_search_challenge_on_all_attempts_returns_unavailable_uncached(tmp_p
         result = DuckDuckGoSearchTool(cache_max_age_days=30, cache_path=db_file, cache_max_mb=10).forward("AI news")
 
     assert result == default_tools._SEARCH_UNAVAILABLE
-    assert conn.request.call_count == 4
+    assert len(created) == 4
+    assert all(c.request.call_count == 1 for c in conns)
     assert _web_cache_get(db_file, "search", _search_cache_key("AI news", None), max_age_days=30) is None
     remember_gap.assert_not_called()
 
 
 def test_web_search_403_is_retried_like_a_challenge():
-    conn = _keepalive_conn([
-        _response(403, b"<html><body>forbidden</body></html>", "Forbidden"),
-        _response(200, _ddg_html("Recovered 403"), "OK"),
-    ])
-    patcher, _created = _patch_https([conn])
+    conn1 = _keepalive_conn([_response(403, b"<html><body>forbidden</body></html>", "Forbidden")])
+    conn2 = _keepalive_conn([_response(200, _ddg_html("Recovered 403"), "OK")])
+    patcher, created = _patch_https([conn1, conn2])
     with patcher:
         result = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
 
     assert "Recovered 403" in result
-    assert conn.request.call_count == 2
+    assert len(created) == 2
+    assert conn2.request.call_args.args == ("GET", "/lite/?q=AI+news")
+    assert conn2.request.call_args.kwargs["body"] is None
 
 
 def test_web_search_challenge_wait_uses_backoff_and_stop_aborts_it(monkeypatch):
@@ -411,7 +416,7 @@ def test_web_search_challenge_wait_uses_backoff_and_stop_aborts_it(monkeypatch):
 
     assert result == default_tools._SEARCH_STOPPED
     assert len(recorded_delays) == 2
-    assert 21.0 <= recorded_delays[1] <= 39.0
+    assert 24.0 <= recorded_delays[1] <= 36.0
 
 
 def test_web_search_spaces_query_starts(monkeypatch):
@@ -453,19 +458,21 @@ def test_web_search_gate_blocks_other_threads_during_challenge_backoff(monkeypat
             assert backoff_release.wait(timeout=5)
         return True
 
-    conn = _keepalive_conn([
-        _response(202, b"<html><body>challenge</body></html>", "Accepted"),
+    conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn2 = _keepalive_conn([
         _response(200, _ddg_html("A Result"), "OK"),
         _response(200, _ddg_html("B Result"), "OK"),
     ])
 
-    def _record_request(_method, _path, body=None, _headers=None, **_kwargs):
-        q = dict(urllib.parse.parse_qsl(body.decode("utf-8"))).get("q", "")
+    def _record_request(_method, path, body=None, _headers=None, **_kwargs):
+        raw_qs = body.decode("utf-8") if body is not None else urllib.parse.urlsplit(path).query
+        q = dict(urllib.parse.parse_qsl(raw_qs)).get("q", "")
         with requests_lock:
             requests_seen.append(q)
 
-    conn.request.side_effect = _record_request
-    patcher, _created = _patch_https([conn])
+    conn1.request.side_effect = _record_request
+    conn2.request.side_effect = _record_request
+    patcher, created = _patch_https([conn1, conn2])
     results: dict[str, str] = {}
 
     def _run(name: str, query: str) -> None:
@@ -486,9 +493,29 @@ def test_web_search_gate_blocks_other_threads_during_challenge_backoff(monkeypat
         t_a.join(timeout=5)
         t_b.join(timeout=5)
 
+    assert len(created) == 2
     assert requests_seen == ["query A", "query A", "query B"]
     assert "A Result" in results["a"]
     assert "B Result" in results["b"]
+
+
+def test_web_search_challenge_pushes_next_allowed_cooldown(monkeypatch):
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (1.0,))
+    conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn2 = _keepalive_conn([_response(200, _ddg_html("Recovered"), "OK")])
+    patcher, _created = _patch_https([conn1, conn2])
+    delays: list[float] = []
+
+    def _fake_wait(delay: float, _cancel) -> bool:
+        delays.append(delay)
+        return True
+
+    with patcher, patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_fake_wait):
+        result = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
+
+    assert "Recovered" in result
+    assert len(delays) == 3
+    assert delays[2] >= delays[1] + default_tools._SEARCH_CHALLENGE_COOLDOWN_SEC - 0.1
 
 
 def test_web_search_stop_while_waiting_for_gate_returns_stopped():
