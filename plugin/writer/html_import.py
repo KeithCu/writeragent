@@ -646,7 +646,8 @@ def non_text_portion_type(
     """First non-text ``TextPortionType`` in *para*, ``"unreadable"`` on read failure, or ``None``.
 
     ``getString()`` is empty for images, fields, frames, and comments, so a paragraph
-    holding only one of those would look empty. When *ignore_markers* is True,
+    holding only one of those would look empty and the import would merge its first block
+    into it. When *ignore_markers* is True,
     ``Redline`` and ``SoftPageBreak`` markers are ignored; *ignore_bookmarks* also
     ignores ``Bookmark`` portions (``_drop_leftover_paragraph`` joins the paragraph,
     which keeps its bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes

@@ -446,10 +446,12 @@ def set_paragraph_background(para: Any, color: int) -> None:
     """Set the direct background of paragraph *para* (``SwXParagraph``); -1 means no fill."""
     # Setting ParaBackColor on a cursor or paragraph writes only RES_BACKGROUND without
     # converting to fill attributes (only SwXStyle::SetPropertyValue in
-    # sw/source/core/unocore/unostyle.cxx converts it). Fill properties exist only on
-    # SwXParagraph (FILL_PROPERTIES_SW in sw/source/core/unocore/unomap1.cxx
-    # GetParagraphPropertyMap), and ParaBackColor reads derive from them via
-    # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx).
+    # sw/source/core/unocore/unostyle.cxx converts it), so it is lost on save and a style
+    # fill wins over it. Fill properties exist only on SwXParagraph (FILL_PROPERTIES_SW in
+    # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap), and ParaBackColor reads
+    # derive from them via getSvxBrushItemFromSourceSet
+    # (svx/source/unodraw/unobrushitemhelper.cxx), returning COL_AUTO (-1) when FillStyle
+    # is missing or NONE.
     if color == -1:
         para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
     else:

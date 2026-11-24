@@ -1000,6 +1000,12 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
                 )
         return res
 
+    body_items = list(iter_elements(doc.getText().createEnumeration()))
+    assert len(body_items) == 3
+    assert body_items[1].supportsService("com.sun.star.text.TextTable")
+    assert body_items[2].supportsService("com.sun.star.text.Paragraph")
+    assert body_items[2].getString() == ""
+
     res_set = StyleFormatText().execute(
         tool_ctx, properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
     )
@@ -1052,6 +1058,10 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
     )
     assert res_search["status"] == "ok", res_search
     paras_after = _all_paras(doc)
-    assert int(paras_after[0].getPropertyValue("ParaBackColor")) == 0x00FF00
-    assert any(int(p.getPropertyValue("ParaBackColor")) == 0x123456 for p in paras_after)
+    colored = [p for p in paras_after if int(p.getPropertyValue("ParaBackColor")) == 0x123456]
+    assert len(colored) == 1
+    assert colored[0].getString() == "Outer cell"
+    for p in paras_after:
+        if p is not colored[0]:
+            assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 

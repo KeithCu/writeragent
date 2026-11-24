@@ -1042,6 +1042,8 @@ class ManageTableStructure(ToolWriterTableBase):
                         _delete_band_tracked(ctx.doc, uno_ctx, table, name, axis_arg, idx)
                         return True
                     edit_table_band(band, action, idx, axis_arg)
+                    # removeByIndex ignores the outcome of SwDoc::DeleteRow/DeleteCol, and a
+                    # protected cell merged from above is not in the band's names but may still block.
                     if band.getCount() == count:
                         raise ToolExecutionError(
                             "LibreOffice left this %s in place. A protected merged cell may reach into it "

@@ -2090,6 +2090,27 @@ def test_style_format_text_para_back_color_sets_paragraph_fill_and_reads_from_pa
     para.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
 
 
+def test_style_format_text_para_back_color_rolls_back_on_unreadable_table_cell():
+    cursor = _noncollapsed_cursor()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ["A1"]
+    table.getCellByName.side_effect = RuntimeError("unreadable cell")
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = table
+    span = MagicMock()
+    span.createEnumeration.return_value = enum
+    cursor.getText.return_value.createTextCursorByRange.return_value = span
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
+        res = StyleFormatText().execute(_font_ctx(), properties={"ParaBackColor": "#FFE4C4"})
+    assert res["status"] == "error"
+    assert "Nothing was changed" in res["message"]
+
+
 def test_style_format_text_unknown_name_changes_nothing():
     cursor = _noncollapsed_cursor()
     info = cursor.getPropertySetInfo.return_value
