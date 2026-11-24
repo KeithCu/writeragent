@@ -87,7 +87,7 @@ import uno
 
 from plugin.doc.text_helpers import DeletionState, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
-from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering, redline_spans
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -888,18 +888,27 @@ def retarget_outline_links(
     recording = is_recording_changes(doc)
     stale: dict[str, StaleReason] = {}
     lost_titles = {title: title for title in lost}
-    count = 0
+    spans = redline_spans(doc)
+    edits: list[tuple[Any, Any, str, bool]] = []
+    prev_para: Any = None
+    # Every run is chosen before the first write: the writes add tracked changes that *spans* does not have.
     for linked in _linked_ranges(doc):
         text = linked.getText()
+        # findAll returns one range per link, in document order, and the walk below covers the whole
+        # paragraph. Walking a paragraph twice would retype its runs twice.
+        para_start = _paragraph_cursor(text, linked.getStart()).getStart()
+        if prev_para is not None and _same_point(text, prev_para, para_start):
+            continue
+        prev_para = para_start
         runs: list[tuple[Any, str, str, bool]] = []
-        blocked: set[str] = set()  # per paragraph: one field link must not block the others
-        for portion in _iter_portions(text, linked.getStart()):
+        blocked: dict[str, StaleReason] = {}  # per paragraph: one field link must not block the others
+        for portion in _iter_portions(text, para_start):
             url = _prop(portion, _URL)
             new_url = _renamed_url(url, renames) if url else None
             gone = bool(url) and new_url is None and _renamed_url(url, lost_titles) is not None
             if (new_url is None and not gone) or not portion.getString():
                 continue
-            kinds = redline_kinds_covering(doc, portion)
+            kinds = redline_kinds_covering(spans, portion)
             if "Delete" in kinds:
                 continue
             if new_url is None:
@@ -907,27 +916,25 @@ def retarget_outline_links(
                 continue
             tracked = recording and "Insert" not in kinds
             if tracked and _prop(portion, "TextPortionType") != "Text":
-                blocked.add(url)
+                blocked[url] = "field"
             runs.append((portion, url, new_url, tracked))
-        # Last run first: retyping a run moves the text after it.
-        for portion, url, new_url, tracked in reversed(runs):
-            if url in blocked:
-                stale[url] = "field"
-                continue
-            props = read_link_props(portion)
-            target = text.createTextCursorByRange(portion)
-            if not tracked:
-                with record_changes(doc, False):
-                    write_link(target, new_url, props)
-            else:
-                start = text.createTextCursorByRange(target.getStart())
-                retyped = text.createTextCursorByRange(target.getEnd())
-                # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
-                text.insertString(retyped, target.getString(), True)
-                with record_changes(doc, False):
-                    write_link(retyped, new_url, props)
-                # The insertion stretched the run's own range, so delete up to the new text.
-                start.gotoRange(retyped.getStart(), True)
-                start.setString("")
-            count += 1
-    return count, stale
+        stale.update(blocked)
+        edits += [(text, portion, new_url, tracked) for portion, url, new_url, tracked in runs if url not in blocked]
+    # Last run first: retyping a run moves the text after it.
+    for text, portion, new_url, tracked in reversed(edits):
+        props = read_link_props(portion)
+        target = text.createTextCursorByRange(portion)
+        if not tracked:
+            with record_changes(doc, False):
+                write_link(target, new_url, props)
+        else:
+            start = text.createTextCursorByRange(target.getStart())
+            retyped = text.createTextCursorByRange(target.getEnd())
+            # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
+            text.insertString(retyped, target.getString(), True)
+            with record_changes(doc, False):
+                write_link(retyped, new_url, props)
+            # The insertion stretched the run's own range, so delete up to the new text.
+            start.gotoRange(retyped.getStart(), True)
+            start.setString("")
+    return len(edits), stale

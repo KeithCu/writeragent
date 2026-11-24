@@ -27,6 +27,9 @@ from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
 
+# (RedlineType, (text, start, end)) of one tracked change.
+RedlineSpan = tuple[str, tuple[Any, Any, Any]]
+
 
 def is_recording_changes(model: Any) -> bool:
     """True if *model* is currently recording Track Changes (redlines).
@@ -95,18 +98,25 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
             head.setString("")
 
 
-def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:
-    """``RedlineType`` of every tracked change that covers all of *text_range*."""
-    kinds: set[str] = set()
+def redline_spans(doc: Any) -> list[RedlineSpan]:
+    """``(RedlineType, bounds)`` of every tracked change in *doc*; unreadable ones are left out.
+
+    Stale once the document is edited: build a new list after a write.
+    """
+    spans: list[RedlineSpan] = []
     redlines = doc.getRedlines()
     for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
         try:
-            if bounds_cover(redline_bounds(rl), text_range):
-                kinds.add(str(rl.getPropertyValue("RedlineType")))
+            spans.append((str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)))
         except Exception as exc:
             reraise_if_disposed(exc)
             continue  # the redline's bounds or type could not be read
-    return kinds
+    return spans
+
+
+def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str]:
+    """``RedlineType`` of every tracked change in *spans* that covers all of *text_range*."""
+    return {kind for kind, bounds in spans if bounds_cover(bounds, text_range)}
 
 
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:

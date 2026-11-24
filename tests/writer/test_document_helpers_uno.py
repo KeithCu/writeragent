@@ -352,3 +352,21 @@ def test_chat_context_marks_struck_paragraph_only_not_real_blank_uno(ctx, doc):
     visible_len = len(read_visible_body(doc)[0])
     assert f"Document length: {visible_len} characters." in ctx_str
     assert "AA\n[tracked deletion]\n\nCC" in ctx_str
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_marks_caret_at_start_and_end_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Hello world", False)
+
+    caret = text.createTextCursor()
+    caret.gotoStart(False)
+    start_ctx = get_document_context_for_chat(doc, include_selection=True, selection=caret, ctx=ctx)
+    assert "[DOCUMENT START]\n[SELECTION_START][SELECTION_END]Hello world" in start_ctx
+
+    caret.gotoEnd(False)
+    end_ctx = get_document_context_for_chat(doc, include_selection=True, selection=caret, ctx=ctx)
+    assert "Hello world[SELECTION_START][SELECTION_END]" in end_ctx

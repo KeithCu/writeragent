@@ -72,6 +72,7 @@ from plugin.writer.record_changes import (
     overlaps_foreign_insertion,
     record_changes,
     redline_kinds_covering,
+    redline_spans,
 )
 from plugin.writer.review_view_attachment import refresh_review_toolbar
 from plugin.writer.word_diff_split import split_change
@@ -1286,7 +1287,7 @@ def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
         lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
         None,
     )
-    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
+    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(redline_spans(doc), text_range)):
         return True
     top = _open_enum(text_range)
     if top is None:
