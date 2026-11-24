@@ -343,7 +343,7 @@ _D_H_BAD_INPUTS = [
     ("fact-text", "fact", ("x",), ValueError),
     ("fact-blank", "fact", ("",), ValueError),
     ("fact-oor", "fact", (-1,), _NAN),
-    ("fact-huge", "fact", (171,), _NAN),
+    ("fact-huge", "fact", (171,), "#VALUE!"),
     ("factdouble-text", "factdouble", ("x",), ValueError),
     ("factdouble-blank", "factdouble", ("",), ValueError),
     ("factdouble-oor", "factdouble", (-1,), _NAN),
@@ -352,7 +352,7 @@ _D_H_BAD_INPUTS = [
     ("fdist-blank", "fdist", ("", 2, 5), ValueError),
     ("fdist-zero", "fdist", (1, 0, 5), _NAN),
     ("fdist-oor", "fdist", (-1, 2, 5), _NAN),
-    ("filter-text", "filter", ("text", [True]), "#VALUE!"),
+    ("filter-text", "filter", ("text", [True]), "Err:504"),
     ("filter-blank", "filter", ([], []), "#VALUE!"),
     ("finv-text", "finv", ("x", 2, 5), ValueError),
     ("finv-blank", "finv", ("", 2, 5), ValueError),
@@ -399,7 +399,7 @@ _D_H_BAD_INPUTS = [
     ("gestep-blank", "gestep", ("", 0), ValueError),
     ("hypgeomdist-text", "hypgeomdist", ("x", 5, 3, 10), ValueError),
     ("hypgeomdist-blank", "hypgeomdist", ("", 5, 3, 10), ValueError),
-    ("hypgeomdist-zero", "hypgeomdist", (0, 0, 0, 0), _NAN),
+    ("hypgeomdist-zero", "hypgeomdist", (0, 0, 0, 0), 1.0),
     ("hypgeomdist-oor", "hypgeomdist", (5, 3, 2, 10), _NAN),
     ("hypgeomdist-inf", "hypgeomdist", (float("inf"), 5, 3, 10), OverflowError),
 ]
@@ -471,9 +471,9 @@ def test_filter_vector_includes():
     filtered_cols = calc.filter(grid_2x2, row_mask)
     assert filtered_cols == [[10.0], [30.0]]
 
-    # Shape mismatch or 2D include returns #VALUE!
-    assert calc.filter(grid, [[True], [False]]) == "#VALUE!"
-    assert calc.filter(grid, [True, False, True, False]) == "#VALUE!"
+    # Shape mismatch is Err:504; 2D include returns #VALUE!
+    assert calc.filter(grid, [[True], [False]]) == "Err:504"
+    assert calc.filter(grid, [True, False, True, False]) == "Err:504"
     assert calc.filter(grid_2x2, [[True, False], [False, True]]) == "#VALUE!"
     assert calc.filter([1, 2, 3, 4], [[True, False], [False, True]]) == "#VALUE!"
 
@@ -673,6 +673,8 @@ def test_dsum_error_text_criteria_not_blank():
 
 
 def test_d_h_approx_floor_counts_and_df():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
     assert math.isnan(calc.hypgeomdist(-0.5, 2, 3, 10))
     assert math.isnan(calc.hypgeomdist(1, -0.5, 3, 10))
     assert math.isnan(calc.hypgeomdist(0, 2, -0.5, 10))
@@ -680,8 +682,50 @@ def test_d_h_approx_floor_counts_and_df():
 
     assert math.isclose(calc.fdist(1, 2.5, 5), 0.4312011503716921)
     assert calc.fdist(1, 0.29 * 100, 5) == calc.fdist(1, 29, 5)
-    assert math.isclose(calc.fdist(1, 1e20, 5), calc.fdist(1, 1e10, 5), rel_tol=1e-6)
+    for bad in (calc.fdist(1, 1e10, 5), calc.fdist(1, 5, 1e20), calc.finv(0.5, 1e10, 5)):
+        assert math.isnan(bad) and nan_error_code(bad) == 502
+    assert math.isclose(calc.fdist(1, 9999999999.9, 5), 0.584119812943469)
     assert calc.finv(0.5, 2.5, 5) == calc.finv(0.5, 2, 5)
+
+    assert calc.decimal("11", 1.9999999999999998) == 3.0
+    bad_radix = calc.decimal("10", 37)
+    assert math.isnan(bad_radix) and nan_error_code(bad_radix) == 502
+
+
+def test_fact_floor_and_limits():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    assert calc.fact(170.5) == float(math.factorial(170))
+    assert calc.fact(2.9999999999999996) == 6.0
+    neg = calc.fact(-1e-17)
+    assert math.isnan(neg) and nan_error_code(neg) == 502
+
+
+def test_hypgeomdist_impossible_draw_is_zero():
+    assert calc.hypgeomdist(0, 2, 9, 10) == 0.0
+    assert calc.hypgeomdist(3, 5, 2, 10) == 0.0
+
+
+def test_filter_no_match_and_errors_before_shape():
+    assert calc.filter([1, 2, 3], [0, 0], "none") == "none"
+    assert calc.filter([1, 2, 3], ["#N/A", 0]) == "#N/A"
+    assert calc.filter([5], [1]) == "Err:504"
+    assert calc.filter([1, 2, 3], True) == "Err:504"
+
+
+def test_db_domain_and_fractional_period():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    for bad in (
+        calc.db(1000, 2000, 6, 1),
+        calc.db(1000000, 100000, 1201, 1),
+        calc.db(1000000, 100000, 6, 7.1),
+    ):
+        assert math.isnan(bad) and nan_error_code(bad) == 502
+    assert calc.db(1000000, 100000, 6, 0.5) == 0.0
+    assert math.isclose(calc.db(1000000, 100000, 6, 2.5), 217239.0)
+    assert math.isclose(calc.db(1000000, 100000, 6, 1.9999999999999998), 217239.0)
+    assert math.isclose(calc.db(1000000, 100000, 6, 6.5, 7), 15845.098473848071)
 
 
 def test_d_number_criterion_matches_text():

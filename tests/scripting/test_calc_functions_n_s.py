@@ -35,7 +35,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("n", (_INF,), "inf", "n-out-of-range"),
     ("negbinomdist", ("text", 5, 0.5), ValueError, "negbinomdist-text"),
     ("negbinomdist", ("", 5, 0.5), ValueError, "negbinomdist-blank"),
-    ("negbinomdist", (2, 5, 0), "nan", "negbinomdist-zero-prob"),
+    ("negbinomdist", (2, 5, 0), 0.0, "negbinomdist-zero-prob"),
     ("negbinomdist", (_INF, 5, 0.5), OverflowError, "negbinomdist-out-of-range"),
     ("networkdays", ("text", 46185), "nan", "networkdays-text"),
     ("networkdays", ("", 46185), "nan", "networkdays-blank"),
@@ -533,13 +533,16 @@ def test_npv_error_propagation_and_text_skip():
     import struct
 
     assert calc.npv(0.1, "#N/A", "#DIV/0!") == "#N/A"
+    assert calc.npv("#N/A", 100) == "#N/A"
+    assert calc.npv("#DIV/0!", "#N/A") == "#DIV/0!"
+    assert calc.npv("abc", "#N/A") == "#N/A"
     assert calc.npv(0.1, " Err:502 ", 100) == "Err:502"
     assert math.isnan(calc.npv(-1, 5))
     assert calc.npv(-1, "#N/A") == "#N/A"
     assert math.isclose(calc.npv(0.1, "12", 5), 5 / 1.1)
-    na_res = calc.npv(0.1, 100, calc.na(), 100)
-    assert isinstance(na_res, float) and math.isnan(na_res)
-    assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
+    for na_res in (calc.npv(0.1, 100, calc.na(), 100), calc.npv(calc.na(), 100)):
+        assert isinstance(na_res, float) and math.isnan(na_res)
+        assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
 
 
 def test_poisson_approx_floor():
@@ -590,6 +593,10 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
 
     # PERCENTRANK with huge significance returns quickly with NaN
     assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
+    assert calc.percentrank([1, 2, 3], 2, 0.9999999999999999) == calc.percentrank([1, 2, 3], 2, 1)
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+    bad_sig = calc.percentrank([1, 2, 3], 2, 0.9)
+    assert math.isnan(bad_sig) and nan_error_code(bad_sig) == 502
 
 
 def test_na_returns_err_na_payload():
@@ -600,9 +607,36 @@ def test_na_returns_err_na_payload():
 
 
 def test_negbinomdist_and_permut_approx_floor():
-    assert math.isnan(calc.negbinomdist(-0.5, 2, 0.5))
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    for bad in (
+        calc.negbinomdist(-0.5, 2, 0.5),
+        calc.negbinomdist(0, 1, 0.5),
+        calc.negbinomdist(-1, 2, 0.5),
+    ):
+        assert math.isnan(bad) and nan_error_code(bad) == 502
+    assert math.isclose(calc.negbinomdist(-0.5, 3, 0.5), 0.125)
+    assert calc.negbinomdist(2, 1, 0) == 0.0
+    assert calc.negbinomdist(0, 2, 0) == 0.0
+    assert calc.negbinomdist(2, 0, 0.5) == 0.0
+    assert calc.negbinomdist(5, -1, 0.5) == 0.0
+    assert calc.negbinomdist(1e20, 3, 0.5) == 0.0
+    zero_neg = calc.negbinomdist(5, -1, 0)
+    assert math.isnan(zero_neg) and nan_error_code(zero_neg) == 0
     assert math.isnan(calc.permut(5, -0.5))
     assert calc.permut(0.29 * 100, 1) == 29
+
+
+def test_prob_compares_dimensions():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    for bad in (
+        calc.prob([[1, 2, 3]], [[0.2], [0.3], [0.5]], 1),
+        calc.prob([[1, 2], [3, 4]], [[0.25, 0.25, 0.25, 0.25]], 1),
+    ):
+        assert math.isnan(bad) and nan_error_code(bad) == 0x7FFF
+    assert math.isclose(calc.prob([1, 2, 3], [[0.2], [0.3], [0.5]], 2), 0.3)
+    assert calc.prob(1, 1, 1) == 1.0
 
 
 def test_sumsq_error_propagation():

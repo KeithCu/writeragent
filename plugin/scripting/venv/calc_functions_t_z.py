@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    ILLEGAL_ARGUMENT_NAN,
     ILLEGAL_PARAMETER_NAN,
     NA_NAN,
     RegressionError,
@@ -88,15 +89,13 @@ def t(value: Any) -> str:
 
 def tdist(x: Any, df: Any, tails: Any) -> float:
     val = float(x)
-    # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
-    # passed through to the t distribution.
-    d = approx_floor(float(df))
-    # ``t`` is the public T() function, so the local is tail_count. A text
-    # tails raises ValueError (#VALUE!) and inf raises OverflowError (#NUM!)
-    # in the worker; any other count outside 1 or 2 is NaN.
-    tail_count = int(float(tails))
+    # ScTDist (interpr3.cxx) floors df and tails with approxFloor; float()
+    # keeps large df accepted by scipy (it refuses ints above int64).
+    d = float(approx_floor(float(df)))
+    # ``t`` is the public T() function, so the local is tail_count.
+    tail_count = approx_floor(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
     st = scipy_stats()
     if st is None:
         return float("nan")
@@ -208,19 +207,17 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         s = str(text)
         delim = str(delimiter)
         inst = int(float(instance_num))
-        if inst == 0:
+        if inst == 0 or not s:
+            # Calc 26.8 gives #N/A for empty text even with if_not_found.
             return NA_NAN
-        # ScTextBeforeOrAfter (interpr1.cxx) skips an empty delimiter and returns if_not_found (default #N/A);
-        # re.finditer("") would otherwise match at every position.
-        if not delim:
-            return if_not_found
         # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
         # past each delimiter. lower() of İ is i + combining dot, so an index
         # into the lowered string no longer lines up with s: textbefore of
         # "aİb" on "b" included the b. rfind also sees overlapping matches
         # ("aaa" / "aa" at 1) that the split count above it did not.
         flags = re.IGNORECASE if match_mode == 1 else 0
-        spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)]
+        # An empty delimiter matches nothing, but match_end still adds its boundary.
+        spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)] if delim else []
         n_matches = len(spans)
         abs_inst = abs(inst)
         if abs_inst > n_matches:
@@ -379,10 +376,11 @@ def tinv(prob: Any, df: Any) -> float:
         p = float(prob)
     except OverflowError:
         return float("nan")
-    # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
-    d = approx_floor(float(df))
+    # ScTInv (interpr3.cxx) floors df with approxFloor; float() keeps large
+    # df accepted by scipy (it refuses ints above int64).
+    d = float(approx_floor(float(df)))
     if p <= 0 or p > 1 or d < 1:
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
     st = scipy_stats()
     if st is None:
         return float("nan")
@@ -423,8 +421,8 @@ def trimmean(r: Any, percent: Any) -> float:
     except OverflowError:
         return float("nan")
     if p < 0 or p >= 1:
-        return float("nan")
-    k = int(len(arr) * p / 2)
+        return ILLEGAL_ARGUMENT_NAN
+    k = approx_floor(len(arr) * p) // 2
     if k == 0:
         return float(np.mean(arr))
     arr.sort()
@@ -434,10 +432,10 @@ def trimmean(r: Any, percent: Any) -> float:
 @propagate_errors
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     # ``t`` is the public T() function. A local with that name would hide it.
-    tail_count = int(float(tails))
-    type_num = int(float(type_))
+    tail_count = approx_floor(float(tails))
+    type_num = approx_floor(float(type_))
     if tail_count not in (1, 2) or type_num not in (1, 2, 3):
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
 
     if type_num == 1:
         cleaned = clean_paired_arrays(data1, data2)
@@ -883,44 +881,42 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
     return values
 
 
+def _return_axis(lookup: np.ndarray, ret: np.ndarray) -> int | None:
+    """The axis of ret that runs along the lookup vector, or None on a size mismatch (ScXLookup, interpr1.cxx).
+
+    A flat lookup has no orientation, so it may run along either axis, rows first.
+    """
+    n = lookup.size
+    if lookup.ndim == 2 and min(lookup.shape) > 1:
+        return None
+    if ret.ndim != 2:
+        return 0 if ret.size == n else None
+    if lookup.ndim == 2:
+        axes: tuple[int, ...] = (1,) if lookup.shape[1] > 1 else (0,)
+    else:
+        axes = (0, 1) if n > 1 else (0,)
+    return next((a for a in axes if ret.shape[a] == n), None)
+
+
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
+        return "Err:504"
+    # dtype=object. A mixed return such as ["x", 5] became strings,
+    # so the hit was "5" instead of the number 5. The lookup path
+    # already keeps numbers as numbers.
+    ret = np.asarray(return_arr, dtype=object)
+    axis = _return_axis(np.asarray(lookup_arr, dtype=object), ret)
+    if axis is None:
         return "Err:504"
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         # ScXLookup pushes #N/A when the 4th argument is omitted. None
         # became a blank cell. An explicit None is still returned.
         return if_not_found
-    # dtype=object. A mixed return such as ["x", 5] became strings,
-    # so the hit was "5" instead of the number 5. The lookup path
-    # already keeps numbers as numbers.
-    r_flat = np.asarray(return_arr, dtype=object)
-    # A return array shorter than the matched index must not raise IndexError
-    # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
-    # if_not_found; it is a bad range. Report #VALUE!, same as other shape
-    # mismatches.
-    try:
-        if r_flat.ndim == 2:
-            l_shape = np.asarray(lookup_arr).shape
-            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return has one
-            # row per lookup value. A flat lookup takes the row even when
-            # best_idx < width: xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
-            # is ["z","w"], not the column ["y","w","q"]. A wide return whose columns
-            # match the lookup length, and a (1, N) lookup, use the column slice below.
-            if (len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1) or (
-                len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]
-            ):
-                return _scalar_if_singleton(r_flat[best_idx].tolist())
-            if best_idx < r_flat.shape[1]:
-                # A horizontal 1×N lookup into a one-row return sliced out a
-                # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
-                return _scalar_if_singleton(r_flat[:, best_idx].tolist())
-        # A 1-D numeric return was an np.int64 / np.float64. ndim >= 3 and a
-        # 2-D row shorter than best_idx use the same ravel unwrap.
-        cell = r_flat.ravel()[best_idx]
-        return cell.item() if isinstance(cell, np.generic) else cell
-    except IndexError:
-        return "#VALUE!"
+    if ret.ndim == 2:
+        return _scalar_if_singleton(ret.take(best_idx, axis=axis).tolist())
+    cell = ret.ravel()[best_idx]
+    return cell.item() if isinstance(cell, np.generic) else cell
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:

@@ -14,6 +14,7 @@ import pytest
 
 import plugin.scripting.calc_functions as calc
 from plugin.scripting.sandbox import build_sandbox_policy
+from plugin.scripting.venv.calc_functions_util import nan_error_code
 
 
 def test_conditional_aggregates():
@@ -292,11 +293,14 @@ def test_financial_group_a():
 
     assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
     assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
-    # nper is truncated toward zero; fractional nper must not change CUMIPMT/CUMPRINC for whole periods.
-    whole = calc.cumipmt(0.09 / 12, 12, 125000, 1, 12, 0)
-    assert calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 12, 0) == whole
-    assert math.isnan(calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 13, 0))
-    assert calc.cumprinc(0.09 / 12, 12.2, 125000, 1, 12, 0) == calc.cumprinc(0.09 / 12, 12, 125000, 1, 12, 0)
+    # ScCumIpmt/ScCumPrinc use nper unrounded and require type to be 0 or 1.
+    assert math.isclose(calc.cumipmt(0.01, 12.2, 1000, 1, 12, 0), -67.12136844503922)
+    assert math.isclose(calc.cumprinc(0.01, 12.2, 1000, 1, 12, 0), -982.6087080380048)
+    bad_end = calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 13, 0)
+    assert math.isnan(bad_end) and nan_error_code(bad_end) == 502
+    for bad_type in (0.5, 1.5):
+        res_t = calc.cumipmt(0.09 / 12, 12, 125000, 1, 12, bad_type)
+        assert math.isnan(res_t) and nan_error_code(res_t) == 502
     # XNPV: cash flows at dates
     assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 
@@ -600,9 +604,14 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert calc.bitrshift(8, -1) == 16.0
     assert math.isnan(calc.bitxor(float("inf"), 1))
     assert calc.bitand(5, 3) == 1.0
+    assert calc.bitand(2.9999999999999996, 3) == 3.0
     # Calc shifts the other way. BITLSHIFT(8, -1) is 4, BITRSHIFT(8, -1) is 16.
     assert calc.bitlshift(1, 2) == 4.0
+    assert calc.bitlshift(1, 54) == 2.0**54
+    assert math.isnan(calc.bitlshift(1, 1024))
+    assert calc.bitlshift(8, -0.5) == 4.0
     assert calc.bitrshift(8, 1) == 4.0
+    assert calc.bitrshift(8, 2000) == 0.0
     assert calc.char(float("inf")) == "#VALUE!"
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
@@ -620,10 +629,12 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are #NUM!.
     assert math.isnan(calc.combina(-2, 6))
     assert math.isnan(calc.combina(-1, 2))
-    # Excel COMBINA(3, 5) is 21. ScCombinA rejects k > n; we do not.
-    assert calc.combina(3, 5) == 21.0
-    assert calc.combina(0, 0) == 1.0
-    assert calc.combina(0, 1) == 0.0
+    # ScCombinA rejects k > n (Err:502); COMBINA(0, 0) is 0 in Calc.
+    c_oor = calc.combina(3, 5)
+    assert math.isnan(c_oor) and nan_error_code(c_oor) == 502
+    assert calc.combina(0, 0) == 0.0
+    c_zero_one = calc.combina(0, 1)
+    assert math.isnan(c_zero_one) and nan_error_code(c_zero_one) == 502
     # Reduced k ~ 5e8 does not fit in float64. Without the lgamma guard
     # math.comb builds that integer and this hits the 60s pytest timeout.
     assert math.isnan(calc.combin(10**9, 5 * 10**8))
@@ -692,13 +703,16 @@ def test_aggregate_error_options_and_text():
 
 def test_base_returns_num_error_token():
     assert calc.base(255, 16) == "FF"
-    assert calc.base(-1, 10) == "#NUM!"
-    assert calc.base(10, 1) == "#NUM!"
-    assert calc.base("x", 10) == "#NUM!"
+    assert calc.base(-1, 10) == "Err:502"
+    assert calc.base(10, 1) == "Err:502"
+    assert calc.base("x", 10) == "#VALUE!"
     assert calc.base(float("inf"), 10) == "#NUM!"
     assert calc.base(15, 16, 4) == "000F"
+    assert calc.base(0.29 * 100, 10) == "29"
+    assert calc.base(10, 1.9999999999999998) == "1010"
+    assert len(calc.base(5, 2, 65534)) == 65534
     # zfill(1e9) would allocate a gigabyte string.
-    assert calc.base(1, 2, 10**9) == "#NUM!"
+    assert calc.base(1, 2, 10**9) == "Err:502"
 
 
 def _excel_serial(year: int, month: int, day: int) -> float:
@@ -750,14 +764,14 @@ def test_even_rounds_away_from_zero_and_rejects_text():
     assert math.isnan(calc.even(float("nan")))
 
 
-def test_filter_shape_mismatch_is_value_error():
+def test_filter_shape_mismatch_is_err_504():
     assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
-    # FILTER must return #VALUE! when include length mismatches, not raise IndexError.
-    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "#VALUE!"
+    # FILTER returns Err:504 when include length mismatches, not raise IndexError.
+    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "Err:504"
     # Column vector include filters rows.
     assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == [[1.0, 2.0], [5.0, 6.0]]
-    # Mismatched column vector length returns #VALUE!.
-    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False]]) == "#VALUE!"
+    # Mismatched column vector length returns Err:504.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False]]) == "Err:504"
 
 
 def test_numeric_coercions_return_nan_not_raise():
@@ -868,12 +882,13 @@ def test_mround_zero_multiple_returns_zero():
     assert calc.mround(10, 2) == 10.0
 
 
-def test_logest_nonpositive_y_is_value_error():
-    # LOGEST must return #VALUE! when any y<=0; np.log would yield -inf/nan and bogus coefficients.
-    assert calc.logest([1, 0, 4]) == "#VALUE!"
-    assert calc.logest([1, -2, 4]) == "#VALUE!"
-    assert calc.logest([0]) == "#VALUE!"
-    assert calc.logest([[1.0], [0.0], [4.0]]) == "#VALUE!"
+def test_logest_nonpositive_y_is_illegal_argument():
+    # LOGEST returns Err:502 when any y <= 0 (CheckMatrix, interpr5.cxx).
+    assert calc.logest([1, 0, 4]) == "Err:502"
+    assert calc.logest([1, -2, 4]) == "Err:502"
+    assert calc.logest([0]) == "Err:502"
+    assert calc.logest([[1.0], [0.0], [4.0]]) == "Err:502"
+    assert calc.logest([0, 2, 3], [1, 2]) == "Err:502"
     assert calc.logest(["1", "2", "4"]) == "#VALUE!"
     coeffs = calc.logest([1, 2, 4, 8, 16])
     assert math.isclose(coeffs[0], 2.0)
@@ -881,7 +896,7 @@ def test_logest_nonpositive_y_is_value_error():
 
 
 def test_mode_error_without_duplicates_and_lowest_tie():
-    assert math.isnan(calc.mode([1, 2, 3]))
+    assert calc.mode([1, 2, 3]) == "#VALUE!"
     assert calc.isna(calc.mode([1, 2, 3])) is False
     assert calc.mode([2, 2, 1, 1]) == 1
     assert calc.mode([1, 1, 2]) == 1
