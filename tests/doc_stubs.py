@@ -1,11 +1,10 @@
 # doc_stubs.py
-# Pytest UNO shells and Writer/Calc document stubs.
+# Writer/Calc document stubs.
 # Import via plugin.tests.testing_utils (this file is an implementation detail).
 
 import sys
-import types
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import MagicMock
 
 
@@ -20,7 +19,7 @@ def _register_doc_stubs_aliases() -> None:
 
 _register_doc_stubs_aliases()
 
-# `com.sun.*` names created/updated by setup_uno_mocks (for-loop).
+# `com.sun.*` sys.modules keys snapshotted by the native runner.
 _COM_SUN_STAR_MOCK_MODULE_KEYS = [
     "com",
     "com.sun",
@@ -43,8 +42,9 @@ _COM_SUN_STAR_MOCK_MODULE_KEYS = [
     "com.sun.star.datatransfer.clipboard",
 ]
 
-# Every sys.modules key setup_uno_mocks assigns, plus core.* used by some uno tests.
-# plugin.testing_runner.run_all_tests snapshots/restores this list between native suites.
+# UNO and core.* sys.modules keys that plugin.testing_runner.run_all_tests
+# snapshots and restores between native suites. A suite that replaces one of
+# these at import must not leave its stub for the next suite.
 NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = (
     "uno",
     "unohelper",
@@ -60,190 +60,6 @@ NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = (
     "core.constants",
 )
 
-
-def setup_uno_mocks():
-    """
-    Centralized function to mock LibreOffice UNO dependencies for testing outside of LibreOffice.
-    This must be called at the top of test files before importing the module under test.
-    """
-    # Real `uno` is a types.ModuleType (embedded LibreOffice PyUNO or types-unopy in the venv).
-    # Never replace it with MagicMock — that breaks in-LO native tests (e.g. uno.createUnoStruct).
-    # Still create missing `com.sun.star.*` shell modules for pytest without a full bridge: types-unopy
-    # provides `uno` but often has not loaded `com.sun.star.lang` etc. yet.
-    try:
-        import uno  # noqa: F401
-    except ImportError:
-        uno_import_ok = False
-    else:
-        uno_import_ok = True
-
-    um = sys.modules.get("uno")
-    use_magicmock_uno = not (uno_import_ok and isinstance(um, types.ModuleType))
-
-    class MockBase(object):
-        pass
-
-    if use_magicmock_uno:
-        sys.modules["uno"] = MagicMock()
-        sys.modules["unohelper"] = MagicMock()
-
-        # We must use types.ModuleType and attach empty classes to avoid 'metaclass conflict' with ty
-        sys.modules["unohelper"].Base = MockBase
-        sys.modules["unohelper.Base"] = cast("Any", MockBase)
-
-    created_com_shells: set[str] = set()
-    for mod in _COM_SUN_STAR_MOCK_MODULE_KEYS:
-        cur = sys.modules.get(mod)
-        if cur is None or isinstance(cur, MagicMock):
-            sys.modules[mod] = types.ModuleType(mod)
-            created_com_shells.add(mod)
-
-    # Do not setattr test doubles onto real bridge-loaded com.sun.star.* modules (embedded LO).
-    if not use_magicmock_uno and not created_com_shells:
-        return
-
-    # Specific sub-module attachments (only when we fully mocked uno or installed fresh shells).
-    class MockDate(object):
-        Year = 2024
-        Month = 1
-        Day = 1
-
-    setattr(sys.modules["com.sun.star.util"], "Date", MockDate)
-
-    class MockListener(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.awt"], "XActionListener", MockListener)
-
-    class MockClipboardListener(object):
-        pass
-
-    setattr(
-        sys.modules["com.sun.star.datatransfer.clipboard"],
-        "XClipboardListener",
-        MockClipboardListener,
-    )
-
-    class MockXCallback(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.awt"], "XCallback", MockXCallback)
-
-    awt_mod = sys.modules.get("com.sun.star.awt")
-    if awt_mod is not None and not hasattr(awt_mod, "Size"):
-
-        class MockSize:
-            def __init__(self, width=0, height=0):
-                self.Width = width
-                self.Height = height
-
-        class MockPoint:
-            def __init__(self, x=0, y=0):
-                self.X = x
-                self.Y = y
-
-        setattr(awt_mod, "Size", MockSize)
-        setattr(awt_mod, "Point", MockPoint)
-
-    class MockXTextListener(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.awt"], "XTextListener", MockXTextListener)
-
-    class MockXWindowListener(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.awt"], "XWindowListener", MockXWindowListener)
-
-    class MockXKeyListener(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.awt"], "XKeyListener", MockXKeyListener)
-
-    class MockXEventListener(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
-
-    class MockXInitialization(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.lang"], "XInitialization", MockXInitialization)
-
-    class MockXServiceInfo(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.lang"], "XServiceInfo", MockXServiceInfo)
-
-    class MockXJobExecutor(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.task"], "XJobExecutor", MockXJobExecutor)
-
-    class MockXJob(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.task"], "XJob", MockXJob)
-
-    class MockXDispatch(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.frame"], "XDispatch", MockXDispatch)
-
-    class MockXDispatchProvider(object):
-        pass
-
-    setattr(sys.modules["com.sun.star.frame"], "XDispatchProvider", MockXDispatchProvider)
-    setattr(sys.modules["com.sun.star.frame"], "DispatchDescriptor", MockBase)
-
-    # Fresh shells replace conftest MagicMock beans; image_tools imports PropertyValue at load time.
-    beans_mod = sys.modules.get("com.sun.star.beans")
-    if beans_mod is not None and not hasattr(beans_mod, "PropertyValue"):
-
-        class MockPropertyValue:
-            def __init__(self, Name=None, Value=None):
-                self.Name = Name
-                self.Value = Value
-
-        setattr(beans_mod, "PropertyValue", MockPropertyValue)
-
-    class MockNoSuchElementException(Exception):
-        pass
-
-    class MockDisposedException(Exception):
-        pass
-
-    class MockIllegalArgumentException(Exception):
-        pass
-
-    class MockRuntimeException(Exception):
-        pass
-
-    class MockUnoException(Exception):
-        pass
-
-    setattr(sys.modules["com.sun.star.container"], "NoSuchElementException", MockNoSuchElementException)
-    setattr(sys.modules["com.sun.star.lang"], "DisposedException", MockDisposedException)
-    setattr(sys.modules["com.sun.star.lang"], "IllegalArgumentException", MockIllegalArgumentException)
-    setattr(sys.modules["com.sun.star.uno"], "RuntimeException", MockRuntimeException)
-    setattr(sys.modules["com.sun.star.uno"], "Exception", MockUnoException)
-
-    class MockXSidebarPanel:
-        pass
-
-    class MockXToolPanel:
-        pass
-
-    class MockXUIElement:
-        pass
-
-    class MockXUIElementFactory:
-        pass
-
-    setattr(sys.modules["com.sun.star.ui"], "XSidebarPanel", MockXSidebarPanel)
-    setattr(sys.modules["com.sun.star.ui"], "XToolPanel", MockXToolPanel)
-    setattr(sys.modules["com.sun.star.ui"], "XUIElement", MockXUIElement)
-    setattr(sys.modules["com.sun.star.ui"], "XUIElementFactory", MockXUIElementFactory)
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):

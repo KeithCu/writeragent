@@ -39,7 +39,6 @@ from . import doc_stubs as _doc_stubs  # noqa: E402
 # Explicit re-exports: ruff F401 drops unused `from .doc_stubs import X`,
 # and ty/basedpyright need NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS assigned here.
 NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = _doc_stubs.NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
-setup_uno_mocks = _doc_stubs.setup_uno_mocks
 ElementStub = _doc_stubs.ElementStub
 WriterDocStub = _doc_stubs.WriterDocStub
 MockDocument = _doc_stubs.MockDocument
