@@ -112,6 +112,7 @@ def _thin_panel_element():
     el.rich_text_widget = None
     el._released = False
     el._in_refresh_controls = False
+    el._painted_models = {}
     el.frame_session = None
     el.doc_session = None
     el.web_session = None
@@ -306,7 +307,8 @@ def test_disposing_unsubscribes_config_changed():
     bus = MagicMock()
     with patch("plugin.framework.event_bus.get_event_bus", return_value=bus):
         el.disposing(None)
-        bus.unsubscribe.assert_called_with("config:changed", el._on_config_changed)
+        bus.unsubscribe.assert_any_call("config:changed", el._on_config_changed)
+        bus.unsubscribe.assert_any_call("keystore:unlocked", el._on_keystore_unlocked)
 
 
 def test_disposing_swallows_disposed_remove_window_listener():
@@ -1968,3 +1970,100 @@ def test_session_id_stability():
 
     stored_id_3 = unsaved_model.props.properties.get("WriterAgentSessionID")
     assert stored_id_3 == third_session_id
+
+
+def _make_combo_ctrl(initial_text: str = ""):
+    class _Combo:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.items: list[str] = []
+            self.selection = None
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, text: str) -> None:
+            self.text = text
+
+        def getItemCount(self) -> int:
+            return len(self.items)
+
+        def removeItems(self, pos: int, count: int) -> None:
+            del self.items[pos : pos + count]
+
+        def addItems(self, items, _pos: int) -> None:
+            self.items.extend(items)
+
+        def setSelection(self, sel) -> None:
+            self.selection = sel
+
+    return _Combo(initial_text)
+
+
+def test_sidebar_refresh_keeps_uncommitted_typed_text_and_follows_external_changes():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.config import save, set_api_key_for_endpoint
+
+    endpoint = "https://openrouter.ai/api"
+    save({"endpoint": endpoint, "text_model": "openai/gpt-oss-20b", "image_model": "google/gemini-2.5-flash-image"})
+    set_api_key_for_endpoint(endpoint, "sk-or-test")
+
+    el = _thin_panel_element()
+    text_ctrl = _make_combo_ctrl()
+    image_ctrl = _make_combo_ctrl()
+    root = MagicMock()
+    root.getControl.side_effect = lambda name: {"model_selector": text_ctrl, "image_model_selector": image_ctrl}.get(name)
+    el.m_panelRootWindow = root
+
+    with (
+        patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=["openai/gpt-oss-20b", "anthropic/claude-sonnet-4"]),
+        patch("plugin.chatbot.panel_factory.memo_image_models_or_fetch", return_value=["google/gemini-2.5-flash-image", "openai/gpt-image-1"]),
+    ):
+        el._populate_model_combos(text_ctrl, image_ctrl)
+        assert text_ctrl.text == "openai/gpt-oss-20b"
+        assert image_ctrl.text == "google/gemini-2.5-flash-image"
+
+        # 1. User types partial model ids; config:changed refresh preserves typed text and items update.
+        text_ctrl.setText("anthro")
+        text_ctrl.setSelection((6, 6))
+        image_ctrl.setText("gpt-img")
+        image_ctrl.setSelection((7, 7))
+        el._populate_model_combos(text_ctrl, image_ctrl)
+        assert text_ctrl.text == "anthro"
+        assert text_ctrl.selection == (6, 6)
+        assert "anthropic/claude-sonnet-4" in text_ctrl.items
+        assert image_ctrl.text == "gpt-img"
+        assert image_ctrl.selection == (7, 7)
+
+        # 2. Edited box whose text equals the newly stored value is set normally (no longer kept as uncommitted).
+        text_ctrl.setText("anthropic/claude-sonnet-4")
+        save({"text_model": "anthropic/claude-sonnet-4"})
+        el._populate_model_combos(text_ctrl, image_ctrl)
+        assert el._painted_models["model_lru"] == (endpoint, "anthropic/claude-sonnet-4")
+
+        # 3. Unedited text follows an external model change.
+        save({"text_model": "openai/gpt-oss-20b"})
+        el._populate_model_combos(text_ctrl, image_ctrl)
+        assert text_ctrl.text == "openai/gpt-oss-20b"
+
+        # 4. Endpoint change resets even if the box had typed text.
+        text_ctrl.setText("half-typed")
+        save({"endpoint": "https://api.openai.com/v1", "text_model": "gpt-4o"})
+        el._populate_model_combos(text_ctrl, image_ctrl)
+        assert text_ctrl.text != "half-typed"
+
+
+def test_on_keystore_unlocked_posts_refresh_unless_released():
+    from unittest.mock import patch
+
+    el = _thin_panel_element()
+    posted: list[tuple[object, object]] = []
+    with patch("plugin.chatbot.panel_factory.main.post", side_effect=lambda fn, **kw: posted.append((fn, kw))):
+        el._on_keystore_unlocked()
+        assert len(posted) == 1
+        assert posted[0][0] == el._refresh_controls_from_config
+        assert posted[0][1] == {"bound_scope": None}
+
+        el._released = True
+        el._on_keystore_unlocked()
+        assert len(posted) == 1

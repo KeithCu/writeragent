@@ -1814,15 +1814,18 @@ def test_renaming_whitespace_entry_to_stripped_name_keeps_secret(fake_keystore):
 def test_fill_api_key_reads_only_a_missing_key(fake_keystore):
     from plugin.framework import keystore
     from plugin.framework.config import fill_api_key, set_api_key_for_endpoint
+    from plugin.framework.send_cancellation import SendCancellation
 
     endpoint = "https://openrouter.ai/api"
     set_api_key_for_endpoint(endpoint, "sk-1")
     keystore.reset_for_tests(fake_keystore)
 
+    scope = SendCancellation()
     missing_cfg = {"endpoint": endpoint}
-    fill_api_key(missing_cfg)
+    fill_api_key(missing_cfg, cancel=scope)
     assert missing_cfg["api_key"] == "sk-1"
     assert fake_keystore.get_calls == 1
+    assert fake_keystore.last_cancel is scope
 
     present_cfg = {"endpoint": endpoint, "api_key": ""}
     fill_api_key(present_cfg)

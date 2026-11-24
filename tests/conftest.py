@@ -976,9 +976,11 @@ class FakeKeystoreBackend:
         self.fail_delete = False
         self.locked = False
         self.on_get = None
+        self.last_cancel: Any = None
 
-    def get(self, name: str) -> str | None:
+    def get(self, name: str, cancel: Any = None) -> str | None:
         self.get_calls += 1
+        self.last_cancel = cancel
         if self.on_get is not None:
             self.on_get(name)
         if self.fail_get:
