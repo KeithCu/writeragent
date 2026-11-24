@@ -802,3 +802,21 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     assert before is not None and before[0] == "Standard", pairs
     assert host is not None and host[0] == "Heading 2", pairs
     assert after is not None and after[0] == "Standard", pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_write_with_marked_deleted_nbsp_keeps_following_styles_uno(ctx, doc):
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>'
+        '<p data-lo-style="Quotations">B</p>'
+        '<p data-lo-style="Standard">C</p>'
+    )
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        content=html,
+        target="full_document",
+    )
+    assert res["status"] == "ok", res
+    assert _para_style_names(doc) == ["Standard", "Standard", "Quotations", "Standard"]
