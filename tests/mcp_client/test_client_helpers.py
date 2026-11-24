@@ -103,6 +103,15 @@ def test_validate_remote_url():
         with pytest.raises(ValueError, match="srv"):
             validate_remote_url("srv", bad)
 
+    with pytest.raises(ValueError) as bad_scheme_exc:
+        validate_remote_url("srv", "htp://u:pw12345@h/?token=abcd1234")
+    assert "pw12345" not in str(bad_scheme_exc.value)
+    assert "abcd1234" not in str(bad_scheme_exc.value)
+
+    with pytest.raises(ValueError) as nfkc_exc:
+        validate_remote_url("srv", "https://tok\u2100en@h/")
+    assert "tok\u2100en" not in str(nfkc_exc.value)
+
 
 def test_safe_numeric():
     assert safe_numeric("120", 60.0) == 120.0

@@ -411,16 +411,26 @@ def resolve_local_schema_ref(
 
 
 def _schema_branches(schema: Any, root: Any) -> list[dict[str, Any]]:
-    """*schema* and every anyOf/oneOf/allOf branch below it, with local refs followed."""
+    """*schema* and every anyOf/oneOf/allOf/if/then/else branch below it, with local refs followed."""
     schema = resolve_local_schema_ref(schema, root)
     if not isinstance(schema, dict):
         return []
     found = [schema]
+    nested: list[Any] = []
     for key in (*_UNION_KEYS, "allOf"):
         variants = schema.get(key)
         if isinstance(variants, list):
-            for variant in variants:
-                found.extend(_schema_branches(variant, root))
+            nested.extend(variants)
+    condition = resolve_local_schema_ref(schema.get("if"), root)
+    consequence = resolve_local_schema_ref(schema.get("then"), root)
+    if isinstance(condition, dict) and isinstance(consequence, dict):
+        # "then" applies only when "if" matches, so it is ranked with the consts "if" tests.
+        tested, own = condition.get("properties"), consequence.get("properties")
+        if isinstance(tested, dict) and isinstance(own, dict):
+            consequence = {**consequence, "properties": {**tested, **own}}
+    nested.extend((condition, consequence, schema.get("else")))
+    for branch in nested:
+        found.extend(_schema_branches(branch, root))
     return found
 
 
@@ -438,19 +448,31 @@ def _branch_wire_names(props: dict[str, Any], args: dict[str, Any], root: Any) -
     return fits, names
 
 
+def _item_schemas(branch: dict[str, Any], index: int) -> list[Any]:
+    """The schemas *branch* gives for the array element at *index*."""
+    prefix = branch.get("prefixItems")
+    if isinstance(prefix, list) and index < len(prefix):
+        return [prefix[index]]
+    return [branch["items"]] if isinstance(branch.get("items"), dict) else []
+
+
 def unrename_tool_args(params_schema: Any, args: Any, root_schema: Any = None) -> Any:
     """Map sanitized keys in model-emitted *args* back to the server's original property names.
 
-    A union's branches are all searched, because the model may have filled any of them. When two
-    branches give one wire name to different server names, the branch whose const/enum values
-    match *args* wins, then the one declaring more of *args*' keys, then the earlier one. A
-    server name already claimed by another wire name is never assigned a second time.
+    Every ``anyOf``/``oneOf``/``allOf`` and ``if``/``then``/``else`` branch is searched, along
+    with ``items``/``prefixItems`` for arrays and ``additionalProperties``/``patternProperties``
+    for undeclared object keys. When two branches give one wire name to different server names,
+    the branch whose const/enum values match *args* wins, then the one declaring more of *args*'
+    keys, then the earlier one. A server name already claimed by another wire name is never
+    assigned a second time.
     """
     root = params_schema if root_schema is None else root_schema
     branches = _schema_branches(params_schema, root)
     if isinstance(args, list):
-        items = {"anyOf": [b["items"] for b in branches if isinstance(b.get("items"), dict)]}
-        return [unrename_tool_args(items, item, root) for item in args]
+        return [
+            unrename_tool_args({"anyOf": [s for b in branches for s in _item_schemas(b, i)]}, item, root)
+            for i, item in enumerate(args)
+        ]
     if not isinstance(args, dict):
         return args
     original: dict[str, str] = {}
@@ -468,6 +490,11 @@ def unrename_tool_args(params_schema: Any, args: Any, root_schema: Any = None) -
                 taken.add(key)
             schemas.setdefault(wire, []).append(props[key])
     undeclared = [b["additionalProperties"] for b in branches if isinstance(b.get("additionalProperties"), dict)]
+    # The server's regexes are never run on arguments, because a hostile pattern could hang the process.
+    for branch in branches:
+        patterns = branch.get("patternProperties")
+        if isinstance(patterns, dict):
+            undeclared.extend(patterns.values())
     return {
         original.get(key, key): unrename_tool_args({"anyOf": schemas.get(key, undeclared)}, value, root)
         for key, value in args.items()

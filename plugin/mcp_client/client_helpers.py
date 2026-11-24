@@ -63,6 +63,8 @@ SSE_BOUNDARY_RE = re.compile(rb"(?:\r\n|\r(?!\n)|\n){2}")
 SSE_BOUNDARY_CARRY = 3  # longest boundary ("\r\n\r\n") minus one byte
 MAX_LIST_PAGES = 50
 HTTP_ERROR_BODY_CHARS = 300
+# Read well past HTTP_ERROR_BODY_CHARS so a long echoed credential is matched whole before the text is cut.
+HTTP_ERROR_READ_BYTES = 16384
 DEFAULT_TOOL_TIMEOUT_SEC = 300.0
 DEFAULT_CONNECT_TIMEOUT_SEC = 60.0
 CIRCUIT_BREAKER_THRESHOLD = 3
@@ -195,15 +197,31 @@ def validate_remote_url(server_name: str, url: Any) -> str:
     if not isinstance(url, str):
         raise _bad(f"expected a string, got {type(url).__name__}")
     stripped = url.strip()
+    # The URL is not quoted in these errors because it may hold a token or userinfo password.
     try:
         parsed = urlparse(stripped)
     except ValueError as exc:
-        raise _bad(f"{stripped!r} ({exc})") from exc
+        raise _bad("it cannot be parsed") from exc
     if parsed.scheme.lower() not in {"http", "https"}:
-        raise _bad(f"scheme must be http or https, got {parsed.scheme!r} ({stripped!r})")
+        raise _bad(f"scheme must be http or https, got {parsed.scheme!r}")
     if not parsed.hostname:
-        raise _bad(f"missing host ({stripped!r})")
+        raise _bad("missing host")
     return stripped
+
+
+# RFC 9110 section 5.6.2 token. http.client also accepts spaces inside a name and sends it malformed.
+_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+
+def bad_header_position(entry: dict[str, Any]) -> int | None:
+    """1-based position of the first invalid header name in *entry*; None when all are valid."""
+    headers = entry.get("headers")
+    if not isinstance(headers, dict):
+        return None
+    for idx, name in enumerate(headers, 1):
+        if not _HEADER_NAME_RE.fullmatch(str(name)):
+            return idx
+    return None
 
 
 def unresolved_env_refs(entry: dict[str, Any]) -> list[str]:

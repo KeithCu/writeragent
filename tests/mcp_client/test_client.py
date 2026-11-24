@@ -1409,12 +1409,15 @@ def test_error_text_scrubs_the_token(fake):
     assert TOKEN not in str(info.value)
 
 
-def test_secret_header_values_are_redacted(fake):
+@pytest.mark.parametrize("header_name", ["X-Auth-Token", "Ocp-Apim-Subscription-Key"])
+def test_secret_header_values_are_redacted(fake, header_name):
     header_secret = "hdr-secret-xyz-999"
     fake.error_body = (500, f"rejected {header_secret}")
-    conn = McpServerConnection(_server(fake, headers={"X-Auth-Token": header_secret}))
+    conn = McpServerConnection(_server(fake, headers={header_name: header_secret}))
     with pytest.raises(McpClientError) as info:
         conn.list_tools()
+    assert info.value.status == 500
+    assert "<redacted>" in str(info.value)
     assert header_secret not in str(info.value)
 
 
@@ -1600,3 +1603,57 @@ def test_bare_credential_of_an_authorization_header_is_redacted(fake):
     assert exc_info.value.status == 500
     assert "<redacted>" in str(exc_info.value)
     assert TOKEN not in str(exc_info.value)
+
+
+def test_url_query_secret_is_redacted(fake):
+    fake.error_body = (500, "bad raw a%2Fb%2Bcdef and decoded a/b+cdef")
+    conn = McpServerConnection({"name": "claw", "url": f"{fake.url}?token=a%2Fb%2Bcdef", "token": TOKEN})
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
+    assert "a%2Fb%2Bcdef" not in str(exc_info.value)
+    assert "a/b+cdef" not in str(exc_info.value)
+
+
+def test_secret_with_double_space_or_tab_is_redacted(fake):
+    secret = "ab  cd\tefgh"
+    fake.error_body = (500, f"rejected {secret}")
+    conn = McpServerConnection(_server(fake, headers={"X-Api-Key": secret}))
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
+    assert secret not in str(exc_info.value)
+
+
+def test_long_secret_is_redacted_before_the_body_is_cut(fake):
+    secret = "S" * 1500
+    fake.error_body = (500, f"bad {secret}")
+    conn = McpServerConnection(_server(fake, headers={"X-Api-Key": secret}))
+    with pytest.raises(McpClientError) as exc_info:
+        conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
+    assert "SSSS" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("header_name", "secret_parts"),
+    [
+        ("X-Api-Key: abcsecret", ("abcsecret",)),
+        ("X-Api-Key\nsec", ("sec",)),
+        ("X Api abcsecret", ("abcsecret",)),
+        ("X-Api-Key ", ()),
+        ("", ()),
+        ("X-ésecret", ("X-ésecret",)),
+    ],
+)
+def test_invalid_header_name_is_a_config_error_without_the_name(fake, header_name, secret_parts):
+    with pytest.raises(McpClientError) as exc_info:
+        McpServerConnection(_server(fake, headers={header_name: "val"}))
+    assert exc_info.value.code == "MCP_CLIENT_CONFIG"
+    msg = str(exc_info.value)
+    for part in secret_parts:
+        assert part not in msg
+    assert fake.requests == []
