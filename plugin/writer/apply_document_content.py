@@ -43,7 +43,7 @@ from plugin.writer.edit_review import (
     next_agent_edit_undo_title,
 )
 from plugin.writer.target_resolver import request_selection_range
-from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
@@ -1779,7 +1779,8 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(doc) if params.has_table else None
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
-            with session:
+            # Rollback must stay outside the session: undo cannot run while its undo context is open.
+            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
         report = html_import_styles.WriteReport()

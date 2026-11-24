@@ -138,10 +138,44 @@ def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
             os.unlink(docx_path)
 
 
+def _verify_recorded_insert(doc, ctx, insert_fn, text_obj, *, undo_redo=False):
+    """Run *insert_fn* while recording, verify 1 Insert redline, Reject, Accept, and optional Undo/Redo."""
+    from plugin.framework.uno_context import execute_dispatch
+
+    expected_text = text_obj.getString()
+    before_graphics = doc.getGraphicObjects().getCount()
+    assert insert_fn() is not None
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineType") == "Insert"
+    assert "x" not in text_obj.getString()
+
+    if undo_redo:
+        um = doc.getUndoManager()
+        um.undo()
+        assert doc.getRedlines().getCount() == 0
+        assert text_obj.getString() == expected_text
+        um.redo()
+        assert doc.getRedlines().getCount() == 1
+        assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineType") == "Insert"
+
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+    assert doc.getRedlines().getCount() == 0
+    assert text_obj.getString() == expected_text
+    assert doc.getGraphicObjects().getCount() == before_graphics
+
+    assert insert_fn() is not None
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineType") == "Insert"
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+    assert doc.getRedlines().getCount() == 0
+    assert doc.getGraphicObjects().getCount() == before_graphics + 1
+    assert "x" not in text_obj.getString()
+
+
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_image_insert_and_delete_tracked_uno(ctx, doc):
-    """Embedded image_insert records an Insert redline (Reject removes, Undo/Redo exact); Record mode tags comments."""
+    """Embedded image_insert records an Insert redline (Reject removes, Accept keeps, Undo/Redo exact); Record mode tags comments."""
     import shutil
     import tempfile
     from plugin.framework.config import get_config, save
@@ -156,53 +190,62 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
 
         # Body middle, empty paragraph, header, and table cell while recording
         text.setString("BeforeAfter\n\n")
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        cur.goRight(6, False)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.setName("CellImgTbl")
+        cell = tbl.getCellByName("A1")
         doc.setPropertyValue("RecordChanges", True)
         try:
-            g_mid = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur)
-            assert g_mid is not None
-            assert doc.getRedlines().getCount() == 1
-            assert "x" not in text.getString()
+            def _ins_mid():
+                cur = text.createTextCursor()
+                cur.gotoStart(False)
+                cur.goRight(6, False)
+                return insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur)
 
-            um = doc.getUndoManager()
-            um.undo()
-            assert doc.getRedlines().getCount() == 0
-            assert text.getString() == "BeforeAfter\n\n"
-            um.redo()
-            assert doc.getRedlines().getCount() == 1
-            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-            assert text.getString() == "BeforeAfter\n\n"
-            assert doc.getGraphicObjects().getCount() == 0
+            _verify_recorded_insert(doc, ctx, _ins_mid, text, undo_redo=True)
 
-            # Empty paragraph insert
-            cur_empty = text.createTextCursor()
-            cur_empty.gotoEnd(False)
-            g_emp = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur_empty)
-            assert g_emp is not None
-            assert doc.getRedlines().getCount() == 1
-            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-            assert doc.getGraphicObjects().getCount() == 0
+            def _ins_empty():
+                cur_empty = text.createTextCursor()
+                cur_empty.gotoStart(False)
+                cur_empty.goRight(len("BeforeAfter\n"), False)
+                return insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10, text_cursor=cur_empty)
+
+            _verify_recorded_insert(doc, ctx, _ins_empty, text, undo_redo=True)
 
             # Header insert
-            res_hdr = ImageInsert().execute(
+            hdr_text = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+
+            def _ins_hdr():
+                res_hdr = ImageInsert().execute(
+                    tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
+                )
+                assert res_hdr["status"] == "ok", res_hdr
+                if hdr_text.getPropertyValue("HeaderIsOn") is False:
+                    assert res_hdr.get("style_unreviewed") is True
+                return res_hdr["image_name"]
+
+            res_hdr0 = ImageInsert().execute(
                 tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
             )
-            assert res_hdr["status"] == "ok", res_hdr
-            assert res_hdr.get("style_unreviewed") is True
-            assert doc.getRedlines().getCount() >= 1
+            assert res_hdr0["status"] == "ok", res_hdr0
+            assert res_hdr0.get("style_unreviewed") is True
+            assert doc.getRedlines().getCount() == 1
+            assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineType") == "Insert"
+            header_obj = hdr_text.getPropertyValue("HeaderText")
+            assert "x" not in header_obj.getString()
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert header_obj.getString() == ""
+            assert doc.getGraphicObjects().getCount() == 2
+
+            _verify_recorded_insert(doc, ctx, _ins_hdr, header_obj)
 
             # Cell insert (via view cursor, matching ImageInsert at cursor)
-            tbl = doc.createInstance("com.sun.star.text.TextTable")
-            tbl.initialize(1, 1)
-            text.insertTextContent(text.getEnd(), tbl, False)
-            cell = tbl.getCellByName("A1")
-            doc.getCurrentController().getViewCursor().gotoRange(cell.getEnd(), False)
-            g_cell = insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10)
-            assert g_cell is not None
-            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            def _ins_cell():
+                doc.getCurrentController().getViewCursor().gotoRange(cell.getEnd(), False)
+                return insert_image_at_locator(ctx, doc, tmp_logo, width_mm=10, height_mm=10)
+
+            _verify_recorded_insert(doc, ctx, _ins_cell, cell)
         finally:
             doc.setPropertyValue("RecordChanges", False)
 

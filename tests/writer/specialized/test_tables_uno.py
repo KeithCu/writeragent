@@ -478,8 +478,40 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         )
         assert res_cs["status"] == "ok", res_cs
         assert res_cs["tracked"] is True
+        _reject_all_tables(doc, ctx)
+        assert colspan_tbl.getColumns().getCount() == 2
+        assert len(colspan_tbl.getCellNames()) == 5
+        assert colspan_tbl.getCellByName("A1").getString() == "A1\nB1"
+
+        res_cs2 = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="column", name="ColspanTbl", index=0
+        )
+        assert res_cs2["status"] == "ok", res_cs2
         _accept_all_tables(doc, ctx)
         assert colspan_tbl.getColumns().getCount() == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # Re-deleting an already marked row with a two-paragraph cell must succeed
+    doc.getText().setString("")
+    two_para_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    two_para_tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), two_para_tbl, False)
+    two_para_tbl.setName("TwoParaTbl")
+    two_para_tbl.getCellByName("A1").setString("first para\nsecond para")
+    two_para_tbl.getCellByName("A2").setString("keep")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        first_del = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="TwoParaTbl", index=0
+        )
+        assert first_del["status"] == "ok" and first_del["tracked"] is True
+        re_del = ManageTableStructure().execute(
+            tool_ctx, action="delete", axis="row", name="TwoParaTbl", index=0
+        )
+        assert re_del["status"] == "ok" and re_del["tracked"] is True
+        _accept_all_tables(doc, ctx)
+        assert two_para_tbl.getRows().getCount() == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -550,11 +582,22 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
         )
         assert err_band["status"] == "error" and err_band["code"] == "TABLE_DELETE_NOT_TRACKABLE"
         assert ptbl.getCellByName("A1").getString() == "p1"
+        assert all(
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineType") == "Insert"
+            for i in range(doc.getRedlines().getCount())
+        )
         err_tbl = TableDelete().execute_safe(tool_ctx, name="PendingTbl")
         assert err_tbl["status"] == "error"
         assert ptbl.getCellByName("A1").getString() == "p1"
         assert ptbl.getCellByName("A2").getString() == "p2"
-        _accept_all_tables(doc, ctx)
+        assert all(
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineType") == "Insert"
+            for i in range(doc.getRedlines().getCount())
+        )
+        _reject_all_tables(doc, ctx)
+        assert doc.getRedlines().getCount() == 0
+        assert ptbl.getCellByName("A1").getString() == ""
+        assert ptbl.getCellByName("A2").getString() == ""
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -601,6 +644,13 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
     try:
         del_outer = TableDelete().execute(tool_ctx, name="OuterA1")
         assert del_outer["status"] == "ok" and del_outer["pending_review"] is True
+        _reject_all_tables(doc, ctx)
+        assert doc.getTextTables().hasByName("OuterA1")
+        assert doc.getTextTables().hasByName("InnerA1")
+        assert outer.getCellByName("B1").getString() == "outer_b1"
+
+        del_outer2 = TableDelete().execute(tool_ctx, name="OuterA1")
+        assert del_outer2["status"] == "ok" and del_outer2["pending_review"] is True
         _accept_all_tables(doc, ctx)
         assert not doc.getTextTables().hasByName("OuterA1")
     finally:

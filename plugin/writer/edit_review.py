@@ -120,14 +120,16 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
         result["style_unreviewed"] = True
 
 
-def flag_untracked_delete(result: dict[str, Any], doc: Any, what: str) -> None:
+def flag_untracked_delete(
+    result: dict[str, Any], doc: Any, what: str, *, message: str | None = None
+) -> None:
     """Flag a Writer deletion that LibreOffice cannot record as a tracked change."""
     if result.get("status") != "ok" or not is_writer(doc):
         return
     if not (review_recording_enabled() or is_recording_changes(doc)):
         return
     result["tracked"] = False
-    msg = _(
+    msg = message or _(
         "LibreOffice cannot record deleting a %s as a tracked change, "
         "so it was deleted directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."
     ) % what

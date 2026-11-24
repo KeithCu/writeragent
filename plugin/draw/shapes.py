@@ -1428,5 +1428,10 @@ class DeleteShape(_AnyDocumentShapeTool):
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
         result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
-        flag_untracked_delete(result, ctx.doc, "shape")
+        flag_untracked_delete(
+            result,
+            ctx.doc,
+            "shape",
+            message="This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user.",
+        )
         return result

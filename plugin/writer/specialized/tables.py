@@ -214,8 +214,8 @@ def _nesting_for(doc: Any, table: Any, name: str) -> dict[str, Any]:
     return _writer_nesting(doc)[0].get(name, _not_nested())
 
 
-def _delete_redline_count(doc: Any) -> int:
-    """Count Delete redlines in *doc*.
+def _delete_redline_count(doc: Any) -> int | None:
+    """Count Delete redlines in *doc*, or None when the redline scan is unreliable.
 
     Counting all redlines is unreliable here: deleting inside a pending
     tracked insertion splits its Insert redline without recording a deletion.
@@ -228,25 +228,33 @@ def _delete_redline_count(doc: Any) -> int:
             count += 1
         return True
 
-    scan_redlines(doc, _on_item)
-    return count
+    reliable, _seen, _total = scan_redlines(doc, _on_item)
+    return count if reliable else None
 
 
 def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
-    """True when a Delete redline was added or all visible text in *cells* became tracked-deleted."""
-    if _delete_redline_count(doc) > before:
+    """True when a Delete redline was added or all visible text in *cells* became tracked-deleted.
+
+    The second arm covers bands whose existing Delete redlines merge or shrink,
+    leaving the Delete count level or lower even though the deletion was recorded.
+    """
+    after = _delete_redline_count(doc)
+    if after is None:
+        return False
+    if after > before:
         return True
     has_raw = False
     for cell in cells:
         if uno_read(cell.getString, ""):
             has_raw = True
-        if uno_read(lambda: get_string_without_tracked_deletions(cell), ""):
+        if uno_read(lambda: get_string_without_tracked_deletions(cell), "").strip("\n"):
             return False
     return has_raw
 
 
 def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:
     """Place the view cursor at the end of *cell_name* and confirm it landed in *name*.*cell_name*."""
+    # Use select(range) rather than gotoRange: gotoRange raises "no text selection" while a frame is selected.
     controller.select(table.getCellByName(cell_name).getEnd())
     # StopShellTimer flushes the pending shell switch so getViewCursor reflects the table cell.
     controller.getSelection()
@@ -266,22 +274,27 @@ def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str)
 def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
-    Removing a table with removeTextContent while change tracking is on
-    produces no redline. Placing the caret in a non-nested cell and
-    running ``.uno:DeleteTable`` records the deletion; the table stays,
-    struck through, until the change is accepted.
+    Removing a table with removeTextContent (or removing every row) while change
+    tracking is on produces no redline: the table vanishes unreviewable and any
+    tracked changes pending inside it vanish with it. Placing the caret in a
+    non-nested cell and running ``.uno:DeleteTable`` records the deletion; the
+    table stays, struck through, until the change is accepted.
 
-    The caret is placed in a cell rather than selecting the table object,
-    and its landing is confirmed via the view cursor: ``SwXTextView::select``
-    (``unotxvw.cxx``) ignores ``GotoTable`` failures (e.g. hidden sections),
-    which would otherwise delete whichever table currently held the cursor.
+    The caret must land in a cell without a nested table (otherwise, when A1
+    starts with a nested table, the caret lands inside the nested table and only
+    that one is deleted), and its landing is confirmed via the view cursor:
+    ``SwXTextView::select`` (``unotxvw.cxx``) ignores ``GotoTable`` failures
+    (e.g. hidden sections), which would otherwise delete whichever table
+    currently held the cursor.
 
     Empty rows get a U+200D anchor from Writer without a redline; clearing
     each anchor with tracking on gives every row its Delete redline so
-    accepting removes the whole table.
+    accepting removes the whole table, while Reject keeps the anchor as
+    LibreOffice's own Delete Table does.
 
-    Fails closed: if the caret cannot land or no deletion is recorded, this
-    raises instead of reporting an unreviewable deletion as done.
+    Fails closed: if the caret cannot land, the redline scan is unreliable, or
+    no deletion is recorded, this raises instead of reporting an unreviewable
+    deletion as done.
     """
     controller = doc.getCurrentController()
     if controller is None:
@@ -300,6 +313,11 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
             code="TABLE_DELETE_NOT_TRACKABLE",
         )
     before = _delete_redline_count(doc)
+    if before is None:
+        raise ToolExecutionError(
+            "Could not scan tracked changes before deleting table '%s', so it was left in place." % name,
+            code="TABLE_DELETE_NOT_TRACKABLE",
+        )
     # Leave the user's cursor where it was around the table selection and dispatch.
     with KeepViewSelection(controller):
         if not _place_caret_in_cell(controller, table, name, target_cell):
@@ -360,10 +378,13 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
     band_cells = [table.getCellByName(n) for n in band_names]
     before = _delete_redline_count(doc)
+    if before is None:
+        raise ToolExecutionError(err_msg, code="TABLE_DELETE_NOT_TRACKABLE")
     cmd = ".uno:DeleteRows" if axis == "row" else ".uno:DeleteColumns"
     with KeepViewSelection(controller):
         if not _place_caret_in_cell(controller, table, name, target_cell):
             raise ToolExecutionError(err_msg, code="TABLE_DELETE_NOT_TRACKABLE")
+        # Dispatch State cannot confirm success (it is 1 on an already-marked row and 0 on a working .uno:DeleteTable).
         execute_dispatch(uno_ctx, controller, cmd)
 
     if not _deletion_recorded(doc, before, band_cells):

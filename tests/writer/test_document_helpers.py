@@ -303,16 +303,36 @@ def test_writer_streamed_rewrite_session_empty_finish_fallback_when_undo_fails()
 
 
 def test_writer_streamed_append_session_abort_collapses_when_recording():
+    from types import SimpleNamespace
+
     doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
+    inserts = []
+
+    class _AppendRange(_MutableTextRange):
+        def getEnd(self):
+            return "END"
+
+        def getText(self):
+            def _insert_string(cursor, value, absorb):
+                assert cursor == "END" and absorb is False
+                inserts.append((doc.getPropertyValue("RecordChanges"), value))
+                self.text += value
+
+            return SimpleNamespace(
+                createTextCursorByRange=lambda r: r,
+                insertString=_insert_string,
+            )
+
+    text_range = _AppendRange()
     text_range.text = "Orig."
     session = WriterStreamedAppendSession(doc, text_range, "Orig.")
     session.append_chunk(" More")
-    with pytest.MonkeyPatch.context() as mp:
-        called = []
-        mp.setattr(session, "finish", lambda: called.append(True) or None)
-        session.abort_and_restore()
-    assert called == [True]
+    session.abort_and_restore()
+
+    assert text_range.getString() == "Orig. More"
+    assert inserts == [(True, " More")]
+    assert doc.getPropertyValue("RecordChanges") is True
+    assert doc.undo.left is True
 
 
 def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():

@@ -33,8 +33,8 @@ import typing
 from typing import Any, Callable
 import urllib.parse
 
-from plugin.framework import doc_type as framework_doc_type
-
+# Aliased: two methods below bind a local is_writer variable.
+from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
     NetworkError,
     ToolExecutionError,
@@ -84,7 +84,7 @@ log = logging.getLogger("writeragent.writer")
 
 def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> Any:
     """Wrap *apply* in a Writer review session when *doc* is a Writer document."""
-    if framework_doc_type.is_writer(doc):
+    if is_writer_doc(doc):
         return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
     return apply()
 
@@ -1437,7 +1437,7 @@ class ImageInsert(ToolWriterImageBase):
 
             image_name = graphic.getName()
             result = {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
-            if framework_doc_type.is_writer(doc):
+            if is_writer_doc(doc):
                 return annotate_review_status(result)
             return result
 
