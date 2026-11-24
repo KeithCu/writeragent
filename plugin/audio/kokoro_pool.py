@@ -8,7 +8,7 @@ The child speaks Pickle 5 frames via ``kokoro_worker.run_kokoro_stdio_loop``.
 ``kokoro_worker`` emits ready before importing ``kokoro_onnx``, so the spawn
 timeout covers process start only and model load counts against the first job.
 ``ChildSpec.idle_ttl_sec`` (default 300s) evicts idle ONNX via the supervisor
-reaper. Stop on an utterance registers ``WarmChild.kill()`` on ``SendCancellation``.
+reaper. Stop cancels the request's ``SendCancellation``, and its hook kills the child.
 
 Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
 Desktop quit retires the warm child via the supervisor hook registered in
@@ -82,7 +82,6 @@ class KokoroProcessPool:
         self._state_lock: threading.Lock = threading.Lock()
         self._shutdown: bool = False
         self._job_live: bool = False
-        self._abort: bool = False
         self._seen_warnings: dict[str, None] = {}
 
     def execute(
@@ -102,23 +101,20 @@ class KokoroProcessPool:
 
             with self._state_lock:
                 self._job_live = True
-                self._abort = False
             if cancel is not None:
                 cancel.register_on_cancel(self._on_cancel)
 
             deadline = Deadline(eff_timeout)
             result: dict[str, Any] = {}
             try:
-                result = self._warm.request(payload, deadline)
+                result = self._warm.request(payload, deadline, cancel=cancel)
             finally:
                 if cancel is not None:
                     cancel.unregister_on_cancel(self._on_cancel)
                 with self._state_lock:
                     self._job_live = False
 
-            with self._state_lock:
-                abort = self._abort
-            if abort:
+            if is_cancelled(cancel):
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             if self._shutdown:
@@ -151,7 +147,6 @@ class KokoroProcessPool:
         with self._state_lock:
             if not self._job_live:
                 return
-            self._abort = True
             self._job_live = False
         log.info("Cancelling in-flight Kokoro synthesis")
         self._warm.kill()
@@ -160,9 +155,6 @@ class KokoroProcessPool:
         """Retire the warm child (tests and venv-path changes)."""
         with self._job_lock:
             self._shutdown = True
-            with self._state_lock:
-                self._abort = True
-                self._job_live = False
         self._warm.retire()
 
     def is_warm_alive(self) -> bool:

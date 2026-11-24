@@ -428,3 +428,34 @@ def test_normalize_inner_result_error_reports_edits() -> None:
     assert ro == {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
     assert "edits" not in ro
     assert "note" not in ro
+
+
+def test_record_edits_counts_failed_nested_delegation_that_edited() -> None:
+    from plugin.doc.specialized_catalog import apply_inner_outcome, record_edits
+
+    calls = [
+        InnerToolCall(
+            "delegate_to_subagent",
+            {"status": "error", "code": "SPECIALIZED_TOOL_ERROR", "edits": {"python_run_script": 2}},
+            mutating=True,
+        ),
+        InnerToolCall(
+            "delegate_to_subagent",
+            {"status": "error", "code": "SPECIALIZED_TOOL_ERROR", "edits": {}},
+            mutating=True,
+        ),
+        InnerToolCall(
+            "writer_insert_text",
+            {"status": "error", "code": "TOOL_EXECUTION_ERROR"},
+            mutating=True,
+        ),
+    ]
+    payload: dict[str, object] = {}
+    record_edits(payload, calls)
+    assert payload["edits"] == {"delegate_to_subagent": 1}
+    assert "note" not in payload
+
+    outcome = apply_inner_outcome({}, None, [calls[0]], expect_edits=True)
+    assert outcome["status"] == "error"
+    assert outcome["edits"] == {"delegate_to_subagent": 1}
+    assert outcome["tool_errors"]

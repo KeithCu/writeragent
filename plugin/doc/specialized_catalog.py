@@ -282,10 +282,15 @@ def record_edits(payload: dict[str, Any], calls: Sequence[InnerToolCall]) -> Non
 
     The note is true on every exit because mutating is the tool kind; if no editing
     tool ran at all, the document is unchanged whether the run finished, stopped
-    early, or failed.
+    early, or failed. A nested delegation that failed after its own edits landed
+    reports them in ``edits``.
     """
     payload["edits"] = dict(
-        Counter(c.name for c in calls if c.mutating and not _is_error_result(c.result))
+        Counter(
+            c.name
+            for c in calls
+            if c.mutating and (not _is_error_result(c.result) or bool(c.result.get("edits")))
+        )
     )
     if not any(c.mutating for c in calls):
         payload["note"] = NO_EDIT_TOOL_NOTE

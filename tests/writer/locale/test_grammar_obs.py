@@ -896,3 +896,103 @@ def test_writer_agent_late_failure_after_grammar_off_not_shown() -> None:
     assert not sink._status_bar.is_active()
 
 
+@pytest.mark.parametrize("changed_key", ["endpoint", "text_model"])
+def test_writer_agent_chat_model_or_endpoint_change_ends_failed_llm_bar(changed_key: str) -> None:
+    from plugin.framework import config
+    from plugin.framework.event_bus import get_event_bus
+    from plugin.writer.locale import grammar_settings
+
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    bus = get_event_bus()
+    sink = go.WriterAgentGrammarStatus()
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch.object(grammar_settings, "provider", return_value="llm"),
+        patch.object(config, "get_config", return_value=""),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
+        ),
+    ):
+        sink.failed("Grammar check", result="HTTP 502")
+        assert factory.shown() is not None
+
+        bus.emit("config:changed", key="", keys=frozenset({changed_key}))
+        assert factory.shown() is None
+        assert not sink._status_bar.is_active()
+
+
+def test_writer_agent_chat_model_or_endpoint_change_keeps_failed_harper_bar() -> None:
+    from plugin.framework.event_bus import get_event_bus
+    from plugin.writer.locale import grammar_settings
+
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    bus = get_event_bus()
+    sink = go.WriterAgentGrammarStatus()
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch.object(grammar_settings, "provider", return_value="harper"),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
+        ),
+    ):
+        sink.failed("Grammar check", result="Harper crashed")
+        assert factory.shown() is not None
+
+        bus.emit("config:changed", key="", keys=frozenset({"endpoint", "text_model"}))
+        assert factory.shown() is not None
+        assert sink._status_bar.is_active()
+
+
+def test_get_grammar_status_creates_one_sink_for_concurrent_callers() -> None:
+    import threading
+    import time
+
+    go.set_grammar_status(None)
+    constructions = 0
+    orig_cls = go.WriterAgentGrammarStatus
+    barrier = threading.Barrier(2)
+    results: list[go.GrammarStatus] = []
+
+    class _SlowSink(orig_cls):
+        def __init__(self) -> None:
+            nonlocal constructions
+            constructions += 1
+            time.sleep(0.05)
+            super().__init__()
+
+    def _caller() -> None:
+        barrier.wait(timeout=5.0)
+        results.append(go.get_grammar_status())
+
+    try:
+        with (
+            patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=False),
+            patch.object(go, "WriterAgentGrammarStatus", _SlowSink),
+        ):
+            t1 = threading.Thread(target=_caller)
+            t2 = threading.Thread(target=_caller)
+            t1.start()
+            t2.start()
+            t1.join(timeout=5.0)
+            t2.join(timeout=5.0)
+        assert constructions == 1
+        assert len(results) == 2
+        assert results[0] is results[1]
+    finally:
+        go.set_grammar_status(None)
+
+
