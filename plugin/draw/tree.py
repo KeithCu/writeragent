@@ -173,6 +173,12 @@ def _shape_geometry(shape: Any) -> dict[str, int] | None:
     return {"x": int(pos.X), "y": int(pos.Y), "width": int(size.Width), "height": int(size.Height)}
 
 
+def custom_shape_geometry(shape: Any) -> dict[str, Any]:
+    """CustomShapeGeometry as ``{name: value}``; ``{}`` for a shape that has none."""
+    props: Any = uno_read(lambda: shape.getPropertyValue("CustomShapeGeometry"), None)
+    return {p.Name: p.Value for p in props or ()}
+
+
 def shape_kind(shape: Any) -> str:
     """Human-readable shape kind.
 
@@ -181,6 +187,9 @@ def shape_kind(shape: Any) -> str:
     and OLE shapes are distinguished by UNO service and CLSID.
     """
     type_name = uno_read(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
+    if type_name == "CustomShape":
+        preset = custom_shape_geometry(shape).get("Type")
+        return "CustomShape (%s)" % preset if preset else type_name
     if type_name not in ("FrameShape", "OLE2Shape"):
         return type_name
 
@@ -507,15 +516,11 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
 
         # Flag CustomShapes with no Path/ViewBox: they will not paint and must be
         # recreated because shape_upsert(action="edit") does not re-apply geometry.
-        geom_props: Any = uno_read(lambda: shape.getPropertyValue("CustomShapeGeometry"), None)
-        if geom_props:
-            has_path_or_viewbox = False
-            for p in geom_props:
-                if p.Name == "Type":
-                    node["custom_shape_type"] = p.Value
-                elif p.Name in ("Path", "ViewBox") and p.Value is not None and p.Value != ():
-                    has_path_or_viewbox = True
-            if not has_path_or_viewbox:
+        geom = custom_shape_geometry(shape)
+        if geom:
+            if "Type" in geom:
+                node["custom_shape_type"] = geom["Type"]
+            if not any(geom.get(k) not in (None, ()) for k in ("Path", "ViewBox")):
                 node["custom_geometry_empty"] = True
         elif "CustomShape" in shape_type:
             node["custom_geometry_empty"] = True

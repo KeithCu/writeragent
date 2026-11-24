@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
+from plugin.draw.shapes import set_shape_string
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
 from plugin.framework.errors import is_disposal, uno_read
 
@@ -151,7 +152,7 @@ def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
 
     if hasattr(shape, "setString"):
         val = "" if value is None else str(value)
-        return _write(lambda: shape.setString(val), "set text", "setString failed: %s")
+        return _write(lambda: set_shape_string(shape, val), "set text", "setString failed: %s")
     return False, "Shape cannot hold text."
 
 

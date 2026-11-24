@@ -32,6 +32,7 @@ from plugin.doc.text_helpers import (
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
 from plugin.doc.visual_helpers import safe_get_property
+from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
@@ -248,6 +249,9 @@ class GetPageObjects(ToolBase):
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
                 shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
+                preset = custom_shape_geometry(shape).get("Type")
+                if preset:
+                    shape_info["custom_shape_type"] = preset
                 shape_info["geometry"] = None
                 try:
                     size = shape.getSize()

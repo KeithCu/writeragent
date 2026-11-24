@@ -694,8 +694,8 @@ def test_writer_shape_upsert_negative_line_direction(ctx, doc):
     assert abs((poly3[0][1][0] - poly3[0][0][0]) - 1500) <= 2
 
 
-def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
-    """Export a single shape to SVG and return (x, y) of each TextPosition element."""
+def _export_shape_svg(ctx, shape) -> str:
+    """Export a single shape to SVG and return the XML string."""
     tmpdir = tempfile.mkdtemp(prefix="shape_svg_")
     try:
         out_path = os.path.join(tmpdir, "shape.svg")
@@ -708,10 +708,14 @@ def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
             )
         )
         with open(out_path, encoding="utf-8") as fh:
-            svg = fh.read()
+            return fh.read()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
+
+def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
+    """Export a single shape to SVG and return (x, y) of each TextPosition element."""
+    svg = _export_shape_svg(ctx, shape)
     positions: list[tuple[int, int]] = []
     for match in re.finditer(r'<tspan[^>]*class="TextPosition"[^>]*>', svg):
         tag = match.group(0)
@@ -720,6 +724,21 @@ def _svg_text_positions(ctx, shape) -> list[tuple[int, int]]:
         if x_m and y_m:
             positions.append((int(x_m.group(1)), int(y_m.group(1))))
     return positions
+
+
+def _svg_corner_distance(ctx, shape) -> float:
+    """Minimum Euclidean distance from the fill path's top-left bounding corner to any path point."""
+    import math
+
+    svg = _export_shape_svg(ctx, shape)
+    pts: list[tuple[float, float]] = []
+    for path_match in re.finditer(r'<path[^>]*\bfill="(?!none)[^"]*"[^>]*\bd="([^"]+)"', svg):
+        for x_s, y_s in re.findall(r"(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)", path_match.group(1)):
+            pts.append((float(x_s), float(y_s)))
+    assert pts, f"No filled path points found in SVG: {svg[:500]}"
+    min_x = min(x for x, _y in pts)
+    min_y = min(y for _x, y in pts)
+    return min(math.hypot(x - min_x, y - min_y) for x, y in pts)
 
 
 def _iter_paragraphs_and_portions(shape):
@@ -768,7 +787,8 @@ def test_shape_upsert_text_style_and_alignment(ctx, doc):
         assert port.getPropertyValue("CharPosture") == italic_enum
         assert para.getPropertyValue("ParaAdjust") == 0
     assert shape.getPropertyValue("TextVerticalAdjust") == uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "TOP")
-    assert shape.getPropertyValue("CornerRadius") == 500
+    corner_dist = _svg_corner_distance(ctx, shape)
+    assert 150 <= corner_dist <= 300, corner_dist
 
     positions = _svg_text_positions(ctx, shape)
     assert positions
@@ -784,10 +804,13 @@ def test_shape_upsert_text_style_and_alignment(ctx, doc):
         bold=False,
         h_align="right",
         v_align="bottom",
+        corner_radius=0,
     )
     assert edit_res.get("status") == "ok", edit_res
+    assert not edit_res.get("warnings"), edit_res
     for _para, port in _iter_paragraphs_and_portions(shape):
         assert port.getPropertyValue("CharWeight") == 100.0
+    assert _svg_corner_distance(ctx, shape) < 20
 
     positions2 = _svg_text_positions(ctx, shape)
     assert positions2
@@ -803,7 +826,7 @@ def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
     res = UpsertShape().execute(
         tctx,
         action="create",
-        shape_type="round-rectangle",
+        shape_type="ellipse",
         page=0,
         x=1000,
         y=1000,
@@ -814,6 +837,45 @@ def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
     assert res.get("status") == "ok", res
     warnings = res.get("warnings") or []
     assert any("corner_radius" in str(w) for w in warnings), res
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_round_rectangle_corner_radius(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+
+    default_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="round-rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=2000,
+    )
+    assert default_res.get("status") == "ok", default_res
+    assert not default_res.get("warnings"), default_res
+
+    custom_res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="round-rectangle",
+        page=0,
+        x=1000,
+        y=4000,
+        width=4000,
+        height=2000,
+        corner_radius=300,
+    )
+    assert custom_res.get("status") == "ok", custom_res
+    assert not custom_res.get("warnings"), custom_res
+
+    default_dist = _svg_corner_distance(ctx, page.getByIndex(default_res["index"]))
+    custom_dist = _svg_corner_distance(ctx, page.getByIndex(custom_res["index"]))
+    assert 0 < custom_dist < default_dist, (custom_dist, default_dist)
 
 
 def _check_custom_shape_text_defaults(ctx, doc, doc_type: str) -> None:
@@ -916,6 +978,89 @@ def _check_custom_shape_text_defaults(ctx, doc, doc_type: str) -> None:
     assert len(pos4) == 1, pos4
     assert 3000 < pos4[0][0] < 4500, pos4
     assert 1500 < pos4[0][1] < 3000, pos4
+
+    # 5. rectangle and ellipse wrap long labels inside the shape at a fixed font_size.
+    for idx, shape_type in enumerate(("rectangle", "ellipse")):
+        res5 = upsert.execute(
+            tctx,
+            action="create",
+            shape_type=shape_type,
+            page=0,
+            x=10000,
+            y=1000 + idx * 5000,
+            width=8000,
+            height=4000,
+            text=long_text,
+            font_size=18,
+        )
+        assert res5.get("status") == "ok", res5
+        pos5 = _svg_text_positions(ctx, page.getByIndex(res5["index"]))
+        assert len({y for _x, y in pos5}) >= 2, (shape_type, pos5)
+        assert all(x >= 0 for x, _y in pos5), (shape_type, pos5)
+
+    # 6. Empty custom shape keeps its size even after a raw setString("Hi").
+    res6 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=10000,
+        y=11000,
+        width=8000,
+        height=4000,
+    )
+    assert res6.get("status") == "ok", res6
+    shape6 = page.getByIndex(res6["index"])
+    shape6.setString("Hi")
+    sz6 = shape6.getSize()
+    assert abs(sz6.Width - 8000) <= 2 and abs(sz6.Height - 4000) <= 2, (sz6.Width, sz6.Height)
+
+
+@native_test
+@with_native_doc("draw")
+def test_fill_draw_fields_keeps_custom_shape_center(ctx, doc):
+    from plugin.draw.field_fill import FillDrawFields
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    created = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+    )
+    assert created.get("status") == "ok", created
+    filled = FillDrawFields().execute(tctx, page=0, fields=[{"name": created["name"], "value": "Hi"}])
+    assert filled.get("status") == "ok", filled
+    pos = _svg_text_positions(ctx, page.getByIndex(created["index"]))
+    assert len(pos) == 1, pos
+    assert 3000 < pos[0][0] < 4500, pos
+    assert 1500 < pos[0][1] < 3000, pos
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_placeholder_text_keeps_direct_right_alignment(ctx, doc):
+    from plugin.draw.placeholders import SetPlaceholderText
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    title_idx = next(
+        i for i in range(page.getCount()) if "TitleTextShape" in page.getByIndex(i).getShapeType()
+    )
+    title = page.getByIndex(title_idx)
+    width = title.getSize().Width
+    edit_res = UpsertShape().execute(tctx, action="edit", page=0, index=title_idx, h_align="right")
+    assert edit_res.get("status") == "ok", edit_res
+
+    set_res = SetPlaceholderText().execute(tctx, page=0, role="title", text="RightTitle")
+    assert set_res.get("status") == "ok", set_res
+    pos = _svg_text_positions(ctx, title)
+    assert pos and pos[0][0] > width // 2, (pos, width)
 
 
 @native_test
