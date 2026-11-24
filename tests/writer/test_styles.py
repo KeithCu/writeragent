@@ -2724,3 +2724,103 @@ def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
     assert "Nothing was changed" not in err["message"]
     assert "undo step could not be closed" in err["message"]
 
+
+def test_paragraph_revert_states_skips_void_values_and_names_unrestorable(monkeypatch: pytest.MonkeyPatch):
+    from types import SimpleNamespace
+    from typing import Any
+    from plugin.writer import styles as fmt
+
+    monkeypatch.setitem(
+        sys.modules,
+        "uno",
+        SimpleNamespace(Any=lambda _t, v: v, createUnoStruct=lambda _name: SimpleNamespace()),
+    )
+
+    info_names = (
+        "ParaStyleName",
+        "NumberingStyleName",
+        "ListLabelString",
+        "NumberingRules",
+        "ParaLeftMargin",
+        "ParaRegisterModeActive",
+        "DropCapCharStyleName",
+        "ParRsid",
+        "TopBorderComplexColor",
+        "CharFontName",
+    )
+
+    def _make_para(values: dict[str, Any], direct_names: set[str]):
+        def _empty_enum():
+            e = MagicMock()
+            e.hasMoreElements.return_value = False
+            return e
+
+        def _get_val(name: str):
+            if name not in info_names:
+                raise KeyError(f"Unknown property: {name}")
+            return values.get(name)
+
+        def _get_states(names: tuple[str, ...]):
+            return [
+                SimpleNamespace(value="DIRECT_VALUE" if n in direct_names else "DEFAULT_VALUE")
+                for n in names
+            ]
+
+        para = MagicMock()
+        para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+        para.getPropertySetInfo.return_value.getProperties.return_value = [
+            SimpleNamespace(Name=n, Attributes=0) for n in info_names
+        ]
+        para.getPropertyValue.side_effect = _get_val
+        para.getPropertyStates.side_effect = _get_states
+        para.createEnumeration.side_effect = _empty_enum
+        return para
+
+    para1 = _make_para(
+        {
+            "ParaStyleName": "Standard",
+            "NumberingStyleName": "",
+            "ListLabelString": "",
+            "ParaLeftMargin": None,
+            "ParaRegisterModeActive": True,
+            "DropCapCharStyleName": "Emphasis",
+            "ParRsid": 5,
+            "TopBorderComplexColor": None,
+        },
+        {"ParaLeftMargin", "ParaRegisterModeActive", "DropCapCharStyleName", "ParRsid", "TopBorderComplexColor"},
+    )
+    cursor1 = MagicMock()
+    enum1 = MagicMock()
+    enum1.hasMoreElements.side_effect = [True, False]
+    enum1.nextElement.return_value = para1
+    cursor1.createEnumeration.return_value = enum1
+
+    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()):
+        states, incomplete = fmt._paragraph_revert_states(cursor1, "Heading 1")
+
+    assert incomplete is False
+    assert len(states) == 1
+    captured_names = [p.Name for p in states[0].properties]
+    assert captured_names == ["ParaStyleName", "ParaRegisterModeActive"]
+    assert states[0].unrestorable == ("DropCapCharStyleName",)
+
+    para2 = _make_para(
+        {
+            "ParaStyleName": "Standard",
+            "NumberingStyleName": "",
+            "ListLabelString": "",
+            "ParRsid": 5,
+        },
+        {"ParRsid"},
+    )
+    cursor2 = MagicMock()
+    enum2 = MagicMock()
+    enum2.hasMoreElements.side_effect = [True, False]
+    enum2.nextElement.return_value = para2
+    cursor2.createEnumeration.return_value = enum2
+
+    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()):
+        states2, incomplete2 = fmt._paragraph_revert_states(cursor2, "Standard")
+
+    assert incomplete2 is False
+    assert states2 == []
