@@ -272,3 +272,34 @@ def test_search_nearby_files_cancels_before_second_subset_url():
     assert result["status"] == "error"
     assert result["message"] == "Cancelled"
     assert rpc_mock.call_count == 1
+
+
+def test_search_nearby_files_unsupported_file_is_an_error():
+    grep_return = ([{"url": "file:///tmp/folder/photo.png", "path": "/tmp/folder/photo.png"}], False, None)
+    result, rpc_mock, _scope = _run_search_with_subset(grep_return=grep_return, file_subset="photo.png")
+    assert result["status"] == "error"
+    assert "photo.png" in result["message"]
+    assert "not a document that can be searched" in result["message"]
+    rpc_mock.assert_not_called()
+
+
+def test_search_nearby_files_skips_unsupported_candidates():
+    odt_url = "file:///tmp/folder/notes.odt"
+    grep_return = (
+        [
+            {"url": "file:///tmp/folder/photo.png", "path": "/tmp/folder/photo.png"},
+            {"url": odt_url, "path": "/tmp/folder/notes.odt"},
+        ],
+        False,
+        None,
+    )
+    hit = {"doc_url": odt_url, "score": 0.8, "snippet": "hit"}
+    result, rpc_mock, _scope = _run_search_with_subset(
+        grep_return=grep_return,
+        hybrid_return={"hits": [hit]},
+        file_subset="folder",
+    )
+    assert result["status"] == "ok"
+    assert result["hits"] == [hit]
+    rpc_mock.assert_called_once()
+    assert rpc_mock.call_args.kwargs["doc_url_filter"] == odt_url

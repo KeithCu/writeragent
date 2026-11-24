@@ -532,3 +532,9 @@ def test_calc_execute_rejects_image_and_selection_without_mentioning_page():
     assert res["status"] == "error"
     assert "at most one" in res["message"]
     assert "page" not in res["message"]
+
+
+def test_execute_page_and_sheet_index_mentions_sheet_index():
+    res = GetImage().execute(_tctx(FakeDrawDoc()), page=1, sheet_index=0)
+    assert res["status"] == "error"
+    assert "sheet_index" in res["message"]

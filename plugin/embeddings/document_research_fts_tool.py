@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, ClassVar
 
+from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -133,8 +135,12 @@ class SearchNearbyFiles(ToolBase):
                 )
                 if err:
                     return {"error": err}
+                indexable = [c for c in candidates if os.path.splitext(c["path"])[1].lower() in ALL_INDEXABLE_EXTENSIONS]
+                if candidates and not indexable:
+                    # An empty hit list would read as "the text is not in that file".
+                    return {"error": f"{str(file_subset)!r} is not a document that can be searched."}
                 allowed_urls = set()
-                for c in candidates:
+                for c in indexable:
                     url = str(c.get("url") or "")
                     if not url:
                         path = c.get("path")

@@ -351,3 +351,21 @@ def test_connect_shapes_failure_removes_connector_and_raises():
         with pytest.raises(ValueError, match="bad end shape"):
             ConnectShapes().execute(MagicMock(), start=0, end=1)
     page.remove.assert_called_once_with(connector)
+
+
+def test_create_diagram_connection_line_end_enum_folds():
+    from types import SimpleNamespace
+    from plugin.draw.shapes import CreateDiagram
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(
+        CreateDiagram(),
+        SimpleNamespace(doc_type="draw"),
+        "shape_create_diagram",
+        {
+            "nodes": [{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+            "connections": [{"from": "a", "to": "b", "line_end": "Arrow"}],
+        },
+    )
+    assert prep.error is None
+    assert prep.kwargs["connections"][0]["line_end"] == "arrow"

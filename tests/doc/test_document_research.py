@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import time
 import threading
@@ -13,7 +12,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import plugin.doc.document_research as dr
 from plugin.framework.doc_type import DocumentType
 from plugin.doc.document_research import (
     _collect_open_file_urls,
@@ -372,10 +370,15 @@ def test_close_document_research_document_skips_reused_open():
     model.close.assert_not_called()
 
 
-def test_close_document_research_document_closes_temporary_open():
+def test_close_document_research_document_closes_temporary_open(monkeypatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"uid-temp-1"})
     model = MagicMock()
+    model.getRuntimeUID.return_value = "uid-temp-1"
     close_document_research_document(model, opened_for_document_research=True)
     model.close.assert_called_once_with(True)
+    assert "uid-temp-1" not in scratch_writer._scratch_uids
 
 
 def test_resolve_path_or_name_accepts_file_url_without_listing_filter():
@@ -505,14 +508,6 @@ def test_open_document_for_read_refuses_already_open_unknown_type(mock_isfile):
     existing.close.assert_not_called()
 
 
-def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
-    """GHA 34636251918: leftover Hidden _default file load raised system bitmap."""
-    monkeypatch.setattr(dr.sys, "platform", "win32")
-    assert dr._hidden_readonly_load_args() == ("_wa_doc_research", 8 | 55)
-    monkeypatch.setattr(dr.sys, "platform", "linux")
-    assert dr._hidden_readonly_load_args() == ("_default", 0)
-
-
 @patch("plugin.doc.document_research.get_document_type")
 @patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
@@ -527,11 +522,8 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
     assert model is opened_model
     assert opened_for_document_research is True
     args = mock_desktop.return_value.loadComponentFromURL.call_args.args
-    target, flags = (
-        ("_wa_doc_research", 8 | 55) if sys.platform == "win32" else ("_default", 0)
-    )
-    assert args[1] == target
-    assert args[2] == flags
+    assert args[1] == "_blank"
+    assert args[2] == 0
     opened_model.close.assert_not_called()
 
 

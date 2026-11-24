@@ -842,12 +842,6 @@ def migrate_secrets_to_keystore() -> None:
             keystore.delete_secret(name)
 
 
-def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:
-    """Store API key for the given endpoint in api_keys_by_endpoint."""
-    normalized = normalize_endpoint_url(endpoint or "")
-    save({"api_keys_by_endpoint": {normalized: str(key)}}, event_key=event_key)
-
-
 def get_reasoning_effort_for_endpoint(endpoint: Any) -> str:
     data = get_config("reasoning_effort")
     if not isinstance(data, dict):

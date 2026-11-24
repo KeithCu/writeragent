@@ -26,7 +26,11 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
+from plugin.doc.text_helpers import (
+    get_string_without_tracked_deletions,
+    iter_elements_limited,
+    record_walk_cap,
+)
 from plugin.framework.errors import (
     best_effort,
     is_disposal,
@@ -442,6 +446,11 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
     return copied, skipped
 
 
+def _region_all_struck(text_obj: Any) -> bool:
+    """True when the region has text and all of it is tracked-deleted."""
+    return bool(text_obj.getString().strip()) and not get_string_without_tracked_deletions(text_obj).strip()
+
+
 def _copy_page_regions(
     doc: Any,
     source: Any,
@@ -494,6 +503,7 @@ def _copy_page_regions(
                 not str(plain).strip()
                 and fields_copied == 0
                 and not uno_read(lambda: _scan_region_content(doc, dest_text)["has_table"], False)
+                and not _region_all_struck(src_text)
             ):
                 raise RuntimeError(
                     "Page style clone: copied %s flow content was empty." % region

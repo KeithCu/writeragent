@@ -62,7 +62,7 @@ def test_insert_cell_html(ctx, doc):
         },
     )
     assert res.get("status") == "ok", f"insert_html failed: {res}"
-    # Close skipped after paste. Windows defers this suite until after
+    # Kept Writer stays open after paste. Windows defers this suite until after
     # document_research_uno 3/3 (34648929578). Cached leftover_open
     # for later leftover reuse. Do not enum getComponents.
     note_windows_html_paste_leftover()
@@ -177,7 +177,7 @@ def test_insert_result_into_calc_undo(ctx, doc):
     }
 
     insert_result_into_calc(doc, ctx, primes_result)
-    # Close skipped after paste. Windows defers this suite until after
+    # Kept Writer stays open after paste. Windows defers this suite until after
     # document_research_uno 3/3 (34648929578). Cached leftover_open
     # for later leftover reuse. Do not enum getComponents.
     note_windows_html_paste_leftover()
@@ -211,3 +211,58 @@ def test_insert_cell_html_reports_replaced_formula(ctx, doc):
     res_empty = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "B1", "html": "<b>y</b>"})
     assert res_empty.get("status") == "ok", res_empty
     assert "replaced_text" not in res_empty
+
+
+@native_test
+@with_native_doc("calc")
+def test_repeated_pastes_open_no_new_frames_uno(ctx, doc):
+    from plugin.framework.uno_context import get_desktop
+
+    desktop = get_desktop(ctx)
+    res1 = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "C1", "html": "<b>one</b>"})
+    assert res1.get("status") == "ok", res1
+    note_windows_html_paste_leftover()
+    frames_after_first = desktop.getFrames().getCount()
+
+    for idx, html in enumerate(("<i>two</i>", "<u>three</u>"), start=2):
+        res = _execute_calc_tool(doc, ctx, "insert_html", {"cell": f"C{idx}", "html": html})
+        assert res.get("status") == "ok", res
+
+    assert desktop.getFrames().getCount() == frames_after_first
+
+
+@native_test
+@with_native_doc("calc")
+def test_paste_formatting_does_not_reach_the_next_paste_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    cases = [
+        ("<p align='center'>centered</p>", "plain_after_center"),
+        ("<b><font color='#ff0000' size='7'>big red</font></b>", "plain_after_bold"),
+        ("<ul><li>item</li></ul>", "plain_after_list"),
+        ("<p dir='rtl'>rtl</p>", "plain_after_rtl"),
+        ("<a href='http://x.y/'>link</a>", "plain_after_link"),
+    ]
+    for row, (styled_html, plain_text) in enumerate(cases):
+        r1 = _execute_calc_tool(doc, ctx, "insert_html", {"cell": f"E{row * 2 + 1}", "html": styled_html})
+        assert r1.get("status") == "ok", r1
+        note_windows_html_paste_leftover()
+
+        if styled_html == "<ul><li>item</li></ul>":
+            r_right = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "F1", "html": "<p align='right'>r</p>"})
+            assert r_right.get("status") == "ok", r_right
+            right_cell = sheet.getCellByPosition(5, 0)
+            right_para = right_cell.getText().createEnumeration().nextElement()
+            assert int(right_para.getPropertyValue("ParaAdjust")) == 1
+
+        plain_addr = f"E{row * 2 + 2}"
+        r2 = _execute_calc_tool(doc, ctx, "insert_html", {"cell": plain_addr, "html": plain_text})
+        assert r2.get("status") == "ok", r2
+
+        cell = sheet.getCellByPosition(4, row * 2 + 1)
+        assert cell.getString() == plain_text
+        para = cell.getText().createEnumeration().nextElement()
+        portion = para.createEnumeration().nextElement()
+        assert float(portion.getPropertyValue("CharWeight")) == 100.0
+        assert float(portion.getPropertyValue("CharHeight")) == 12.0
+        assert int(portion.getPropertyValue("CharColor")) == -1
+        assert int(para.getPropertyValue("ParaAdjust")) == 0

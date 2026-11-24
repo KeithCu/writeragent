@@ -200,7 +200,7 @@ class GetImage(ToolBase):
         if page is not None:
             if page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
-            if name is not None or selection is True or sheet_index is not None:
+            if name is not None or selection is True:
                 return self._tool_error(_one_mode(ctx.doc_type))
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:

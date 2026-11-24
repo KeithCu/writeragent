@@ -770,3 +770,36 @@ def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
 
+@native_test
+@with_native_doc("writer")
+def test_style_update_char_color_int_and_minus_one_uno(ctx, doc):
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.styles import StyleUpdate
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    tool = StyleUpdate()
+    style = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard")
+
+    prep_blue = prepare_tool_call(
+        tool,
+        tool_ctx,
+        "style_update",
+        {"style": "Standard", "property_updates": {"CharColor": 255}},
+    )
+    assert prep_blue.error is None, prep_blue.error
+    res_blue = tool.execute(tool_ctx, **prep_blue.kwargs)
+    assert res_blue.get("status") == "ok", res_blue
+    assert int(style.getPropertyValue("CharColor")) == 255
+
+    prep_auto = prepare_tool_call(
+        tool,
+        tool_ctx,
+        "style_update",
+        {"style": "Standard", "property_updates": {"CharColor": -1}},
+    )
+    assert prep_auto.error is None, prep_auto.error
+    res_auto = tool.execute(tool_ctx, **prep_auto.kwargs)
+    assert res_auto.get("status") == "ok", res_auto
+    assert int(style.getPropertyValue("CharColor")) == -1
+
+

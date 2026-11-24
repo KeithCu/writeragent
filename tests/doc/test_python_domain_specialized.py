@@ -105,12 +105,13 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     send_cancellation = extra.pop("send_cancellation", None)
     services_list = (service,) if service else ()
     uno_services_supported = extra.pop("uno_services_supported", services_list)
+    caller = extra.pop("caller", "chat")
     return ToolContext(
         doc,
         MagicMock(),
         doc_type,
         {"tools": registry},
-        caller="chat",
+        caller=caller,
         send_cancellation=send_cancellation,
         uno_services_supported=uno_services_supported,
         **extra,
@@ -145,6 +146,14 @@ def test_validate_domains_by_app():
     message, code = validate_requested_domains(["ppt-master"], "Draw")
     assert code == "UNKNOWN_SPECIALIZED_DOMAIN"
 
+    message, code = validate_requested_domains(["web_research"], "Writer")
+    assert message is None and code is None
+    message, code = validate_requested_domains(["web_research"], "Writer", caller="mcp")
+    assert code == "UNKNOWN_SPECIALIZED_DOMAIN"
+    known_part = (message or "").split("Known domains:", 1)[1]
+    assert "web_research" not in known_part
+    assert "mcp" not in known_part
+
 
 def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
     registry = ToolRegistry(services={})
@@ -167,6 +176,11 @@ def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
     nested = tool.execute(ctx, domains=["python"], task="compute a prime")
     assert nested["status"] == "error"
     assert nested.get("code") == "PYTHON_DOMAIN_NOT_NESTED"
+
+    mcp_ctx = _ctx(registry, "writer", "com.sun.star.text.TextDocument", caller="mcp")
+    mcp_chat_only = tool.execute(mcp_ctx, domains=["web_research"], task="search")
+    assert mcp_chat_only["status"] == "error"
+    assert mcp_chat_only.get("code") == "UNKNOWN_SPECIALIZED_DOMAIN"
 
 
 def test_delegate_tool_domains_rejects_non_string_or_missing_task():
