@@ -874,11 +874,11 @@ class TunnelManager:
                 if provider_obj is None
                 else _("the tunnel token could not be read (keyring locked?). Unlock it, then stop and start the MCP server.")
             )
-            log.error("MCP tunnel not started (%s): %s", provider, refusal)
             with self._lock:
                 if start_token is not None and self._pending_start is not start_token:
                     log.info("Ignoring superseded MCP tunnel start (%s)", provider)
                     return False
+                log.error("MCP tunnel not started (%s): %s", provider, refusal)
                 self._replace_session()
                 self._pending_start = None
                 self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))

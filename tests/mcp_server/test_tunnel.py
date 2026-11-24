@@ -1767,24 +1767,19 @@ def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatc
     assert tunnel.last_error == "cloudflared missing"
 
 
-@pytest.mark.parametrize("provider", ["cloudflare", "bore", "ngrok", "tailscale"])
-@pytest.mark.parametrize("cause", ["locked", "fail_get", "missing"])
-def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, provider, cause):
+def _setup_sync_tunnel(monkeypatch, provider: str, token_value: str):
     import plugin.mcp_server as mcp_mod
-    from plugin.framework import keystore
+    from plugin.framework.config import save
 
-    if cause == "locked":
-        fake_keystore.locked = True
-    elif cause == "fail_get":
-        fake_keystore.fail_get = True
-
-    cfg_data = {
-        "mcp.mcp_enabled": True,
-        "mcp.tunnel_enabled": True,
-        "mcp.mcp_port": "18765",
-        "mcp.tunnel_provider": provider,
-        "mcp.tunnel_provider_token": "keystore:abc12345",
-    }
+    save(
+        {
+            "mcp.mcp_enabled": True,
+            "mcp.tunnel_enabled": True,
+            "mcp.mcp_port": "18765",
+            "mcp.tunnel_provider": provider,
+            "mcp.tunnel_provider_token": token_value,
+        }
+    )
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     mod._services = MagicMock()
@@ -1795,126 +1790,70 @@ def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, p
     tunnel = TunnelManager()
     mod.tunnel = tunnel
 
-    spawned: list[tuple[list[str], dict[str, str]]] = []
-
-    class _FakeProc:
-        def __init__(self, cmd, **_kw):
-            self.cmd = cmd
-            self.env = _kw.get("env") or {}
-            self.is_running = True
-
-        def start(self):
-            spawned.append((self.cmd, self.env))
-
-        def terminate(self):
-            self.is_running = False
+    cmds: list[list[str]] = []
+    envs: list[dict[str, str]] = []
+    background: list = []
 
     monkeypatch.setattr(mcp_mod, "_current_module", mod)
-    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
-    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: None)
-    monkeypatch.setattr("plugin.framework.worker_pool.AsyncProcess", _FakeProc)
-    monkeypatch.setattr("plugin.mcp_server.tunnel.subprocess.run", lambda *_a, **_kw: MagicMock(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("plugin.framework.worker_pool.AsyncProcess", _make_fake_async_process(cmds=cmds, envs=envs))
+    monkeypatch.setattr("plugin.mcp_server.tunnel.subprocess.run", _record_subprocess_run())
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", _track_background(background))
+    return mod, tunnel, cmds, envs, background
 
+
+@pytest.mark.parametrize("provider", ["cloudflare", "bore", "ngrok", "tailscale"])
+@pytest.mark.parametrize("cause", ["locked", "fail_get", "missing"])
+def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, provider, cause):
+    from plugin.framework import keystore
+
+    if cause == "locked":
+        fake_keystore.locked = True
+        fake_keystore.store["mcp.tunnel_provider_token"] = "tok"
+    elif cause == "fail_get":
+        fake_keystore.fail_get = True
+
+    mod, tunnel, cmds, _envs, background = _setup_sync_tunnel(monkeypatch, provider, "keystore:abc12345")
     mod._sync_tunnel()
 
+    assert keystore.is_locked("mcp.tunnel_provider_token") is (cause == "locked")
     if provider == "tailscale":
-        assert len(spawned) == 1
+        assert len(cmds) == 1
         tunnel.stop()
+        _join_recorded_background(background)
     else:
         assert tunnel.status == TunnelStatus.FAILED
         assert tunnel.last_error
-        assert spawned == []
+        assert cmds == []
 
 
 def test_sync_tunnel_starts_after_keyring_unlocks(monkeypatch, fake_keystore):
-    import plugin.mcp_server as mcp_mod
     from plugin.framework import keystore
 
     fake_keystore.locked = True
     fake_keystore.store["mcp.tunnel_provider_token"] = "relay.example sec"
     monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0)
-    cfg_data = {
-        "mcp.mcp_enabled": True,
-        "mcp.tunnel_enabled": True,
-        "mcp.mcp_port": "18765",
-        "mcp.tunnel_provider": "bore",
-        "mcp.tunnel_provider_token": "keystore:abc12345",
-    }
-    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
-    mod.name = "mcp"
-    mod._services = MagicMock()
-    bound = MagicMock()
-    bound.is_running.return_value = True
-    bound.port = 18765
-    mod.server = bound
-    tunnel = TunnelManager()
-    mod.tunnel = tunnel
-
-    spawned: list[tuple[list[str], dict[str, str]]] = []
-
-    class _FakeProc:
-        def __init__(self, cmd, **_kw):
-            self.cmd = cmd
-            self.env = _kw.get("env") or {}
-            self.is_running = True
-
-        def start(self):
-            spawned.append((self.cmd, self.env))
-
-        def terminate(self):
-            self.is_running = False
-
-    monkeypatch.setattr(mcp_mod, "_current_module", mod)
-    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
-    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: None)
-    monkeypatch.setattr("plugin.framework.worker_pool.AsyncProcess", _FakeProc)
+    mod, tunnel, cmds, envs, _background = _setup_sync_tunnel(monkeypatch, "bore", "keystore:abc12345")
 
     mod._sync_tunnel()
     assert tunnel.status == TunnelStatus.FAILED
-    assert spawned == []
+    assert cmds == []
 
     fake_keystore.locked = False
     mod._sync_tunnel()
 
-    assert len(spawned) == 1
-    cmd, env = spawned[0]
-    assert "--to" in cmd and "relay.example" in cmd
-    assert env.get("BORE_SECRET") == "sec"
+    assert len(cmds) == 1
+    assert "--to" in cmds[0] and "relay.example" in cmds[0]
+    assert envs[0].get("BORE_SECRET") == "sec"
     tunnel.stop()
 
 
 def test_stop_during_unreadable_token_read_stays_stopped(monkeypatch, fake_keystore):
-    import plugin.mcp_server as mcp_mod
-    from plugin.framework import keystore
-
     fake_keystore.locked = True
-    cfg_data = {
-        "mcp.mcp_enabled": True,
-        "mcp.tunnel_enabled": True,
-        "mcp.mcp_port": "18765",
-        "mcp.tunnel_provider": "cloudflare",
-        "mcp.tunnel_provider_token": "keystore:abc12345",
-    }
-    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
-    mod.name = "mcp"
-    mod._services = MagicMock()
-    bound = MagicMock()
-    bound.is_running.return_value = True
-    bound.port = 18765
-    mod.server = bound
-    tunnel = TunnelManager()
-    mod.tunnel = tunnel
-
+    fake_keystore.store["mcp.tunnel_provider_token"] = "tok"
+    mod, tunnel, _cmds, _envs, _background = _setup_sync_tunnel(monkeypatch, "cloudflare", "keystore:abc12345")
     fake_keystore.on_get = lambda _name: tunnel.stop()
-
-    monkeypatch.setattr(mcp_mod, "_current_module", mod)
-    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
-    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     mod._sync_tunnel()
     assert tunnel.status == TunnelStatus.STOPPED
@@ -1922,49 +1861,11 @@ def test_stop_during_unreadable_token_read_stays_stopped(monkeypatch, fake_keyst
 
 
 def test_sync_tunnel_empty_token_still_starts_quick_tunnel(monkeypatch, fake_keystore):
-    import plugin.mcp_server as mcp_mod
-    from plugin.framework import keystore
-
-    cfg_data = {
-        "mcp.mcp_enabled": True,
-        "mcp.tunnel_enabled": True,
-        "mcp.mcp_port": "18765",
-        "mcp.tunnel_provider": "cloudflare",
-        "mcp.tunnel_provider_token": "",
-    }
-    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
-    mod.name = "mcp"
-    mod._services = MagicMock()
-    bound = MagicMock()
-    bound.is_running.return_value = True
-    bound.port = 18765
-    mod.server = bound
-    tunnel = TunnelManager()
-    mod.tunnel = tunnel
-
-    spawned: list[list[str]] = []
-
-    class _FakeProc:
-        def __init__(self, cmd, **_kw):
-            self.cmd = cmd
-            self.is_running = True
-
-        def start(self):
-            spawned.append(self.cmd)
-
-        def terminate(self):
-            self.is_running = False
-
-    monkeypatch.setattr(mcp_mod, "_current_module", mod)
-    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
-    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: None)
-    monkeypatch.setattr("plugin.framework.worker_pool.AsyncProcess", _FakeProc)
+    mod, tunnel, cmds, _envs, _background = _setup_sync_tunnel(monkeypatch, "cloudflare", "")
 
     mod._sync_tunnel()
-    assert len(spawned) == 1
-    assert "--url" in spawned[0]
+    assert len(cmds) == 1
+    assert "--url" in cmds[0]
     tunnel.stop()
 
 
