@@ -91,7 +91,7 @@ def fold_trailing_user_message(messages: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _is_tail_text(txt: Any) -> bool:
-    # The sidebar's user-turn snapshot block starts with a blank line.
+    # The sidebar's snapshot text part (user turn, or a tool result with list content) starts with a blank line.
     return isinstance(txt, str) and txt.lstrip().startswith(SNAPSHOT_HEADER)
 
 

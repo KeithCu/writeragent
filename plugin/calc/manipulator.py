@@ -1089,6 +1089,9 @@ class CellManipulator:
         addr = _uno_range_address(cell_range)
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
         height = int(addr.EndRow) - int(addr.StartRow) + 1
+        # The schema's minimum is not enforced and the tool cannot know the width, so both
+        # bounds for every key are checked here before any undo group exists (a refusal must
+        # not sort an earlier range or clear Redo).
         width_error = _sort_keys_width_error(range_str, keys, width)
         if width_error is not None:
             raise CalcError(width_error, code="INVALID_PARAM")
