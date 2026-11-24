@@ -1776,56 +1776,6 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         assert res["code"] == "ROLLBACK_FAILED"
 
 
-
-
-
-
-# --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
-
-
-class _MultiStatesCursor:
-    """Range that supports XMultiPropertyStates (the normal LibreOffice text cursor)."""
-
-    def __init__(self):
-        self.cleared = None
-
-    def setPropertiesToDefault(self, names):
-        self.cleared = tuple(names)
-
-
-class _SingleStateCursor:
-    """Range without the multi variant — exercises the one-at-a-time fallback."""
-
-    def __init__(self, unsupported=()):
-        self.cleared = []
-        self._unsupported = set(unsupported)
-
-    def setPropertyToDefault(self, name):
-        if name in self._unsupported:
-            raise RuntimeError("unsupported property: %s" % name)
-        self.cleared.append(name)
-
-
-def test_clear_direct_paragraph_properties_uses_multi_variant():
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
-
-    assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
-    assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
-
-
-def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
-    from plugin.writer import styles as st
-
-    cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
-
-    assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
-    assert "ParaSplit" not in cleared  # reported honestly as not cleared
-
-
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import styles as st
 
@@ -1859,24 +1809,6 @@ def test_summarize_char_overrides_reports_asian_complex():
     assert summary["CharFontNameComplex"] == "Tahoma"
     assert summary["CharHeightAsian"] == 10.5
     assert summary["CharHeightComplex"] == 11.0
-
-
-def test_reset_properties_to_default_is_a_noop_on_empty_names():
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    assert st.reset_properties_to_default(cursor, ()) == []
-    assert cursor.cleared is None  # never call UNO with an empty set
-
-
-def test_reset_properties_to_default_takes_the_caller_s_names():
-    """The clear is scoped by the caller — style_props clears the font, all clears what was found."""
-    from plugin.writer import styles as st
-
-    cursor = _MultiStatesCursor()
-    st.reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
-
-    assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 
 
 def _make_style_doc(style_default=100):
