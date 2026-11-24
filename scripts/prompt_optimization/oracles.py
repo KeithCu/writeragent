@@ -459,7 +459,7 @@ def oracle_comment_management(doc: str) -> list[str]:
 
 
 def is_draw_connector(node: dict[str, Any]) -> bool:
-    """Return True when a Draw tree node represents a connector shape."""
+    """Production Draw tree uses ConnectorShape nodes; DrawWorld does not."""
     return "connector" in str(node.get("type") or "").casefold()
 
 
