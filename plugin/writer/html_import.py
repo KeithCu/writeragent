@@ -1462,15 +1462,30 @@ def replace_xtext_with_html(
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
+        elements = list(iter_elements(text_obj.createEnumeration()))
         if not record_changes.is_recording_changes(model):
             # Explicit table removal keeps the remaining paragraph's style, whereas
             # SwXText::setString alone resets it to Standard.
-            for el in list(iter_elements(text_obj.createEnumeration())):
+            for el in elements:
                 if _uno_service_true(el, "com.sun.star.text.TextTable"):
                     text_obj.removeTextContent(el)
-        # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-        # around tables so every shape clears, including table-only headers.
-        text_obj.setString("")
+            text_obj.setString("")
+        elif elements and (
+            _uno_service_true(elements[0], "com.sun.star.text.TextTable")
+            or _uno_service_true(elements[-1], "com.sun.star.text.TextTable")
+        ):
+            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
+            # around tables, needed when the region starts or ends with a table because a text
+            # cursor cannot span across it. While recording, that helper stays as a struck empty
+            # paragraph. Do not remove the helper with dispose(): a later Undo aborts LibreOffice.
+            text_obj.setString("")
+        else:
+            # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+            # starts and ends with a paragraph, so Reject All restores the structure without extras.
+            cursor = text_obj.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)
