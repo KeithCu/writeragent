@@ -244,10 +244,10 @@ def test_search_nearby_files_two_subset_urls_merge_by_score():
     assert all(call.kwargs["cancel"] is scope for call in rpc_mock.call_args_list)
 
 
-def test_search_nearby_files_empty_subset_skips_hybrid_search():
-    result, rpc_mock, _scope = _run_search_with_subset(grep_return=([], False, None))
-    assert result["status"] == "ok"
-    assert result["hits"] == []
+def test_search_nearby_files_subset_miss_is_an_error():
+    result, rpc_mock, _scope = _run_search_with_subset(grep_return=([], False, "No file matching 'x'"))
+    assert result["status"] == "error"
+    assert "No file matching 'x'" in result["message"]
     rpc_mock.assert_not_called()
 
 

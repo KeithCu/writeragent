@@ -73,7 +73,7 @@ To reliably get the LLM to use your styles, you need to provide it with instruct
 
 In newer versions of WriterAgent, the LLM has access to a `style_list()` tool. Calling `style_list()` with no family returns family names; pass `family="ParagraphStyles"`, `"CharacterStyles"`, or `"PageStyles"` to list styles in that family. You can instruct the agent in your prompt to first call this tool to learn what styles are available before writing its HTML formatting.
 
-Note: `No Character Style` in the character styles list is only the `apply_style` clear token. Inspect and edit the character style object as `Default Style`.
+Note: `No Character Style` in the character styles list is only the `apply_style` clear token. Inspect and edit the root character style object as `Standard`.
 
 **Pros:**
 * Always accurate and up-to-date with whatever document the user is currently editing.
