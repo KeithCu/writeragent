@@ -125,6 +125,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         desktop = get_desktop(uno_ctx)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
+        # Keep the default SwView (do not pass page_preview_view_prop()): this helper
+        # needs XSelectionSupplier.select and getTransferable, which SwPagePreview lacks.
         step = _step("load hidden Writer")
         temp_doc = load_scratch_document(
             desktop,
