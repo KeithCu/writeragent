@@ -29,6 +29,7 @@ import os
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple, TypedDict, cast
 
 import uno
+from com.sun.star.uno import RuntimeException
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -877,10 +878,6 @@ def _has_paragraph_adjust(name: str) -> bool:
     numbers its releases differently. An unknown member makes pyuno's checkEnum
     (pyuno/source/module/pyuno_module.cxx) raise RuntimeException.
     """
-    # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-    import uno
-    from com.sun.star.uno import RuntimeException
-
     try:
         uno.Enum("com.sun.star.style.ParagraphAdjust", name)
     except RuntimeException:
@@ -1048,7 +1045,7 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
-    current: Any = getattr(struct, field, None)
+    current: Any = getattr(struct, field)
     try:
         if isinstance(current, uno.Enum):
             return uno.Enum(cast("Any", current).typeName, value.strip().upper())
@@ -2566,8 +2563,9 @@ class StyleImport(ToolWriterStyleBase):
             create_property_value("LoadNumberingStyles", load_num),
         )
 
-        # The document object implements XStyleLoader
-        ctx.doc.loadStylesFromURL(url, opts)
+        # XStyleLoader is implemented by the style families, not the document
+        # (sw/source/core/unocore/unostyle.cxx:SwXStyleFamilies::loadStylesFromURL).
+        ctx.doc.getStyleFamilies().loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
         flag_style_unreviewed(result, ctx.doc)

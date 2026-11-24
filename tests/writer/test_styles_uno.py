@@ -13,9 +13,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from plugin.framework.uno_context import enum_has_more
+import os
+import tempfile
+
+import uno
+
+from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
-from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleList, StyleUpdate
+from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleImport, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
@@ -957,4 +962,47 @@ def test_tab_stop_words_reach_the_document_uno(ctx, doc):
     assert stops_after[0].Position == 2000
     assert stops_after[0].Alignment.value == "RIGHT"
     assert stops_after[0].FillChar.value == "."
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_import_loads_template_styles_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    src = desktop.loadComponentFromURL(
+        "private:factory/swriter",
+        "_blank",
+        0,
+        (create_property_value("Hidden", True),),
+    )
+    fd, path = tempfile.mkstemp(suffix=".odt")
+    os.close(fd)
+    try:
+        src_para_styles = src.getStyleFamilies().getByName("ParagraphStyles")
+        imported_style = src.createInstance("com.sun.star.style.ParagraphStyle")
+        src_para_styles.insertByName("AgentImported", imported_style)
+        imported_style.setPropertyValue("CharWeight", 150.0)
+        src_para_styles.getByName("Heading 1").setPropertyValue("CharColor", 0x00AA00)
+        src.storeToURL(uno.systemPathToFileUrl(path), ())
+
+        text = doc.getText()
+        text.setString("Heading para")
+        para = text.createEnumeration().nextElement()
+        para.setPropertyValue("ParaStyleName", "Heading 1")
+        before = int(para.getPropertyValue("CharColor"))
+
+        res_merge = StyleImport().execute(tool_ctx, path=path, overwrite=False)
+        assert res_merge["status"] == "ok", res_merge
+        dst_para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        assert dst_para_styles.hasByName("AgentImported")
+        assert dst_para_styles.getByName("AgentImported").getPropertyValue("CharWeight") == 150.0
+        assert int(para.getPropertyValue("CharColor")) == before
+
+        res_overwrite = StyleImport().execute(tool_ctx, path=path, overwrite=True)
+        assert res_overwrite["status"] == "ok", res_overwrite
+        assert int(para.getPropertyValue("CharColor")) == 0x00AA00
+    finally:
+        src.close(True)
+        if os.path.exists(path):
+            os.remove(path)
 

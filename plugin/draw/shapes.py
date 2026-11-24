@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+
+import uno
 
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import (
@@ -225,10 +227,7 @@ def _apply_enhanced_custom_shape_type(
     When *adjustment* is ``None``, the preset's default adjustment values are kept.
     """
     from com.sun.star.beans import PropertyValue
-    import uno
 
-    # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
-    uno_any = getattr(uno, "Any")
     props: list[Any] = [PropertyValue(Name="Type", Value=custom_shape_type)]
     if adjustment is not None:
         from com.sun.star.drawing import EnhancedCustomShapeAdjustmentValue
@@ -239,15 +238,13 @@ def _apply_enhanced_custom_shape_type(
         props.append(
             PropertyValue(
                 Name="AdjustmentValues",
-                Value=uno_any("[]com.sun.star.drawing.EnhancedCustomShapeAdjustmentValue", (adj,)),
+                Value=cast("Any", uno).Any("[]com.sun.star.drawing.EnhancedCustomShapeAdjustmentValue", (adj,)),
             )
         )
     try:
-        import typing
-
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
-        prop_seq = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
-        uno.invoke(shape, "setPropertyValue", typing.cast("typing.Any", ("CustomShapeGeometry", prop_seq)))
+        prop_seq = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", tuple(props))
+        uno.invoke(shape, "setPropertyValue", cast("Any", ("CustomShapeGeometry", prop_seq)))
         log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
     except Exception as ex:
@@ -307,8 +304,7 @@ def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> 
     relative to its existing bounding box (and Writer ignores negative direction),
     so endpoints must be written through PolyPolygon instead.
     """
-    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
-    import uno
+    # Host boundary: com.sun.star.awt only resolves inside LibreOffice or with UNO stubs.
     from com.sun.star.awt import Point
 
     # Writer's SwXShape::getPosition returns anchor-relative coords while PolyPolygon
@@ -332,9 +328,6 @@ def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> 
 
 def _drawing_enum(enum_name: str, member: str) -> Any:
     """Return a ``com.sun.star.drawing`` UNO enum value via ``uno.Enum``."""
-    # Host boundary: uno is only available inside LibreOffice or with UNO stubs.
-    import uno
-
     return uno.Enum(f"com.sun.star.drawing.{enum_name}", member)
 
 
@@ -480,8 +473,7 @@ _DEFAULT_ARROWHEAD_WIDTH = 300
 
 def _arrow_coords() -> Any:
     """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (svx/source/xoutdev/xtablend.cxx:62-67)."""
-    # Host boundary: uno/com.sun.star are only available inside LibreOffice or with UNO stubs.
-    import uno
+    # Host boundary: com.sun.star.awt only resolves inside LibreOffice or with UNO stubs.
     from com.sun.star.awt import Point
 
     normal = _drawing_enum("PolygonFlags", "NORMAL")

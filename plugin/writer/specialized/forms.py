@@ -27,6 +27,8 @@ import json
 import logging
 import re
 from typing import Any
+
+import uno
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
@@ -449,8 +451,6 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if control_type == "date" and date_val is not None:
             year, month, day = date_val
             try:
-                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
-                import uno
                 d_struct = uno.createUnoStruct("com.sun.star.util.Date")
                 setattr(d_struct, "Year", year)
                 setattr(d_struct, "Month", month)

@@ -29,6 +29,8 @@ refresh does not rewrite it.
 import logging
 from typing import Any, Callable, cast
 
+import uno
+
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
@@ -276,12 +278,8 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     must go through ``uno.invoke`` (same pattern as CustomShapeGeometry).
     Set this on the descriptor *before* insert so attach() applies aPropSeq.
     """
-    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
-    import uno
-
-    uno_any = getattr(uno, "Any")
     seq = tuple(create_property_value(name, value) for name, value in pairs.items())
-    typed = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", seq))
+    typed = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", cast("Any", seq))
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 
 
@@ -716,8 +714,6 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
     tabs: list[Any] = uno_read(lambda: list(para.getPropertyValue("ParaTabStops") or ()), [])
     if not tabs:
         return ()
-    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
-    import uno
 
     built = []
     for src in tabs:
@@ -731,9 +727,6 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
 
 
 def _apply_tab_stops(cursor: Any, stops: tuple[Any, ...]) -> None:
-    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
-    import uno
-
     uno_rt = cast("Any", uno)
     uno_rt.invoke(
         cursor,

@@ -151,7 +151,7 @@ Paragraph and character clones share the source parent and copy only properties 
 
 ### The `style_import` Tool
 
-If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency.
+If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency. Styles load through the document's style families (`XStyleLoader` on `SwXStyleFamilies`): `overwrite=false` adds only missing styles, and `overwrite=true` replaces same-named styles.
 
 **Tool Parameters:**
 * `path`: Absolute filesystem path to an existing template file.
