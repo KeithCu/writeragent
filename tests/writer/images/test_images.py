@@ -129,6 +129,7 @@ def test_image_insert_routes_first_page_target_to_region_helper(target: str):
         "style_name": "Standard",
         "region": target,
         "auto_height": True,
+        "layout_changed": False,
     }
     ctx = TestingFactory.create_context(doc_type="writer")
     with (
@@ -141,6 +142,29 @@ def test_image_insert_routes_first_page_target_to_region_helper(target: str):
     assert res["status"] == "ok"
     assert res["target"] == target
     assert insert.call_args.args[2] == target
+
+
+def test_image_insert_header_flags_style_unreviewed_when_layout_changed():
+    graphic = MagicMock()
+    graphic.getName.return_value = "Graphic1"
+    placed = {
+        "graphic": graphic,
+        "style_name": "Standard",
+        "region": "header",
+        "auto_height": True,
+        "layout_changed": True,
+    }
+    ctx = TestingFactory.create_context(doc_type="writer")
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed),
+        patch("plugin.writer.edit_review.is_recording_changes", return_value=True),
+    ):
+        res = ImageInsert().execute(
+            ctx, path="/tmp/logo.png", target="header", style="Standard", auto_height=True, width_mm=40, height_mm=20,
+        )
+    assert res["status"] == "ok"
+    assert res.get("style_unreviewed") is True
 
 
 def test_image_generate_forwards_stop_checker():

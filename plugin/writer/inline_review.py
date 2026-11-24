@@ -34,7 +34,7 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer import review_scan as _review_scan
 
 log = logging.getLogger(__name__)
@@ -586,19 +586,6 @@ def _refusal_for_span(
 
 def _tracked_change_command(accept: bool) -> str:
     return ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
-
-
-def execute_dispatch(ctx: Any, controller: Any, command: str, args: tuple[Any, ...] = ()) -> Any:
-    """Run one ``.uno:`` command on the controller's frame through DispatchHelper and return its result.
-
-    ``args`` is a tuple of ``com.sun.star.beans.PropertyValue`` passed to ``executeDispatch``.
-    Returns an empty Any (None) when no dispatcher handled it
-    (``framework/source/services/dispatchhelper.cxx DispatchHelper::executeDispatch``).
-    ``tracking_manage`` reads that on Calc.
-    """
-    smgr = ctx.getServiceManager()
-    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    return dispatcher.executeDispatch(controller.getFrame(), command, "", 0, args)
 
 
 def _dispatch_and_scan(

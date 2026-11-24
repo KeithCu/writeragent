@@ -28,6 +28,7 @@ from plugin.draw.transform_schema import (
     validate_top_level_uno,
 )
 from plugin.framework.errors import best_effort, is_disposal
+from plugin.framework.uno_context import execute_dispatch
 from plugin.doc.compound_undo import WriterCompoundUndo
 
 if TYPE_CHECKING:
@@ -803,10 +804,7 @@ class SlideCommandEngine:
             controller = self.doc.getCurrentController()
             if controller is None:
                 return self._fail("UnoCommand %s failed: document has no active controller" % name)
-            frame = controller.getFrame()
-            smgr = self.tctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
-            dispatcher.executeDispatch(frame, name, "", 0, props)
+            execute_dispatch(self.tctx.ctx, controller, name, props)
             return None
         except Exception as exc:
             if is_disposal(exc):
