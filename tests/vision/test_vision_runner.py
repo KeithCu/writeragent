@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.doc.visual_helpers import AmbiguousGraphicNameError
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_runner import (
     _resolve_locale_language,
@@ -1020,4 +1021,41 @@ def test_run_and_insert_worker_cancelled_returns_stopped_without_failed_image():
     assert result["images_processed"] == 1
     assert "failed_image" not in result
     assert "failed_images" not in result
+
+
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        lambda: DisposedException("SwXTextDocument not valid"),
+        lambda: DocumentDisposedError("closed"),
+    ],
+)
+def test_run_trusted_vision_closed_document_raises_document_disposed(exc_factory):
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", side_effect=exc_factory()),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Img1"})
+    mock_run_vision.assert_not_called()
+
+
+def test_run_trusted_vision_lookup_error_keeps_its_type():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch(
+            "plugin.vision.vision_runner._get_graphic_object",
+            side_effect=AmbiguousGraphicNameError("Several objects named 'Img1'"),
+        ),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(AmbiguousGraphicNameError, match="Several objects named 'Img1'"):
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Img1"})
+    mock_run_vision.assert_not_called()
+
 
