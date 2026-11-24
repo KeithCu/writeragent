@@ -11,6 +11,7 @@ import logging
 import math
 import struct
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -691,3 +692,43 @@ def test_published_err_tokens_and_coerce_parity() -> None:
         cell_val = addin_values.py_addin_cell_value(fn_res)
         assert isinstance(cell_val, float) and not math.isfinite(cell_val)
         assert (struct.unpack("Q", struct.pack("d", cell_val))[0] & 0xFFFF) == 502
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ([10, 20, 30], 10.0),
+        ([["a", "b"], ["c"]], "a"),
+        ([[], [1]], ""),
+        ([], ""),
+        ([[42]], 42.0),
+        ([None, 1], ""),
+    ],
+)
+def test_matrix_result_is_top_left_value_when_pyuno_rejects_any(
+    monkeypatch: pytest.MonkeyPatch, raw: list[Any], expected: Any
+) -> None:
+    monkeypatch.setattr(addin_values, "accepts_returned_any", lambda _ctx: False)
+    assert addin_values.matrix_result(object(), raw) == expected
+
+
+def test_matrix_result_top_left_error_keeps_its_calc_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(addin_values, "accepts_returned_any", lambda _ctx: False)
+    na = addin_values.matrix_result(object(), ["#N/A", 1])
+    assert isinstance(na, float) and _nan_low16(na) == 0x7FFF
+
+    nested = addin_values.matrix_result(object(), [[[1, 2], 3]])
+    assert isinstance(nested, float) and _nan_low16(nested) == 519
+
+
+def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(addin_values.uno, "Any", lambda t, v: (t, v), raising=False)
+
+    class _RejectingCtx:
+        def getValueByName(self, _name: Any) -> Any:
+            raise addin_values.RuntimeException("uno.Any instance not accepted during method call")
+
+    assert addin_values.accepts_returned_any(_RejectingCtx()) is False
+    assert addin_values.accepts_returned_any(MagicMock()) is True

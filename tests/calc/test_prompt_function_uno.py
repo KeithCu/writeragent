@@ -12,7 +12,7 @@ import math
 import struct
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import libreoffice_version, with_native_doc
 
 
 @native_test
@@ -106,23 +106,28 @@ def test_python_addin_execution(ctx, doc):
         raw = struct.unpack("Q", struct.pack("d", res))[0]
         assert raw == (0x7FF8000000000000 | 519)
 
+        is_268 = libreoffice_version(ctx) >= (26, 8)
+
+        def assert_list_result(res, rows):
+            if is_268:
+                assert (res.type.typeName, res.value) == ("[][]any", rows)
+            else:
+                assert res == rows[0][0]
+
         mock_run.reset_mock()
         mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
         res = func.python(doc, "some code 1d")
-        assert res.type.typeName == "[][]any"
-        assert res.value == ((2.0,), (3.0,), (5.0,))
+        assert_list_result(res, ((2.0,), (3.0,), (5.0,)))
 
         mock_run.reset_mock()
         mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
         res = func.python(doc, "some code 2d")
-        assert res.type.typeName == "[][]any"
-        assert res.value == ((2.0, 3.0), (5.0, 7.0))
+        assert_list_result(res, ((2.0, 3.0), (5.0, 7.0)))
 
         mock_run.reset_mock()
         mock_run.return_value = {"status": "ok", "result": [7919, 7927, 7933, 7937, 7949, 7951]}
         res = func.python(doc, "[sp.prime(x) for x in range(1000, 1006)]")
-        assert res.type.typeName == "[][]any"
-        assert res.value == ((7919.0,), (7927.0,), (7933.0,), (7937.0,), (7949.0,), (7951.0,))
+        assert_list_result(res, ((7919.0,), (7927.0,), (7933.0,), (7937.0,), (7949.0,), (7951.0,)))
         mock_run.assert_called_with(
             "[sp.prime(x) for x in range(1000, 1006)]",
             data=None,

@@ -9,7 +9,7 @@
 resolves the caller's workbook state, worker session, and ``FormulaOrigin`` /
 ``is_matrix`` once into a ``CellContext`` (carried into ``finalize_python_return``
 and ``spill``), the user venv runs the code, and ``finalize_python_return``
-shapes the result (scalar, a native matrix, or a deferred spill).
+shapes the result (scalar, a native matrix (top-left value before LibreOffice 26.8), or a deferred spill).
 """
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ def finalize_python_return(
             if not cell.on_main:
                 if cell.doc is not None:
                     queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
-                return matrix_result(result)
+                return matrix_result(cell.ctx, result)
 
             if cell.origin is not None and cell.state is not None:
                 prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
@@ -205,7 +205,7 @@ def finalize_python_return(
             log.exception("Error checking spill collision")
 
     if isinstance(result, (list, tuple)):
-        return matrix_result(result)
+        return matrix_result(cell.ctx, result)
 
     return py_addin_cell_value(result)
 

@@ -1567,6 +1567,20 @@ def writer_services_tool_context(doc, ctx):
     return ToolContext(doc, ctx, "writer", services, "test")
 
 
+def libreoffice_version(ctx: Any) -> tuple[int, ...]:
+    """Return the LibreOffice major.minor version tuple from ``ooSetupVersion`` (e.g. ``(26, 8)``)."""
+    from plugin.framework.uno_context import create_property_value
+
+    smgr = ctx.getServiceManager()
+    provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+    access = provider.createInstanceWithArguments(
+        "com.sun.star.configuration.ConfigurationAccess",
+        (create_property_value("nodepath", "/org.openoffice.Setup/Product"),),
+    )
+    raw = str(access.getPropertyValue("ooSetupVersion")).strip()
+    return tuple(int(part) for part in raw.split(".") if part.isdigit())
+
+
 def with_native_doc(doc_type="writer", hidden=True, reuse=None):
     """Decorator to inject a native LibreOffice document into a test function and guarantee teardown.
 
