@@ -415,7 +415,12 @@ def _holds_typed_text(
     endpoint: str,
     stored: str,
 ) -> bool:
-    """True when *ctrl* holds uncommitted text the user typed for *endpoint*."""
+    """True when *ctrl* holds uncommitted text the user typed for *endpoint*.
+
+    Focus loss already commits the text, so differing text can only be
+    uncommitted. ``hasFocus`` is not used because a dropdown combo is a compound
+    control (``vcl/source/control/combobox.cxx:220``) and reports ``False``.
+    """
     typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
     return painted is not None and painted[0] == endpoint and typed not in ("", painted[1], stored)
 
@@ -493,7 +498,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._refresh_controls_from_config()
 
     def _on_keystore_unlocked(self, **_kwargs: Any) -> None:
-        """Post a sidebar refresh after a locked keyring item is unlocked later."""
+        """Post a sidebar refresh after a locked keyring item is unlocked later.
+
+        Always posts rather than running inline: ``get_secret`` can run inside
+        ``config.save()`` with the re-entrant ``_config_write_lock`` held, so an
+        inline refresh could save between that outer save's load and write.
+        ``bound_scope=None`` keeps a later Stop of the send from dropping the repaint.
+        """
         if self._released:
             return
         main.post(self._refresh_controls_from_config, bound_scope=None)

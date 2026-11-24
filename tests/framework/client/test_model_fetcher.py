@@ -724,7 +724,6 @@ class TestHasNativeVision:
                  patch("plugin.framework.client.requests.sync_request", side_effect=OSError("fail")):
                 job()
 
-            mf.clear_settings_catalog_cache("https://openrouter.ai/api")
             assert has_native_vision("google/gemini-uncatalogued-fail", "https://openrouter.ai/api") is None
             assert len(scheduled) == 1
 

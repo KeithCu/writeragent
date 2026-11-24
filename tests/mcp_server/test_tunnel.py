@@ -1733,11 +1733,17 @@ def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatc
     mod.server = bound
     tunnel = TunnelManager()
     mod.tunnel = tunnel
+    probe_calls: list[str] = []
+
+    def _probe(provider: str) -> str:
+        probe_calls.append(provider)
+        return "cloudflared missing"
+
     monkeypatch.setattr(mcp_mod, "_current_module", mod)
     monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
     monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: keystore.get_secret(k) or "")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: threading.current_thread() is caller)
-    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", lambda _p: "cloudflared missing")
+    monkeypatch.setattr("plugin.mcp_server.tunnel.binary_available", _probe)
 
     threads: list[threading.Thread] = []
 
@@ -1747,18 +1753,7 @@ def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatc
         t.start()
         return t
 
-    starts: list[bool] = []
-    orig_start = tunnel.start
-
-    def _spy_start(*args, **kwargs):
-        res = orig_start(*args, **kwargs)
-        starts.append(res)
-        return res
-
-    with (
-        patch("plugin.framework.worker_pool.run_in_background", side_effect=_spawn),
-        patch.object(tunnel, "start", side_effect=_spy_start),
-    ):
+    with patch("plugin.framework.worker_pool.run_in_background", side_effect=_spawn):
         mod._sync_tunnel()
         assert entered.wait(timeout=5)
         mod._sync_tunnel()
@@ -1767,8 +1762,7 @@ def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatc
             t.join(timeout=5)
             assert not t.is_alive()
 
-    assert len(starts) == 2
-    assert starts.count(False) == 2
+    assert probe_calls == ["cloudflare"]
     assert tunnel.last_error == "cloudflared missing"
 
 

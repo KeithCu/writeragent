@@ -1105,7 +1105,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
         resolved_provider = _provider_for_catalog(resolved)
         identity = _catalog_family(resolved)
-        same_provider = bool(identity) and identity == self._painted_identity
+        same = bool(identity) and identity == self._painted_identity
         self._painted_identity = identity
 
         text_models = (
@@ -1126,14 +1126,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
         for ctrl, fallback, lru_key, remote in rows:
             if ctrl:
-                # Same provider: refill from the last painted id. Box text that differs is the
-                # user's edit, possibly half typed, so keep the box and do not list the text.
+                # Same catalog identity: refill from the last painted id. Box text that differs is
+                # the user's edit, possibly half typed, so keep the box and do not list the text.
                 # ``fallback`` (the saved model) applies only before the first paint; after a
-                # switch it belongs to another provider.
-                # Provider switch: discard the box text. A leftover id (e.g. OpenRouter
+                # switch it belongs to another catalog identity.
+                # Catalog identity switch: discard the box text. A leftover id (e.g. OpenRouter
                 # ``inception/mercury-2.5`` on Together) is often missing from ``DEFAULT_MODELS``,
                 # so ``_is_incompatible_model_for_provider`` will not drop it.
-                current = self._painted_models.get(lru_key, fallback) if same_provider else ""
+                current = self._painted_models.get(lru_key, fallback) if same else ""
                 typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
                 shown = populate_combobox_with_lru(
                     ctrl,
@@ -1142,7 +1142,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                     resolved,
                     remote_models=remote,
                     api_key_override=api_key_ov,
-                    keep_text=same_provider and typed not in ("", current),
+                    keep_text=same and typed not in ("", current),
                 )
                 # A placeholder is not a model: keep what it replaced so re-entering the key restores it.
                 self._painted_models[lru_key] = sanitize_model_combobox_value(shown) or current

@@ -1505,6 +1505,8 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
             elif _vision_list_url(provider, raw_ep):
                 _fetch_vision_list(raw_ep, provider, api_key_override)
             else:
+                # Only /v1/models is held off here: a 404 from LM Studio's
+                # /api/v1/models must not hold off the sidebar's working /v1/models fetch.
                 memo = _get_catalog_memo(raw_ep, api_key_override)
                 with _catalog_fetch_lock:
                     skip = memo.held_off()

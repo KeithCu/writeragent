@@ -93,6 +93,8 @@ _read_failures_logged: set[str] = set()
 # read on every request. A cancelled prompt must not come right back for each of
 # them; Send itself reads once on its LLM worker.
 _locked: dict[str, float] = {}
+# One lock per secret name (not a global lock): on macOS each item has its own
+# access prompt, so an open prompt for one item must not block already-allowed items.
 _read_locks: dict[str, threading.Lock] = {}
 LOCKED_RETRY_S = 5.0
 
@@ -333,6 +335,9 @@ class _LibSecret:
                     ctypes.byref(err),
                 )
                 if err and cancellable is not None and cancellable.is_cancelled():
+                    # Raise KeystoreLocked rather than KeystoreError: a plain
+                    # KeystoreError is cached as None for the session, so Stop
+                    # would lose the key until restart.
                     self._g_error_free(err)
                     raise KeystoreLocked(f"Reading {name!r} was stopped")
                 self._raise_gerror(err)
@@ -448,7 +453,7 @@ class _WinCredentials:
         self._cred_free.restype = None
 
     def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
-        _ = cancel
+        # Windows Credential Manager has no cancellable read, so Stop leaves any prompt open.
         pcred: Any = ctypes.POINTER(self._cred_struct)()
         if not self._cred_read(f"{SERVICE}/{name}", 1, 0, ctypes.byref(pcred)):
             err = int(self._get_last_error())
@@ -586,7 +591,7 @@ class _MacKeychain:
         )
 
     def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
-        _ = cancel
+        # macOS Keychain has no cancellable read, so Stop leaves the prompt open.
         q = self._create_query(
             kSecClass=self._k("kSecClassGenericPassword"),
             kSecMatchLimit=self._k("kSecMatchLimitOne"),
@@ -757,7 +762,12 @@ def _read_backend(
 
 
 def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
-    """Read *name* from the OS keystore, returning ``None`` when absent or unreadable."""
+    """Read *name* from the OS keystore, returning ``None`` when absent or unreadable.
+
+    *cancel* is an explicit parameter rather than a contextvar because
+    ``run_in_background`` copies the caller's context, so a tunnel or sidebar
+    worker spawned during a send would otherwise inherit that send's Stop.
+    """
     cached = _answer_without_read(name)
     if cached is not _UNSET:
         return cached
@@ -776,6 +786,7 @@ def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
         value, was_locked = _read_backend(backend, name, cancel)
     finally:
         lock.release()
+    # Emit after releasing the read lock so a subscriber never runs inside the read.
     if was_locked:
         get_event_bus().emit("keystore:unlocked")
     return value

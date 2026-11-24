@@ -175,7 +175,7 @@ def test_live_backend_roundtrip():
 
 
 @pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
-def test_concurrent_readers_share_one_backend_call(fake_keystore, locked: bool):
+def test_concurrent_readers_share_one_backend_call(monkeypatch, fake_keystore, locked: bool):
     import threading
     from plugin.framework import keystore
 
@@ -183,7 +183,22 @@ def test_concurrent_readers_share_one_backend_call(fake_keystore, locked: bool):
     fake_keystore.locked = locked
     entered = threading.Event()
     release = threading.Event()
+    all_arrived = threading.Event()
+    arrivals_lock = threading.Lock()
+    arrivals = 0
     results: list[str | None] = []
+
+    orig_acquire = keystore.acquire_unless_cancelled
+
+    def _counting_acquire(lock, cancel):
+        nonlocal arrivals
+        with arrivals_lock:
+            arrivals += 1
+            if arrivals == 3:
+                all_arrived.set()
+        return orig_acquire(lock, cancel)
+
+    monkeypatch.setattr(keystore, "acquire_unless_cancelled", _counting_acquire)
 
     def _on_get(_name: str) -> None:
         entered.set()
@@ -195,6 +210,7 @@ def test_concurrent_readers_share_one_backend_call(fake_keystore, locked: bool):
     for t in threads:
         t.start()
     assert entered.wait(timeout=5)
+    assert all_arrived.wait(timeout=5)
     release.set()
     for t in threads:
         t.join(timeout=5)
@@ -205,7 +221,7 @@ def test_concurrent_readers_share_one_backend_call(fake_keystore, locked: bool):
     assert results == [expected, expected, expected]
 
 
-def test_stopped_waiter_leaves_without_locking_while_leader_caches(fake_keystore):
+def test_stopped_waiter_leaves_without_locking_while_leader_caches(monkeypatch, fake_keystore):
     import threading
     from plugin.framework import keystore
     from plugin.framework.send_cancellation import SendCancellation
@@ -213,8 +229,23 @@ def test_stopped_waiter_leaves_without_locking_while_leader_caches(fake_keystore
     fake_keystore.store["k"] = "secret-val"
     entered = threading.Event()
     release = threading.Event()
+    waiter_arrived = threading.Event()
+    arrivals_lock = threading.Lock()
+    arrivals = 0
     waiter_result: list[str | None] = []
     leader_result: list[str | None] = []
+
+    orig_acquire = keystore.acquire_unless_cancelled
+
+    def _counting_acquire(lock, cancel):
+        nonlocal arrivals
+        with arrivals_lock:
+            arrivals += 1
+            if arrivals == 2:
+                waiter_arrived.set()
+        return orig_acquire(lock, cancel)
+
+    monkeypatch.setattr(keystore, "acquire_unless_cancelled", _counting_acquire)
 
     def _on_get(_name: str) -> None:
         entered.set()
@@ -229,6 +260,7 @@ def test_stopped_waiter_leaves_without_locking_while_leader_caches(fake_keystore
 
     waiter = threading.Thread(target=lambda: waiter_result.append(keystore.get_secret("k", cancel=waiter_scope)))
     waiter.start()
+    assert waiter_arrived.wait(timeout=5)
     waiter_scope.cancel()
     waiter.join(timeout=5)
     assert not waiter.is_alive()
@@ -258,13 +290,14 @@ def test_already_stopped_scope_makes_no_backend_call(fake_keystore):
 
 def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monkeypatch):
     import ctypes
+    import gc
     from plugin.framework import keystore
     from plugin.framework.send_cancellation import SendCancellation
 
-    scope = SendCancellation()
     cancelled = {"val": 0}
     freed = {"errors": 0, "unref": 0}
     lookup_calls = {"n": 0}
+    active_scope: dict[str, object] = {"scope": None, "claim_only": False, "copied_hook": None}
 
     def _noop(*_args):
         return None
@@ -284,9 +317,16 @@ def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monke
     def _g_error_free(_err):
         freed["errors"] += 1
 
-    def _lookupv_sync(_schema, _table, _cancellable, err_out):
+    def _lookupv_sync(_schema, _table, cancellable_ptr, err_out):
+        if cancellable_ptr is None:
+            return None
         lookup_calls["n"] += 1
-        scope.cancel()
+        scope = active_scope["scope"]
+        if scope is not None:
+            if active_scope["claim_only"]:
+                active_scope["copied_hook"] = scope.claim_cancel()
+            else:
+                scope.cancel()
         gerr = keystore._GError(domain=1, code=19, message=b"Operation was cancelled")
         err_out._obj.contents = gerr
         return None
@@ -330,39 +370,53 @@ def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monke
         raise AssertionError(name)
 
     monkeypatch.setattr(ctypes, "CDLL", _cdll)
-    backend = object.__new__(keystore._LibSecret)
-    backend._g_str_hash = fake_glib.g_str_hash
-    backend._g_str_equal = fake_glib.g_str_equal
-    backend._g_hash_table_new = fake_glib.g_hash_table_new
-    backend._g_hash_table_insert = fake_glib.g_hash_table_insert
-    backend._g_hash_table_unref = fake_glib.g_hash_table_unref
-    backend._g_error_free = fake_glib.g_error_free
-    backend._lookupv_sync = fake_libsecret.secret_password_lookupv_sync
-    backend._searchv_sync = None
-    backend._g_object_unref = fake_gobject.g_object_unref
-    backend._g_cancellable_new = fake_gio.g_cancellable_new
-    backend._g_cancellable_cancel = fake_gio.g_cancellable_cancel
-    backend._g_cancellable_is_cancelled = fake_gio.g_cancellable_is_cancelled
-    backend._secret_password_free = fake_libsecret.secret_password_free
-    backend._schema = keystore._SecretSchema(name=b"org.freedesktop.Secret.Generic", flags=2)
+    backend = keystore._LibSecret()
 
     keystore.reset_for_tests(backend)
     try:
-        assert keystore.get_secret("k", cancel=scope) is None
-        assert lookup_calls["n"] == 1
+        # 1. Direct backend.get raises KeystoreLocked when cancelled.
+        scope0 = SendCancellation()
+        active_scope["scope"] = scope0
+        with pytest.raises(keystore.KeystoreLocked):
+            backend.get("k", cancel=scope0)
         assert freed["errors"] == 1
+        assert scope0._hooks == []
+
+        # 2. Late Stop hook keeps GCancellable alive until the copied hook runs and is dropped.
+        cancelled["val"] = 0
+        scope_late = SendCancellation()
+        active_scope["scope"] = scope_late
+        active_scope["claim_only"] = True
+        unref_before = freed["unref"]
+        with pytest.raises(keystore.KeystoreError):
+            backend.get("k", cancel=scope_late)
+        gc.collect()
+        assert freed["unref"] == unref_before
+        assert active_scope["copied_hook"] is not None
+        active_scope["copied_hook"]()
+        active_scope["copied_hook"] = None
+        gc.collect()
+        assert freed["unref"] == unref_before + 1
+
+        # 3. Through get_secret, cancellation marks locked (not cached) and retries after LOCKED_RETRY_S.
+        cancelled["val"] = 0
+        active_scope["claim_only"] = False
+        scope1 = SendCancellation()
+        active_scope["scope"] = scope1
+        assert keystore.get_secret("k", cancel=scope1) is None
         assert keystore.is_locked("k") is True
         assert keystore.is_cached("k") is False
-        assert scope._hooks == []
+        assert scope1._hooks == []
 
         with keystore._cache_lock:
             keystore._locked["k"] -= keystore.LOCKED_RETRY_S + 1.0
 
         scope2 = SendCancellation()
         cancelled["val"] = 0
-        scope = scope2
+        active_scope["scope"] = scope2
+        before_retry = lookup_calls["n"]
         assert keystore.get_secret("k", cancel=scope2) is None
-        assert lookup_calls["n"] == 2
+        assert lookup_calls["n"] == before_retry + 1
     finally:
         keystore.reset_for_tests()
 
