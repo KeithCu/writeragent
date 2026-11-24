@@ -287,7 +287,10 @@ class LocalBrowserRefCount:
         """Count one execute() using the shared local browser.
 
         Waits out a teardown already in progress so this run does not attach to
-        a browser process that is about to be killed.
+        a browser process that is about to be killed. The first run takes the
+        profile lock; another browser type is refused because the process has
+        one ``_LOCAL_BROWSER``, which a dead-client relaunch or the last
+        ``finish()`` kills.
         """
         with self.cond:
             start_wait = time.monotonic()
@@ -329,6 +332,7 @@ class LocalBrowserRefCount:
             log.warning("Failed to clean up local browser process: %s", exc)
         finally:
             with self.cond:
+                # Released only after the kill, so another process cannot adopt a browser being closed.
                 best_effort(self.held.close, "local browser: release profile lock")
                 self.browser_type = ""
                 self.closing = False

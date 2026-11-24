@@ -205,7 +205,7 @@ def _write_pidfile(pidfile: str, firefox_pid: int) -> None:
 
 
 def _cmdline_args_matches(args: list[str], profile_dir: str) -> bool:
-    """Match exact --profile <profile_dir> and a --remote-debugging-port flag in argv."""
+    """Match exact --profile <profile_dir> and any --remote-debugging-port flag in argv (each launch picks a free port)."""
     has_profile = any(
         args[i] == "--profile" and i + 1 < len(args) and args[i + 1] == profile_dir
         for i in range(len(args) - 1)
@@ -260,7 +260,9 @@ def _orphan_pid(pidfile: str, profile_dir: str) -> int | None:
     """Return Firefox PID from *pidfile* when its cmdline still matches *profile_dir*.
 
     The caller holds the profile lock, so no live WriterAgent owns that process.
-    Reading the first line also accepts the older two-line file.
+    The record is never removed, so a recycled PID is expected and the argv match
+    is what keeps an unrelated process alive. Reading the first line also accepts
+    the older two-line file.
     """
     try:
         with open(pidfile, encoding="utf-8") as f:
@@ -323,6 +325,7 @@ def _launch_firefox(profile_dir: str) -> FirefoxBidiClient:
     pidfile = _pidfile_path(profile_dir)
     orphan_pid = _orphan_pid(pidfile, profile_dir)
     if orphan_pid is not None:
+        # Do not attach first: Firefox keeps the dead owner's session reserved.
         log.warning("Killing orphaned WriterAgent Firefox (pid=%d) holding profile", orphan_pid)
         best_effort(lambda: _terminate_pid(orphan_pid), "firefox bidi: kill orphan")
         time.sleep(0.3)

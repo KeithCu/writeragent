@@ -685,6 +685,8 @@ def test_profile_lock_is_held_until_the_browser_is_closed(_isolated_browser_refc
 
 def test_other_browser_type_refused_while_one_is_in_use(_isolated_browser_refcount):
     from plugin.chatbot import web_research as wr
+    from plugin.chatbot import web_research_firefox as wrf
+    from plugin.contrib.cdp import browser_cdp_tool
 
     fake_client = MagicMock()
     with (
@@ -704,16 +706,26 @@ def test_other_browser_type_refused_while_one_is_in_use(_isolated_browser_refcou
         assert wr._begin_shared_browser("firefox") is fake_client
         wr._browser_refcount.finish()
 
-        # Dead Firefox client held: chrome is refused before touching cleanup_local_browser.
+        # Dead Firefox client held with a live local handle: chrome is refused and does not kill it.
         mock_cleanup.reset_mock()
         mock_close_bidi.reset_mock()
-        fake_client.closed = True
-        assert wr._begin_shared_browser("firefox") is fake_client
-        with pytest.raises(RuntimeError, match="another local browser is already in use for web research \\(firefox\\)"):
-            wr._begin_shared_browser("chrome")
-        mock_cleanup.assert_not_called()
-        mock_close_bidi.assert_not_called()
-        wr._browser_refcount.finish()
+        closed_client = MagicMock()
+        closed_client.closed = True
+        live_handle = MagicMock()
+        live_handle.is_alive.return_value = True
+        wrf._CLIENT = closed_client
+        browser_cdp_tool._LOCAL_BROWSER = live_handle
+        try:
+            wr._browser_refcount.run_enter("firefox")
+            with pytest.raises(RuntimeError, match="another local browser is already in use for web research \\(firefox\\)"):
+                wr._begin_shared_browser("chrome")
+            live_handle.kill_tree.assert_not_called()
+            mock_cleanup.assert_not_called()
+            mock_close_bidi.assert_not_called()
+            wr._browser_refcount.finish()
+        finally:
+            wrf._CLIENT = None
+            browser_cdp_tool._LOCAL_BROWSER = None
 
 
 @pytest.mark.parametrize(
