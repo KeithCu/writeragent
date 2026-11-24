@@ -15,7 +15,7 @@ import urllib.parse
 from typing import Any
 
 from plugin.framework.errors import NetworkError
-from plugin.framework.logging import is_secret_key
+from plugin.framework.log_redaction import is_secret_key
 
 
 # urllib followed these. 304/300 are not automatic hops.
