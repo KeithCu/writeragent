@@ -762,6 +762,9 @@ def _insert_raw_inline_html(text: Any, cursor: Any, inline_html: str) -> None:
         text.insertString(cursor, lead, False)
     insert_html_fragment_at_cursor(cursor, core, wrap=False, advance=True)
     if trail:
+        # Clear any direct char formatting left at the end of *core* (e.g. "<b>bold</b> ")
+        # so trailing whitespace does not fuse into the styled portion.
+        reset_direct_char_formatting(cursor)
         text.insertString(cursor, trail, False)
 
 
