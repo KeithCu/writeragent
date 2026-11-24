@@ -7,7 +7,7 @@ import uno  # noqa: F401
 from typing import Any
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import TestingFactory, with_native_doc, writer_services_tool_context
 from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
 
 
@@ -410,3 +410,22 @@ def test_page_get_objects_frames_include_text_boxes_uno(ctx, doc):
     # AT_PAGE text boxes have no body anchor (getAnchor() is None), so paragraph_index is None.
     assert info.get("paragraph_index") is None, info
     assert "AtPage box" in info.get("content", ""), info
+
+
+@native_test
+@with_native_doc("writer")
+def test_clone_heading_block_hides_multi_para_tracked_deletion_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    first_para = text.createEnumeration().nextElement()
+    cur = text.createTextCursorByRange(first_para)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    tctx = writer_services_tool_context(doc, ctx)
+    res = CloneHeadingBlock().execute(tctx, paragraph_index=0)
+    assert res["status"] == "ok", res
+    body = text.getString()
+    assert body.count("Keep") == 2, body
+    assert body.count("gone") == 3, body  # only the original struck text, not cloned
