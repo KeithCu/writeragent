@@ -236,21 +236,12 @@ def matrix_result(result: list[Any] | tuple[Any, ...]) -> Any:
         return ""
     rows = tuple(tuple(_matrix_cell_value(cell) for cell in row) for row in grid)
     if len(rows) == 1 and len(rows[0]) == 1:
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug("PYTHON matrix_result: type=scalar shape=1x1 first=%s", type(rows[0][0]).__name__)
         return rows[0][0]
     # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
     uno_any = getattr(uno, "Any")
     all_str = all(isinstance(cell, str) for row in rows for cell in row)
     uno_type = "[][]string" if all_str else "[][]any"
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug(
-            "PYTHON matrix_result: type=%s shape=%dx%d first=%s",
-            uno_type,
-            len(rows),
-            len(rows[0]),
-            type(rows[0][0]).__name__,
-        )
+    log.debug("PYTHON matrix_result: type=%s rows=%d", uno_type, len(rows))
     return uno_any(uno_type, rows)
 
 

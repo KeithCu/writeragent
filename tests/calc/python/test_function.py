@@ -901,8 +901,11 @@ def test_finalize_python_return_located_array_skips_spill_and_returns_matrix(mon
     assert spill_calls == []
 
 
-def test_matrix_result_shapes_and_types() -> None:
+def test_matrix_result_shapes_and_types(caplog: pytest.LogCaptureFixture) -> None:
     """matrix_result handles empty, 1x1 scalars, all-text [][]string, ragged mixed [][]any, errors, and nested lists."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="plugin.calc.python.addin_values")
     with patch("uno.Any", side_effect=lambda t, v: (t, v)):
         assert _addin_values.matrix_result([]) == ""
         assert _addin_values.matrix_result([[]]) == ""
@@ -911,6 +914,7 @@ def test_matrix_result_shapes_and_types() -> None:
         assert _addin_values.matrix_result(["North", "South"]) == ("[][]string", (("North",), ("South",)))
         assert _addin_values.matrix_result([["a", "b"], ["c"]]) == ("[][]string", (("a", "b"), ("c",)))
         assert _addin_values.matrix_result([[1, "a"], [2]]) == ("[][]any", ((1.0, "a"), (2.0,)))
+        assert _addin_values.matrix_result([[], [1]]) == ("[][]any", ((), (1.0,)))
 
         err_res = _addin_values.matrix_result(["#N/A", "#DIV/0!"])
         assert err_res[0] == "[][]any"
