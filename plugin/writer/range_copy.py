@@ -597,7 +597,8 @@ def _copy_cell_xtext(
     state = DeletionState()
     fresh = True
     for para in iter_elements(para_enum):
-        # A table inside an open deletion is struck whole.
+        # A table inside an open deletion is struck whole. Covers spanning deletions only,
+        # so a nested table struck by its own rows is still copied.
         if state.in_delete and supports_service(para, "com.sun.star.text.TextTable"):
             continue
         if not fresh:
@@ -923,10 +924,12 @@ def table_is_all_deleted(doc: Any, table: Any) -> bool:
 def table_is_struck(doc: Any, table: Any, state: DeletionState) -> bool:
     """True when accepting the pending tracked changes removes *table*.
 
-    Either the deletion open at the table (*state*) spans it, or every row is marked
-    deleted: ``HasTextChangesOnly`` false and all text in Delete redlines
-    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). A table
-    with only its cell texts struck keeps ``HasTextChangesOnly`` true and survives Accept.
+    Either the deletion open at the table (*state*) spans it, or every row has
+    ``HasTextChangesOnly`` false and ``table_is_all_deleted`` holds
+    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). The text
+    check is on the whole table rather than row by row, which is enough for Delete Table
+    because ``SwDoc::SetRowNotTracked`` puts a struck dummy character in each empty row.
+    A table with only its cell texts struck keeps ``HasTextChangesOnly`` true and survives Accept.
     """
     if state.in_delete:
         return True

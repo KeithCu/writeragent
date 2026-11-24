@@ -1241,7 +1241,8 @@ def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_
 @with_native_doc("writer")
 def test_header_table_delete_recorded_round_trip_stays_deleted_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
-    from plugin.writer.page import PageSetStyleProperties
+    from plugin.writer.page import PageSetStyleProperties, _scan_region_content
+    from plugin.writer.specialized.tables import TableDelete
 
     style, style_name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
@@ -1264,13 +1265,17 @@ def test_header_table_delete_recorded_round_trip_stays_deleted_uno(ctx, doc):
     ctrl = doc.getCurrentController()
     doc.setPropertyValue("RecordChanges", True)
     try:
-        ctrl.select(a1.getStart())
-        execute_dispatch(ctx, ctrl, ".uno:DeleteTable")
+        del_res = TableDelete().execute(_tool_ctx(doc, ctx), name=tbl.getName())
+        assert del_res["status"] == "ok", del_res
+        assert del_res.get("pending_review") is True, del_res
+        assert "T" in _header_structure(header), _header_structure(header)
 
         got = _get(doc, ctx, "header")
         assert got["status"] == "ok"
         assert "<table" not in got["content"], got["content"]
         assert got.get("fields", []) == [], got
+        assert got["paragraph_count"] == 2, got
+        assert _scan_region_content(doc, header)["has_struck"] is True
         off_res = PageSetStyleProperties().execute(
             _tool_ctx(doc, ctx), style=style_name, header_is_on=False,
         )

@@ -133,6 +133,15 @@ def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
     import tempfile
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
     from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.page import _scan_region_content
+    from plugin.writer.range_copy import supports_service
+
+    def _has_table(text_obj: Any) -> bool:
+        enum = text_obj.createEnumeration()
+        while enum_has_more(enum):
+            if supports_service(enum.nextElement(), "com.sun.star.text.TextTable"):
+                return True
+        return False
 
     page_styles = doc.getStyleFamilies().getByName("PageStyles")
     standard = page_styles.getByName("Standard")
@@ -150,13 +159,11 @@ def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
         header.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+    assert _has_table(header)
 
     copy_page_style(doc, "Standard", "CloneStruckTitleTable")
     cloned_header = page_styles.getByName("CloneStruckTitleTable").getPropertyValue("HeaderText")
-    enum = cloned_header.createEnumeration()
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        assert not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"))
+    assert not _has_table(cloned_header)
 
     # 2. Struck logo table -> clone reports no skipped shapes.
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
@@ -179,11 +186,13 @@ def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
     finally:
         os.unlink(img_path)
 
+    assert len(_scan_region_content(doc, header)["images"]) == 1
     doc.setPropertyValue("RecordChanges", True)
     try:
         header.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+    assert _has_table(header)
 
     res = copy_page_style(doc, "Standard", "CloneStruckLogoTable")
     assert res["skipped_shapes"] == [], res

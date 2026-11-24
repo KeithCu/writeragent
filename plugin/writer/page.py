@@ -381,10 +381,11 @@ def _scan_xtext(doc: Any, xtext: Any, state: DeletionState, out: dict[str, Any],
 def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
     """Report live fields and anchored images in a header/footer as get-side extras.
 
-    HTML ``content`` already carries structure; these lists and ``paragraph_count`` describe
-    the region as Accept All would leave it, so a caller can see logos and live fields without
-    parsing the markup. Cell fields are included, while struck tables and struck fields are
-    left out; ``has_struck`` is set when something was left out, for the disable guard. Returns
+    HTML ``content`` already carries structure; ``fields`` and ``paragraph_count`` describe
+    the region as Accept All would leave it (cell fields included, struck tables and struck
+    fields left out), and ``images`` leaves out logos inside struck tables (logos struck in
+    plain paragraphs are still listed). ``has_struck`` is set when something was left out,
+    for the disable guard. Returns
     ``{"fields": [...], "images": [...], "has_table": bool, "has_struck": bool, "paragraph_count": int}``.
     Raises on a read failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
     """
