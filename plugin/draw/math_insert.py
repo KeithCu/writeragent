@@ -122,7 +122,7 @@ class InsertMathDraw(ToolDrawMathBase):
         "properties": {
             "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
             "formula": {"type": "string", "description": "LaTeX or MathML formula text, per formula_type."},
-            "page": {"type": "integer", "description": "Zero-based index of the draw page or slide."},
+            "page": {"type": "integer", "description": "0-based index of the draw page or slide."},
             "x": {"type": "integer", "description": "X position, 1/100 mm."},
             "y": {"type": "integer", "description": "Y position, 1/100 mm."},
         },

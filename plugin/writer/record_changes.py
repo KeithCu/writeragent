@@ -107,3 +107,30 @@ def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:
             reraise_if_disposed(exc)
             continue  # another text object, or not comparable
     return kinds
+
+
+def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:
+    """True when a tracked insertion by someone other than *author* overlaps one of *ranges*.
+
+    compareRegionStarts compares document positions, so insertions in cells and frames work
+    too; one that cannot be compared (a table insertion) counts as overlapping.
+    """
+    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
+    redlines = doc.getRedlines()
+    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+        if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
+            continue
+        try:
+            start = rl.getPropertyValue("RedlineStart")
+            end = rl.getPropertyValue("RedlineEnd")
+            text = start.getText()
+            # compareRegionStarts(a, b): 1 when a starts before b.
+            if any(
+                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
+                for r_start, r_end in bounds
+            ):
+                return True
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return True
+    return False

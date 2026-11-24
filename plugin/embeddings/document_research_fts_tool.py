@@ -177,14 +177,6 @@ class SearchNearbyFiles(ToolBase):
 
         scope = ctx.send_cancellation
 
-        if filter_urls is not None and not filter_urls:
-            return {
-                "status": "ok",
-                "hits": [],
-                "folder_key": context_result["folder_key"],
-                "stale": False,
-            }
-
         def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.doc)
 

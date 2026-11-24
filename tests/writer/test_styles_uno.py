@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.writer.styles import StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleList, StyleUpdate
+from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
@@ -693,6 +693,81 @@ def test_style_format_text_reset_para_adjust_uno(ctx, doc):
     para = text.createEnumeration().nextElement()
     raw = int(para.getPropertyValue("ParaAdjust"))
     assert res["after"]["ParaAdjust"] == {0: "left", 5: "start"}[raw]
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
+    """Applying 'No Character Style' clears CharStyleName, keeps direct italic, and records a Format redline."""
+    from com.sun.star.awt.FontSlant import ITALIC
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    list_res = StyleList().execute(tool_ctx, family="CharacterStyles")
+    assert list_res["status"] == "ok", list_res
+    assert "No Character Style" in [s["name"] for s in list_res["styles"]]
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "alpha beta gamma", False)
+
+    beta = text.createTextCursor()
+    beta.gotoStart(False)
+    beta.goRight(6, False)
+    beta.goRight(4, True)
+    beta.setPropertyValue("CharStyleName", "Strong Emphasis")
+    beta.setPropertyValue("CharPosture", ITALIC)
+
+    res = ApplyStyle().execute(
+        tool_ctx,
+        style="No Character Style",
+        family="CharacterStyles",
+        target="search",
+        old_content="beta",
+    )
+    assert res["status"] == "ok", res
+
+    def _beta_portion():
+        para = text.createEnumeration().nextElement()
+        portions = para.createEnumeration()
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            if p.getString() == "beta":
+                return p
+        raise AssertionError("beta portion not found")
+
+    p = _beta_portion()
+    assert p.getPropertyValue("CharStyleName") == ""
+    assert float(p.getPropertyValue("CharWeight")) == 100.0
+    assert p.getPropertyValue("CharPosture") == ITALIC
+
+    # With RecordChanges on, clearing records one Format redline and Reject All restores Strong Emphasis.
+    beta2 = text.createTextCursor()
+    beta2.gotoStart(False)
+    beta2.goRight(6, False)
+    beta2.goRight(4, True)
+    beta2.setPropertyValue("CharStyleName", "Strong Emphasis")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        rec_res = ApplyStyle().execute(
+            tool_ctx,
+            style="No Character Style",
+            family="CharacterStyles",
+            target="search",
+            old_content="beta",
+        )
+        assert rec_res["status"] == "ok", rec_res
+        redlines = doc.getRedlines()
+        assert redlines.getCount() == 1
+        assert redlines.getByIndex(0).getPropertyValue("RedlineType") == "Format"
+
+        frame = doc.getCurrentController().getFrame()
+        dh = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        dh.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        assert float(_beta_portion().getPropertyValue("CharWeight")) == 150.0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
