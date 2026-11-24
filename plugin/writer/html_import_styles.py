@@ -18,7 +18,7 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import normalize_linebreaks, set_paragraph_background
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 from plugin.framework.errors import (
     Diagnostic,
@@ -1001,43 +1001,19 @@ def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
     return [name for css_list in css_lists for css in css_list if css for name in _declaration_names(css)]
 
 
-def _get_fill_style_enums() -> tuple[Any, Any]:
-    """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
-    import uno
-    return (
-        uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
-        uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
-    )
-
-
 def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list[str]:
     """Apply parsed UNO paragraph properties to one Writer paragraph (``SwXParagraph``).
 
     Everything is set on the paragraph element, not on a text cursor: the paragraph is the
-    only object that exposes the drawing-fill properties a background needs (see below), and
-    it accepts ParaAdjust and the margins just as well. Returns the CSS property names that
-    failed to apply.
+    only object that exposes the drawing-fill properties a background needs (see
+    ``set_paragraph_background``), and it accepts ParaAdjust and the margins just as well.
+    Returns the CSS property names that failed to apply.
     """
     failed: list[str] = []
     for css_name, (uno_prop, val) in mapped.items():
         try:
             if css_name == "background-color":
-                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
-                # converting to fill attributes (only SwXStyle::SetPropertyValue in
-                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
-                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
-                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
-                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
-                # Direct paragraph backgrounds must set FillColor and FillStyle on the
-                # SwXParagraph element itself (FILL_PROPERTIES_SW in
-                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
-                # on COMPLETE_TEXT_CURSOR_MAP).
-                solid_style, none_style = _get_fill_style_enums()
-                if val == -1:
-                    para_obj.setPropertyValue("FillStyle", none_style)
-                else:
-                    para_obj.setPropertyValue("FillColor", val)
-                    para_obj.setPropertyValue("FillStyle", solid_style)
+                set_paragraph_background(para_obj, val)
             else:
                 para_obj.setPropertyValue(uno_prop, val)
         except Exception as exc:

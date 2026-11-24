@@ -442,6 +442,21 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     return cleared
 
 
+def set_paragraph_background(para: Any, color: int) -> None:
+    """Set the direct background of paragraph *para* (``SwXParagraph``); -1 means no fill."""
+    # Setting ParaBackColor on a cursor or paragraph writes only RES_BACKGROUND without
+    # converting to fill attributes (only SwXStyle::SetPropertyValue in
+    # sw/source/core/unocore/unostyle.cxx converts it). Fill properties exist only on
+    # SwXParagraph (FILL_PROPERTIES_SW in sw/source/core/unocore/unomap1.cxx
+    # GetParagraphPropertyMap), and ParaBackColor reads derive from them via
+    # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx).
+    if color == -1:
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+    else:
+        para.setPropertyValue("FillColor", color)
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+
+
 def writable_char_names(rng: Any) -> list[str] | None:
     """Return writable Char* property names on *rng*, or None when property info is missing."""
     info = rng.getPropertySetInfo()

@@ -637,21 +637,20 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
-def paragraph_has_non_text_portion(
+def non_text_portion_type(
     para: Any,
     *,
     ignore_markers: bool = False,
     ignore_bookmarks: bool = False,
-) -> bool:
-    """True when *para* holds an image, field, frame, or other non-text portion.
+) -> str | None:
+    """First non-text ``TextPortionType`` in *para*, ``"unreadable"`` on read failure, or ``None``.
 
-    ``getString()`` is empty for those, so a paragraph holding only a picture
-    would look empty and the import would merge its first block into it. When
-    *ignore_markers* is True, ``Redline`` and ``SoftPageBreak`` markers are
-    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions
-    (``_drop_leftover_paragraph`` joins the paragraph, which keeps its
-    bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes the
-    paragraph and must keep user bookmarks). ``ReferenceMark`` and
+    ``getString()`` is empty for images, fields, frames, and comments, so a paragraph
+    holding only one of those would look empty. When *ignore_markers* is True,
+    ``Redline`` and ``SoftPageBreak`` markers are ignored; *ignore_bookmarks* also
+    ignores ``Bookmark`` portions (``_drop_leftover_paragraph`` joins the paragraph,
+    which keeps its bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes
+    the paragraph and must keep user bookmarks). ``ReferenceMark`` and
     ``DocumentIndexMark`` always count as content.
     """
     ignored: tuple[str, ...] = ("Text",)
@@ -662,14 +661,29 @@ def paragraph_has_non_text_portion(
     try:
         portions = para.createEnumeration()
         for portion in iter_elements(portions):
-            if portion.getPropertyValue("TextPortionType") not in ignored:
-                return True
+            kind = portion.getPropertyValue("TextPortionType")
+            if kind not in ignored:
+                return str(kind)
     except Exception as exc:
         # Fail safe: an unreadable portion may be a frame, field, or image.
         reraise_if_disposed(exc)
         log.debug("Failed to inspect paragraph portions: %s", exc)
-        return True
-    return False
+        return "unreadable"
+    return None
+
+
+def paragraph_has_non_text_portion(
+    para: Any,
+    *,
+    ignore_markers: bool = False,
+    ignore_bookmarks: bool = False,
+) -> bool:
+    """True when *para* holds an image, field, frame, or other non-text portion."""
+    return non_text_portion_type(
+        para,
+        ignore_markers=ignore_markers,
+        ignore_bookmarks=ignore_bookmarks,
+    ) is not None
 
 
 
