@@ -9,6 +9,7 @@ Supports multiple plot shapes per cell via indexed shape slots with reuse.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from functools import partial
 import hashlib
 import logging
@@ -20,6 +21,7 @@ from typing import Any, NamedTuple, NoReturn
 from plugin.calc.calc_utils import get_cell_geometry, selection_top_left_cell, sheet_is_rtl
 from plugin.calc.python.formula_edit import match_py_alias
 from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
+from plugin.calc.python.undo import attach_to_newest_undo, undo_lock
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
@@ -416,6 +418,15 @@ def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_c
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
         else:
             taken.add(slot_idx)
+
+
+def _drop_plots_of_undone_formula(doc: Any, sheet: Any, cell: Any) -> None:
+    """Remove *cell*'s plots when Undo took its =PY formula away; runs after the Undo finished."""
+    addr = cell.getCellAddress()
+    if _holds_py_formula(sheet, (addr.Column, addr.Row)):
+        return
+    with undo_lock(doc, hide=False):
+        _drop_extra_plot_slots(sheet.DrawPage, _anchored_plot_slots(sheet, cell), 0)
 
 
 def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
@@ -871,23 +882,31 @@ def _insert_image_result_on_sheet_impl(
         shape = _resolve_slot(slots, image_index)
         rtl = sheet_is_rtl(sheet)
 
-        try:
-            if shape is None:
-                _place_new_plot(
-                    doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
-                )
-            else:
-                _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
-        finally:
-            # Only a caller that passes image_count owns the slot family. =PY() and
-            # insert_plots_and_report (python_run_script, plot_data) pass it and
-            # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
-            # >= image_count and duplicate shapes for one slot are swept even when slot 0
-            # raises, so they do not linger. Omitting image_count (the viz domain's
-            # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
-            # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
-            if image_count is not None and image_index == 0 and target_cell is not None:
-                _drop_extra_plot_slots(draw_page, slots, image_count)
+        # A formula's plots are redrawn from it, so they get no undo entries of their own;
+        # SvxDrawPage::add records nothing, only the name change would be undone.
+        with undo_lock(doc, hide=False) if code else nullcontext() as um:
+            try:
+                if shape is None:
+                    _place_new_plot(
+                        doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
+                    )
+                else:
+                    _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
+            finally:
+                # Only a caller that passes image_count owns the slot family. =PY() and
+                # insert_plots_and_report (python_run_script, plot_data) pass it and
+                # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
+                # >= image_count and duplicate shapes for one slot are swept even when slot 0
+                # raises, so they do not linger. Omitting image_count (the viz domain's
+                # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
+                # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
+                if image_count is not None and image_index == 0 and target_cell is not None:
+                    _drop_extra_plot_slots(draw_page, slots, image_count)
+        if um is not None and shape is None:
+            best_effort(
+                partial(attach_to_newest_undo, um, partial(_drop_plots_of_undone_formula, doc, sheet, target_cell)),
+                "could not attach plot to the undo step",
+            )
     except ImageEgressError:
         raise
     except Exception as exc:
