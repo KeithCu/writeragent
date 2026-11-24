@@ -164,23 +164,6 @@ _FORMULA_PINNED_MAP = {
     f"D{_FORMULA_TOTAL_ROW}": _FORMULA_SUM,
 }
 _FORMULA_NO_TOTAL_ROWS = _FORMULA_GOOD_ROWS[:-1]
-_FLOW_GOOD = json.dumps(
-    {
-        "status": "ok",
-        "tree": [
-            {"type": "ellipse", "text": "Start", "connected_end": {"name": "shape_1", "text": "Process: user login"}},
-            {"type": "flowchart-process", "text": "Process: user login"},
-            {"type": "flowchart-decision", "text": "Decision: credentials valid?"},
-            {"type": "flowchart-terminator", "text": "End"},
-        ],
-        "connections": [
-            {"from_index": 0, "to_index": 1},
-            {"from_index": 1, "to_index": 2},
-            {"from_index": 2, "to_index": 3, "label": "Yes"},
-            {"from_index": 2, "to_index": 1, "label": "No"},
-        ],
-    }
-)
 _FLOW_LIVE_NODES: list[dict[str, object]] = [
     {"type": "EllipseShape", "text": "Start"},
     {"type": "CustomShape", "text": "Process: user login"},
@@ -530,7 +513,6 @@ _PY_BAD = json.dumps(
         ("tax_column", _TAX_GOOD),
         ("paste_table", _PASTE_GOOD),
         ("formula_table", _FORMULA_GOOD),
-        ("flowchart_gen", _FLOW_GOOD),
         ("flowchart_gen", _FLOW_LIVE),
         ("org_chart_gen", _ORG_GOOD),
         ("solar_sld_gen", _SOLAR_GOOD),
@@ -587,26 +569,6 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                 }
             ),
             "edge",
-        ),
-        (
-            "flowchart_gen",
-            json.dumps(
-                {
-                    "status": "ok",
-                    "tree": [
-                        {"type": "ellipse", "text": "Start"},
-                        {"type": "flowchart-process", "text": "Process: user login"},
-                        {"type": "flowchart-decision", "text": "Decision: credentials valid?"},
-                        {"type": "flowchart-terminator", "text": "End"},
-                    ],
-                    "connections": [
-                        {"from_index": 0, "to_index": 1},
-                        {"from_index": 1, "to_index": 2},
-                        {"from_index": 2, "to_index": 3, "label": "Yes"},
-                    ],
-                }
-            ),
-            "loop",
         ),
         (
             "flowchart_gen",
@@ -1049,34 +1011,30 @@ def test_flowchart_login_labels_pass_without_process_decision_words() -> None:
         {
             "status": "ok",
             "tree": [
+                {"type": "ellipse", "text": "Start"},
+                {"type": "rectangle", "text": "User Login"},
+                {"type": "diamond", "text": "Credentials valid?"},
+                {"type": "ellipse", "text": "End"},
                 {
-                    "type": "ellipse",
-                    "text": "Start",
-                    "connected_end": {"name": "shape_1", "text": "User Login"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape1", "text": "Start"},
+                    "connected_end": {"name": "Shape2", "text": "User Login"},
                 },
                 {
-                    "type": "rectangle",
-                    "text": "User Login",
-                    "connected_end": {"name": "shape_2", "text": "Credentials valid?"},
-                    "connected_start": {"name": "shape_0", "text": "Start"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape2", "text": "User Login"},
+                    "connected_end": {"name": "Shape3", "text": "Credentials valid?"},
                 },
                 {
-                    "type": "diamond",
-                    "text": "Credentials valid?",
-                    "connected_end": {"name": "shape_3", "text": "End"},
-                    "connected_start": {"name": "shape_1", "text": "User Login"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape3", "text": "Credentials valid?"},
+                    "connected_end": {"name": "Shape4", "text": "End"},
                 },
                 {
-                    "type": "ellipse",
-                    "text": "End",
-                    "connected_start": {"name": "shape_2", "text": "Credentials valid?"},
+                    "type": "ConnectorShape",
+                    "connected_start": {"name": "Shape3", "text": "Credentials valid?"},
+                    "connected_end": {"name": "Shape2", "text": "User Login"},
                 },
-            ],
-            "connections": [
-                {"from_index": 0, "to_index": 1},
-                {"from_index": 1, "to_index": 2},
-                {"from_index": 2, "to_index": 3},
-                {"from_index": 2, "to_index": 1},
             ],
         }
     )

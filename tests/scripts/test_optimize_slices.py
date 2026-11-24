@@ -81,9 +81,9 @@ def test_sort_range_slice_patches_specialized_schema() -> None:
     assert fn["description"] == marker
 
 
-def test_write_formula_range_values_slice() -> None:
+def test_write_range_values_slice() -> None:
     marker = "VALUES_SLICE_MARKER"
-    prompt, patches = apply_named_slice("tax_column", "write_formula_range.values", marker)
+    prompt, patches = apply_named_slice("tax_column", "write_range.values", marker)
     assert prompt == get_eval_system_prompt("tax_column")
     fn = next(
         (row.get("function") or row)

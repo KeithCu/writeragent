@@ -97,7 +97,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `sort_range`, `write_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `sort_range`, `write_range`, `write_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 

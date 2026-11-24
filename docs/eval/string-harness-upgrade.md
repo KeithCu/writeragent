@@ -126,19 +126,13 @@ range). Do not fake a cursor.
 
 ### DrawWorld
 
-Keep `shape_upsert`. Add:
+`DrawWorld` keeps in-memory shapes and calls `plugin/draw/tree.py` for the tree (`build_shape_tree`) and shape lookups (`find_shape_on_page` / `resolve_shape_ref`).
 
-- `shape_connect` (production name in `plugin/draw/shapes.py`)
-- `connections: list[{from_index, to_index}]`
-- z-order = list order
-- optional `shape_group` as a parent node
+- `shape_connect` (production name in `plugin/draw/shapes.py`) adds a `ConnectorShape` node to the page
+- `shape_group` creates a `GroupShape` tree node with `children`
+- z-order = list order; names are `Shape<n>`; shapes are addressed by index, dotted path, or name
 
-`shape_get_tree` must emit the same semantic keys as
-`plugin/draw/tree.py`: production `type` plus `custom_shape_type`, `text`,
-`geometry`, `style` (`LineStartName` / `LineEndName` when arrowheads are set),
-`connected_start` / `connected_end` (by name/text). `shape_upsert` edit
-changes geometry, text and arrowheads. The flowchart oracle then requires
-**edges**, not just the words Start / Process / End.
+`shape_get_tree` emits the same semantic keys as `plugin/draw/tree.py`: production `type`, `index`/`path_index`, `name`, `custom_shape_type`, `text` (when non-empty), `fillable`, `geometry`, `style` (`LineStartName` / `LineEndName` when arrowheads are set), and `connected_start` / `connected_end` on connector nodes. `shape_upsert` edit changes geometry, text and arrowheads. The flowchart oracle then requires **edges**, not just the words Start / Process / End. Remaining differences from live LibreOffice: no style properties beyond arrowheads, connector geometry is centre to centre, no preset-name check, and one page.
 
 ### CalcWorld
 
@@ -176,7 +170,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
   HTML or a small world API). If a task cannot be honest on the world,
   drop it from the default pack rather than keep theater.
 - `flowchart_gen`: scripted student calls `shape_connect`; gold tree
-  includes connections; oracle requires them.
+  includes connector nodes; oracle requires them.
 - `find_text`: implement as an alias of `search` on
   WriterWorld so we stop advertising an eval-only name.
 
@@ -188,7 +182,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 - Style field survives export (`Quotations` is a class/style, not
   only a word).
 - Comment is on the `uncertain` block.
-- Draw: two shapes + `shape_connect` → tree has
+- Draw: two shapes + `shape_connect` → connector node has
   `connected_start` / `connected_end`.
 - Calc: write `=PY("result = 1"; A1:H500)` at `J1`; snapshot records
   dest `J1` and formula text; grid oracles unchanged for tax/sort.
@@ -228,8 +222,8 @@ One table, not a growing `if name ==`:
 
 | Kind | Implemented on the world (minimum) |
 |------|--------------------------------------|
-| Writer | `get_content`, `apply_content`, `search` (and `find_text` alias) |
-| Draw | `shape_upsert`, `shape_connect`, `shape_get_tree`, `shape_get_summary` |
+| Writer | `get_content`, `apply_content`, `search` (and `find_text` alias), `comment_add`, `apply_style` |
+| Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary` |
 | Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range` |
 
 Everything else in the advertised catalog returns:
@@ -242,15 +236,14 @@ Everything else in the advertised catalog returns:
 The model must recover or finish without it. That *is* the test.
 
 Grow the implemented set only when a new task needs it (e.g.
-`add_comment` once WriterWorld comments exist — then
-`comment_management` can call the real name).
+`sheet_list` once multi-sheet tasks need it).
 
 ### Tests (catalog)
 
 - Schema list for writer/draw/calc includes production names
   (`search`, `write_range`, `shape_connect`,
   `shape_get_tree`) and is larger than the current 3–5.
-- Calling `add_comment` / `sheet_list` / `shape_delete` returns
+- Calling `sheet_list` / `shape_delete` returns
   `unsupported_in_eval` until implemented.
 - Scripted student still only uses implemented names.
 - Prompt pin tests updated; no “only three tools” wording.
@@ -356,8 +349,8 @@ No `make test-uno`. No LO scripted pack work.
 ## Later (not this plan)
 
 - Multi-turn user messages using `export_for_prompt()`.
-- Implementing more core tools on the worlds (`add_comment`,
-  `sheet_list`, …) when a task needs them.
+- Implementing more core tools on the worlds (`sheet_list`,
+  `shape_delete`, …) when a task needs them.
 - MIPROv2 on `agent_score` once the metric is stable.
 - Broader `--backend lo` / `--backend auto` ranking of the full pack
   (beyond the flag row) when we want native fidelity on every task —
@@ -367,6 +360,6 @@ No `make test-uno`. No LO scripted pack work.
 ## Open
 
 - `[feature M few]` Multi-turn eval: refresh `[DOCUMENT CONTENT]` after each user turn using `export_for_prompt()`. (§ Later (not this plan))
-- `[eng S few]` Implement more core tools on the worlds, such as `add_comment` and `sheet_list`, when a task needs them. (§ Later (not this plan))
+- `[eng S few]` Implement more core tools on the worlds, such as `sheet_list` and `shape_delete`, when a task needs them. (§ Later (not this plan))
 - `[eng M few]` Run MIPROv2 against `agent_score` once the metric is stable. (§ Later (not this plan))
 - `[eng M few]` Run full-pack `--backend lo` ranking across all 19 tasks for native fidelity on every task (`eval_scheduler.py` / `run_eval_multi.py` already implement `--backend lo` and `--backend auto`, and [benchmarks.md](benchmarks.md) ships the 37×19 dual-lane board). (§ Later (not this plan))
