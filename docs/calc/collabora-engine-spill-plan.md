@@ -15,7 +15,7 @@ WriterAgent / LibrePy is already shipped and running in production as a desktop 
 2. **1D List Normalization:** When a Python formula returns a 1D list (e.g. `[1, 2, 3]`), LibrePy’s `result_as_spill_grid` ([`plugin/calc/python/addin_values.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/addin_values.py)) normalizes it to a column vector `[[1], [2], [3]]`, matching Microsoft Excel's `=PY()` behavior.
 3. **Extension-Level Workaround for Spilling:** Because stock LibreOffice Calc did not natively spill external AddIn formulas, LibrePy historically implemented an out-of-engine workaround:
    * When `=PY(...)` returns a multi-cell grid, LibrePy queues a deferred callback on LibreOffice's main UI thread.
-   * That callback writes literal values directly into adjacent cells via UNO (`setDataArray`) and records the spilled cell addresses in a custom document property dictionary (`WriterAgentSpillRegistry`).
+   * That callback writes literal values directly into adjacent cells via UNO (`setDataArray`) and records the spill rectangle in a custom document property dictionary (`WriterAgentSpillRegistry`).
 4. **Why LibrePy's Workaround Cannot Be Used in Core or Online:**
    * **No Document Access:** The Collabora Online C++ AddIn is a thin `XVolatileResult` component that has no access to `ScDocument` or `ScDocFunc`.
    * **Dependency Graph:** Writing literal values bypasses Calc's formula dependency graph (DAG). Formulas referencing spilled cells do not recalculate properly when the source formula changes.
