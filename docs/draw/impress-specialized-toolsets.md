@@ -90,7 +90,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `calc/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `math_insert` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
-| `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
+| `WebResearchTool` | `web_research` | `web_research.py` | Web search for context (tier `unlisted`; sidebar chat delegate domain only) | All |
 
 > **Not shipped: `transform_document_structure`.** `draw/transform.py` is a
 > `ToolBaseDummy` tool (never registered), and `plugin/draw/__init__.py` skips

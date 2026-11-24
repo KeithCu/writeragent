@@ -297,7 +297,7 @@ class DelegateToSpecializedBase(ToolBase):
         The enum is read from the catalog per call, so it holds every domain whose base class is
         imported by then. No ctx or services are passed: domains that cannot run yet (no venv, no MCP
         server) stay valid here and are hidden by the schema filters. for_discovery stays False:
-        True would put Calc-hidden domains back and drop the chat-only ones (mcp).
+        True would put Calc-hidden domains back and drop the chat-only ones (mcp, web_research).
         """
         label = self.agent_label_for(doc_type=doc_type) if doc_type else None
         params = copy.deepcopy(cast("dict[str, Any]", self.parameters))

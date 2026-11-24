@@ -113,7 +113,8 @@ def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
         return None
 
 
-# Chat keeps specialized, mcp, and unlisted off the default list (_DEFAULT_EXCLUDE_TIERS in tool.py).
+# Chat hides specialized, mcp, and unlisted (_DEFAULT_EXCLUDE_TIERS in tool.py).
+# MCP differs on purpose: it keeps mcp-tier tools, and lists specialized ones only in direct_flat.
 # Tiers MCP never lists or calls: control tools, sidebar-chat tools (peer_send_*), and
 # unlisted tools that host code runs by name (web_research).
 MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat", "unlisted"})

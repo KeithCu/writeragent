@@ -1364,8 +1364,10 @@ def test_web_research_uses_ctx_approval_callback_as_given():
 def test_web_research_is_off_main_chat_and_mcp_lists(doc_type: str) -> None:
     """WebResearchTool must stay off main chat and all MCP lists.
 
-    Setting ``tier = "unlisted"`` on the class prevents a future base change
-    from putting it back on any chat or MCP list.
+    Re-basing the class onto ToolBase in cbb0f07b6 silently reset the tier
+    it had inherited to ``core``; setting ``tier = "unlisted"`` on the
+    class prevents a future base change from putting it back on any chat or
+    MCP list.
     """
     from plugin.app import get_tools
     from plugin.framework.doc_type import uno_services_for_doc_type_label
