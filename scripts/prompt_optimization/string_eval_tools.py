@@ -11,96 +11,74 @@ from pathlib import Path
 from typing import Any, Callable
 
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.tool import ToolContext, prepare_tool_call
 
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from eval_worlds import (  # noqa: F401 — re-export for existing imports
-    CalcStringState,
-    CalcWorld,
-    DrawWorld,
-    StringDocState,
-    WriterWorld,
-    _unsupported,
-    a1_to_col_row,
-    normalize_apply_content,
-)
+from eval_catalog import headless_registry
+from eval_worlds import CalcWorld, DrawWorld, WriterWorld, unsupported_in_eval
 
-# Legacy helper name used by tests / tools_lo comments.
-_a1_to_col_row = a1_to_col_row
-_normalize_apply_content = normalize_apply_content
+World = WriterWorld | DrawWorld | CalcWorld
 
-
-def _writer_find_text(state: WriterWorld, args: dict[str, Any]) -> dict[str, Any]:
-    return state.find_text(
-        str(args.get("search") or args.get("pattern") or ""),
-        start=int(args.get("start") or 0),
-        limit=args.get("limit"),
-        case_sensitive=bool(args.get("case_sensitive", True)),
-    )
-
-
-def _specialized_finished(_state: Any, args: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "finished": True,
-        "answer": args.get("answer"),
-        "message": "Specialized task complete. Normal toolset restored.",
-    }
-
-
-_WRITER_IMPL: dict[str, Callable[[WriterWorld, dict[str, Any]], dict[str, Any]]] = {
-    "get_content": lambda s, a: s.get_content(**a),
-    "apply_content": lambda s, a: s.apply_content(**a),
-    "search": lambda s, a: s.search(**a),
-    "find_text": _writer_find_text,
-    "comment_add": lambda s, a: s.comment_add(**a),
-    "apply_style": lambda s, a: s.apply_style(**a),
-    "workflow_finished": _specialized_finished,
-}
-
-_DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
-    "shape_upsert": lambda s, a: s.shape_upsert(**a),
-    "shape_connect": lambda s, a: s.shape_connect(**a),
-    "shape_group": lambda s, a: s.shape_group(**a),
-    "shape_get_tree": lambda s, a: s.get_tree(**a),
-    "shape_get_summary": lambda s, a: s.get_draw_summary(**a),
-    "workflow_finished": _specialized_finished,
-}
-
-_CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
-    "sort_range": lambda s, a: s.sort_range(**a),
-    "write_range": lambda s, a: s.write_range(**a),
-    "write_cell_range": lambda s, a: s.write_range(**a),
-    "get_sheet_summary": lambda s, a: s.get_sheet_summary(**a),
-    "read_range": lambda s, a: s.read_range(**a),
-    "workflow_finished": _specialized_finished,
+# Per world type: document kind, then production tool name -> world method. A method gets the
+# arguments prepare_tool_call accepted, so it does not repeat that function's checks.
+_IMPL: dict[type, tuple[str, dict[str, Callable[..., dict[str, Any]]]]] = {
+    WriterWorld: (
+        "writer",
+        {
+            "get_content": WriterWorld.get_content,
+            "apply_content": WriterWorld.apply_content,
+            "search": WriterWorld.search,
+            "comment_add": WriterWorld.comment_add,
+            "apply_style": WriterWorld.apply_style,
+        },
+    ),
+    DrawWorld: (
+        "draw",
+        {
+            "shape_upsert": DrawWorld.shape_upsert,
+            "shape_connect": DrawWorld.shape_connect,
+            "shape_group": DrawWorld.shape_group,
+            "shape_get_tree": DrawWorld.get_tree,
+            "shape_get_summary": DrawWorld.get_draw_summary,
+        },
+    ),
+    CalcWorld: (
+        "calc",
+        {
+            "sort_range": CalcWorld.sort_range,
+            "write_range": CalcWorld.write_range,
+            "get_sheet_summary": CalcWorld.get_sheet_summary,
+            "read_range": CalcWorld.read_range,
+        },
+    ),
 }
 
 
-def dispatch_string_tool(
-    state: WriterWorld | DrawWorld | CalcWorld, name: str, arguments_json: str
-) -> str:
+def _run(state: World, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    kind, impls = _IMPL[type(state)]
+    impl = impls.get(name)
+    if impl is None:
+        return unsupported_in_eval(name)
+    ctx = ToolContext(doc=None, ctx=None, doc_type=kind, services=None, caller="chat")
+    prepared = prepare_tool_call(headless_registry().get(name), ctx, name, args)
+    if prepared.error is not None:
+        return prepared.error
+    result = impl(state, **prepared.kwargs)
+    if prepared.ignored:
+        result.setdefault("ignored_parameters", prepared.ignored)
+    return result
+
+
+def dispatch_string_tool(state: World, name: str, arguments_json: str) -> str:
     """Execute one tool by name; return JSON string for the assistant message."""
-    try:
-        args = safe_json_loads(arguments_json)
-    except Exception:
-        args = {}
+    args = safe_json_loads(arguments_json)
     if not isinstance(args, dict):
         args = {}
     try:
-        if isinstance(state, CalcWorld):
-            impl = _CALC_IMPL.get(name)
-            res = impl(state, args) if impl else _unsupported(name)
-        elif isinstance(state, DrawWorld):
-            impl_d = _DRAW_IMPL.get(name)
-            res = impl_d(state, args) if impl_d else _unsupported(name)
-        elif isinstance(state, WriterWorld):
-            impl_w = _WRITER_IMPL.get(name)
-            res = impl_w(state, args) if impl_w else _unsupported(name)
-        else:
-            res = {"status": "error", "message": f"Unknown state type for tool {name}"}
+        res = _run(state, name, args)
     except Exception as exc:
         res = {"status": "error", "message": str(exc)}
     return json.dumps(res, ensure_ascii=False)

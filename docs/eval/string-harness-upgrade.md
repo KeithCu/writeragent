@@ -44,7 +44,7 @@ Today it does not:
 
 - (Shipped) `build_eval_tool_schemas()` uses live `ToolRegistry.get_schemas`
   for that doc type. Unimplemented names still return `unsupported_in_eval`.
-- `StringDocState` is one HTML string. `CalcStringState` writes values,
+- `WriterWorld` is one HTML string. `CalcWorld` writes values,
   not formula text or dest. So `style_consistency` and
   `comment_management` cannot be honest.
 - Scoring is result-only. Two models can both leave a correct table;
@@ -111,9 +111,9 @@ Blocks, not a raw string:
 | `comments` | List of `{anchor, text}` on a block |
 
 `apply_content` still accepts HTML (production does). Parse
-with `html.parser` into blocks; do not bring in a browser. `find_text`
-/ production `search` search block text and return
-offsets into the **exported** HTML so scripted tests stay stable.
+with `html.parser` into blocks; do not bring in a browser. `search`
+searches block text and returns offsets into the **exported** HTML so
+scripted tests stay stable.
 
 Export HTML for oracles: `<h1>`, `<p class="Quotations">`,
 `<span class="comment">…</span>` or a visible `[comment text]` next to
@@ -170,8 +170,6 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
   drop it from the default pack rather than keep theater.
 - `flowchart_gen`: scripted student calls `shape_connect`; gold tree
   includes connector nodes; oracle requires them.
-- `find_text`: implement as an alias of `search` on
-  WriterWorld so we stop advertising an eval-only name.
 
 ### Tests (worlds)
 
@@ -221,11 +219,11 @@ One table, not a growing `if name ==`:
 
 | Kind | Implemented on the world (minimum) |
 |------|--------------------------------------|
-| Writer | `get_content`, `apply_content`, `search` (and `find_text` alias), `comment_add`, `apply_style` |
+| Writer | `get_content`, `apply_content`, `search`, `comment_add`, `apply_style` |
 | Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary` |
 | Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range` |
 
-Everything else in the advertised catalog returns:
+Calls pass through `prepare_tool_call`, so missing, wrong-typed, or unknown arguments behave as live, and `write_range` `source` is unsupported. Everything else in the advertised catalog returns:
 
 ```json
 {"status": "error", "code": "unsupported_in_eval",

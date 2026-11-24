@@ -1157,7 +1157,7 @@ def test_shape_delete_unknown_name_hint():
     ctx.doc = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with patch("plugin.draw.shapes._page_shape_names", return_value=["Title", "Titl"]):
+        with patch("plugin.draw.shapes.page_shape_names", return_value=["Title", "Titl"]):
             out = DeleteShape().execute(ctx, name="Titel")
     assert out["status"] == "error"
     assert out["details"]["available"] == ["Title", "Titl"]

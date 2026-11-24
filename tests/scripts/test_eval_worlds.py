@@ -17,6 +17,13 @@ if str(_PO) not in sys.path:
 
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld, parse_a1_range
 from plugin.calc.manipulator import _sort_unchanged_message
+from string_eval_tools import dispatch_string_tool
+
+_BOX = {"x": 1000, "y": 1000, "width": 2000, "height": 1000}
+
+
+def _call(world: WriterWorld | DrawWorld | CalcWorld, tool_name: str, /, **args: object) -> dict:
+    return json.loads(dispatch_string_tool(world, tool_name, json.dumps(args)))
 
 
 def test_html_apply_round_trip_heading_and_table() -> None:
@@ -42,7 +49,7 @@ def test_style_field_from_class() -> None:
 
 def test_add_comment_on_uncertain() -> None:
     world = WriterWorld("The results are uncertain at this point.")
-    res = world.comment_add(search="uncertain", content="Review this before finalizing")
+    res = _call(world, "comment_add", search="uncertain", content="Review this before finalizing")
     assert res["comment_added"] is True
     assert "[Review this before finalizing]" in world.get_html()
     commented = [b for b in world.blocks if b["comments"]]
@@ -51,7 +58,7 @@ def test_add_comment_on_uncertain() -> None:
 
 def test_search_in_document_offsets() -> None:
     world = WriterWorld("<p>Hello world</p>")
-    found = world.search(pattern="world")
+    found = _call(world, "search", pattern="world")
     assert found["status"] == "ok"
     assert found["ranges"]
 
@@ -68,8 +75,8 @@ def _draw_boxes(*texts: str) -> DrawWorld:
 
 def test_draw_connect_tree() -> None:
     draw = DrawWorld()
-    draw.shape_upsert(action="create", shape_type="ellipse", text="Start")
-    draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process")
+    draw.shape_upsert(action="create", shape_type="ellipse", text="Start", **_BOX)
+    draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process", **_BOX)
     res = draw.shape_connect(start="Shape1", end="1")
     assert res["status"] == "ok"
     assert res["index"] == 2
@@ -81,21 +88,21 @@ def test_draw_connect_tree() -> None:
     assert nodes[2]["connected_start"] == {"name": "Shape1", "text": "Start"}
     assert nodes[2]["connected_end"] == {"name": "Shape2", "text": "Process"}
 
-    nxt = draw.shape_upsert(action="create", shape_type="rectangle", text="After")
+    nxt = draw.shape_upsert(action="create", shape_type="rectangle", text="After", **_BOX)
     assert nxt["index"] == 3
 
 
 def test_draw_connect_records_arrowheads() -> None:
     draw = _draw_boxes("Start", "Process")
-    res_end = draw.shape_connect(start=0, end=1, line_end="arrow", line_start=None)
+    res_end = _call(draw, "shape_connect", start=0, end=1, line_end="arrow", line_start=None)
     assert res_end["status"] == "ok"
     assert draw.get_tree()["tree"][2]["style"] == {"LineEndName": "Arrow"}
 
-    res_start = draw.shape_connect(start=1, end=0, line_start="arrow", line_end="none")
+    res_start = _call(draw, "shape_connect", start=1, end=0, line_start="arrow", line_end="none")
     assert res_start["status"] == "ok"
     assert draw.get_tree()["tree"][3]["style"] == {"LineStartName": "Arrow"}
 
-    res_bad = draw.shape_connect(start=0, end=1, line_end="triangle")
+    res_bad = _call(draw, "shape_connect", start=0, end=1, line_end="triangle")
     assert res_bad["status"] == "error"
     assert len(draw.get_tree()["tree"]) == 4
 
@@ -103,7 +110,7 @@ def test_draw_connect_records_arrowheads() -> None:
 @pytest.mark.parametrize("bad_end", [99, "9", "0.0", "Nope", "", True])
 def test_draw_connect_unknown_shape_changes_nothing(bad_end: object) -> None:
     draw = _draw_boxes("Start", "Process")
-    res = draw.shape_connect(start=0, end=bad_end)
+    res = _call(draw, "shape_connect", start=0, end=bad_end)
     assert res["status"] == "error"
     assert len(draw.get_tree()["tree"]) == 2
 
@@ -118,7 +125,7 @@ def test_draw_connect_unknown_name_lists_page_names() -> None:
 def test_draw_edit_updates_shape() -> None:
     draw = DrawWorld()
     draw.shape_upsert(action="create", shape_type="rectangle", text="Old", x=100, y=200, width=300, height=400)
-    draw.shape_upsert(action="create", shape_type="rectangle", text="Next")
+    draw.shape_upsert(action="create", shape_type="rectangle", text="Next", **_BOX)
     draw.shape_connect(start=0, end=1)
 
     res = draw.shape_upsert(action="edit", index=0, text="New", x=500, width=900)
@@ -146,7 +153,7 @@ def test_draw_edit_updates_shape() -> None:
 )
 def test_draw_edit_by_name_or_string_index(selector: dict[str, object]) -> None:
     draw = _draw_boxes("One", "Two")
-    res = draw.shape_upsert(action="edit", x="700", **selector)
+    res = _call(draw, "shape_upsert", action="edit", x="700", **selector)
     assert res["status"] == "ok"
     assert res["index"] == 1
     assert res["name"] == "Shape2"
@@ -155,7 +162,7 @@ def test_draw_edit_by_name_or_string_index(selector: dict[str, object]) -> None:
 
 def test_draw_names_are_unique() -> None:
     draw = _draw_boxes("One", "Two")
-    dup_create = draw.shape_upsert(action="create", shape_type="rectangle", name="Shape1")
+    dup_create = draw.shape_upsert(action="create", shape_type="rectangle", name="Shape1", **_BOX)
     assert dup_create["status"] == "error"
     assert dup_create["code"] == "INVALID_PARAM"
 
@@ -167,11 +174,12 @@ def test_draw_names_are_unique() -> None:
     assert renamed["status"] == "ok"
     assert renamed["name"] == "StartBox"
 
-    nxt = draw.shape_upsert(action="create", shape_type="rectangle")
+    nxt = draw.shape_upsert(action="create", shape_type="rectangle", **_BOX)
     assert nxt["name"] == "Shape3"
 
-    with pytest.raises(TypeError):
-        draw.shape_upsert(action="edit", index=1, name="Z", x="abc")
+    bad = _call(draw, "shape_upsert", action="edit", index=1, name="Z", x="abc")
+    assert bad["status"] == "error"
+    assert bad["code"] == "VALIDATION_ERROR"
     assert [n["name"] for n in draw.get_tree()["tree"]] == ["StartBox", "Shape2", "Shape3"]
 
 
@@ -219,10 +227,10 @@ def test_draw_group_is_a_tree_node() -> None:
 def test_draw_group_rejects_bad_members() -> None:
     draw = _draw_boxes("A", "B")
     assert draw.shape_group(indices=[0, 1])["status"] == "ok"
-    draw.shape_upsert(action="create", shape_type="rectangle", text="C")
+    draw.shape_upsert(action="create", shape_type="rectangle", text="C", **_BOX)
     before = draw.get_tree()
     for bad in (None, [0], [0, 9]):
-        res = draw.shape_group(indices=bad)
+        res = _call(draw, "shape_group", indices=bad)
         assert res["status"] == "error"
         assert draw.get_tree() == before
 
@@ -239,7 +247,7 @@ def test_draw_group_rejects_bad_members() -> None:
 
 def test_draw_upsert_records_arrowheads() -> None:
     draw = DrawWorld()
-    res = draw.shape_upsert(action="create", shape_type="line", line_end="arrow", line_start="none")
+    res = draw.shape_upsert(action="create", shape_type="line", line_end="arrow", line_start="none", **_BOX)
     assert res["status"] == "ok"
     assert draw.get_tree()["tree"][0]["style"] == {"LineEndName": "Arrow"}
 
@@ -247,11 +255,11 @@ def test_draw_upsert_records_arrowheads() -> None:
     assert res_edit["status"] == "ok"
     assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
 
-    bad_create = draw.shape_upsert(action="create", shape_type="line", line_end="triangle")
+    bad_create = _call(draw, "shape_upsert", action="create", shape_type="line", line_end="triangle", **_BOX)
     assert bad_create["status"] == "error"
     assert len(draw.get_tree()["tree"]) == 1
 
-    bad_edit = draw.shape_upsert(action="edit", index=0, line_end="triangle")
+    bad_edit = _call(draw, "shape_upsert", action="edit", index=0, line_end="triangle")
     assert bad_edit["status"] == "error"
     assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
 
@@ -278,7 +286,7 @@ def test_draw_node_types_match_production(
     import oracles
 
     draw = DrawWorld()
-    draw.shape_upsert(action="create", shape_type=shape_type, text="Node")
+    draw.shape_upsert(action="create", shape_type=shape_type, text="Node", **_BOX)
     node = draw.get_tree()["tree"][0]
     assert node["type"] == expected_type
     assert node.get("custom_shape_type") == expected_preset
@@ -319,8 +327,8 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
     )
-    calc.sort_range(sort_column=0, ascending=True, has_header=True)
-    calc.sort_range(sort_column=1, ascending=False, has_header=True)
+    calc.sort_range(range=["A1:B6"], sort_column=0, ascending=True, has_header=True)
+    calc.sort_range(range=["A1:B6"], sort_column=1, ascending=False, has_header=True)
     names = [row[0] for row in calc._grid[1:]]
     assert names == ["Aardvark", "Tool", "Device", "Widget", "Gadget"]
 
@@ -437,7 +445,7 @@ def test_range_sort_subcolumns_leave_outside_columns_untouched() -> None:
 
 def test_range_sort_invalid_sort_column_errors() -> None:
     calc = CalcWorld("A\tB\n1\t2\n3\t4")
-    res = calc.sort_range(range=["A1:B3"], sort_column=2, has_header=True)
+    res = calc.sort_range(range=["A1:B3"], sort_column=2, ascending=True, has_header=True)
     assert res["status"] == "error"
     assert "sort_column must be an integer from 0 to 1" in res["message"]
 

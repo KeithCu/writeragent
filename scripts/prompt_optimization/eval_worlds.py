@@ -32,14 +32,16 @@ from plugin.calc.manipulator import (
 from plugin.draw.tree import (
     build_shape_tree,
     custom_shape_geometry,
+    ensure_shape_name,
     find_shape_on_page,
     iter_shape_addresses,
+    normalize_negative_span,
+    page_shape_names,
     resolve_shape_ref,
     short_shape_type,
 )
 from plugin.framework.errors import available_miss_details, make_tool_error
 from plugin.framework.json_utils import parse_html_fragment_list
-from plugin.framework.tool_schema import coerce_call_args
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -202,7 +204,7 @@ def normalize_apply_content(content: Any) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _unsupported(name: str) -> dict[str, Any]:
+def unsupported_in_eval(name: str) -> dict[str, Any]:
     return {
         "status": "error",
         "code": "unsupported_in_eval",
@@ -352,19 +354,20 @@ class WriterWorld:
         return self._html
 
     def get_content(self, **kwargs: Any) -> dict[str, Any]:
-        scope = kwargs.get("scope", "full")
+        scope = kwargs.get("scope")
         max_chars = kwargs.get("max_chars")
         text = self._html
         if scope == "range":
-            start = int(kwargs.get("start") or 0)
-            end = int(kwargs.get("end") or len(text))
+            start = kwargs.get("start") or 0
+            end = kwargs.get("end")
+            end = len(text) if end is None else end
             start = max(0, min(start, len(text)))
             end = max(start, min(end, len(text)))
             text = text[start:end]
         elif scope == "selection":
             text = self._html
-        if max_chars is not None and len(text) > int(max_chars):
-            text = text[: int(max_chars)] + "\n\n[... truncated ...]"
+        if max_chars is not None and len(text) > max_chars:
+            text = text[:max_chars] + "\n\n[... truncated ...]"
         return {
             "status": "ok",
             "content": text,
@@ -387,7 +390,7 @@ class WriterWorld:
             return {"status": "error", "message": "target='search' requires old_content."}
 
         content = normalize_apply_content(content)
-        all_matches = bool(kwargs.get("all_matches", False))
+        all_matches = bool(kwargs.get("all_matches"))
 
         if target == "full_document":
             self._html = content
@@ -448,24 +451,22 @@ class WriterWorld:
             }
         return {"status": "error", "message": f"Unknown target: {target!r}"}
 
-    def find_text(
-        self,
-        search: str,
-        start: int = 0,
-        limit: int | None = None,
-        case_sensitive: bool = True,
-    ) -> dict[str, Any]:
-        if not search:
-            return {"status": "error", "message": "search is required."}
+    def search(self, **kwargs: Any) -> dict[str, Any]:
+        """Production name. Offsets are into exported HTML."""
+        pattern = kwargs["pattern"]
+        if not pattern:
+            return make_tool_error("pattern is required.", code="INVALID_PARAM")
+        limit = kwargs["max_results"]
+        case_sensitive = kwargs["case_sensitive"]
         hay = self._html
         if not case_sensitive:
             hay_l = hay.lower()
-            needle_l = search.lower()
+            needle_l = pattern.lower()
         else:
             hay_l = hay
-            needle_l = search
+            needle_l = pattern
         ranges: list[dict[str, Any]] = []
-        pos = max(0, start)
+        pos = 0
         while True:
             idx = hay_l.find(needle_l, pos)
             if idx == -1:
@@ -473,57 +474,33 @@ class WriterWorld:
             ranges.append(
                 {
                     "start": idx,
-                    "end": idx + len(search),
-                    "text": hay[idx : idx + len(search)],
+                    "end": idx + len(pattern),
+                    "text": hay[idx : idx + len(pattern)],
                 }
             )
             pos = idx + 1
-            if limit is not None and len(ranges) >= limit:
+            if len(ranges) >= limit:
                 break
-        return {"status": "ok", "ranges": ranges}
-
-    def search(self, **kwargs: Any) -> dict[str, Any]:
-        """Production name. Offsets are into exported HTML (same as find_text)."""
-        pattern = str(kwargs.get("pattern") or kwargs.get("search") or "")
-        if not pattern:
-            return {"status": "error", "message": "pattern is required."}
-        start = int(kwargs.get("start") or 0)
-        limit = kwargs.get("limit")
-        if limit is None:
-            limit = kwargs.get("max_results", 20)
-        case_sensitive = bool(kwargs.get("case_sensitive", False))
-        found = self.find_text(
-            pattern,
-            start=start,
-            limit=int(limit) if limit is not None else None,
-            case_sensitive=case_sensitive,
-        )
-        ranges = found.get("ranges") or []
         matches = [
             {
                 "location": "body",
-                "text": item.get("text", ""),
-                "start": item.get("start"),
-                "end": item.get("end"),
+                "text": item["text"],
+                "start": item["start"],
+                "end": item["end"],
             }
             for item in ranges
-            if isinstance(item, dict)
         ]
-        found["matches"] = matches
-        return found
+        return {"status": "ok", "ranges": ranges, "matches": matches}
 
     def comment_add(self, **kwargs: Any) -> dict[str, Any]:
         """Anchor a visible ``[comment]`` after the search hit (no UNO annotation)."""
-        content = str(kwargs.get("content") or "")
-        search = str(kwargs.get("search") or "")
+        content = kwargs["content"]
+        search = kwargs.get("search") or ""
         if not search:
             return {"status": "error", "message": "Provide search.", "comment_added": False}
         if not content:
             return {"status": "error", "message": "Provide content.", "comment_added": False}
-        try:
-            occurrence = int(kwargs.get("occurrence", 0) or 0)
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "occurrence must be an integer.", "comment_added": False}
+        occurrence = kwargs["occurrence"]
         hay = self._html
         idx = -1
         pos = 0
@@ -552,10 +529,10 @@ class WriterWorld:
 
     def apply_style(self, **kwargs: Any) -> dict[str, Any]:
         """Map production apply_style onto HTML tags / data-lo-style (no UNO families)."""
-        style_name = str(kwargs.get("style") or "").strip()
+        style_name = (kwargs.get("style") or "").strip()
         if not style_name:
             return {"status": "error", "message": "style is required."}
-        family = str(kwargs.get("family") or "ParagraphStyles")
+        family = kwargs.get("family")
         if family == "CharacterStyles":
             return {
                 "status": "ok",
@@ -563,11 +540,8 @@ class WriterWorld:
             }
         old_content = kwargs.get("old_content")
         target = kwargs.get("target") or ("search" if old_content is not None else "selection")
-        all_matches = bool(kwargs.get("all_matches", False))
-        try:
-            occurrence = int(kwargs.get("occurrence", 0) or 0)
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "occurrence must be an integer."}
+        all_matches = bool(kwargs.get("all_matches"))
+        occurrence = kwargs.get("occurrence") or 0
 
         heading_level = heading_level_from_style(style_name)
         quotations = style_name.casefold() == "quotations"
@@ -611,11 +585,7 @@ class WriterWorld:
 # Same resolution as _execute_upsert_shape in plugin/draw/shapes.py: these names are UNO
 # shapes, a UNO type name passes through, and every other name is a CustomShape preset.
 _BASIC_SHAPE_TYPES = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
-_SHAPE_DEFAULTS = {"x": 1000, "y": 1000, "width": 2000, "height": 1000}
-_UPSERT_COERCE: dict[str, Any] = {
-    "index": {"type": ["integer", "string"]},
-    **{key: {"type": "integer"} for key in _SHAPE_DEFAULTS},
-}
+_BOX_KEYS = ("x", "y", "width", "height")
 
 
 def _draw_node_type(shape_type: str) -> tuple[str, str | None]:
@@ -627,28 +597,19 @@ def _draw_node_type(shape_type: str) -> tuple[str, str | None]:
     return "CustomShape", shape_type
 
 
-def _line_ends(args: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-    """UNO line-end name properties for the arrowhead arguments, or an error."""
+def _line_ends(args: dict[str, Any]) -> dict[str, Any]:
+    """UNO line-end name properties for the arrowhead arguments."""
     out: dict[str, Any] = {}
     for key, prop in (("line_start", "LineStartName"), ("line_end", "LineEndName")):
-        marker = args.get(key)
-        if marker is None:
-            continue
-        if marker not in ("none", "arrow"):
-            return {}, f"Invalid value for {key}: {marker!r}. Valid options: none, arrow"
-        out[prop] = "Arrow" if marker == "arrow" else ""
-    return out, None
-
-
-def _normal_box(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
-    """Same as ``_normalize_negative_span`` in plugin/draw/shapes.py, which needs UNO to import."""
-    return min(x, x + width), min(y, y + height), abs(width), abs(height)
+        if key in args:
+            out[prop] = "Arrow" if args[key] == "arrow" else ""
+    return out
 
 
 class _SimNode:
     """The XShape calls ``plugin.draw.tree`` and ``shape_get_summary`` read, kept in memory."""
 
-    def __init__(self, shape_type: str, name: str) -> None:
+    def __init__(self, shape_type: str, name: str = "") -> None:
         self.shape_type = shape_type
         self.Name = name
         self.props: dict[str, Any] = {}
@@ -675,7 +636,7 @@ class _SimNode:
 
 
 class _SimShape(_SimNode):
-    def __init__(self, shape_type: str, name: str, preset: str | None = None) -> None:
+    def __init__(self, shape_type: str, preset: str | None = None, name: str = "") -> None:
         super().__init__(shape_type, name)
         self.text = ""
         self._box = (0, 0, 0, 0)
@@ -700,14 +661,14 @@ class _SimShape(_SimNode):
 
     def set_box(self, x: int, y: int, width: int, height: int) -> None:
         # A live line keeps its direction but reads back as the same bounding box.
-        self._box = _normal_box(x, y, width, height)
+        self._box = normalize_negative_span(x, y, width, height)
 
 
 class _SimGroup(_SimNode):
     """Page or GroupShape: an XShapes container (no text, like a live GroupShape)."""
 
-    def __init__(self, name: str = "", items: list[Any] | None = None) -> None:
-        super().__init__("GroupShape", name)
+    def __init__(self, items: list[Any] | None = None) -> None:
+        super().__init__("GroupShape")
         self.items: list[Any] = items or []
 
     def getCount(self) -> int:
@@ -725,7 +686,7 @@ class _SimGroup(_SimNode):
     def set_box(self, x: int, y: int, width: int, height: int) -> None:
         """Move and scale the children, as LibreOffice does for a group."""
         ox, oy, ow, oh = self.box()
-        x, y, width, height = _normal_box(x, y, width, height)
+        x, y, width, height = normalize_negative_span(x, y, width, height)
         fx, fy = width / (ow or 1), height / (oh or 1)
         for child in self.items:
             cx, cy, cw, ch = child.box()
@@ -745,42 +706,29 @@ class DrawWorld:
 
         return json.dumps(self.get_tree(), ensure_ascii=False)
 
-    def _names(self) -> list[str]:
-        return [shape.Name for _addr, shape, _parent in iter_shape_addresses(self.page)]
-
-    def _new_name(self) -> str:
-        """Next free ``Shape<n>``, as ``_ensure_shape_name`` in plugin/draw/shapes.py assigns."""
-        used = [int(m.group(1)) for m in (re.fullmatch(r"Shape([0-9]+)", n) for n in self._names()) if m]
-        return f"Shape{max(used, default=0) + 1}"
-
     def _miss(self, err: str | None, wanted: Any) -> dict[str, Any]:
         """Lookup error payload, as ``_lookup_ref`` in plugin/draw/shapes.py builds it."""
         message = err or "Shape not found."
         if not message.startswith("No shape named"):
             return make_tool_error(message)
-        names = self._names()[:40]
+        names = page_shape_names(self.page)[:40]
         return make_tool_error(message, available=names, **available_miss_details(str(wanted).strip(), names))
 
-    def shape_upsert(self, **kwargs: Any) -> dict[str, Any]:
-        args = coerce_call_args(_UPSERT_COERCE, {k: v for k, v in kwargs.items() if v is not None})
-        props, err = _line_ends(args)
-        if err:
-            return make_tool_error(err, code="VALIDATION_ERROR")
-        action = args.get("action", "create")
+    def shape_upsert(self, *, action: str, **args: Any) -> dict[str, Any]:
+        props = _line_ends(args)
         name = str(args.get("name") or "").strip()
         taken = f"A shape named {name!r} already exists on this page; choose another name or edit that shape."
         rename_to: str | None = None
         if action == "create":
-            if name and name in self._names():
+            if name and name in page_shape_names(self.page):
                 return make_tool_error(taken, code="INVALID_PARAM")
-            shape_type = args.get("shape_type", "rectangle")
-            node_type, preset = _draw_node_type(shape_type)
-            shape: Any = _SimShape(node_type, name or self._new_name(), preset)
+            shape_type = args["shape_type"]
+            shape: Any = _SimShape(*_draw_node_type(shape_type), name=name)
             address: int | str = self.page.getCount()
-            box = tuple(args.get(k, default) for k, default in _SHAPE_DEFAULTS.items())
-        elif action == "edit":
-            if "index" not in args and not name:
-                return make_tool_error("Parameter 'index' or 'name' is required when action is 'edit'", code="VALIDATION_ERROR")
+            self.page.items.append(shape)
+            ensure_shape_name(self.page, shape)
+            shape.set_box(*(args[k] for k in _BOX_KEYS))
+        else:
             if "index" in args:
                 found, shape, _parent, err = find_shape_on_page(self.page, index=args["index"])
             else:
@@ -789,14 +737,11 @@ class DrawWorld:
                 return self._miss(err, name)
             address = found
             if "index" in args and name and name != shape.Name:
-                if name in self._names():
+                if name in page_shape_names(self.page):
                     return make_tool_error(taken, code="INVALID_PARAM")
                 rename_to = name
-            box = tuple(args.get(k, cur) for k, cur in zip(_SHAPE_DEFAULTS, shape.box()))
-        else:
-            return make_tool_error(f"Unknown action: '{action}'. Must be 'create' or 'edit'")
-        if action == "create" or any(k in args for k in _SHAPE_DEFAULTS):
-            shape.set_box(*box)
+            if any(k in args for k in _BOX_KEYS):
+                shape.set_box(*(args.get(k, cur) for k, cur in zip(_BOX_KEYS, shape.box())))
         if rename_to is not None:
             shape.Name = rename_to
         if "text" in args:
@@ -804,27 +749,22 @@ class DrawWorld:
         shape.props.update(props)
         result: dict[str, Any] = {"status": "ok", "action": action, "message": "Shape updated", "page": 0, "index": address, "name": shape.Name}
         if action == "create":
-            self.page.items.append(shape)
             result.update(message=f"Created {shape_type}", shape_count_after=self.page.getCount())
         return result
 
-    def shape_connect(self, **kwargs: Any) -> dict[str, Any]:
-        for key in ("start", "end"):
-            if kwargs.get(key) is None:
-                return make_tool_error(f"Missing required parameter: {key}", code="VALIDATION_ERROR")
-        props, err = _line_ends(kwargs)
-        if err:
-            return make_tool_error(err, code="VALIDATION_ERROR")
+    def shape_connect(self, *, start: Any, end: Any, **args: Any) -> dict[str, Any]:
+        props = _line_ends(args)
         addresses = []
-        for key, prop in (("start", "StartShape"), ("end", "EndShape")):
-            address, shape, _parent, err = resolve_shape_ref(self.page, kwargs[key])
+        for ref, prop in ((start, "StartShape"), (end, "EndShape")):
+            address, shape, _parent, err = resolve_shape_ref(self.page, ref)
             if shape is None:
-                return self._miss(err, kwargs[key])
+                return self._miss(err, ref)
             addresses.append(address)
             props[prop] = shape
-        connector = _SimShape("ConnectorShape", self._new_name())
+        connector = _SimShape("ConnectorShape")
         connector.props.update(props)
         self.page.items.append(connector)
+        ensure_shape_name(self.page, connector)
         return {
             "status": "ok",
             "message": f"Connected shape {addresses[0]} to {addresses[1]}",
@@ -833,9 +773,8 @@ class DrawWorld:
             "page": 0,
         }
 
-    def shape_group(self, **kwargs: Any) -> dict[str, Any]:
-        indices = kwargs.get("indices")
-        if not isinstance(indices, list) or len(indices) < 2:
+    def shape_group(self, *, indices: list[Any], **_args: Any) -> dict[str, Any]:
+        if len(indices) < 2:
             return make_tool_error("At least two shape indices are required to group.")
         slots: set[int] = set()
         for ref in indices:
@@ -850,10 +789,11 @@ class DrawWorld:
         # SdrEditView::GroupMarked (svx/source/svdraw/svdedtv2.cxx) keeps the z-order inside the
         # group and puts the group where its topmost member was.
         members = [self.page.items[i] for i in sorted(slots)]
-        group = _SimGroup(self._new_name(), members)
+        group = _SimGroup(members)
         index = max(slots) - len(slots) + 1
         rest = [s for i, s in enumerate(self.page.items) if i not in slots]
         self.page.items = [*rest[:index], group, *rest[index:]]
+        ensure_shape_name(self.page, group)
         return {"status": "ok", "message": f"Grouped {len(indices)} shapes.", "index": index, "name": group.Name, "page": 0}
 
     def get_tree(self, **_kwargs: Any) -> dict[str, Any]:
@@ -989,11 +929,9 @@ class CalcWorld:
         return out
 
     def read_range(self, **kwargs: Any) -> dict[str, Any]:
-        ranges = kwargs.get("range") or []
-        if isinstance(ranges, str):
-            ranges = [ranges]
+        ranges = kwargs["range"]
         if not ranges:
-            return {"status": "error", "message": "range is required"}
+            return make_tool_error("range is required", code="INVALID_PARAM")
         range_strs = [str(r) for r in ranges]
         self.reads.append(range_strs)
         return {
@@ -1010,32 +948,19 @@ class CalcWorld:
 
     def sort_range(self, **kwargs: Any) -> dict[str, Any]:
         """Stable sort over the given range(s) (sort_column and then_by columns are 0-based within range)."""
-        col = kwargs.get("sort_column", 0)
-        ascending = kwargs.get("ascending", True)
-        has_header = kwargs.get("has_header", True)
-        if isinstance(ascending, str):
-            ascending = ascending.strip().lower() not in {"false", "0", "no"}
-        if isinstance(has_header, str):
-            has_header = has_header.strip().lower() not in {"false", "0", "no"}
-
-        raw_then_by = kwargs.get("then_by")
-        then_by = parse_then_by([] if raw_then_by is None else raw_then_by)
+        col_idx = kwargs["sort_column"]
+        ascending = kwargs["ascending"]
+        has_header = kwargs["has_header"]
+        then_by = parse_then_by(kwargs.get("then_by", []))
         if then_by is None:
             return {
                 "status": "error",
                 "message": 'then_by must be a list of {"column": <integer >= 0>, "ascending": true|false} objects',
             }
 
-        ranges = kwargs.get("range")
-        if isinstance(ranges, str):
-            ranges = [ranges] if ranges.strip() else []
-        elif not isinstance(ranges, list):
-            ranges = []
+        ranges = kwargs["range"]
         if not ranges:
-            if not self._grid or len(self._grid) < 2:
-                return {"status": "ok", "message": "Nothing to sort"}
-            max_c = max((len(r) for r in self._grid), default=1) - 1
-            ranges = [f"A1:{col_row_to_a1(max_c, len(self._grid) - 1)}"]
+            return make_tool_error("range is required", code="INVALID_PARAM")
 
         # Resolve and validate all ranges before mutating any cells.
         parsed_ranges: list[tuple[str, int, int, int, int, list[SortKey]]] = []
@@ -1043,24 +968,6 @@ class CalcWorld:
             range_str = str(rng_raw)
             c0, r0, c1, r1 = parse_a1_range(range_str)
             width = c1 - c0 + 1
-            if isinstance(col, str) and not str(col).strip().lstrip("-").isdigit():
-                col_name = str(col)
-                row_hdrs = (
-                    [str(x) for x in self._grid[r0][c0 : c1 + 1]]
-                    if r0 < len(self._grid)
-                    else []
-                )
-                if col_name in row_hdrs:
-                    col_idx = row_hdrs.index(col_name)
-                elif col_name in self._headers:
-                    col_idx = self._headers.index(col_name) - c0
-                else:
-                    col_idx = 0
-            else:
-                try:
-                    col_idx = int(col)
-                except (TypeError, ValueError):
-                    col_idx = 0
             keys: list[SortKey] = [(col_idx, ascending), *then_by]
             width_error = _sort_keys_width_error(range_str, keys, width)
             if width_error is not None:
@@ -1115,9 +1022,6 @@ class CalcWorld:
             "sorted_rows": total_sorted_rows,
         }
 
-    def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
-        return self.write_range(**kwargs)
-
     @staticmethod
     def _plan_eval_write(
         rng: str, raw_values: Any
@@ -1168,46 +1072,33 @@ class CalcWorld:
         return (flat, (c0, r0, c1, r1))
 
     def write_range(self, **kwargs: Any) -> dict[str, Any]:
-        raw_values = kwargs.get("values", [])
-        ranges = kwargs.get("range") or []
-        if isinstance(ranges, str):
-            ranges = [ranges]
+        ranges = kwargs["range"]
+        if not ranges:
+            return make_tool_error("range is required", code="INVALID_PARAM")
+        if kwargs.get("source"):
+            return unsupported_in_eval("write_range source")
+        if "values" not in kwargs:
+            return make_tool_error("values is required when source is omitted", code="INVALID_PARAM")
+        raw_values = kwargs["values"]
         written = 0
         dests: list[str] = []
-        recorded_values: list[Any] = []
-        if ranges:
-            plans: list[tuple[str, list[Any], tuple[int, int, int, int]]] = []
-            for rng in ranges:
-                plan = self._plan_eval_write(str(rng), raw_values)
-                if isinstance(plan, str):
-                    return {"status": "error", "message": plan}
-                flat, bounds = plan
-                plans.append((str(rng), flat, bounds))
-            for rng_str, flat, bounds in plans:
-                dests.append(rng_str.split(":")[0].split(".")[-1])
-                written += self._write_a1_range_bounds(bounds, flat, raw_values)
-            recorded_values = plans[-1][1] if plans else []
-        elif self._grid:
-            values: list[Any] = (
-                [raw_values]
-                if isinstance(raw_values, str) and raw_values
-                else (list(raw_values) if isinstance(raw_values, (list, tuple)) else [])
-            )
-            recorded_values = values
-            for i, row in enumerate(self._grid[1:]):
-                if i < len(values):
-                    if len(row) < 3:
-                        row.extend([0] * (3 - len(row)))
-                    row[2] = values[i]
-                    written += 1
-            if self._headers and len(self._headers) < 3:
-                self._headers.extend([""] * (3 - len(self._headers)))
+        plans: list[tuple[str, list[Any], tuple[int, int, int, int]]] = []
+        for rng in ranges:
+            plan = self._plan_eval_write(str(rng), raw_values)
+            if isinstance(plan, str):
+                return {"status": "error", "message": plan}
+            flat, bounds = plan
+            plans.append((str(rng), flat, bounds))
+        for rng_str, flat, bounds in plans:
+            dests.append(rng_str.split(":")[0].split(".")[-1])
+            written += self._write_a1_range_bounds(bounds, flat, raw_values)
+        recorded_values = plans[-1][1] if plans else []
         formula_text = ""
         if isinstance(raw_values, str) and raw_values.lstrip().startswith("="):
             formula_text = raw_values
         self.writes.append(
             {
-                "range": [str(r) for r in ranges] if ranges else [],
+                "range": [str(r) for r in ranges],
                 "dests": dests,
                 "formula": formula_text,
                 "values": recorded_values,
@@ -1290,8 +1181,3 @@ class CalcWorld:
             "writes": list(self.writes),
             "reads": list(self.reads),
         }
-
-
-# Back-compat names used across the harness and tests.
-StringDocState = WriterWorld
-CalcStringState = CalcWorld
