@@ -376,25 +376,24 @@ def _profile_launch_lock(profile_dir: str) -> Generator[None]:
     The OS drops the lock when its holder exits.
     """
     with open(os.path.join(profile_dir, _LAUNCH_LOCK_NAME), "a", encoding="utf-8") as f:
-        if sys.platform == "win32":
-            import msvcrt  # Windows-only stdlib module.
+        try:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
 
-            try:
                 msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-            except OSError as exc:
-                raise RuntimeError(f"another WriterAgent is starting Firefox for web research: {exc}") from exc
-            try:
-                yield
-            finally:
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl  # POSIX-only stdlib module.
+            else:
+                import fcntl  # POSIX-only stdlib module.
 
-            try:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as exc:
-                raise RuntimeError(f"another WriterAgent is starting Firefox for web research: {exc}") from exc
+        except OSError as exc:
+            raise RuntimeError(f"another WriterAgent is starting Firefox for web research: {exc}") from exc
+        try:
             yield
+        finally:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:

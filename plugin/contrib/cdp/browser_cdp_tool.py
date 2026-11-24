@@ -267,8 +267,6 @@ def _query_browser_endpoint(host_port: str) -> str:
     The browser endpoint outlives every tab. A page endpoint from /json closes
     with its tab, which another research worker may own.
     """
-    if not host_port:
-        return ""
     try:
         with urllib.request.urlopen(f"http://{host_port}/json/version", timeout=1.0) as response:
             return str(json.loads(response.read().decode()).get("webSocketDebuggerUrl") or "")
