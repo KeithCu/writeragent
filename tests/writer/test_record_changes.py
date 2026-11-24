@@ -7,7 +7,7 @@
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.writer.record_changes import is_recording_changes, record_changes
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
 
 
 class _FakeDoc:
@@ -67,3 +67,23 @@ def test_record_changes_no_op_when_already_in_desired_state():
         assert was_recording is True
         assert doc.recording is True
     assert doc.recording is True
+
+
+def test_insert_recorded_content_cleans_up_placeholders_when_insert_raises():
+    model = MagicMock()
+    model.getPropertyValue.return_value = True
+    host = MagicMock()
+    span = MagicMock(name="span")
+    middle = MagicMock(name="middle")
+    tail = MagicMock(name="tail")
+    head = MagicMock(name="head")
+    host.createTextCursorByRange.side_effect = [span, middle, tail, head]
+    host.insertTextContent.side_effect = RuntimeError("insert boom")
+    cursor = MagicMock()
+
+    with pytest.raises(RuntimeError, match="insert boom"):
+        insert_recorded_content(model, host, cursor, MagicMock())
+
+    host.insertString.assert_called_once_with(span, "xx", True)
+    tail.setString.assert_called_once_with("")
+    head.setString.assert_called_once_with("")

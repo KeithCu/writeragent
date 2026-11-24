@@ -27,7 +27,8 @@ How a change is tracked end to end:
   ``wait_for_review`` blocked. An incomplete scan still fail-closes. The user's own
   pre-existing redlines never block or confuse it.
 * Each change is anchored with a bookmark (``wa_review_<session>_<n>``) spanning the affected
-  range, so it survives positions shifting as other changes are resolved. Bookmarks are
+  range (for a change across several texts such as table cells, the first text that changes),
+  so it survives positions shifting as other changes are resolved. Bookmarks are
   always removed when the review finishes (success, timeout, or error).
 * Outcome detection must survive the redline disappearing on BOTH accept and reject, and the
   user editing the text during review. At record time we derive, from the tracked state, the
@@ -73,11 +74,12 @@ log = logging.getLogger(__name__)
 
 _BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
+_OBJECT_MARK = "\ufffc"
 
 
 def _preview(text: str) -> str:
     """Bound a preview string (a full-document replace would otherwise ship megabytes)."""
-    text = text or ""
+    text = (text or "").replace(_OBJECT_MARK, "")
     if len(text) <= _PREVIEW_MAX_CHARS:
         return text
     return text[: _PREVIEW_MAX_CHARS - 1] + "…"
@@ -120,21 +122,28 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
         result["style_unreviewed"] = True
 
 
-def flag_untracked_delete(
-    result: dict[str, Any], doc: Any, what: str, *, message: str | None = None
-) -> None:
-    """Flag a Writer deletion that was not recorded as a tracked change."""
+def flag_untracked(result: dict[str, Any], doc: Any, message: str) -> None:
+    """Flag a Writer mutation that was not recorded as a tracked change."""
     if result.get("status") != "ok" or not is_writer(doc):
         return
     if not (review_recording_enabled() or is_recording_changes(doc)):
         return
     result["tracked"] = False
-    msg = message or _(
-        "LibreOffice cannot record deleting a %s as a tracked change, "
-        "so it was deleted directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."
-    ) % what
     existing = result.get("warning")
-    result["warning"] = f"{existing} {msg}".strip() if existing else msg
+    result["warning"] = f"{existing} {message}".strip() if existing else message
+
+
+def flag_untracked_delete(result: dict[str, Any], doc: Any, what: str) -> None:
+    """Flag a Writer deletion that was not recorded as a tracked change."""
+    flag_untracked(
+        result,
+        doc,
+        _(
+            "LibreOffice cannot record deleting a %s as a tracked change, "
+            "so it was deleted directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."
+        )
+        % what,
+    )
 
 
 def annotate_review_status(result: Any) -> dict[str, Any]:
@@ -349,7 +358,7 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
                     if skipping:
                         continue
                     has_non_skipped = True
-                    chunk = portion.getString()
+                    chunk = portion.getString() or (_OBJECT_MARK if portion_type == "Frame" else "")
                     if chunk:
                         para_chunks.append(chunk)
             except Exception as exc:
@@ -475,7 +484,7 @@ class EditReviewSession:
             # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
             # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
             # starts/ends can collapse the span for replace changes.
-            points: list[Any] = []
+            groups: list[list[Any]] = []
             at_table = False
             for rl in new_redlines:
                 try:
@@ -485,29 +494,42 @@ class EditReviewSession:
                     continue
                 for end in ends:
                     # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
-                    if uno_read(lambda: end.getText(), None) is None:
+                    host = uno_read(lambda: end.getText(), None)
+                    if host is None:
                         at_table = True
+                        continue
+                    for text_group in groups:
+                        if text_group[0].getText() == host:
+                            text_group.append(end)
+                            break
                     else:
-                        points.append(end)
+                        groups.append([end])
             bookmark_name = ""
             accepted_text = rejected_text = ""
-            if points:
+            accepted_all: list[str] = []
+            rejected_all: list[str] = []
+            if groups:
                 try:
-                    span = points[0].getText().createTextCursorByRange(points[0])
-                    for point in points[1:]:
-                        span.gotoRange(point, True)  # expand=True grows the span in either direction
-                    # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
-                    # span, not the whole paragraph -- so when several changes share a paragraph each
-                    # one's outcome/final_text reflects only itself, and a change deep in a long
-                    # paragraph is never truncated out of the preview.
-                    accepted_text = _string_skipping_redline(span, "Delete")
-                    rejected_text = _string_skipping_redline(span, "Insert")
-                    # The anchored text omits the table, so a table-only insert reads the same after Accept and Reject and must stay untagged.
-                    if not at_table or accepted_text != rejected_text:
+                    anchor_span = None
+                    for text_group in groups:
+                        span = text_group[0].getText().createTextCursorByRange(text_group[0])
+                        for point in text_group[1:]:
+                            span.gotoRange(point, True)  # expand=True grows the span in either direction
+                        # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
+                        # span, not the whole paragraph -- so when several changes share a paragraph each
+                        # one's outcome/final_text reflects only itself, and a change deep in a long
+                        # paragraph is never truncated out of the preview.
+                        acc = _string_skipping_redline(span, "Delete")
+                        rej = _string_skipping_redline(span, "Insert")
+                        accepted_all.append(acc)
+                        rejected_all.append(rej)
+                        if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
+                            anchor_span, accepted_text, rejected_text = span, acc, rej
+                    if anchor_span is not None:
                         bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
                         bm = self.doc.createInstance("com.sun.star.text.Bookmark")
                         bm.setName(bookmark_name)
-                        span.getText().insertTextContent(span, bm, True)
+                        anchor_span.getText().insertTextContent(anchor_span, bm, True)
                 except Exception:
                     bookmark_name = ""
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
@@ -537,7 +559,8 @@ class EditReviewSession:
 
         self.changes.append(ChangeRecord(
             token, bookmark_name, accepted_text, rejected_text,
-            original_preview or rejected_text, proposed_preview or accepted_text))
+            original_preview or "\n".join(rejected_all),
+            proposed_preview or "\n".join(accepted_all)))
         # A new pending change exists -> reveal the review fast-travel toolbar (#2). Runs on the
         # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
         refresh_review_toolbar(self.doc)

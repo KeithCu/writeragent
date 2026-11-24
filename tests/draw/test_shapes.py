@@ -1038,6 +1038,7 @@ def test_draw_summary_nested_group_shapes():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         res = GetDrawSummary().execute(ctx, page=0)
@@ -1087,6 +1088,7 @@ def test_upsert_shape_edit_nested_group_child():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         result = UpsertShape().execute(ctx, action="edit", index="1.1.0", text="star")
@@ -1114,6 +1116,7 @@ def test_delete_shape_group_child_and_page_shape():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
@@ -1140,6 +1143,7 @@ def test_shape_delete_by_name_and_index_wins():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = DeleteShape().execute(ctx, index=0, name="Target")
@@ -1153,6 +1157,7 @@ def test_shape_delete_unknown_name_hint():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._page_shape_names", return_value=["Title", "Titl"]):
@@ -1181,6 +1186,7 @@ def test_shape_connect_group_align_distribute_by_name():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     ctx.ctx = MagicMock()
     ctx.active_page_index = 0
 
@@ -1237,6 +1243,7 @@ def test_shape_group_nested_ref_does_not_group():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     ctx.ctx = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
@@ -1254,6 +1261,7 @@ def test_shape_group_rejects_duplicate_indices():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = False
     ctx.ctx = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b

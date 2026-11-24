@@ -147,3 +147,32 @@ def test_frame_delete_warns_when_recording_and_not_when_off_uno(ctx, doc):
         assert not doc.getTextFrames().hasByName("RecFrame2")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_insert_as_char_and_paragraph_while_recording_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_inline = FrameInsert().execute(
+            tool_ctx, target="beginning", name="InlineFrame", text="InlineText", width_mm=40.0, height_mm=20.0, anchor_type=1
+        )
+        assert res_inline["status"] == "ok"
+        assert res_inline["tracked"] is True and res_inline["pending_review"] is True
+        assert doc.getTextFrames().hasByName("InlineFrame")
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert not doc.getTextFrames().hasByName("InlineFrame")
+
+        res_para = FrameInsert().execute(
+            tool_ctx, target="beginning", name="ParaFrame", text="KeepMe", width_mm=40.0, height_mm=20.0, anchor_type=0
+        )
+        assert res_para["status"] == "ok"
+        assert res_para["tracked"] is False and "warning" in res_para
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getTextFrames().hasByName("ParaFrame")
+        assert doc.getTextFrames().getByName("ParaFrame").getText().getString() == "KeepMe"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

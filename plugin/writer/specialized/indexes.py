@@ -32,9 +32,15 @@ from typing import Any, Callable, cast
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value
 
-from plugin.writer.edit_review import collapsed_anchor, next_agent_edit_undo_title
+from plugin.writer.edit_review import (
+    collapsed_anchor,
+    flag_untracked,
+    next_agent_edit_undo_title,
+    range_has_tracked_insert_or_delete,
+)
 from plugin.writer.html_import import content_has_markup, replace_preserving_format
 from plugin.writer.hyperlink_fixup import (
     LINK_STYLE_PROPS,
@@ -294,13 +300,35 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         doc = ctx.doc
         indexes = doc.getDocumentIndexes()
         count = indexes.getCount()
+        # sw/source/core/doc/doctxm.cxx:SwTOXBaseSection::Update calls DeleteRedline on
+        # the whole index section whether or not Track Changes is recording.
+        dirty: list[str] = []
+        for i in range(count):
+            idx = indexes.getByIndex(i)
+            anchor = uno_read(idx.getAnchor, None)
+            if anchor is not None and range_has_tracked_insert_or_delete(anchor):
+                dirty.append(uno_read(idx.getName, "index_%d" % i))
+        if dirty:
+            return self._tool_error(
+                "Cannot update indexes while %s contain(s) pending tracked insertions or deletions, "
+                "because rebuilding the index would discard them. Ask the user to accept or reject "
+                "those tracked changes first." % ", ".join(dirty),
+                code="INDEX_HAS_TRACKED_CHANGES",
+            )
         refreshed = []
         for i in range(count):
             idx = indexes.getByIndex(i)
             idx.update()
-            name = uno_read(lambda: idx.getName(), "index_%d" % i)
+            name = uno_read(idx.getName, "index_%d" % i)
             refreshed.append(name)
-        return {"status": "ok", "refreshed": refreshed, "count": count}
+        result: dict[str, Any] = {"status": "ok", "refreshed": refreshed, "count": count}
+        if count > 0:
+            flag_untracked(
+                result,
+                doc,
+                _("The index rebuild is not recorded as a tracked change (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result
 
 
 def _contained(text: Any, outer: Any, inner: Any) -> bool:

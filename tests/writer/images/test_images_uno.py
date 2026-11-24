@@ -277,3 +277,27 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         finally:
             save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_insert_frame_while_recording_accept_and_reject_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.images.image_tools import insert_image
+
+    logo = _logo_path()
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        insert_image(ctx, doc, logo, width_px=64, height_px=64, title="Cap", description="", add_frame=True)
+        assert doc.getTextFrames().getCount() == 1
+        assert doc.getGraphicObjects().getCount() == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getTextFrames().getCount() == 0
+        assert doc.getGraphicObjects().getCount() == 0
+
+        insert_image(ctx, doc, logo, width_px=64, height_px=64, title="Cap", description="", add_frame=True)
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getTextFrames().getCount() == 1
+        assert doc.getGraphicObjects().getCount() == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

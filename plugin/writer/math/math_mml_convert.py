@@ -14,6 +14,7 @@ from typing import Any
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import get_desktop
+from plugin.writer.record_changes import insert_recorded_content
 
 log = logging.getLogger("writeragent.writer")
 
@@ -175,7 +176,7 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
     embed.CLSID = MATH_CLSID
     embed.AnchorType = _ANCHOR_AS_CHARACTER
-    text.insertTextContent(cursor, embed, False)
+    insert_recorded_content(model, text, cursor, embed)
 
     inner = embed.getEmbeddedObject()
     inner.Formula = starmath

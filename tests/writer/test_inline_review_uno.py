@@ -611,3 +611,48 @@ def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ct
     assert doc.getTextTables().getCount() == 1
     assert "Replace me" not in doc.getText().getString()
 
+
+@native_test
+@with_native_doc("writer")
+def test_inline_review_accept_and_reject_multi_cell_change_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.review_scan import is_agent_token
+    from plugin.writer.specialized.tables import TableDelete, TableInsert
+
+    text = doc.getText()
+    text.setString("User keeps this")
+    doc.setPropertyValue("RecordChanges", True)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(4, True)
+    cur.setString("")
+    doc.setPropertyValue("RecordChanges", False)
+    assert _redline_count(doc) == 1
+
+    prev = get_config("doc.agent_edit_review_mode")
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(tctx, rows=2, columns=2, data=[["a", "b"], ["c", "d"]])["table_name"]
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = TableDelete().execute(tctx, name=t_name)
+        assert res["status"] == "ok" and res["pending_review"] is True
+        comments = [
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+            for i in range(doc.getRedlines().getCount())
+        ]
+        tok = next(c for c in comments if is_agent_token(c))
+        res_rej, _after = resolve_agent_change(doc, ctx, tok, accept=False)
+        assert res_rej.status == ResolveStatus.RESOLVED, res_rej
+        assert doc.getTextTables().hasByName(t_name)
+        assert _redline_count(doc) == 1  # user's redline preserved
+
+        res2 = TableDelete().execute(tctx, name=t_name)
+        assert res2["status"] == "ok"
+        resolved, _msg = resolve_all_with_feedback(doc, ctx, True)
+        assert resolved == 1
+        assert not doc.getTextTables().hasByName(t_name)
+        assert _redline_count(doc) == 1  # user's redline preserved
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+

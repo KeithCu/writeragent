@@ -1308,3 +1308,31 @@ def test_shape_create_diagram_arrowheads_uno(ctx, doc):
     assert plain_conn.getPropertyValue("LineEndName") == ""
     assert len(plain_conn.getPropertyValue("LineEnd").Coordinates) == 0
 
+
+@native_test
+@with_native_doc("writer")
+def test_shape_delete_writer_picture_while_recording_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.images.image_tools import insert_image_at_locator
+    from tests.writer.images.test_images_uno import _logo_path
+
+    insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
+    assert doc.getGraphicObjects().getCount() == 1
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = DeleteShape().execute(tctx, index=0)
+        assert res["status"] == "ok"
+        assert res["tracked"] is True and res["pending_review"] is True
+        assert doc.getRedlines().getCount() >= 1
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
+
+        res2 = DeleteShape().execute(tctx, index=0)
+        assert res2["status"] == "ok" and res2["tracked"] is True
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+

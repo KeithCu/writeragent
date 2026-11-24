@@ -29,8 +29,10 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
-from ..edit_review import flag_untracked_delete
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
+from ..edit_review import flag_untracked, flag_untracked_delete
 from ..search import text_box_shapes
 from ..specialized_base import ToolWriterTextFramesBase, target_params
 from ..target_resolver import insert_at_target
@@ -333,17 +335,23 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
+        recorded = anchor_type == 1 and is_recording_changes(doc)
+
         def mutate(cursor: Any) -> dict[str, Any] | None:
             host = cursor.getText()
-            host.insertTextContent(cursor, frame, False)
+            if anchor_type == 1:
+                insert_recorded_content(doc, host, cursor, frame)
+            else:
+                host.insertTextContent(cursor, frame, False)
             if frame_name:
                 # XNamed::setName is valid only after the frame is anchored (not a Name property).
                 frame.setName(frame_name)
             if text:
-                frame_text = frame.getText()
-                frame_cursor = frame_text.createTextCursor()
-                frame_cursor.gotoStart(False)
-                frame_text.insertString(frame_cursor, text, False)
+                with record_changes(doc, False):
+                    frame_text = frame.getText()
+                    frame_cursor = frame_text.createTextCursor()
+                    frame_cursor.gotoStart(False)
+                    frame_text.insertString(frame_cursor, text, False)
             return None
 
         err = insert_at_target(
@@ -359,7 +367,17 @@ class FrameInsert(ToolWriterTextFramesBase):
             return err
 
         inserted_name = frame_name or frame.getName() or ""
-        return {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
+        result: dict[str, Any] = {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        else:
+            flag_untracked(
+                result,
+                doc,
+                _("This text frame was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result
 
 
 class FrameDelete(ToolWriterTextFramesBase):

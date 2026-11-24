@@ -185,3 +185,40 @@ def test_insert_formula_display_block_centered_and_keeps_alignment(ctx: Any, doc
             assert paragraphs[0].getPropertyValue("ParaAdjust") == initial_adjust
             assert paragraphs[2].getPropertyValue("ParaAdjust") == initial_adjust  # Right (not 0)
 
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_formula_inserts_reject_and_accept_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    text.setString("hello")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        # Formula-only insert -> Reject removes it.
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        insert_writer_math_formula(doc, cur, "x^2", display_block=False)
+        assert _embed_count(doc) == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _embed_count(doc) == 0
+        assert text.getString() == "hello"
+
+        # Inline formula -> Accept keeps it.
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        insert_writer_math_formula(doc, cur, "a + b", display_block=False)
+        assert _embed_count(doc) == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert _embed_count(doc) == 1
+
+        # Display formula -> Reject removes it.
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        insert_writer_math_formula(doc, cur, "c = d", display_block=True)
+        assert _embed_count(doc) == 2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _embed_count(doc) == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+

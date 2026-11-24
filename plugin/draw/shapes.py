@@ -22,10 +22,20 @@ import logging
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from plugin.calc.base import ToolCalcShapeBase
-from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
-from plugin.framework.i18n import _
-from plugin.writer.edit_review import flag_untracked_delete
+from plugin.doc.visual_helpers import (
+    SHAPE_TOOL_UNO_SERVICES,
+    TRACKED_IMAGE_DELETE_MESSAGE,
+    WRITER_GRAPHIC_SERVICE,
+    apply_character_properties,
+    delete_graphic,
+    parse_color_to_uno_int,
+)
+from plugin.framework.doc_type import is_writer
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.i18n import N_, _
+from plugin.writer.edit_review import flag_untracked
+from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -742,6 +752,9 @@ _CREATE_SHAPE_SHAPE_TYPE_DESC = (
 )
 
 _OUTSIDE_PAGE_WARNING = "Shape is outside the page bounds."
+_UNTRACKED_SHAPE_INSERT_WARNING = N_(
+    "This shape was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."
+)
 
 
 def _outside_page(page: Any, shape: Any) -> bool:
@@ -964,6 +977,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if _outside_page(page, shape):
             result["warnings"] = result.get("warnings", []) + [_OUTSIDE_PAGE_WARNING]
 
+        flag_untracked(result, ctx.doc, _(_UNTRACKED_SHAPE_INSERT_WARNING))
         return result
 
     elif action == "edit":
@@ -1112,6 +1126,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
     }
     if failed_props:
         res["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
+    flag_untracked(res, ctx.doc, _(_UNTRACKED_SHAPE_INSERT_WARNING))
     return res
 
 
@@ -1445,6 +1460,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
         out: dict[str, Any] = {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout_name, "nodes": created, "id_to_index": id_to_index, "connections": connected}
         if warnings:
             out["warnings"] = list(dict.fromkeys(warnings))
+        flag_untracked(out, ctx.doc, _(_UNTRACKED_SHAPE_INSERT_WARNING))
         return out
 
 
@@ -1484,18 +1500,39 @@ class DeleteShape(_AnyDocumentShapeTool):
         if err_res is not None:
             return err_res
         assert parent is not None and shape is not None
+        picture = is_writer(ctx.doc) and uno_read(lambda: shape.supportsService(WRITER_GRAPHIC_SERVICE), False)
         try:
-            parent.remove(shape)
+            if picture:
+                def remove() -> bool:
+                    if is_recording_changes(ctx.doc):
+                        delete_graphic(ctx.ctx, ctx.doc, shape)
+                        return True
+                    parent.remove(shape)
+                    return False
+
+                tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, ctx.ctx, remove))
+            else:
+                parent.remove(shape)
+                tracked = False
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc), code=exc.code)
         except Exception as exc:
             if is_disposal(exc):
                 raise
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
+        if tracked:
+            return {
+                "status": "ok",
+                "message": TRACKED_IMAGE_DELETE_MESSAGE,
+                "page": actual_idx,
+                "tracked": True,
+                "pending_review": True,
+            }
         result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
-        flag_untracked_delete(
+        flag_untracked(
             result,
             ctx.doc,
-            "shape",
-            message=_("This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            _("This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
         )
         return result
