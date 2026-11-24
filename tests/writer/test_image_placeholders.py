@@ -352,26 +352,118 @@ def test_restore_region_images_at_page_nodata_and_in_region_dispose():
 def test_restore_image_placeholders_updates_hyperlink_from_marker():
     from plugin.writer import image_placeholders
 
-    model = MagicMock()
-    found = MagicMock()
-    found.getPropertyValue.side_effect = lambda k: "https://new.example" if k == "HyperLinkURL" else ""
-    search = MagicMock()
-    model.createSearchDescriptor.return_value = search
+    def _run(kept_image, marker_props):
+        model = MagicMock()
+        found = MagicMock()
+        found.getPropertyValue.side_effect = lambda k: marker_props.get(k, "")
+        with (
+            patch.object(image_placeholders, "_find_marker", return_value=found),
+            patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True),
+            patch.object(image_placeholders, "_insert_copy") as ins,
+        ):
+            image_placeholders._restore_image_placeholders(model, [kept_image])
+        return found, ins.call_args.kwargs["props"]
 
-    kept_linked = image_placeholders._KeptImage(
+    # Originally linked and URL changed: name and target kept.
+    kept_changed = image_placeholders._KeptImage(
         "m1", "Pic1", MagicMock(), "G1", MagicMock(value="AT_PARAGRAPH"), MagicMock(),
-        {"HyperLinkURL": "https://old.example"},
+        {"HyperLinkURL": "https://old.example", "HyperLinkName": "nm", "HyperLinkTarget": "_blank"},
     )
-    kept_unlinked = image_placeholders._KeptImage(
+    _, props = _run(kept_changed, {"HyperLinkURL": "https://new.example"})
+    assert props["HyperLinkURL"] == "https://new.example"
+    assert props["HyperLinkName"] == "nm"
+    assert props["HyperLinkTarget"] == "_blank"
+
+    # Originally linked and marker URL empty: all three cleared.
+    _, props = _run(kept_changed, {"HyperLinkURL": ""})
+    assert props["HyperLinkURL"] == ""
+    assert props["HyperLinkName"] == ""
+    assert props["HyperLinkTarget"] == ""
+
+    # linked=True and originally unlinked: all three taken from marker, marker link cleared.
+    kept_wrapped = image_placeholders._KeptImage(
         "m2", "Pic2", MagicMock(), "G2", MagicMock(value="AT_PARAGRAPH"), MagicMock(),
+        {}, linked=True,
+    )
+    found, props = _run(
+        kept_wrapped,
+        {"HyperLinkURL": "https://new.example", "HyperLinkName": "n2", "HyperLinkTarget": "_blank"},
+    )
+    assert props["HyperLinkURL"] == "https://new.example"
+    assert props["HyperLinkName"] == "n2"
+    assert props["HyperLinkTarget"] == "_blank"
+    found.setPropertyValue.assert_called_once_with("HyperLinkURL", "")
+
+    # Not linked and originally unlinked: link props untouched.
+    kept_unlinked = image_placeholders._KeptImage(
+        "m3", "Pic3", MagicMock(), "G3", MagicMock(value="AT_PARAGRAPH"), MagicMock(),
         {},
     )
-    with (
-        patch.object(image_placeholders, "_find_marker", return_value=found),
-        patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True),
-        patch.object(image_placeholders, "_insert_copy") as ins,
-    ):
-        image_placeholders._restore_image_placeholders(model, [kept_linked, kept_unlinked])
+    found, props = _run(kept_unlinked, {"HyperLinkURL": "https://text.example"})
+    assert "HyperLinkURL" not in props
+    found.setPropertyValue.assert_not_called()
 
-    assert ins.call_args_list[0].kwargs["props"]["HyperLinkURL"] == "https://new.example"
-    assert "HyperLinkURL" not in ins.call_args_list[1].kwargs["props"]
+
+@pytest.mark.parametrize(("markup", "want_linked", "check_clean"), [
+    (
+        '<a href="https://a/1">\n<!--Next \'div\' is a draw:frame. -->\n'
+        '<div id="Pic1"><img src=""/></div><div style="clear:both;">&nbsp;</div></a>',
+        [True], False,
+    ),
+    (
+        '\n<!--Next \'div\' is a draw:frame. -->\n<a href="https://a/2">'
+        '<div id="Pic1"><img src=""/></div></a><div style="clear:both;">&nbsp;</div>',
+        [True], True,
+    ),
+    (
+        '\n<!--Next \'span\' is a draw:frame. -->\n<a href="https://a/3" target="_blank">'
+        '<span id="Pic1"><img src=""/></span></a>',
+        [True], True,
+    ),
+    ("<a href='https://a/4'><div id=\"Pic1\"><img src=\"\"/></div></a>", [True], False),
+    (
+        '<a href="https://outer"><a href="https://inner"><div id="Pic1"><img src=""/></div></a></a>',
+        [True], False,
+    ),
+    (
+        '<a href="https://a/5"><span id="Pic1"><img src=""/></span><span id="Pic2"><img src=""/></span></a>',
+        [True, True], False,
+    ),
+    ('<a href="https://t/1">before <span id="Pic1"><img src=""/></span> after</a>', [False], False),
+    ('<a href="https://t/2"><span id="Pic1"><img src=""/></span> after</a>', [False], False),
+    ('<a name="bm"><div id="Pic1"><img src=""/></div></a>', [False], False),
+    ('<a data-href="https://t/3"><div id="Pic1"><img src=""/></div></a>', [False], False),
+])
+def test_capture_placeholder_images_detects_picture_links(markup, want_linked, check_clean):
+    from plugin.writer.image_placeholders import capture_placeholder_images
+
+    swapped, kept = capture_placeholder_images(_graphics_doc("Pic1", "Pic2"), markup)
+    assert [k.linked for k in kept] == want_linked
+    if check_clean:
+        assert "draw:frame" not in swapped
+        assert "clear:both" not in swapped
+
+
+def test_capture_placeholder_images_keeps_horizontal_space_before_closing_a():
+    from plugin.writer.image_placeholders import capture_placeholder_images
+
+    swapped_space, kept_space = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/6"><span id="Pic1"><img src=""/></span> </a>caption',
+    )
+    assert [k.linked for k in kept_space] == [True]
+    assert swapped_space.endswith("</a> caption")
+
+    swapped_nl, kept_nl = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/7"><span id="Pic1"><img src=""/></span>\n</a>caption',
+    )
+    assert [k.linked for k in kept_nl] == [True]
+    assert swapped_nl.endswith("</a>caption")
+
+    swapped_crlf, kept_crlf = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/8"><span id="Pic1"><img src=""/></span>\r\n</a>caption',
+    )
+    assert [k.linked for k in kept_crlf] == [True]
+    assert swapped_crlf.endswith("</a>caption")
