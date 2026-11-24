@@ -1783,7 +1783,7 @@ def test_specialized_runner_decoder_modes(mode, outcome):
         elif mode == "writing_plan":
             mock_registry.execute.return_value = {"status": "finished", "result": "Done"}
         elif mode == "ppt-master":
-            mock_registry.execute.return_value = {"status": "finished", "result": "Done", "exported": True}
+            mock_registry.execute.return_value = {"status": "finished", "result": "Done"}
     else:  # error
         mock_registry.execute.return_value = {"status": "error", "message": "something failed"}
 
@@ -1812,7 +1812,6 @@ def test_specialized_runner_decoder_modes(mode, outcome):
         assert finished_key == mode
         assert payload["mode_finished"] == mode
         assert payload["spec_saved"] is (mode == "brainstorming")
-        assert "exported" not in payload
     else:
         assert "something failed" in content
         if mode in ("librarian", "brainstorming", "writing_plan", "ppt-master"):
@@ -1821,7 +1820,6 @@ def test_specialized_runner_decoder_modes(mode, outcome):
             assert finished_key == mode
             assert payload["mode_finished"] == mode
             assert payload["spec_saved"] is False
-            assert "exported" not in payload
         else:
             panel._sidebar_mode.on_mode_finished.assert_not_called()
 

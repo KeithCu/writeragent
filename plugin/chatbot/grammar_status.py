@@ -10,6 +10,13 @@ from typing import Any, Literal
 
 _GRAMMAR_STATUS_PREVIEW_CHARS = 10
 _GRAMMAR_STATUS_RESULT_CHARS = 120
+_GRAMMAR_PREFIX = "Grammar:"
+_LANGUAGE_PREFIX = "Language:"
+
+
+def is_grammar_status(text: str) -> bool:
+    """True when the sidebar status text is a grammar or language-detection line."""
+    return text.startswith((_GRAMMAR_PREFIX, _LANGUAGE_PREFIX))
 
 
 def _clip_grammar_status_preview(s: str) -> str:
@@ -48,7 +55,7 @@ def format_grammar_status(data: dict[str, Any]) -> str:
     elapsed = data.get("elapsed_ms")
     area = _grammar_status_area(phase, result, preview_raw)
     preview = _clip_grammar_status_preview(preview_raw)
-    prefix = "Language:" if area == "language" else "Grammar:"
+    prefix = _LANGUAGE_PREFIX if area == "language" else _GRAMMAR_PREFIX
     if phase == "start":
         return f"{prefix} queued '{preview}' len {length}"
     if phase == "request":

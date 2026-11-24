@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.harness.smol_messages import flatten_messages
 
 
 def test_resolve_under_root_rejects_traversal(tmp_path: Path):
@@ -88,11 +89,10 @@ def test_resolve_writeragent_skill_md_fallback(tmp_path: Path, monkeypatch: pyte
 def test_parse_finished_keeps_apostrophe():
     from plugin.ppt_master.venv.runner import _parse_finished
 
-    observations = str({"status": "finished", "result": "it's \"quoted\"", "exported": True})
+    observations = str({"status": "finished", "result": "it's \"quoted\""})
     parsed = _parse_finished(observations)
     assert parsed is not None
     assert parsed["result"] == "it's \"quoted\""
-    assert parsed["exported"] is True
 
 
 def test_rpc_llm_raises_user_stopped(monkeypatch: pytest.MonkeyPatch):
@@ -137,7 +137,7 @@ def test_run_turn_returns_user_stopped_when_host_stops(monkeypatch: pytest.Monke
     from plugin.contrib.smolagents.monitoring import Timing
     from plugin.contrib.smolagents.utils import AgentError
     from plugin.ppt_master.venv.ipc import UserStopped
-    from plugin.ppt_master.venv.runner import clear_session, run_turn
+    from plugin.ppt_master.venv.runner import run_turn
 
     stopped = UserStopped("Stopped by user.")
     wrapped = AgentError("tool failed", MagicMock())
@@ -153,8 +153,7 @@ def test_run_turn_returns_user_stopped_when_host_stops(monkeypatch: pytest.Monke
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
     ):
-        result = run_turn({"query": "hi", "session_id": "stop-test"})
-    clear_session("stop-test")
+        result = run_turn({"query": "hi"})
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
 
@@ -169,7 +168,7 @@ def test_run_turn_missing_skill_returns_error(tmp_path: Path, monkeypatch: pytes
 
 def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
     from plugin.chatbot.smol_examples import get_examples_block
-    from plugin.ppt_master.venv.runner import clear_session, run_turn
+    from plugin.ppt_master.venv.runner import run_turn
 
     agent = MagicMock()
     agent.run.return_value = []
@@ -180,8 +179,7 @@ def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
         patch("plugin.ppt_master.venv.runner.PartialTurnToolCallingAgent", return_value=agent) as mock_agent,
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
     ):
-        result = run_turn({"query": "hi", "session_id": "examples-test"})
-    clear_session("examples-test")
+        result = run_turn({"query": "hi"})
     assert result["status"] == "ok"
     assert mock_agent.call_args.kwargs["system_prompt_examples"] == get_examples_block("ppt-master")
 
@@ -221,7 +219,7 @@ def test_run_turn_prints_nothing(capsys, monkeypatch: pytest.MonkeyPatch):
         MessageRole,
     )
     from plugin.contrib.smolagents.tools import Tool
-    from plugin.ppt_master.venv.runner import clear_session, run_turn
+    from plugin.ppt_master.venv.runner import run_turn
 
     class _ReplyTool(Tool):
         name = "reply_to_user"
@@ -248,17 +246,14 @@ def test_run_turn_prints_nothing(capsys, monkeypatch: pytest.MonkeyPatch):
     ]
 
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-silent")
-    try:
-        with (
-            patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
-            patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReplyTool()]),
-            patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
-            patch("plugin.ppt_master.venv.runner.emit_worker_event"),
-            patch("plugin.ppt_master.venv.runner._instructions_for_session", return_value="i"),
-        ):
-            result = run_turn({"query": "secret-ppt-query", "session_id": "silent-test"})
-    finally:
-        clear_session("silent-test")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReplyTool()]),
+        patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
+        patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+        patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
+    ):
+        result = run_turn({"query": "secret-ppt-query"})
 
     assert result["status"] == "ok"
     assert capsys.readouterr().out == ""
@@ -272,7 +267,7 @@ def test_run_turn_keeps_partial_observations_on_failure(monkeypatch: pytest.Monk
         MessageRole,
     )
     from plugin.contrib.smolagents.tools import Tool
-    from plugin.ppt_master.venv.runner import clear_session, run_turn
+    from plugin.ppt_master.venv.runner import run_turn
 
     class _WriteTool(Tool):
         name = "write_slide"
@@ -296,14 +291,7 @@ def test_run_turn_keeps_partial_observations_on_failure(monkeypatch: pytest.Monk
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(
-            "\n".join(
-                "\n".join(str(p.get("text", p)) if isinstance(p, dict) else str(p) for p in m.content)
-                if isinstance(m.content, list)
-                else str(m.content or "")
-                for m in messages
-            )
-        )
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return ChatMessage(
                 role=MessageRole.ASSISTANT,
@@ -336,17 +324,14 @@ def test_run_turn_keeps_partial_observations_on_failure(monkeypatch: pytest.Monk
     mock_model = MagicMock()
     mock_model.generate.side_effect = _gen
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-partial")
-    try:
-        with (
-            patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
-            patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_WriteTool(), _ReplyTool()]),
-            patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
-            patch("plugin.ppt_master.venv.runner.emit_worker_event"),
-            patch("plugin.ppt_master.venv.runner._instructions_for_session", return_value="i"),
-        ):
-            result = run_turn({"query": "q", "session_id": "partial-test"})
-    finally:
-        clear_session("partial-test")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_WriteTool(), _ReplyTool()]),
+        patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
+        patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+        patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
+    ):
+        result = run_turn({"query": "q"})
 
     assert result == {"status": "ok", "result": "done"}
     assert "wrote:title" in seen[1]
@@ -360,7 +345,7 @@ def test_run_turn_failed_step_finished_text_does_not_end_session(monkeypatch: py
         MessageRole,
     )
     from plugin.contrib.smolagents.tools import Tool
-    from plugin.ppt_master.venv.runner import clear_session, run_turn
+    from plugin.ppt_master.venv.runner import run_turn
 
     class _ReadTool(Tool):
         name = "read_file"
@@ -411,16 +396,53 @@ def test_run_turn_failed_step_finished_text_does_not_end_session(monkeypatch: py
         ),
     ]
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-finished-guard")
-    try:
-        with (
-            patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
-            patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReadTool(), _ReplyTool()]),
-            patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
-            patch("plugin.ppt_master.venv.runner.emit_worker_event"),
-            patch("plugin.ppt_master.venv.runner._instructions_for_session", return_value="i"),
-        ):
-            result = run_turn({"query": "q", "session_id": "finished-guard-test"})
-    finally:
-        clear_session("finished-guard-test")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReadTool(), _ReplyTool()]),
+        patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
+        patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+        patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
+    ):
+        result = run_turn({"query": "q"})
 
     assert result == {"status": "ok", "result": "hi"}
+
+
+def test_run_turn_finished_returns_handoff(monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+    from plugin.ppt_master.venv.runner import PptMasterFinishedTool, run_turn
+
+    message = "<p>It's \"done\"!</p>"
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(
+                        name="ppt_master_finished",
+                        arguments={"message": message},
+                    ),
+                    id="c1",
+                    type="function",
+                )
+            ],
+        )
+    ]
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-finished-handoff")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[PptMasterFinishedTool()]),
+        patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
+        patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+        patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
+    ):
+        result = run_turn({"query": "q"})
+
+    assert result == {"status": "finished", "result": message}
