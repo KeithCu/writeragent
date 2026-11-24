@@ -1120,7 +1120,7 @@ class _DocumentProxy:
         return _result(call_host_tool("document_list_open"))
 
     def open(self, path: str, *, as_template: bool = False) -> _Item:
-        """Open a document file in LibreOffice from an absolute path or file:// URL. If that file is already open, returns that open document without reloading it. With as_template=true, creates a new untitled document from a copy of the file and leaves the file untouched (template files such as .ott/.ots/.otp always open this way). Returns the document's url and uid; pass one of them as document_url on later tool calls to keep working on it.
+        """Open a document file in LibreOffice from an absolute path or file:// URL. If that file is already open, returns that open document without reloading it. With as_template=true, creates a new untitled document from a copy of the file and leaves the file untouched (template files such as .ott/.ots/.otp always open this way). HTML opens as a Writer document; master documents, formulas and databases are not supported. Returns the document's url and uid; pass one of them as document_url on later tool calls to keep working on it.
 
         Args:
             path (required): Absolute file path or file:// URL to open.
@@ -1137,7 +1137,7 @@ class _DocumentProxy:
         return _result(call_host_tool("document_redo", steps=steps))
 
     def save(self, *, path: str | None = None) -> _Item:
-        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. An existing file is overwritten. PDF and images are export-only: use document_export.
+        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. .txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. An existing file is overwritten. PDF and images are export-only: use document_export.
 
         Args:
             path (optional): Optional target absolute file path or file:// URL. Omit to save in place.

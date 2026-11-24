@@ -23,8 +23,8 @@ from plugin.doc.document_research import (
     file_entry_for_path,
     guess_doc_type_from_path,
     open_document_for_read,
+    resolve_file_target,
     scan_nearby_files,
-    system_path_from_url,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
@@ -68,20 +68,16 @@ def resolve_grep_candidates(
     """Return (candidates, truncated_files, error_message); raises SendCancelled on Stop.
 
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``),
-    an absolute path, or a ``file://`` URL of one file.
+    an absolute path (including ``~`` expansion), or a ``file://`` URL of one file.
     """
     raw = str(file_subset).strip() if file_subset else None
 
-    if raw and raw.startswith("file:"):
-        # urlparse + url2pathname drops the host of file://server/share/...;
-        # document research already converts with uno.fileUrlToSystemPath.
-        local_path = system_path_from_url(raw)
-        if local_path and os.path.isfile(local_path):
-            return [file_entry_for_path(local_path)], False, None
-        return [], False, f"No file matching {raw!r}"
-
-    if raw and os.path.isabs(raw) and os.path.isfile(raw):
-        return [file_entry_for_path(raw)], False, None
+    if raw:
+        target = resolve_file_target(raw)
+        if target is not None and os.path.isfile(target[0]):
+            return [file_entry_for_path(target[0])], False, None
+        if raw.startswith("file:"):
+            return [], False, f"No file matching {raw!r}"
 
     listing = scan_nearby_files(
         ctx,

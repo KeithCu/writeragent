@@ -14,7 +14,7 @@ import os
 from typing import Any, NamedTuple
 
 from plugin.doc.document_research import document_entry, resolve_file_target
-from plugin.framework.doc_type import doc_type_label_for_enum, get_document_type
+from plugin.framework.doc_type import DOCUMENT_SERVICES, doc_type_label_for_enum, get_document_type
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import create_property_value, get_desktop, resolve_document_by_url
@@ -62,6 +62,50 @@ _FILTERS: dict[str, dict[str, str]] = {
 
 # Filters without the IMPORT flag: storeAsURL rejects them (ERRCODE_IO_INVALIDPARAMETER).
 _EXPORT_ONLY: frozenset[str] = frozenset({"pdf", "png", "svg"})
+
+_PLAIN_TEXT_LOSS = "Plain text keeps only the text: formatting, images, headers and footers are not in the file."
+
+# What a save in this filter leaves out of the file. document_save keeps the document on
+# that format, so every later in-place save leaves out the same content.
+_LOSSY_FILTERS: dict[str, str] = {
+    "Text": _PLAIN_TEXT_LOSS,
+    "Text (encoded)": _PLAIN_TEXT_LOSS,
+    "HTML (StarWriter)": "HTML keeps text and basic formatting; page layout and other document features may be lost.",
+    "HTML (StarCalc)": "HTML keeps displayed values and basic formatting; formulas are not in the file.",
+    "Text - txt - csv (StarCalc)": "CSV keeps the displayed values of one sheet (the active one); other sheets, formulas and formatting are not in the file.",
+}
+
+_HTML_WEB_FILTER = "HTML"
+_HTML_WRITER_FILTER = "HTML (StarWriter)"
+
+
+def _save_result(doc: Any) -> dict[str, Any]:
+    """Result of a successful save, with a warning when the document's format drops content."""
+    result: dict[str, Any] = {"status": "ok", "document": document_entry(doc)}
+    filter_name = next((p.Value for p in doc.getArgs() if p.Name == "FilterName"), "")
+    loss = _LOSSY_FILTERS.get(filter_name)
+    if loss:
+        result["warning"] = f"{loss} Later saves without path use this format too; save to an ODF path to keep everything."
+    return result
+
+
+def _detect_load_filter(uno_ctx: Any, url: str) -> tuple[str, str]:
+    """Return (filter name, document service) LibreOffice would load *url* with, or ("", "").
+
+    ReadOnly keeps detection from opening the file for writing. The streams in the
+    returned descriptor are released when this function returns, before the load.
+    """
+    smgr = uno_ctx.getServiceManager()
+    detection = smgr.createInstanceWithContext("com.sun.star.document.TypeDetection", uno_ctx)
+    _type_name, descriptor = detection.queryTypeByDescriptor(
+        (create_property_value("URL", url), create_property_value("ReadOnly", True)), True
+    )
+    filter_name = next((p.Value for p in descriptor if p.Name == "FilterName"), "")
+    if not filter_name:
+        return "", ""
+    factory = smgr.createInstanceWithContext("com.sun.star.document.FilterFactory", uno_ctx)
+    service = next(p.Value for p in factory.getByName(filter_name) if p.Name == "DocumentService")
+    return filter_name, service
 
 
 def _format_list(doc_label: str, *, save: bool) -> str:
@@ -124,6 +168,7 @@ class DocumentOpen(ToolBase):
         "If that file is already open, returns that open document without reloading it. "
         "With as_template=true, creates a new untitled document from a copy of the file and leaves the file untouched "
         "(template files such as .ott/.ots/.otp always open this way). "
+        "HTML opens as a Writer document; master documents, formulas and databases are not supported. "
         "Returns the document's url and uid; pass one of them as document_url on later tool calls to keep working on it."
     )
     tier: str = "mcp"
@@ -155,14 +200,28 @@ class DocumentOpen(ToolBase):
 
         as_template = bool(kwargs.get("as_template", False))
         if not as_template:
-            existing, _t = resolve_document_by_url(ctx.ctx, url)
+            existing, existing_type = resolve_document_by_url(ctx.ctx, url)
             if existing is not None:
+                if existing_type == "unknown":
+                    return self._tool_error(
+                        f"{path} is already open as a document type these tools cannot edit; close that window first.",
+                        code="UNSUPPORTED_DOCUMENT",
+                    )
                 return {"status": "ok", "already_open": True, "document": document_entry(existing)}
 
         try:
+            props: list[Any] = [create_property_value("AsTemplate", True)] if as_template else []
+            filter_name, service = _detect_load_filter(ctx.ctx, url)
+            if filter_name == _HTML_WEB_FILTER:
+                # HTML defaults to Writer/Web (HTML.xcu); use HTML__StarWriter_.xcu so it opens as Writer.
+                props.append(create_property_value("FilterName", _HTML_WRITER_FILTER))
+            elif service and service not in DOCUMENT_SERVICES:
+                return self._tool_error(
+                    f"{path} is not a supported document type (only Writer, Calc, Impress, and Draw are supported).",
+                    code="UNSUPPORTED_DOCUMENT",
+                )
             desktop = get_desktop(ctx.ctx)
-            props = (create_property_value("AsTemplate", True),) if as_template else ()
-            model = desktop.loadComponentFromURL(url, "_default", 0, props)
+            model = desktop.loadComponentFromURL(url, "_default", 0, tuple(props))
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -187,6 +246,7 @@ class DocumentSave(ToolBase):
         f"Calc {_format_list('calc', save=True)}; "
         f"Impress {_format_list('impress', save=True)}; "
         f"Draw {_format_list('draw', save=True)}. "
+        ".txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. "
         "An existing file is overwritten. PDF and images are export-only: use document_export."
     )
     tier: str = "mcp"
@@ -223,7 +283,7 @@ class DocumentSave(ToolBase):
                     raise
                 log.exception("document_save in-place failed")
                 return self._tool_error(f"Failed to save document: {exc}", code="SAVE_FAILED")
-            return {"status": "ok", "document": document_entry(doc)}
+            return _save_result(doc)
 
         resolved = _resolve_save_target(doc, raw_path, save=True)
         if isinstance(resolved, _FilterError):
@@ -237,7 +297,7 @@ class DocumentSave(ToolBase):
                 raise
             log.exception("document_save failed for %s", path)
             return self._tool_error(f"Failed to save to {path}: {exc}", code="SAVE_FAILED")
-        return {"status": "ok", "document": document_entry(doc)}
+        return _save_result(doc)
 
 
 class DocumentExport(ToolBase):

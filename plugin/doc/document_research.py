@@ -514,22 +514,12 @@ def resolve_path_or_name(
     if not raw:
         return None, "path_or_name is required"
 
-    # The tool schema accepts a file URL, and research_list_nearby_files /
-    # document_list_open return ``file:///…`` urls.
-    # ``os.path.isabs("file:///…")`` is false, so the URL used as a
-    # listing filter matches nothing. ``open_document_for_read``
-    # already accepts ``file:`` URLs. Convert with the same helper
-    # the opener uses, then treat the result as an absolute path
-    # (not a basename filter).
+    # A path or file: URL names one file. Anything else is a listing filter.
+    target = resolve_file_target(raw)
+    if target is not None and os.path.isfile(target[0]):
+        return target
     if raw.startswith("file:"):
-        resolved = system_path_from_url(raw)
-        if resolved and os.path.isfile(resolved):
-            return resolved, path_to_file_url(resolved)
         return None, f"No file matching {raw!r}"
-
-    if os.path.isabs(raw) and os.path.isfile(raw):
-        norm = _normalize_path(raw)
-        return norm, path_to_file_url(norm)
 
     listing = scan_nearby_files(ctx, active_model, filter=raw)
     if listing.get("status") != "ok":
