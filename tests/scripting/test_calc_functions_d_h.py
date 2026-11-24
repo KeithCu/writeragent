@@ -156,6 +156,9 @@ def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "abc") == "#VALUE!"
     assert calc.growth([]) == "#VALUE!"
     assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
+    assert calc.growth(5, 3) == "#VALUE!"
+    assert calc.growth(5) == "#VALUE!"
+    assert math.isclose(calc.growth(5, 3, 4, False)[0], math.exp(math.log(5.0) * 4.0 / 3.0), rel_tol=1e-9)
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
 
 
@@ -552,10 +555,32 @@ def test_frequency_conversion_error_is_value():
 
 
 def test_filter_criteria_truthiness():
-    assert calc.filter([1, 2], ["0", 1]) == [2]
+    import struct
+    import numpy as np
+    from plugin.scripting.calc_range import CalcRange
+    from plugin.scripting.venv.calc_functions_util import NA_NAN
+
+    assert calc.filter([1, 2], ["0", 1]) == "#VALUE!"
+    assert calc.filter([1, 2], ["1", 1]) == "#VALUE!"
     assert calc.filter([1, 2], ["text", 1]) == "#VALUE!"
-    assert calc.filter([[1, 2], [3, 4]], ["0", 1]) == [[3, 4]]
-    assert calc.filter([[1, 2], [3, 4]], [["0"], [1]]) == [[3, 4]]
+    assert calc.filter([[1, 2], [3, 4]], ["0", 1]) == "#VALUE!"
+    assert calc.filter([[1, 2], [3, 4]], [["0"], [1]]) == "#VALUE!"
+
+    assert calc.filter([1, 2, 3], [-1, 1, 0]) == [2]
+    assert calc.filter([1, 2, 3], [0.5, 0, -0.5]) == [1]
+    assert calc.filter([1, 2], [None, 1]) == [2]
+    assert calc.filter([1, 2], ["", 1]) == [2]
+    assert calc.filter([1, 2], np.array([False, True])) == [2]
+
+    nan_res = calc.filter([1, 2], [float("nan"), 1])
+    assert isinstance(nan_res, float) and math.isnan(nan_res)
+
+    na_res = calc.filter([1, 2], [NA_NAN, 1])
+    assert isinstance(na_res, float) and math.isnan(na_res)
+    assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFFFFFF) == 0x7FFF
+
+    cr_include = CalcRange([[None], [1.0]])
+    assert calc.filter([[10], [20]], cr_include) == [[20]]
 
 
 def test_duration_and_mduration_excel_doc_examples():

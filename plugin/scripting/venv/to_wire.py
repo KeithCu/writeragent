@@ -370,6 +370,22 @@ def to_wire(
                 seen.discard(oid)
 
         # 9. Scalars
+        # np.str_, np.bytes_, and np.complex128 subclass the leaf types but pickle as numpy globals;
+        # convert numpy scalars via .item() before the HOST_PICKLE_LEAF_TYPES pass-through.
+        if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
+            try:
+                plain = val.item()
+            except Exception:
+                plain = val
+            if plain is not val and not isinstance(plain, np_mod.generic):
+                return _walk(plain, depth, is_packing_root)
+
+        if type(val).__name__ == "clongdouble":
+            raise ValueError(
+                "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
+                ".item() returns another clongdouble, not a builtin complex"
+            )
+
         if isinstance(val, HOST_PICKLE_LEAF_TYPES):
             return val
 
@@ -390,19 +406,6 @@ def to_wire(
         if converted_scalar is not val:
             return _walk(converted_scalar, depth, is_packing_root)
 
-        if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
-            try:
-                plain = val.item()
-            except Exception:
-                plain = val
-            if plain is not val and not isinstance(plain, np_mod.generic):
-                return _walk(plain, depth, is_packing_root)
-
-        if type(val).__name__ == "clongdouble":
-            raise ValueError(
-                "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
-                ".item() returns another clongdouble, not a builtin complex"
-            )
         raise ValueError(
             f"Result type {type(val).__module__}.{type(val).__name__} "
             "cannot cross the LibreOffice pickle boundary"

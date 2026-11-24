@@ -26,6 +26,7 @@
   var pendingCode = "";
   var lastSaveCode = null;
   var lastSaveDataBinding = null;
+  var lastSavePlain = false;
   var pendingMarkers = [];
   var ui = {};
   var defaultStatusOkText = "Saved.";
@@ -291,19 +292,26 @@
                   saveBtn.click();
                 }
               } else if (msg.type === "saved") {
+                var dataInput = getDataBindingInput();
+                var plainBox = getPlainTextCheckbox();
+                var codeKept = getEditorCode() === lastSaveCode;
+                var dataKept = !dataInput || dataInput.value === lastSaveDataBinding;
+                var plainKept = !plainBox || plainBox.checked === lastSavePlain;
+                var stillDirty = isDirty && !(codeKept && dataKept && plainKept);
                 // Only replace text the user has not changed since clicking Save.
-                if (editor && typeof msg.code === "string" && getEditorCode() === lastSaveCode) {
+                if (editor && typeof msg.code === "string" && codeKept) {
                   suppressDirty = true;
                   editor.setValue(msg.code);
                   suppressDirty = false;
                 }
-                if (typeof msg.data_binding === "string") {
-                  var dataInput = getDataBindingInput();
-                  if (dataInput && dataInput.value === lastSaveDataBinding) {
-                    dataInput.value = msg.data_binding;
-                  }
+                if (typeof msg.data_binding === "string" && dataInput && dataKept) {
+                  dataInput.value = msg.data_binding;
                 }
+                // The host clears its own flag on each successful save, so dirty must be sent again.
                 markDirty(false);
+                if (stillDirty) {
+                  markDirty(true);
+                }
                 var okText = msg.status_ok_text || defaultStatusOkText;
                 setStatus(okText, "ok");
                 if (editor && Array.isArray(msg.markers)) {
@@ -350,9 +358,18 @@
     }
   };
 
+  function rememberSent(code) {
+    var input = getDataBindingInput();
+    var plainEl = getPlainTextCheckbox();
+    lastSaveCode = code;
+    lastSaveDataBinding = input ? input.value : "";
+    lastSavePlain = !!plainEl && plainEl.checked;
+  }
+
   document.getElementById("btn-run").addEventListener("click", function () {
     var code = getEditorCode();
     if (window.pywebview && window.pywebview.api && window.pywebview.api.notify_run) {
+      rememberSent(code);
       window.pywebview.api.notify_run(code, sessionId, currentMode, sessionTarget);
       setStatus(t("running", "Running…"), "");
     }
@@ -375,8 +392,7 @@
       // treat the ranges as cleared and rewrite =PY($A$1; C1:C10) to
       // =PY($A$1). Same rule as cell_editor_ui._save.
       var dataBinding = (followCodeRef || !saveAsPlain) ? (input ? input.value.trim() : "") : "";
-      lastSaveCode = code;
-      lastSaveDataBinding = input ? input.value : "";
+      rememberSent(code);
       window.pywebview.api.notify_save(code, saveAsPlain, dataBinding, "cell_save", sessionId, currentMode, sessionTarget);
       setStatus(pendingStatusText, "");
     }

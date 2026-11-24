@@ -32,6 +32,26 @@ def test_pickle_scalars_and_leaves():
         to_wire(decimal.Decimal("sNaN"))
 
 
+def test_pickle_numpy_scalar_subclasses_become_builtins():
+    import pickle
+
+    np = pytest.importorskip("numpy")
+    samples = [
+        np.str_("hello"),
+        [np.str_("nested")],
+        {np.str_("in_set")},
+        {"k": np.str_("val")},
+        np.bytes_(b"raw"),
+        np.complex128(1 + 2j),
+    ]
+    for sample in samples:
+        wired = to_wire(sample)
+        assert b"numpy" not in pickle.dumps(wired, protocol=5)
+    assert type(to_wire(np.str_("hello"))) is str
+    assert type(to_wire(np.bytes_(b"raw"))) is bytes
+    assert type(to_wire(np.complex128(1 + 2j))) is complex
+
+
 def test_pickle_dataframe_depth_nine():
     """Pickle converts DataFrame nested 9 or more lists deep (behaviour change from depth cap 8)."""
     pd = pytest.importorskip("pandas")

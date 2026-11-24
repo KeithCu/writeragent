@@ -705,3 +705,57 @@ def test_is_follow():
     assert is_follow("", cell_a1, cell_b1) is False
 
 
+def test_monaco_follow_on_save_updates_data_baseline():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.editor import _launch_editor_with_code
+    from plugin.calc.python.formula_edit import PyFormula
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    code_cell.setString("result = data")
+    formula_cell = sheet.getCellByPosition(1, 0)
+    formula_cell.setFormula("=PY($A$1; C1:C2)")
+    parsed = PyFormula.parse(formula_cell.getFormula())
+
+    captured = {}
+
+    def _fake_launch(_ctx, *, exe, load_message, on_save):
+        captured["on_save"] = on_save
+
+    with patch("plugin.calc.python.editor.launch_monaco_editor", side_effect=_fake_launch):
+        _launch_editor_with_code(
+            MagicMock(),
+            doc,
+            formula_cell,
+            initial_code="result = data",
+            parsed_parts=parsed,
+            exe="/usr/bin/python3",
+            code_cell=code_cell,
+            code_ref="$A$1",
+        )
+
+    on_save = captured["on_save"]
+    res1 = on_save("result = data", True, "D1:D2")
+    assert res1["type"] == "saved"
+    assert formula_cell.getFormula() == "=PY($A$1;D1:D2)"
+
+    res2 = on_save("result = data", True, "C1:C2")
+    assert res2["type"] == "saved"
+    assert formula_cell.getFormula() == "=PY($A$1;C1:C2)"
+
+
+def test_parts_after_save_preserves_dollar_and_error_keeps_old():
+    from plugin.calc.python.editor import parts_after_save
+    from plugin.calc.python.formula_edit import PyFormula
+
+    parsed = PyFormula.parse("=PY($A$1; $C$1)")
+    assert parsed is not None
+    updated = parts_after_save(parsed, {"type": "saved"}, "$C$1")
+    assert updated is not None
+    assert updated.data_suffix == ";$C$1)"
+
+    err_kept = parts_after_save(updated, {"type": "error", "message": "boom"}, "D1")
+    assert err_kept == updated
+
+

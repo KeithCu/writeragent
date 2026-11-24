@@ -468,9 +468,21 @@ def test_py_addin_token_formula_errors(ctx, doc):
     try:
         for row_idx, (token, _expected_err) in enumerate(cases):
             sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
+        sheet.getCellByPosition(0, 2).setFormula('=PY("result=calc.na()")')
+        sheet.getCellByPosition(0, 3).setFormula('=PY("result=calc.xmatch(9,[1,2])")')
+        sheet.getCellByPosition(1, 2).setFormula("=ISNA(A3)")
+        sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
+        sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
+        sheet.getCellByPosition(2, 3).setFormula('=IFNA(A4;"na")')
         doc.calculateAll()
         for row_idx, (_token, expected_err) in enumerate(cases):
             assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
+        assert sheet.getCellByPosition(0, 2).getError() == 32767
+        assert sheet.getCellByPosition(0, 3).getError() == 32767
+        assert sheet.getCellByPosition(1, 2).getValue() == 1.0
+        assert sheet.getCellByPosition(1, 3).getValue() == 1.0
+        assert sheet.getCellByPosition(2, 2).getString() == "na"
+        assert sheet.getCellByPosition(2, 3).getString() == "na"
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
@@ -517,6 +529,27 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
 
         # A1 is still the =PY() formula
         assert "PY" in cell_a1.getFormula()
+
+        # Spill neighbour with NA_NAN (e.g. calc.na()) -> error 32767 and ISNA 1.
+        from plugin.scripting.venv.calc_functions_util import NA_NAN
+
+        cell_d1 = sheet.getCellByPosition(3, 0)
+        cell_d1.setFormula('=PY("result = [[1, calc.na()]]")')
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            3,
+            [[1, NA_NAN]],
+            doc=doc,
+            sheet=sheet,
+            code="result = [[1, calc.na()]]",
+            key=WorkbookState.for_doc(doc).key,
+        )
+        sheet.getCellByPosition(4, 1).setFormula("=ISNA(E1)")
+        doc.calculateAll()
+        cell_e1 = sheet.getCellByPosition(4, 0)
+        assert cell_e1.getError() == 32767
+        assert sheet.getCellByPosition(4, 1).getValue() == 1.0
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
