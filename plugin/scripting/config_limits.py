@@ -46,6 +46,10 @@ LONG_TRUSTED_WORKER_TIMEOUT_SEC = 300
 # both engines.
 VISION_WORKER_TIMEOUT_SEC = 120
 DOCLING_WORKER_TIMEOUT_SEC = 300
+# Room for Docling import, model load and result mapping on top of
+# vision.document_timeout, whose clock covers only page processing;
+# document_timeout's schema max plus this equals the python_exec_timeout ceiling.
+DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC = 60
 LANGUAGETOOL_WORKER_TIMEOUT_SEC = 15
 VALE_WORKER_TIMEOUT_SEC = 25
 

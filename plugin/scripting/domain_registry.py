@@ -17,7 +17,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
@@ -100,20 +103,22 @@ class DomainWiring:
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
 
     def insert(self, ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
+        """Insert *result* and return the inserter's row or item count, or vision's ``VisionInsertOutcome``."""
         fn = _resolve_module_attr(self.insert_ref)
         # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
         # would pass the component context to calc_anchor_from_selection, which
         # fails, and the Run Python Script dialog would report an insert error.
         args = (doc, ctx) if self.post_venv_calc_only else (ctx, doc)
-        ret = fn(*args, result, **kwargs)
-        # An inserter may return a non-integer after a successful insert;
-        # int(ret) would raise and the UI would show "Failed to insert result".
-        # Return ret only when it is already an int and not a bool, else None.
-        if isinstance(ret, int) and not isinstance(ret, bool):
-            return ret
-        return None
+        return fn(*args, result, **kwargs)
 
-    def format_ok(self, *, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
+    def format_ok(
+        self,
+        *,
+        result: dict[str, Any],
+        t0: float,
+        insert_outcome: int | VisionInsertOutcome | None = None,
+        stdout: str | None = None,
+    ) -> dict[str, Any]:
         helper = str(result.get("helper") or self.id)
 
         if self.format_ok_kind == "plot":
@@ -131,25 +136,30 @@ class DomainWiring:
 
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
         if self.format_ok_kind == "vision":
-            metrics_raw = result.get("metrics")
-            metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
-            line_count = metrics.get("line_count")
-            if line_count is None and helper == "extract_structure":
-                line_count = metrics.get("block_count")
-            if line_count is None:
-                line_count = _vision_html_block_count(str(result.get("html") or ""))
-            if helper == "extract_structure":
-                table_count = metrics.get("table_count", 0)
-                status_ok = _("Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} tables). (took {time})").format(
-                    helper=helper, blocks=line_count, tables=table_count, time=formatted_time
-                )
-            else:
-                status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
+            if insert_outcome == "empty":
+                status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
                     helper=helper, time=formatted_time
                 )
+            else:
+                metrics_raw = result.get("metrics")
+                metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
+                line_count = metrics.get("line_count")
+                if line_count is None and helper == "extract_structure":
+                    line_count = metrics.get("block_count")
+                if line_count is None:
+                    line_count = _vision_html_block_count(str(result.get("html") or ""))
+                if helper == "extract_structure":
+                    table_count = metrics.get("table_count", 0)
+                    status_ok = _("Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} tables). (took {time})").format(
+                        helper=helper, blocks=line_count, tables=table_count, time=formatted_time
+                    )
+                else:
+                    status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
+                        helper=helper, time=formatted_time
+                    )
         elif self.format_ok_kind == "rows":
             status_ok = _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                domain=self.display_label, helper=helper, rows=row_count or 0, time=formatted_time
+                domain=self.display_label, helper=helper, rows=insert_outcome or 0, time=formatted_time
             )
         else:
             status_ok = _("{domain} '{helper}' completed. (took {time})").format(

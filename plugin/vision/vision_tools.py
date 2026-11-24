@@ -115,6 +115,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                     "failed_image": result.get("failed_image"),
                     "inserted": bool(result.get("inserted")),
                 }
+                if "deleted_images" in result:
+                    partial_fields["deleted_images"] = result["deleted_images"]
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
         return result

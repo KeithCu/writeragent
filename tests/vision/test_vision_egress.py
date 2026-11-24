@@ -505,9 +505,11 @@ def test_writer_delete_image_after_insert_on_removes_graphic(mock_prepare, mock_
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic) as mock_get,
         patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete,
     ):
-        insert_vision_result_into_writer(
+        outcome = insert_vision_result_into_writer(
             MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True}
         )
+
+    assert outcome == "image_deleted"
 
     mock_prepare.assert_called_once_with(doc, mock_prepare.call_args.args[1], image_name="Img1")
     mock_insert.assert_called_once()
@@ -603,9 +605,11 @@ def test_writer_delete_image_after_insert_off_keeps_graphic(mock_prepare, mock_i
     result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>"}
 
     with patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete:
-        insert_vision_result_into_writer(
+        outcome = insert_vision_result_into_writer(
             MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False}
         )
+
+    assert outcome == "inserted"
 
     mock_insert.assert_called_once()
     mock_delete.assert_not_called()
@@ -653,11 +657,17 @@ def test_calc_delete_image_after_insert_on_and_off(mock_calc_html):
 
     stack, mock_delete = _calc_egress_patches(doc, graphic, mode="html")
     with stack:
-        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
+        assert (
+            insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
+            == "image_deleted"
+        )
         mock_delete.assert_called_once_with(doc, graphic)
 
         mock_delete.reset_mock()
-        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False})
+        assert (
+            insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False})
+            == "inserted"
+        )
         mock_delete.assert_not_called()
 
 
@@ -671,12 +681,18 @@ def test_calc_structured_delete_image_after_insert_on_and_off(mock_calc_struct):
 
     stack, mock_delete = _calc_egress_patches(doc, graphic, mode="structured")
     with stack:
-        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
+        assert (
+            insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
+            == "image_deleted"
+        )
         mock_calc_struct.assert_called_once_with(doc, result, image_name="Img1")
         mock_delete.assert_called_once_with(doc, graphic)
 
         mock_delete.reset_mock()
-        insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False})
+        assert (
+            insert_vision_result(MagicMock(), doc, result, params={"image_name": "Img1", "delete_image_after_insert": False})
+            == "inserted"
+        )
         mock_delete.assert_not_called()
 
 

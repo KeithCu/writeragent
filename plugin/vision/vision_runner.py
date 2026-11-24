@@ -177,6 +177,7 @@ class VisionBatch:
     insert_into_document: bool = True
     results: list[dict[str, Any]] = field(default_factory=list)
     failures: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    deleted_images: list[str] = field(default_factory=list)
     inserted_count: int = 0
     stopped_early: bool = False
     cancelled: bool = False
@@ -190,6 +191,8 @@ class VisionBatch:
                 err_out["inserted"] = self.inserted_count > 0
                 err_out["partial"] = True
                 err_out["individual_results"] = list(self.results)
+                if self.deleted_images:
+                    err_out["deleted_images"] = list(self.deleted_images)
             return err_out
 
         if self.failures:
@@ -203,6 +206,8 @@ class VisionBatch:
             failed["inserted"] = self.inserted_count > 0
             failed["partial"] = bool(self.results)
             failed["individual_results"] = list(self.results)
+            if self.deleted_images:
+                failed["deleted_images"] = list(self.deleted_images)
             if len(self.target_names) > 1:
                 failed["message"] = _("OCR failed for {failed} ({error}); {count} of {total} images completed.").format(
                     failed=", ".join(failed_names),
@@ -252,6 +257,8 @@ class VisionBatch:
         if self.stopped_early:
             res_out["stopped"] = True
             res_out["partial"] = True
+        if self.deleted_images:
+            res_out["deleted_images"] = list(self.deleted_images)
         return res_out
 
 
@@ -321,8 +328,11 @@ def run_and_insert_vision_for_selection(
 
                     return insert_vision_result(ctx, doc, res, params=per_insert)
 
-                if main.call(_insert, bound_scope=None) != "empty":
+                outcome = main.call(_insert, bound_scope=None)
+                if outcome != "empty":
                     batch.inserted_count += 1
+                if outcome == "image_deleted":
+                    batch.deleted_images.append(image_name)
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}

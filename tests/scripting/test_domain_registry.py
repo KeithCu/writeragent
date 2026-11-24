@@ -161,8 +161,7 @@ def test_is_reserved_script_name():
         assert is_reserved_script_name(f"{prefix} test") is True
 
 
-def test_rps_spec_insert_returns_int_only_when_int():
-    # Insert helpers must accept only int returns, not bool, because bool is a subclass of int.
+def test_rps_spec_insert_forwards_return_value():
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")
@@ -170,11 +169,46 @@ def test_rps_spec_insert_returns_int_only_when_int():
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: 42):
         assert wiring.insert(object(), object(), {}) == 42
 
-    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: True):
-        assert wiring.insert(object(), object(), {}) is None
+    with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: "empty"):
+        assert wiring.insert(object(), object(), {}) == "empty"
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: None):
         assert wiring.insert(object(), object(), {}) is None
+
+
+def test_try_rps_post_venv_vision_empty_reports_not_inserted():
+    from unittest.mock import MagicMock
+
+
+    from plugin.scripting.python_runner import try_rps_post_venv
+
+    wiring = get_domain_wiring("vision")
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+
+    for helper in ("extract_text", "extract_structure"):
+        result_data = {
+            "status": "ok",
+            "helper": helper,
+            "full_text": "",
+            "tables": [],
+            "html": "<h1>image</h1><p></p>",
+            "metrics": {"line_count": 0, "block_count": 0, "table_count": 0},
+        }
+        out = try_rps_post_venv(wiring, ctx=MagicMock(), doc=doc, result_data=result_data, t0=0.0, stdout=None)
+        assert out is not None
+        assert "not inserted" in out["status_ok_text"]
+        assert "Inserted" not in out["status_ok_text"]
+
+
+def test_vision_format_ok_inserted_outcome_keeps_inserted_message():
+    wiring = get_domain_wiring("vision")
+    out = wiring.format_ok(
+        result={"helper": "extract_text", "html": "<p>hi</p>"},
+        t0=0.0,
+        insert_outcome="inserted",
+    )
+    assert "Inserted formatted HTML" in out["status_ok_text"]
 
 
 def test_picker_supports_matches_post_venv_calc_only():

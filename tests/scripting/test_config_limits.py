@@ -16,6 +16,7 @@ import pytest
 from plugin.framework.deal_shim import DEAL_MAX_ARGV
 from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import (
+    DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC,
     _bounds,
     _clamp,
     configured_python_max_data_cells,
@@ -144,6 +145,14 @@ def test_clamp_rejects_unknown_field() -> None:
     from tests.harness.strip_bundle import expect_pre_or_body
 
     expect_pre_or_body(lambda: _clamp("\x00", 0), body_exc=RuntimeError)
+
+
+def test_vision_document_timeout_max_plus_margin_fits_exec_ceiling() -> None:
+    from plugin._manifest import MODULES
+
+    vision_mod = next(m for m in MODULES if isinstance(m, dict) and m.get("name") == "vision")
+    doc_timeout_max = vision_mod["config"]["document_timeout"]["max"]
+    assert doc_timeout_max + DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC <= _bounds("python_exec_timeout")[1]
 
 
 def test_data_cells_fallbacks_match_manifest() -> None:
