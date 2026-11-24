@@ -1779,12 +1779,6 @@ class FakeUndoManager:
     def isLocked(self) -> bool:
         return self.locked
 
-    def isInContext(self) -> bool:
-        return bool(self._ctx_stack)
-
-    def isUndoEnabled(self) -> bool:
-        return not self.locked
-
     def getAllUndoActionTitles(self) -> tuple[str, ...]:
         return tuple(self.titles)
 

@@ -132,12 +132,6 @@ class _InsertUndoManager:
     def isLocked(self) -> bool:
         return False
 
-    def isInContext(self) -> bool:
-        return False
-
-    def isUndoEnabled(self) -> bool:
-        return True
-
     def enterUndoContext(self, title: str) -> None:
         self._titles.insert(0, title)
 

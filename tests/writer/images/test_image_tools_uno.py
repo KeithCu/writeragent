@@ -159,18 +159,7 @@ def test_insert_image_compound_undo(ctx, doc):
     assert _graphic_count(doc) == before + 1
 
     um = doc.getUndoManager()
-    if um is None:
-        return
-    undo_enabled = False
-    try:
-        undo_enabled = um.isUndoEnabled()
-    except Exception:
-        try:
-            undo_enabled = um.isUndoPossible()
-        except Exception:
-            pass
-    if not undo_enabled:
-        return
+    assert um is not None
     um.undo()
     assert _graphic_count(doc) == before, "single undo should remove framed insert"
 
