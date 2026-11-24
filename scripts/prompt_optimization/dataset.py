@@ -14,6 +14,7 @@ and the two table tasks. See docs/eval/eval-dev-plan.md.
 """
 import sys
 from pathlib import Path
+from typing import Any
 
 # Allow importing from repo root (for constants)
 repo_root = Path(__file__).resolve().parent.parent.parent
@@ -730,31 +731,30 @@ def task_kind(task_id: str) -> str:
     return "writer"
 
 
+def _example_fields(ex: dict) -> dict[str, Any]:
+    return {
+        "document_content": ex["document_content"],
+        "user_question": ex["user_question"],
+        "task_id": ex.get("task_id", ""),
+        "expected_contains": ex.get("expected_contains", []),
+        "reject_contains": ex.get("reject_contains", []),
+        "rubric": ex.get("rubric", ""),
+        "gold_document": ex.get("gold_document", ""),
+        "is_non_trivial": ex.get("is_non_trivial", False),
+        "category": ex.get("category", "structural"),
+        "use_quality_judge": ex.get("use_quality_judge", False),
+        "backend": ex.get("backend", "string"),
+        "fixture": ex.get("fixture", ""),
+    }
+
+
 def to_eval_examples(examples=None):
     """Attribute-access examples without requiring dspy (scripted / LlmClient path)."""
     from types import SimpleNamespace
 
     if examples is None:
         examples = ALL_EXAMPLES
-    out = []
-    for ex in examples:
-        out.append(
-            SimpleNamespace(
-                document_content=ex["document_content"],
-                user_question=ex["user_question"],
-                task_id=ex.get("task_id", ""),
-                expected_contains=ex.get("expected_contains", []),
-                reject_contains=ex.get("reject_contains", []),
-                rubric=ex.get("rubric", ""),
-                gold_document=ex.get("gold_document", ""),
-                is_non_trivial=ex.get("is_non_trivial", False),
-                category=ex.get("category", "structural"),
-                use_quality_judge=ex.get("use_quality_judge", False),
-                backend=ex.get("backend", "string"),
-                fixture=ex.get("fixture", ""),
-            )
-        )
-    return out
+    return [SimpleNamespace(**_example_fields(ex)) for ex in examples]
 
 
 def _load_gold_standards(examples: list[dict]) -> list[dict]:
@@ -777,29 +777,14 @@ def _load_gold_standards(examples: list[dict]) -> list[dict]:
 ALL_EXAMPLES = _load_gold_standards(ALL_EXAMPLES)
 
 
-def to_dspy_examples(examples=None, with_inputs=True):
+def to_dspy_examples(examples):
     """Convert dict examples to dspy.Example objects. Requires dspy."""
     import dspy
-    if examples is None:
-        examples = ALL_EXAMPLES
-    out = []
-    for ex in examples:
-        e = dspy.Example(
-            document_content=ex["document_content"],
-            user_question=ex["user_question"],
-            task_id=ex.get("task_id", ""),
-            expected_contains=ex.get("expected_contains", []),
-            reject_contains=ex.get("reject_contains", []),
-            rubric=ex.get("rubric", ""),
-            gold_document=ex.get("gold_document", ""),
-            is_non_trivial=ex.get("is_non_trivial", False),
-            category=ex.get("category", "structural"),
-            use_quality_judge=ex.get("use_quality_judge", False),
-            backend=ex.get("backend", "string"),
-            fixture=ex.get("fixture", ""),
-        ).with_inputs("document_content", "user_question", "task_id") if with_inputs else dspy.Example(**ex)
-        out.append(e)
-    return out
+
+    return [
+        dspy.Example(**_example_fields(ex)).with_inputs("document_content", "user_question", "task_id")
+        for ex in examples
+    ]
 
 
 def parse_task_id_filter(spec: str | None) -> list[str] | None:

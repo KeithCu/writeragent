@@ -172,7 +172,11 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "table_from_mess": [_apply_html(_TABLE_FROM_MESS), _stop()],
     "reformat_resume": [_apply_html(_REFORMAT_RESUME), _stop()],
     "table_engineering": [_apply_html(_TABLE_ENGINEERING), _stop()],
-    "bulk_cleanup": [_apply_html(_BULK_CLEANUP), _stop()],
+    # HTML import collapses plain double spaces; &nbsp; keeps the CMD line's spacing.
+    "bulk_cleanup": [
+        _apply_html(_BULK_CLEANUP.replace("git  log  --oneline", "git&nbsp; log&nbsp; --oneline")),
+        _stop(),
+    ],
     "logical_rewriting": [_apply_html(_LOGICAL_REWRITING), _stop()],
     "format_preservation": [_apply_html(_FORMAT_PRESERVATION), _stop()],
     "style_application": [_apply_html(_STYLE_APPLICATION), _stop()],

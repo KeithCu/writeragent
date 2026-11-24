@@ -27,7 +27,7 @@ Create and delete obtain the chart host adapter from `chart_host`; delete does n
 Charts live in different container structures depending on the host application:
 
 - **Calc sheets (`calc_sheet`)**: Charts are embedded table charts (`ScChartObj`) belonging to an individual sheet's `XTableCharts` collection. Deletion is performed via `sheet.getCharts().removeByName(name)`.
-- **Writer body text (`writer_embed`)**: Charts inserted into Writer documents are inline `TextEmbeddedObject` instances in the text body. Deletion removes the text content from the text that anchors it via `host.getAnchor().getText().removeTextContent(host)` (body, frame, or table cell), with the embedded-objects container as the fallback.
+- **Writer body text (`writer_embed`)**: Charts inserted into Writer documents are inline `TextEmbeddedObject` instances in the text body. Deletion calls `host.dispose()`, which works for every anchor, including page-anchored charts that have no anchor range.
 - **Writer and Draw draw pages (`draw_page`)**: OLE2 shape charts on draw pages are removed from their immediate parent via `parent.remove(shape)` (the draw page or the `GroupShape` containing the chart). Page scans descend `GroupShape`.
 - **Writer create name read-back**: if the Writer host assigns a different name to the inserted embed, create returns that read-back name (and rollback targets it), so edit/delete work with the name in the result.
 
@@ -44,7 +44,7 @@ In Draw and Impress documents, create takes the lowest `Chart_N` free on any Dra
 ## Styling Failures and Chart Rollback
 
 - **Non-fatal styling warnings**: Failures setting optional visual properties—including chart background color (`bg_color`), series colors (`colors`), axis titles (`x_axis_title`, `y_axis_title`), chart title (`title`), subtitle (`subtitle`), legend visibility/position (`has_legend`, `legend_position`), missing diagram (`"No diagram found on chart document."`), and unsupported diagram flags (`Dim3D`, `Stacked`, `Percent`, `Vertical`)—do not abort chart creation or edit. They produce `warnings` strings while returning `status: "ok"`. A `legend_position` placement turns `HasLegend` on; `none` clears it; `has_legend` false plus a placement leaves it off and adds a warning. `colors` walks every data series in the diagram in order and does not restart at each chart type.
-- **Fatal creation failures (rollback)**: Hard errors during creation—such as failure to instantiate the diagram service, `setDiagram()` failure, or `_apply_chart_data_arrays()` failure (no chart data object, or a `setData()` error)—trigger immediate rollback (`removeByName`, `removeTextContent`, or `page.remove`) so no orphan chart remains in the document before returning an error payload. On edit, existing charts are never removed on failure.
+- **Fatal creation failures (rollback)**: Hard errors during creation—such as failure to instantiate the diagram service, `setDiagram()` failure, or `_apply_chart_data_arrays()` failure (no chart data object, or a `setData()` error)—trigger immediate rollback (`removeByName`, `dispose`, or `page.remove`) so no orphan chart remains in the document before returning an error payload. On edit, existing charts are never removed on failure.
 
 ## Errors
 

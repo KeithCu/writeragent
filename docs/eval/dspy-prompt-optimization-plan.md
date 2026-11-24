@@ -86,12 +86,12 @@ The optimizer uses the **same judge-based metric** as multi-model eval (`run_eva
 
 ### 2. Program: mirror Writer chat with tools
 
-Your real flow is: **system prompt + document context + user message → model → tool calls (get_document_content, apply_document_content, …) → execution → possibly more turns**. To optimize the **system prompt**, the DSPy program should use that prompt as the **instruction** of the predictor that drives tool use.
+Your real flow is: **system prompt + document context + user message → model → tool calls (get_content, apply_content, …) → execution → possibly more turns**. To optimize the **system prompt**, the DSPy program should use that prompt as the **instruction** of the predictor that drives tool use.
 
 Two practical options:
 
 - **Option A – ReAct with mock tools (recommended)**  
-  - Implement **mock** `get_document_content` and `apply_document_content` that operate on an in-memory document (e.g. a string or simple structure).  
+  - Implement **mock** `get_content` and `apply_content` that operate on an in-memory document (e.g. a string or simple structure).  
   - Use `dspy.ReAct` (or a custom `dspy.Module` that wraps a predictor + tools) with your current system prompt as the predictor’s initial instruction.  
   - Inputs: e.g. `document_content` (the “mess” or the resume text) and `user_question`.  
   - Run the full ReAct loop; the model calls your mock tools; you capture the final “document” state and use it in the metric.  
@@ -103,7 +103,7 @@ Two practical options:
 
 Recommendation: **Option A** so that the optimized prompt is tested in the same tool-calling setting as WriterAgent.
 
-**Mock tools: full set available, subset in use.** You can implement mocks for the **full** Writer tool set (e.g. all of `WRITER_TOOLS` from [core/document_tools.py](core/document_tools.py)) so the harness is realistic, but (a) your **dataset tasks** only require a subset (e.g. get_document_content, apply_document_content, find_text, maybe style_list). That already tests “can the model handle this subset?” (b) You can also **parameterize which tools are passed to the model** per run: e.g. pass only 3 tools, or 5, or the full set. That lets you analyze “how many is too many” (see below) without reimplementing mocks.
+**Mock tools: full set available, subset in use.** You can implement mocks for the **full** Writer tool set (e.g. all of `WRITER_TOOLS` from [core/document_tools.py](core/document_tools.py)) so the harness is realistic, but (a) your **dataset tasks** only require a subset (e.g. get_content, apply_content, find_text, maybe style_list). That already tests “can the model handle this subset?” (b) You can also **parameterize which tools are passed to the model** per run: e.g. pass only 3 tools, or 5, or the full set. That lets you analyze “how many is too many” (see below) without reimplementing mocks.
 
 ### 3. Dataset
 
@@ -147,7 +147,7 @@ Result: MIPROv2 will propose alternative instructions, evaluate each on your met
 
 1. **Create a small optimization project** (e.g. `scripts/prompt_optimization/` or repo root `prompt_opt/`):
   - `dataset.py` (or JSON): 5–20 examples for “mess → table” and “reformat resume” (and optionally 1–2 more fixed tasks).
-  - `tools_mock.py`: Mock `get_document_content` / `apply_document_content` on an in-memory document (and optionally other Writer tools you care about).
+  - `tools_mock.py`: Mock `get_content` / `apply_content` on an in-memory document (and optionally other Writer tools you care about).
   - `program.py`: DSPy program (ReAct or custom Module) that takes `document_content` + `user_question`, uses your current system prompt as the predictor instruction, and runs the tool loop; expose the final document state for the metric.
   - `metric.py`: **`make_judge_metric(judge_lm)`** returns a metric `(example, pred, trace=None) -> float`. It calls **`score_with_judge()`** from `eval_core` (shared with `run_eval_on_examples`) to get the judge’s 0–1 score, then subtracts `lambda * (total_tokens / 1000)`. No string-match fallback.
   - `run_optimize.py`: Load dataset (same as run_eval_multi; gold from `gold_standards.json` if present). Configure `dspy.LM` for the candidate model and a separate **judge** LM (default `openai/gpt-oss-120b:nitro`). Build `metric = make_judge_metric(judge_lm)`, create MIPROv2 with `max_bootstrapped_demos=0`, `max_labeled_demos=0`, run `compile(program, trainset=..., valset=..., metric=metric)`, save compiled program and optionally print the winning instruction.
@@ -179,7 +179,7 @@ You want to know whether **tool-set size** hurts small models (more tools → lo
 **Where DSPy *does* add value for this:**
 
 1. **Same harness and metric** – One eval pipeline (program + metric + dataset). You only change the tool list passed to the program. No separate “tool count” experiment framework needed.
-2. **Prompt optimization *per* tool subset** – For each tool-set size (e.g. 3 vs 10 tools), you can run MIPROv2 and get an **optimal prompt for that size**. If the best instruction for “3 tools” differs a lot from “10 tools,” that’s a signal (e.g. with more tools, the optimal prompt might emphasize “prefer get_document_content and apply_document_content first”).
+2. **Prompt optimization *per* tool subset** – For each tool-set size (e.g. 3 vs 10 tools), you can run MIPROv2 and get an **optimal prompt for that size**. If the best instruction for “3 tools” differs a lot from “10 tools,” that’s a signal (e.g. with more tools, the optimal prompt might emphasize “prefer get_content and apply_content first”).
 3. **Instruction can emphasize a subset** – Even when the *program* has many tools available, the **instruction** (system prompt) can list only a subset or say “for this task, use only …”. MIPROv2 might find instructions that reduce confusion for small models by narrowing the *described* set, which you can then compare against runs where the model actually only receives that subset.
 
 So: **“How many is too many?”** is best answered by your own **sweep over tool-set sizes** (or subsets), using the **same DSPy eval** (metric + dataset). DSPy doesn’t optimize tool count for you, but it gives you a consistent way to measure and, if you like, to optimize the prompt **for each** tool-set size so you can compare and decide.

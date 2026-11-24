@@ -432,23 +432,6 @@ def test_draw_legend_failure_keeps_chart_and_warns():
     page.remove.assert_not_called()
 
 
-def test_writer_drop_falls_back_to_embedded_objects():
-    from plugin.calc.charts import _remove_writer_chart
-
-    doc = MagicMock()
-    chart_obj = MagicMock()
-    chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = RuntimeError("not in this text")
-    embeds = doc.getEmbeddedObjects.return_value
-    embeds.hasByName.return_value = True
-    _remove_writer_chart(doc, chart_obj, "Chart_2")
-    embeds.removeByName.assert_called_once_with("Chart_2")
-
-    chart_obj.getAnchor().getText.return_value.removeTextContent.side_effect = None
-    _remove_writer_chart(doc, chart_obj, "Chart_2")
-    chart_obj.getAnchor().getText.return_value.removeTextContent.assert_called_with(chart_obj)
-    assert embeds.removeByName.call_count == 1
-
-
 def test_legend_position_none_hides_legend_without_enum():
     from plugin.calc.charts import _apply_chart_styling
 

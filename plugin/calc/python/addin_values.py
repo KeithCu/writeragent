@@ -10,12 +10,13 @@ Cell outcomes for ``=PY()`` fall into four kinds:
 - **Payload NaN** (quiet NaN carrying a Calc ``FormulaError`` in its low 32 bits):
   ``py_addin_cell_value`` (error tokens and helper error dicts),
   ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes),
-  and the worker's ``NA_NAN`` (``calc_functions_util.py``).
+  and the worker's ``NA_NAN`` and ``NESTED_ARRAY_NAN`` (``calc_functions_util.py``).
   LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
 - **Spill neighbour error or void**: ``coerce_spill_value`` returns a ``SpillValue``
-  with ``kind == "err"`` and ``spill.perform_deferred_spill`` writes ``setDataArray`` of ``None`` (UNO void,
+  with ``kind == "err"`` for error tokens and NaN values, and ``spill.perform_deferred_spill``
+  writes ``setDataArray`` of ``None`` (UNO void,
   which ``lcl_PutDataArray`` in ``sc/source/ui/unoobj/cellsuno.cxx`` turns into
   ``FormulaError::NotAvailable`` / ``#N/A``) or ``=#ERRn!`` formulas.
 - **``"#SPILL!"`` text**: ``spill.prepare_auto_spill``, returned by
@@ -73,6 +74,7 @@ _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
 }
 
 _ERR_VALUE = _CALC_ERROR_TOKEN_CODES["#VALUE!"]
+_ERR_NUM = _CALC_ERROR_TOKEN_CODES["#NUM!"]
 ERR_NA = _CALC_ERROR_TOKEN_CODES["#N/A"]
 
 _WORKER_EXC_CODES: dict[str, int] = {
@@ -106,9 +108,12 @@ def calc_formula_error_double(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", bits))[0]
 
 
-def is_na_double(val: float) -> bool:
-    """True when *val* is a NaN carrying ``ERR_NA`` in its low 32 bits (ignoring the sign bit, like ``GetDoubleErrorValue``)."""
-    return math.isnan(val) and (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == ERR_NA
+def nan_error_code(val: float) -> int:
+    """FormulaError code LibreOffice reads from a NaN (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+    low = struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
+    if low & 0xFFFF0000:
+        return _ERR_VALUE
+    return low or _ERR_NUM
 
 
 def calc_error_code_for_token(text: str) -> int | None:
@@ -431,8 +436,20 @@ class SpillValue:
 _SPILL_EMPTY = SpillValue("", "e")
 
 
+def _spill_error(code: int) -> SpillValue:
+    # A NaN written via SetValue becomes a plain numeric cell with ISERROR 0 and
+    # reloads from ODS as 0. setDataArray of None maps in PyUNO to UNO void, which
+    # Calc's lcl_PutDataArray handles via SetError(NotAvailable) for #N/A;
+    # #ERR32767! is not a published constant so we cannot use setFormula for #N/A.
+    # For other codes, "" serves as an empty placeholder in setDataArray and
+    # perform_deferred_spill assigns the formula f"=#ERR{code}!".
+    return SpillValue(None if code == ERR_NA else "", "err", error_code=code)
+
+
 def _spill_from_calc(calc_val: Any) -> SpillValue:
     if isinstance(calc_val, float):
+        if math.isnan(calc_val):
+            return _spill_error(nan_error_code(calc_val))
         return SpillValue(calc_val, "n")
     if isinstance(calc_val, str):
         return SpillValue(calc_val, "s")
@@ -444,14 +461,9 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
     val = to_stdlib_temporal(val)
     if val is None:
         return _SPILL_EMPTY
-    if isinstance(val, int):
+    if isinstance(val, (int, float)):
         # bool is an int. to_calc_compatible maps it to 1.0/0.0 and OverflowError to decimal text.
         return _spill_from_calc(to_calc_compatible(val))
-    if isinstance(val, float):
-        # A NaN written with SetValue has no error code, so map NA_NAN to the ERR_NA void record.
-        if is_na_double(val):
-            return SpillValue(None, "err", error_code=ERR_NA)
-        return SpillValue(float(val), "n")
 
     if isinstance(val, datetime.datetime):
         dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
@@ -472,15 +484,7 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
             return _SPILL_EMPTY
         err = _CALC_ERROR_TOKEN_CODES.get(stripped)
         if err is not None:
-            # setDataArray of None maps in PyUNO to an empty Any (UNO void), which Calc's
-            # lcl_PutDataArray handles via SetError(NotAvailable) for #N/A. A NaN double written via
-            # SetValue is treated as a plain numeric cell with no error code, so ISERROR would be false.
-            # #ERR32767! is not a published constant, so we cannot use setFormula for #N/A.
-            # For other codes, "" serves as an empty placeholder in setDataArray and perform_deferred_spill
-            # assigns the formula f"=#ERR{code}!".
-            if err == ERR_NA:
-                return SpillValue(None, "err", error_code=err)
-            return SpillValue("", "err", error_code=err)
+            return _spill_error(err)
         if match_iso_duration(stripped):
             try:
                 return SpillValue(duration_serial_from_iso(stripped), "n", "duration")
@@ -504,10 +508,10 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
 
 
 def spill_value_from_json(kind: str, value: Any) -> Any:
-    """Restore the "nan" / "inf" / "-inf" text written by save_spill_registry_for_doc (JSON has no non-finite floats)."""
+    """Restore the "inf" / "-inf" text written by save_spill_registry_for_doc (JSON has no non-finite floats)."""
     if kind != "n" or not isinstance(value, str):
         return value
-    return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
+    return {"inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
 
 
 def format_addin_error_for_display(exc: BaseException) -> str:

@@ -19,6 +19,7 @@
  *   setMarkers(markers)           [{line, col, endLine, endCol, message, severity}]
  *                                 severity: "error" | "warning" | "info"
  *   onChange(cb)                  cb() on every content change
+ *   setReadOnly(on)
  *   focus()
  */
 
@@ -272,6 +273,11 @@
         editor.onDidChangeModelContent(function () {
           cb();
         });
+      }
+    },
+    setReadOnly: function (on) {
+      if (editor) {
+        editor.updateOptions({ readOnly: !!on });
       }
     },
     focus: function () {

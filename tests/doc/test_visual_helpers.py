@@ -1004,3 +1004,17 @@ def test_delete_graphic_tracked_controller_select_error_raises_delete_failed():
             visual_helpers.delete_graphic(ctx, doc, graphic)
 
     assert exc_info.value.code == "IMAGE_DELETE_FAILED"
+
+
+def test_delete_graphic_disposes_page_anchored_picture():
+    from unittest.mock import MagicMock
+
+    graphic = MagicMock()
+    graphic.getAnchor.return_value = None
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getPropertyValue.side_effect = lambda name: False if name == "RecordChanges" else None
+
+    assert visual_helpers.delete_graphic(MagicMock(), doc, graphic) is False
+    graphic.dispose.assert_called_once_with()
