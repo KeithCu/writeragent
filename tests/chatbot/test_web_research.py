@@ -406,7 +406,7 @@ def test_find_all_pages_status_is_not_blank():
         cache_path="",
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=statuses.append,
         append_thinking_callback=None,
         approval_callback=None,
