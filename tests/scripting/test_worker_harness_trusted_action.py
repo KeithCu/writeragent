@@ -425,6 +425,3 @@ def test_worker_debug_log_masks_secret_arguments(tmp_path, monkeypatch) -> None:
     assert "Sec" in text
     assert "[Worker]" in text
 
-
-
-
