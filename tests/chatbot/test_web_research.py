@@ -472,36 +472,36 @@ def test_cdp_cleanup_waits_until_visit_leaves():
 
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
-    wr._cdp_refcount.run_enter()
+    wr._browser_refcount.reset_for_tests()
+    wr._browser_refcount.run_enter()
     started = threading.Event()
     release = threading.Event()
     cleaned = threading.Event()
 
     def visit() -> None:
-        assert wr._cdp_refcount.visit_enter()
+        assert wr._browser_refcount.visit_enter()
         started.set()
         assert release.wait(2)
-        wr._cdp_refcount.visit_leave()
+        wr._browser_refcount.visit_leave()
 
     thread = threading.Thread(target=visit)
     finisher = None
     try:
         thread.start()
         assert started.wait(1)
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
-            finisher = threading.Thread(target=wr._cdp_refcount.finish)
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser", side_effect=cleaned.set):
+            finisher = threading.Thread(target=wr._browser_refcount.finish)
             finisher.start()
             assert not cleaned.wait(0.15)
             release.set()
             finisher.join(2)
             thread.join(2)
         assert cleaned.is_set()
-        assert wr._cdp_refcount.closing is False
-        assert wr._cdp_refcount.visits_inflight == 0
+        assert wr._browser_refcount.closing is False
+        assert wr._browser_refcount.visits_inflight == 0
     finally:
         release.set()
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
         thread.join(1)
         if finisher is not None:
             finisher.join(1)
@@ -512,45 +512,45 @@ def test_one_research_run_finishing_leaves_the_shared_browser():
 
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     started = threading.Event()
     release = threading.Event()
     cleaned = threading.Event()
 
     def visit() -> None:
-        assert wr._cdp_refcount.visit_enter()
+        assert wr._browser_refcount.visit_enter()
         started.set()
         assert release.wait(2)
-        wr._cdp_refcount.visit_leave()
+        wr._browser_refcount.visit_leave()
 
     thread = threading.Thread(target=visit)
     finisher = None
     try:
-        wr._cdp_refcount.run_enter()
-        wr._cdp_refcount.run_enter()
+        wr._browser_refcount.run_enter()
+        wr._browser_refcount.run_enter()
         thread.start()
         assert started.wait(1)
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser", side_effect=cleaned.set):
             # The other run still holds the browser, so this finish must not
-            # wait for the in-flight visit or kill Chrome.
-            wr._cdp_refcount.finish()
+            # wait for the in-flight visit or kill the browser.
+            wr._browser_refcount.finish()
             assert not cleaned.is_set()
-            assert wr._cdp_refcount.closing is False
-            assert wr._cdp_refcount.visit_enter()
-            wr._cdp_refcount.visit_leave()
-            finisher = threading.Thread(target=wr._cdp_refcount.finish)
+            assert wr._browser_refcount.closing is False
+            assert wr._browser_refcount.visit_enter()
+            wr._browser_refcount.visit_leave()
+            finisher = threading.Thread(target=wr._browser_refcount.finish)
             finisher.start()
             assert not cleaned.wait(0.15)
             release.set()
             finisher.join(2)
             thread.join(2)
         assert cleaned.is_set()
-        assert wr._cdp_refcount.closing is False
-        assert wr._cdp_refcount.runs == 0
-        assert wr._cdp_refcount.visits_inflight == 0
+        assert wr._browser_refcount.closing is False
+        assert wr._browser_refcount.runs == 0
+        assert wr._browser_refcount.visits_inflight == 0
     finally:
         release.set()
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
         thread.join(1)
         if finisher is not None:
             finisher.join(1)
@@ -559,69 +559,73 @@ def test_one_research_run_finishing_leaves_the_shared_browser():
 def test_cdp_launch_failure_releases_the_run(monkeypatch):
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     mode = {"fail": True}
 
-    def fake_url(*args, **kwargs):
+    launched: list[str] = []
+
+    def fake_url(browser_type: str) -> str:
+        launched.append(browser_type)
         if mode["fail"]:
             raise RuntimeError("no browser")
         return "ws://shared"
 
-    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_chrome_cdp_url", fake_url)
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_cdp_url", fake_url)
     try:
         with (
-            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as cleanup,
             patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
         ):
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_browser(object(), "chrome")
+                wr._begin_shared_browser("chrome")
             # The only run failed to launch. Teardown still runs, and the count is released.
             cleanup.assert_called_once()
             mock_rm_pid.assert_called_once_with()
-        assert wr._cdp_refcount.runs == 0
+        assert wr._browser_refcount.runs == 0
 
         mode["fail"] = False
         with (
-            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as cleanup,
             patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
         ):
-            assert isinstance(wr._begin_shared_browser(object(), "chrome"), wr.CdpPageDriver)
+            assert isinstance(wr._begin_shared_browser("chrome"), wr.CdpPageDriver)
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
-                wr._begin_shared_browser(object(), "brave")
+                wr._begin_shared_browser("brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
             mock_rm_pid.assert_not_called()
-            assert wr._cdp_refcount.runs == 1
-            wr._cdp_refcount.finish()
+            assert wr._browser_refcount.runs == 1
+            wr._browser_refcount.finish()
             cleanup.assert_called_once()
             mock_rm_pid.assert_called_once_with()
-        assert wr._cdp_refcount.runs == 0
-        assert wr._cdp_refcount.closing is False
+        assert wr._browser_refcount.runs == 0
+        assert wr._browser_refcount.closing is False
+        assert launched == ["chrome", "chrome", "brave"]
     finally:
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
 
 
 def test_firefox_begin_dispatches_to_bidi_and_finish_closes_it():
     from plugin.chatbot import web_research as wr
 
-    wr._cdp_refcount.reset_for_tests()
+    wr._browser_refcount.reset_for_tests()
     fake_client = MagicMock()
     try:
         with (
             patch("plugin.chatbot.web_research_firefox.begin_firefox_bidi", return_value=fake_client) as mock_begin,
             patch("plugin.chatbot.web_research_firefox.close_firefox_bidi") as mock_close_bidi,
-            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as mock_cleanup,
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_browser") as mock_cleanup,
             patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
         ):
-            assert wr._begin_shared_browser(object(), "firefox") is fake_client
+            assert wr._begin_shared_browser("firefox") is fake_client
             mock_begin.assert_called_once_with()
-            wr._cdp_refcount.finish()
+            wr._browser_refcount.finish()
             mock_close_bidi.assert_called_once_with()
             mock_cleanup.assert_called_once_with()
             mock_rm_pid.assert_called_once_with()
     finally:
-        wr._cdp_refcount.reset_for_tests()
+        wr._browser_refcount.reset_for_tests()
 
 
 @pytest.mark.parametrize(
@@ -1260,14 +1264,14 @@ def test_chromium_cdp_enabled():
 
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
          patch("plugin.chatbot.web_research._begin_shared_browser", return_value=fake_driver) as mock_begin, \
-         patch.object(wr._cdp_refcount, "finish") as mock_finish, \
+         patch.object(wr._browser_refcount, "finish") as mock_finish, \
          patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.client.llm_client.LlmClient"):
 
          WebResearchTool().execute(ctx, query="test query")
 
-         mock_begin.assert_called_once_with(ctx.ctx, "chromium")
+         mock_begin.assert_called_once_with("chromium")
          mock_finish.assert_called_once()
 
          agent_params = mock_run.call_args.args[3]
@@ -1305,7 +1309,7 @@ def test_cdp_connection_leak_early_exception():
 
     with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
          patch("plugin.chatbot.web_research._begin_shared_browser", return_value=MagicMock()) as mock_begin, \
-         patch.object(wr._cdp_refcount, "finish") as mock_finish, \
+         patch.object(wr._browser_refcount, "finish") as mock_finish, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
          patch("plugin.framework.client.llm_client.LlmClient"):
@@ -1313,7 +1317,7 @@ def test_cdp_connection_leak_early_exception():
          with pytest.raises(FakeException):
              WebResearchTool().execute(ctx, query="test query")
 
-         mock_begin.assert_called_once_with(ctx.ctx, "chrome")
+         mock_begin.assert_called_once_with("chrome")
          # Important: Even though the exception was raised during LlmClient setup, finish must be called
          mock_finish.assert_called_once()
 

@@ -83,16 +83,16 @@ def _run_async(coro):
 # ---------------------------------------------------------------------------
 
 
-_CHROME_BROWSER: ManagedSubprocess | None = None
+_LOCAL_BROWSER: ManagedSubprocess | None = None
 
 
-def cleanup_local_chrome() -> None:
+def cleanup_local_browser() -> None:
     """Kill the locally spawned browser and drop it from quit-time registry."""
-    global _CHROME_BROWSER
-    managed = _CHROME_BROWSER
+    global _LOCAL_BROWSER
+    managed = _LOCAL_BROWSER
     if managed is None:
         return
-    _CHROME_BROWSER = None
+    _LOCAL_BROWSER = None
     logger.info("Terminating local %s process...", managed.label)
     try:
         managed.kill_tree()
@@ -213,8 +213,8 @@ def _win32_minimized_startupinfo() -> Any:
 
 def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) -> ManagedSubprocess:
     """Launch a local browser process, register it for quit-time cleanup, and return its handle."""
-    global _CHROME_BROWSER
-    if _CHROME_BROWSER is not None and _CHROME_BROWSER.is_alive():
+    global _LOCAL_BROWSER
+    if _LOCAL_BROWSER is not None and _LOCAL_BROWSER.is_alive():
         raise RuntimeError("another local browser is already running for web research")
     # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
     popen_kw: dict[str, Any] = {}
@@ -228,15 +228,15 @@ def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) 
         stderr=subprocess.DEVNULL,
         **popen_kw,
     )
-    _CHROME_BROWSER = ManagedSubprocess.wrap_existing(
+    _LOCAL_BROWSER = ManagedSubprocess.wrap_existing(
         proc,
         label=label,
         register=True,
     )
-    return _CHROME_BROWSER
+    return _LOCAL_BROWSER
 
 
-def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
+def get_local_cdp_url(browser_type: str = "chrome") -> str:
     # Try querying existing CDP connection first
     try:
         req = urllib.request.Request("http://127.0.0.1:9222/json")
@@ -291,19 +291,10 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         
     raise RuntimeError(f"Browser ({browser_type}) CDP did not start listening on port 9222 after 6 seconds")
 
-def _resolve_cdp_endpoint(ctx: Any = None) -> str:
+def _resolve_cdp_endpoint() -> str:
     """Return the normalized CDP WebSocket URL, or empty string if unavailable."""
     try:
-        from plugin.framework.config import get_config
-        browser_type = "chrome"
-        if ctx is not None:
-            try:
-                cfg_val = get_config("chatbot.web_research_browser")
-                if cfg_val in _CDP_BROWSER_CANDIDATES:
-                    browser_type = cfg_val
-            except Exception:
-                pass
-        return get_local_chrome_cdp_url(ctx, browser_type)
+        return get_local_cdp_url()
     except Exception as exc:
         logger.debug("browser_cdp: failed to resolve CDP endpoint: %s", exc)
         return ""
