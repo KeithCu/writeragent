@@ -767,16 +767,28 @@ def _delete_writer_graphic_tracked(ctx: Any, doc: Any, graphic: Any) -> None:
     SwXFrame::dispose (removeTextContent) leaves no redline; SwWrtShell::DelRight
     (sw/source/uibase/wrtsh/delete.cxx, Graphic case) records a Delete redline for
     TextGraphicObject (and moves non-character anchors to the character). Checks
-    DispatchResultEvent.State rather than redline count because adjacent same-author
-    deletions merge without increasing the count.
+    controller.getSelection() after select() because SwXTextView::select returns true
+    even when GotoFly fails (e.g. hidden section), which would otherwise delete text.
+    Checks DispatchResultEvent.State rather than redline count because adjacent
+    same-author deletions merge without increasing the count.
     """
     controller = doc.getCurrentController()
     result = None
     if controller is not None and graphic.supportsService(WRITER_GRAPHIC_SERVICE):
-        with KeepViewSelection(controller):
-            controller.select(graphic)
-            helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-            result = helper.executeDispatch(controller.getFrame(), ".uno:Delete", "", 0, ())
+        try:
+            with KeepViewSelection(controller):
+                controller.select(graphic)
+                sel = controller.getSelection()
+                if (
+                    sel is not None
+                    and sel.supportsService(WRITER_GRAPHIC_SERVICE)
+                    and sel.getName() == graphic.getName()
+                ):
+                    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+                    result = helper.executeDispatch(controller.getFrame(), ".uno:Delete", "", 0, ())
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc
     if result is None or result.State != _DISPATCH_SUCCESS:
         raise ToolExecutionError(
             _("LibreOffice cannot record deleting this image as a tracked change, so it was kept. Turn off Track Changes recording to delete it."),

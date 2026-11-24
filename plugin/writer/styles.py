@@ -1582,7 +1582,7 @@ class ApplyStyle(FrameworkToolBase):
         family: str,
         target: str,
         reports: list[ParagraphStyleApplyReport | None],
-        doc: Any = None,
+        doc: Any,
     ) -> dict[str, Any]:
         res: dict[str, Any] = {
             "status": "ok",

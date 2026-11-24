@@ -37,7 +37,7 @@ What is implemented today (not every Writer mutation tool):
 | `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `Char*` `reset` (`Char*` restore on reject, `Para*` do not; `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `image_delete`, OCR `delete_image_after_insert` | Yes while the document is recording (standalone `image_delete` in Record/Wait does not turn recording on; OCR in Record/Wait records via `run_writer_mutation_with_optional_review`) | No | No |
-| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text and character `apply_style`, which Writer records itself; `page_insert_break` is not in this set) | No | No |
+| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text, which Writer records itself; `page_insert_break` is not in this set) | No | No |
 | Other Writer tools (comments, frames, shapes, …) | No | No | No |
 
 Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
@@ -260,7 +260,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 
 ### Limitations
 
-* **Style and page layout changes are not reviewable.** `apply_style` (paragraph styles), `style_update`, `style_create`, `style_clone`,
+* **Style and page layout changes are not reviewable.** `apply_style`, `style_update`, `style_create`, `style_clone`,
   `style_import`, `section_*`, `page_set_style_properties`, `page_set_header_footer_text`,
   `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
   `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user it changed a style or page layout

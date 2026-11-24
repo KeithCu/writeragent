@@ -6,29 +6,17 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.vision.vision_egress import insert_vision_result_into_writer
 from plugin.writer.images.image_tools import insert_image_at_locator
 from plugin.writer.inline_review import _resolve_all_agent_changes
 
 _FLAG = "doc.agent_edit_review_mode"
 _OCR_RESULT = {"status": "ok", "helper": "extract_structure", "html": "<p>OCR text</p>"}
-
-
-def _logo_path() -> str:
-    here = os.path.abspath(__file__)
-    directory = os.path.dirname(here)
-    for _unused in range(6):
-        candidate = os.path.join(directory, "extension", "assets", "logo_32.png")
-        if os.path.isfile(candidate):
-            return candidate
-        directory = os.path.dirname(directory)
-    raise FileNotFoundError("extension/assets/logo_32.png not found")
 
 
 def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
@@ -52,7 +40,7 @@ def _reset_doc(doc: Any, ctx: Any) -> None:
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
     try:
@@ -97,7 +85,7 @@ def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, 
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_vision_egress_record_mode_resolve_all_agent_changes_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
     try:

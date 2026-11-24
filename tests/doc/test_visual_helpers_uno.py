@@ -27,7 +27,7 @@ from plugin.doc.visual_helpers import (
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
 
 
@@ -107,19 +107,6 @@ def test_writer_active_draw_page_is_document_draw_page_uno(ctx: Any, doc: Any) -
     assert get_active_draw_page(doc) == doc.getDrawPage()
 
 
-def _logo_path() -> str:
-    import os
-
-    here = os.path.abspath(__file__)
-    directory = os.path.dirname(here)
-    for _unused in range(6):
-        candidate = os.path.join(directory, "extension", "assets", "logo_32.png")
-        if os.path.isfile(candidate):
-            return candidate
-        directory = os.path.dirname(directory)
-    raise FileNotFoundError("extension/assets/logo_32.png not found")
-
-
 def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
     helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
@@ -136,7 +123,7 @@ def _redline_types(doc: Any) -> list[str]:
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_tracked_anchor_types_reject_and_accept_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     text = doc.getText()
     cur = text.createTextCursor()
     text.insertString(cur, "Anchor text", False)
@@ -167,7 +154,7 @@ def test_delete_graphic_tracked_anchor_types_reject_and_accept_uno(ctx: Any, doc
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_adjacent_as_char_pictures_both_succeed_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     g1 = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
     g1.setName("Adj1")
     g2 = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
@@ -179,6 +166,17 @@ def test_delete_graphic_adjacent_as_char_pictures_both_succeed_uno(ctx: Any, doc
     try:
         assert delete_graphic(ctx, doc, g1) is True
         assert delete_graphic(ctx, doc, g2) is True
+        assert _redline_types(doc) == ["Delete"]
+
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert doc.getGraphicObjects().hasByName("Adj1") is True
+        assert doc.getGraphicObjects().hasByName("Adj2") is True
+
+        assert delete_graphic(ctx, doc, doc.getGraphicObjects().getByName("Adj1")) is True
+        assert delete_graphic(ctx, doc, doc.getGraphicObjects().getByName("Adj2")) is True
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().hasByName("Adj1") is False
+        assert doc.getGraphicObjects().hasByName("Adj2") is False
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -186,7 +184,7 @@ def test_delete_graphic_adjacent_as_char_pictures_both_succeed_uno(ctx: Any, doc
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_preserves_view_selection_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     text = doc.getText()
     cur = text.createTextCursor()
     text.insertString(cur, "Keep this selected\n", False)
@@ -210,7 +208,7 @@ def test_delete_graphic_preserves_view_selection_uno(ctx: Any, doc: Any) -> None
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_untrackable_raises_and_keeps_image_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     graphic = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
     graphic.setName("ProtectedPic")
     graphic.setPropertyValue("ContentProtected", True)
@@ -234,6 +232,47 @@ def test_delete_graphic_untrackable_raises_and_keeps_image_uno(ctx: Any, doc: An
         except ToolExecutionError as exc:
             assert exc.code == "IMAGE_DELETE_NOT_TRACKABLE"
         assert any(name == "DrawPic" for name, _obj in list_graphic_objects(doc))
+        assert _redline_types(doc) == []
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_delete_graphic_hidden_section_refuses_and_keeps_text_uno(ctx: Any, doc: Any) -> None:
+    logo = logo_32_path()
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep this body text\n", False)
+
+    sec_cur = text.createTextCursor()
+    sec_cur.gotoEnd(False)
+    section = doc.createInstance("com.sun.star.text.TextSection")
+    section.setName("HiddenSec")
+    text.insertTextContent(sec_cur, section, False)
+    sec_anchor = text.createTextCursorByRange(section.getAnchor())
+    sec_anchor.collapseToEnd()
+    doc.getCurrentController().select(sec_anchor)
+
+    graphic = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
+    graphic.setName("HiddenPic")
+    section.setPropertyValue("IsVisible", False)
+
+    body_sel = text.createTextCursor()
+    body_sel.gotoStart(False)
+    body_sel.goRight(4, True)
+    doc.getCurrentController().select(body_sel)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        try:
+            delete_graphic(ctx, doc, graphic)
+            raise AssertionError("Expected ToolExecutionError for hidden-section picture")
+        except ToolExecutionError as exc:
+            assert exc.code == "IMAGE_DELETE_NOT_TRACKABLE"
+        assert _redline_types(doc) == []
+        assert "Keep this body text" in text.getString()
+        assert doc.getGraphicObjects().hasByName("HiddenPic") is True
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -241,7 +280,7 @@ def test_delete_graphic_untrackable_raises_and_keeps_image_uno(ctx: Any, doc: An
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_recording_off_removes_immediately_uno(ctx: Any, doc: Any) -> None:
-    logo = _logo_path()
+    logo = logo_32_path()
     graphic = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
     graphic.setName("LivePic")
     name = graphic.getName()
