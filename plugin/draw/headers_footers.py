@@ -293,12 +293,11 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         if use_shapes:
             updated_count, failed = _write_impress_master_hf_shapes(page, kwargs)
         else:
-            for schema_key, prop_name, _, kind in _FIELDS:
+            for schema_key, prop_name, _svc, _kind in _FIELDS:
                 if schema_key not in kwargs:
                     continue
-                val = kwargs[schema_key] if kind == "text" else kwargs[schema_key]
                 try:
-                    page.setPropertyValue(prop_name, val)
+                    page.setPropertyValue(prop_name, kwargs[schema_key])
                     updated_count += 1
                 except Exception as e:
                     if is_disposal(e):

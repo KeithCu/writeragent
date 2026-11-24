@@ -74,7 +74,7 @@ def test_response_delay_s_sync_override():
 
 def test_chit_chat_html():
     out = decide_completion(
-        {"messages": [{"role": "user", "content": "hello there"}], "tools": _tools("web_research", "apply_content")},
+        {"messages": [{"role": "user", "content": "hello there"}], "tools": _tools("delegate_to_subagent", "apply_content")},
         MockLLMConfig(delay_ms=0),
         _TurnState(),
     )
@@ -84,16 +84,27 @@ def test_chit_chat_html():
     assert "hello there" in out.content
 
 
-def test_research_keyword_calls_web_research():
+def test_research_keyword_delegates_to_web_research_domain():
     out = decide_completion(
         {
             "messages": [{"role": "user", "content": "look up the latest Python release"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "web_research"
-    assert out.tool_args and "latest Python" in out.tool_args["query"]
+    assert out.tool_name == "delegate_to_subagent"
+    assert out.tool_args == {"domain": "web_research", "task": "look up the latest Python release"}
+
+    miss = decide_completion(
+        {
+            "messages": [{"role": "user", "content": "look up the latest Python release"}],
+            "tools": _tools("apply_content"),
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert miss.tool_name is None
+    assert miss.content is not None
+    assert "<p>" in miss.content
 
 
 def test_tool_result_becomes_html_summary():
@@ -108,13 +119,16 @@ def test_tool_result_becomes_html_summary():
                         {
                             "id": "c1",
                             "type": "function",
-                            "function": {"name": "web_research", "arguments": '{"query":"cats"}'},
+                            "function": {
+                                "name": "delegate_to_subagent",
+                                "arguments": '{"domain":"web_research","task":"cats"}',
+                            },
                         }
                     ],
                 },
                 {"role": "tool", "tool_call_id": "c1", "content": "Findings\n- Cats are mammals"},
             ],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
@@ -289,12 +303,16 @@ def test_smol_action_in_content_advances_search_then_visit():
 
 def test_sync_tool_call_arguments_are_json_string():
     body = sync_response_body(
-        Completion(tool_name="web_research", tool_args={"query": "x"}, finish_reason="tool_calls"),
+        Completion(
+            tool_name="delegate_to_subagent",
+            tool_args={"domain": "web_research", "task": "x"},
+            finish_reason="tool_calls",
+        ),
         "m",
     )
     args = body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
     assert isinstance(args, str)
-    assert json.loads(args)["query"] == "x"
+    assert json.loads(args) == {"domain": "web_research", "task": "x"}
 
 
 @contextmanager
@@ -368,7 +386,7 @@ def test_http_overflow_once_returns_error_message_then_ok():
             "model": MOCK_MODEL_ID,
             "stream": True,
             "messages": [{"role": "user", "content": "overflow once"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         }
         with pytest.raises(HTTPError) as exc_info:
             _post_json(base + "/v1/chat/completions", payload)
@@ -385,7 +403,7 @@ def test_http_stream_chit_chat(mock_http):
             "model": MOCK_MODEL_ID,
             "stream": True,
             "messages": [{"role": "user", "content": "hello mock"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
     )
     assert "text/event-stream" in ctype
@@ -400,9 +418,10 @@ def test_http_stream_web_research_tool(mock_http):
             "model": MOCK_MODEL_ID,
             "stream": True,
             "messages": [{"role": "user", "content": "look up pandas"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
     )
+    assert "delegate_to_subagent" in raw
     assert "web_research" in raw
     assert "tool_calls" in raw
 
@@ -561,7 +580,7 @@ def test_detect_scenario_phrases_and_force():
 def test_history_flood_and_compaction_summarizer():
     cfg = MockLLMConfig(delay_ms=0)
     flood = decide_completion(
-        {"messages": [{"role": "user", "content": "flood history"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "flood history"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert flood.content and HISTORY_FLOOD_MARK in flood.content
@@ -589,7 +608,7 @@ def test_history_flood_and_compaction_summarizer():
     assert rec["is_summarizer"] is True
     view_payload = {
         "stream": True,
-        "tools": _tools("web_research"),
+        "tools": _tools("delegate_to_subagent"),
         "messages": [
             {"role": "system", "content": "base"},
             {"role": "user", "content": "[CONVERSATION SUMMARY]\n" + COMPACTION_SUMMARY + "\n[END SUMMARY]"},
@@ -604,7 +623,7 @@ def test_history_flood_and_compaction_summarizer():
 
 def test_overflow_once_then_ok_and_process_death():
     cfg = MockLLMConfig(delay_ms=0)
-    tools = _tools("web_research", "comment_add")
+    tools = _tools("delegate_to_subagent", "comment_add")
     first = decide_completion(
         {"stream": True, "messages": [{"role": "user", "content": "overflow once"}], "tools": tools},
         cfg,
@@ -642,34 +661,34 @@ def test_overflow_once_then_ok_and_process_death():
 def test_ramble_and_empty_and_flood():
     cfg = MockLLMConfig(delay_ms=0)
     ramble = decide_completion(
-        {"messages": [{"role": "user", "content": "keep talking"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "keep talking"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert ramble.ramble_parts == RAMBLE_PARTS
     assert ramble.content and ramble.content.count("word") >= 50
     empty = decide_completion(
-        {"messages": [{"role": "user", "content": "say nothing"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "say nothing"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert empty.content is None
     assert empty.finish_reason == "length"
     assert not completion_tool_calls(empty)
     empty_stop = decide_completion(
-        {"messages": [{"role": "user", "content": "empty finish stop"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "empty finish stop"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert empty_stop.content is None
     assert empty_stop.finish_reason == "stop"
     assert not completion_tool_calls(empty_stop)
     filtered = decide_completion(
-        {"messages": [{"role": "user", "content": "content filter"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "content filter"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert filtered.content is None
     assert filtered.finish_reason == "content_filter"
     assert not completion_tool_calls(filtered)
     flood = decide_completion(
-        {"messages": [{"role": "user", "content": "fill the sidebar"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "fill the sidebar"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert flood.content and flood.content.count("<p>") >= 40
@@ -679,20 +698,20 @@ def test_ramble_and_empty_and_flood():
 def test_think_modes():
     cfg = MockLLMConfig(delay_ms=0)
     think = decide_completion(
-        {"messages": [{"role": "user", "content": "think out loud"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "think out loud"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert think.reasoning
     assert think.reasoning_mode == "reasoning"
     assert "<p>" in (think.content or "")
     tags = decide_completion(
-        {"messages": [{"role": "user", "content": "think tags please"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "think tags please"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert tags.reasoning_mode == "think_tags"
     assert "<think>" in (tags.content or "")
     details = decide_completion(
-        {"messages": [{"role": "user", "content": "reasoning details"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "reasoning details"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert details.reasoning_mode == "details"
@@ -707,7 +726,7 @@ def test_delegate_when_advertised_else_html():
     hit = decide_completion(
         {
             "messages": [{"role": "user", "content": "outline this document"}],
-            "tools": _tools("delegate_to_subagent", "web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         cfg,
     )
@@ -715,7 +734,7 @@ def test_delegate_when_advertised_else_html():
     assert hit.tool_args is not None
     assert hit.tool_args["domain"] == "document_research"
     miss = decide_completion(
-        {"messages": [{"role": "user", "content": "outline this document"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "outline this document"}], "tools": _tools("apply_content")},
         cfg,
     )
     assert miss.tool_name is None
@@ -794,7 +813,7 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
 
 
 def test_empty_nested_answer_delegates_then_empty_finish():
-    main = _tools("delegate_to_subagent", "web_research", "apply_content")
+    main = _tools("delegate_to_subagent", "apply_content")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": main},
         MockLLMConfig(delay_ms=0),
@@ -810,7 +829,7 @@ def test_empty_nested_answer_delegates_then_empty_finish():
 
 
 def test_mixed_tools_apply_and_failing_comment():
-    tools = _tools("apply_content", "comment_add", "web_research")
+    tools = _tools("apply_content", "comment_add", "delegate_to_subagent")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "mixed tools"}], "tools": tools},
         MockLLMConfig(delay_ms=0),
@@ -947,27 +966,30 @@ def test_fail_native_audio_400_then_stt_ok():
 
 
 @pytest.mark.parametrize(
-    ("user_text", "tool_name", "tool_result", "advertised"),
+    ("user_text", "tool_name", "tool_result", "advertised", "expected"),
     [
         pytest.param(
             "insert filler",
             "apply_content",
             '{"status": "ok", "message": "Inserted content at end."}',
-            ("apply_content", "web_research"),
+            ("apply_content", "delegate_to_subagent"),
+            "Inserted content",
             id="apply_content",
         ),
         pytest.param(
             "outline this",
             "delegate_to_subagent",
             "Mock outline complete.",
-            ("delegate_to_subagent", "get_tree", "web_research"),
+            ("delegate_to_subagent", "get_tree"),
+            "Specialized agent finished",
             id="delegate_to_subagent",
         ),
         pytest.param(
             "two tools",
             "get_tree",
             '{"headings": []}',
-            ("delegate_to_subagent", "get_tree", "web_research"),
+            ("delegate_to_subagent", "get_tree"),
+            "<code>get_tree</code>",
             id="get_tree",
         ),
     ],
@@ -977,41 +999,37 @@ def test_tool_followup_returns_html_wrapup(
     tool_name: str,
     tool_result: str,
     advertised: tuple[str, ...],
+    expected: str,
 ):
     cfg = MockLLMConfig(delay_ms=0)
     tools = _tools(*advertised)
-
-    def _run(name: str):
-        return decide_completion(
-            {
-                "messages": [
-                    {"role": "user", "content": user_text},
-                    {
-                        "role": "assistant",
-                        "tool_calls": [
-                            {"id": "c1", "type": "function", "function": {"name": name, "arguments": "{}"}}
-                        ],
-                    },
-                    {"role": "tool", "content": tool_result},
-                ],
-                "tools": tools,
-            },
-            cfg,
-        )
-
-    out = _run(tool_name)
-    research = _run("web_research")
+    out = decide_completion(
+        {
+            "messages": [
+                {"role": "user", "content": user_text},
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"id": "c1", "type": "function", "function": {"name": tool_name, "arguments": "{}"}}
+                    ],
+                },
+                {"role": "tool", "content": tool_result},
+            ],
+            "tools": tools,
+        },
+        cfg,
+    )
     assert out.tool_name is None
     assert out.content is not None
     assert "<p>" in out.content
-    assert out.content != research.content
+    assert expected in out.content
 
 
 def test_parallel_two_core_tools():
     out = decide_completion(
         {
             "messages": [{"role": "user", "content": "run two tools please"}],
-            "tools": _tools("search", "get_tree", "web_research"),
+            "tools": _tools("search", "get_tree", "delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
@@ -1033,7 +1051,7 @@ def test_parallel_missing_tools_falls_back_html():
     out = decide_completion(
         {
             "messages": [{"role": "user", "content": "in parallel"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
@@ -1063,17 +1081,17 @@ def test_mutate_and_calc_draw_thin_tools(user_text: str, tool_name: str, expecte
 def test_fail_and_hang_completions():
     cfg = MockLLMConfig(delay_ms=0)
     boom = decide_completion(
-        {"messages": [{"role": "user", "content": "crash the stream"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "crash the stream"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert boom.http_error == 500
     limited = decide_completion(
-        {"messages": [{"role": "user", "content": "rate limit me"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "rate limit me"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert limited.http_error == 429
     hung = decide_completion(
-        {"messages": [{"role": "user", "content": "hang the stream"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "hang the stream"}], "tools": _tools("delegate_to_subagent")},
         cfg,
     )
     assert hung.hang is True
@@ -1081,7 +1099,7 @@ def test_fail_and_hang_completions():
 
 def test_packet_f_auth_and_sse_quirk_completions():
     cfg = MockLLMConfig(delay_ms=0)
-    tools = _tools("web_research")
+    tools = _tools("delegate_to_subagent")
 
     def one(text: str):
         return decide_completion({"messages": [{"role": "user", "content": text}], "tools": tools}, cfg)
@@ -1178,7 +1196,7 @@ def test_current_query_ignores_librarian_history_phrases():
     still_crash = wrapped.replace("### CURRENT QUERY:\nhello", "### CURRENT QUERY:\ncrash the stream")
     assert detect_scenario(still_crash) == "fail_http"
     hello_after = decide_completion(
-        {"messages": [{"role": "user", "content": wrapped}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": wrapped}], "tools": _tools("delegate_to_subagent")},
         MockLLMConfig(delay_ms=0),
     )
     assert hello_after.http_error is None
@@ -1201,7 +1219,7 @@ def test_current_query_ignores_librarian_history_look_up():
         "### CURRENT QUERY:\nhello"
     )
     out = decide_completion(
-        {"messages": [{"role": "user", "content": wrapped}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": wrapped}], "tools": _tools("delegate_to_subagent")},
         MockLLMConfig(delay_ms=0),
     )
     assert out.tool_name is None
@@ -1213,7 +1231,7 @@ def test_summarize_chat_payload_doc_len_and_current_query():
 
     payload = {
         "stream": True,
-        "tools": _tools("web_research", "comment_add"),
+        "tools": _tools("delegate_to_subagent", "comment_add"),
         "messages": [
             {
                 "role": "system",
@@ -1226,7 +1244,10 @@ def test_summarize_chat_payload_doc_len_and_current_query():
         ],
     }
     assert document_content_len(payload["messages"]) == len("Welcome to WriterAgent.")
-    rec = summarize_chat_payload(payload, Completion(tool_name="web_research", tool_args={"query": "q"}))
+    rec = summarize_chat_payload(
+        payload,
+        Completion(tool_name="delegate_to_subagent", tool_args={"domain": "web_research", "task": "q"}),
+    )
     assert rec["has_current_query_mark"] is True
     assert rec["current_query"] == "look up latest Python"
     assert rec["doc_content_len"] == len("Welcome to WriterAgent.")
@@ -1234,7 +1255,7 @@ def test_summarize_chat_payload_doc_len_and_current_query():
     assert rec["payload_chars"] == sum(
         len(m["content"]) for m in payload["messages"] if isinstance(m.get("content"), str)
     )
-    assert rec["decided_tools"] == ["web_research"]
+    assert rec["decided_tools"] == ["delegate_to_subagent"]
     assert rec["last_assistant_tool_calls"] == []
     assert "comment_add" in rec["advertised_tools"]
 
@@ -1244,14 +1265,14 @@ def test_summarize_chat_payload_doc_len_and_current_query():
             {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"function": {"name": "web_research", "arguments": "{}"}}],
+                "tool_calls": [{"function": {"name": "delegate_to_subagent", "arguments": "{}"}}],
             }
         ],
         "tools": payload["tools"],
     }
     rec2 = summarize_chat_payload(with_tools)
-    assert rec2["last_assistant_tool_calls"] == ["web_research"]
-    assert "web_research" in rec2["called_tools"]
+    assert rec2["last_assistant_tool_calls"] == ["delegate_to_subagent"]
+    assert "delegate_to_subagent" in rec2["called_tools"]
 
 
 def test_document_content_len_and_words_snapshot_header():
@@ -1346,7 +1367,7 @@ def test_fail_tool_followup_http500():
 
 def test_forced_scenario_overrides_phrase():
     out = decide_completion(
-        {"messages": [{"role": "user", "content": "look up cats"}], "tools": _tools("web_research")},
+        {"messages": [{"role": "user", "content": "look up cats"}], "tools": _tools("delegate_to_subagent")},
         MockLLMConfig(delay_ms=0, scenario="empty"),
     )
     assert out.finish_reason == "length"
@@ -1445,7 +1466,7 @@ def test_http_ramble_many_chunks(mock_http):
             "model": MOCK_MODEL_ID,
             "stream": True,
             "messages": [{"role": "user", "content": "keep talking"}],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
     )
     assert raw.count("data:") > 50
@@ -1508,7 +1529,7 @@ def test_native_audio_html_contains_transcript():
     out = decide_completion(
         {
             "messages": [_audio_user("please listen", wav_b64=b64)],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
@@ -1522,7 +1543,7 @@ def test_native_audio_html_contains_transcript():
 
 def test_audio_only_not_empty_chat():
     out = decide_completion(
-        {"messages": [_audio_user("")], "tools": _tools("web_research")},
+        {"messages": [_audio_user("")], "tools": _tools("delegate_to_subagent")},
         MockLLMConfig(delay_ms=0),
     )
     assert out.content is not None
@@ -1547,11 +1568,12 @@ def test_audio_phrase_still_research():
     out = decide_completion(
         {
             "messages": [_audio_user("look up pandas")],
-            "tools": _tools("web_research"),
+            "tools": _tools("delegate_to_subagent"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "web_research"
+    assert out.tool_name == "delegate_to_subagent"
+    assert out.tool_args == {"domain": "web_research", "task": "look up pandas"}
 
 
 def test_http_transcriptions_json(mock_http):
@@ -1603,7 +1625,6 @@ def test_http_models_lists_stt_id(mock_http):
 
 
 _WRITER_OUTER = (
-    "web_research",
     "apply_content",
     "delegate_to_subagent",
     "get_tree",

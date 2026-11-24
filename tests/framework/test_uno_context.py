@@ -80,11 +80,9 @@ def test_resolve_package_extension_id_prefers_librepy():
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
     from plugin.framework.uno_context import (
         get_extension_url,
-        reset_package_extension_id_for_tests,
         resolve_package_extension_id,
     )
 
-    reset_package_extension_id_for_tests()
     pip = MagicMock()
     pip.getPackageLocation.side_effect = lambda eid: (
         "file:///tmp/LibrePy.oxt" if eid == EXTENSION_ID_LIBREPY else ""
@@ -92,60 +90,45 @@ def test_resolve_package_extension_id_prefers_librepy():
     with patch("plugin.framework.uno_context.get_package_info", return_value=pip):
         assert resolve_package_extension_id() == EXTENSION_ID_LIBREPY
         assert get_extension_url() == "file:///tmp/LibrePy.oxt"
-    reset_package_extension_id_for_tests()
 
 
 def test_resolve_package_extension_id_off_main_skips_package_info(monkeypatch):
     from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
     from plugin.framework.uno_context import (
-        reset_package_extension_id_for_tests,
         resolve_package_extension_id,
     )
 
-    reset_package_extension_id_for_tests()
     monkeypatch.setattr(main, "is_current", lambda: False)
     with patch("plugin.framework.uno_context.get_package_info") as pip:
         assert resolve_package_extension_id() == EXTENSION_ID_WRITERAGENT
         pip.assert_not_called()
-    reset_package_extension_id_for_tests()
 
 
 def test_set_package_extension_id_override():
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
     from plugin.framework.uno_context import (
-        reset_package_extension_id_for_tests,
         resolve_package_extension_id,
         set_package_extension_id,
     )
 
-    reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_LIBREPY)
     assert resolve_package_extension_id() == EXTENSION_ID_LIBREPY
-    reset_package_extension_id_for_tests()
 
 
 def test_product_display_name_follows_extension_id():
     from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
     from plugin.framework.uno_context import (
         product_display_name,
-        reset_package_extension_id_for_tests,
         set_package_extension_id,
     )
 
-    reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_LIBREPY)
-    try:
-        assert product_display_name() == "LibrePy"
-    finally:
-        reset_package_extension_id_for_tests()
+    assert product_display_name() == "LibrePy"
 
     set_package_extension_id(EXTENSION_ID_WRITERAGENT)
-    try:
-        assert product_display_name() == "WriterAgent"
-        with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
-            assert product_display_name() == "LibreHarper"
-    finally:
-        reset_package_extension_id_for_tests()
+    assert product_display_name() == "WriterAgent"
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
+        assert product_display_name() == "LibreHarper"
 
 
 def test_get_desktop_returns_none_without_service_manager():
@@ -575,12 +558,8 @@ def test_focus_preserved_callback_runs_when_block_raises():
 
 def test_product_display_name_libreharper_auto_detect():
     from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
-    from plugin.framework.uno_context import (
-        product_display_name,
-        reset_package_extension_id_for_tests,
-    )
+    from plugin.framework.uno_context import product_display_name
 
-    reset_package_extension_id_for_tests()
     pip = MagicMock()
     pip.getPackageLocation.side_effect = lambda eid: (
         "file:///tmp/LibreHarper.oxt" if eid == EXTENSION_ID_LIBREHARPER else ""
@@ -590,7 +569,6 @@ def test_product_display_name_libreharper_auto_detect():
         patch.dict("sys.modules", {"plugin._manifest": None}),
     ):
         assert product_display_name() == "LibreHarper"
-    reset_package_extension_id_for_tests()
 
 def test_get_package_info_returns_none_when_ctx_none():
     from plugin.framework.uno_context import get_package_info
