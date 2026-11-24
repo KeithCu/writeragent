@@ -5,8 +5,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Remove unused websockets subpackages before shipping in plugin/lib/.
 
-WriterAgent CDP (browser_cdp_tool, browser_supervisor) uses the asyncio client
-(``websockets.connect``, ``WebSocketException``, ``ClientConnection``), and the
+WriterAgent CDP (browser_cdp_tool) uses the asyncio client
+(``websockets.connect``, ``WebSocketException``), and the
 Firefox WebDriver BiDi client (web_research_firefox) uses
 ``websockets.sync.client``. The full PyPI tree includes legacy, trio, and
 server APIs we never import.

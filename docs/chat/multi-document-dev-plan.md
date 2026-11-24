@@ -129,7 +129,7 @@ See [Threading / nested delegation](#threading--nested-delegation) for UNO threa
 
 ## Tool API contract (in-process parity, read-only elsewhere)
 
-**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_subagent`** gateway. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
+**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_subagent`** gateway. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSubagent`](../../plugin/doc/specialized_base.py)).
 
 **Multi-document extension:**
 
@@ -195,14 +195,14 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 **6. Anti-pattern: read tools on main** — Pollutes the schema for everyone.
 
-**Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but document_research adds a **nested** inner smol run via `research_delegate_read` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../../plugin/chatbot/smol_agent.py) — see [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) and [smol-tool-architecture.md](smol-tool-architecture.md).
+**Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but document_research adds a **nested** inner smol run via `research_delegate_read` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSubagent`](../../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../../plugin/chatbot/smol_agent.py) — see [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) and [smol-tool-architecture.md](smol-tool-architecture.md).
 
 ### Handoff mechanism (implemented)
 
-- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`main.run`).
+- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSubagent.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`main.run`).
 - [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `workflow_finished`.
 - The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string. A plain-string final answer (no finish call: output-limit truncation or max steps) returns `status: "incomplete"`, code `SPECIALIZED_WORKFLOW_INCOMPLETE`, with the text on `message`. Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
-- Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
+- Outer document_research sub-agent is still launched by [`DelegateToSubagent`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
 - Inner ends with `workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
 
 ---
@@ -236,7 +236,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 | Layer | Thread | UNO |
 | ----- | ------ | --- |
 | Main tool loop | Main | Sync tools via `execute_safe` |
-| Outer smol | Worker ([`DelegateToSpecializedBase.is_async`](../../plugin/doc/specialized_base.py)) | List/open via `main.call` / `main.run` or async open tool |
+| Outer smol | Worker ([`DelegateToSubagent.is_async`](../../plugin/doc/specialized_base.py)) | List/open via `main.call` / `main.run` or async open tool |
 | Inner smol | Same worker as outer | Sync read tools via `SmolToolAdapter` (always marshals) → [`main.call`](../../plugin/chatbot/smol_agent.py) |
 
 **Phase 0 tests (implemented):**

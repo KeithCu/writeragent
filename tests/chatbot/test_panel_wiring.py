@@ -107,6 +107,9 @@ def _run_wire_controls(
         def _on_config_changed(self, *_args: object) -> None:
             return None
 
+        def _on_keystore_unlocked(self, *_args: object) -> None:
+            return None
+
     named: dict[str, MagicMock] = {}
 
     def _ctrl(name: str) -> MagicMock:

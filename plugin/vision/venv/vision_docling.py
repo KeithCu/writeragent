@@ -16,18 +16,20 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.constants import TESSERACT_PROGRAMS
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
     DOCLING_MIN_VERSION,
     DOCLING_REQUIREMENT,
     LOAD_MODELS_HELPER,
+    OCR_BACKENDS,
+    OcrBackend,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
     docling_too_old,
     error_result,
     is_css_inline_import_error,
+    ocr_module_package,
     ok_result,
     resolve_ocr_backend,
     table_from_span_cells,
@@ -69,83 +71,6 @@ class OcrBackendError(ValueError):
     """Raised when the requested OCR backend is not available or unknown."""
 
 
-@dataclass(frozen=True, slots=True)
-class OcrBackend:
-    """One ocr_backend id: the Docling OcrOptions class it builds and what must be installed for it."""
-
-    options_class: str  # attribute of docling.datamodel.pipeline_options
-    modules: tuple[str, ...] = ()  # imports that must succeed in the venv: `module`, or `module:attribute` when the module loads the attribute lazily
-    programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
-    install_hint: str = ""
-    rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
-    # OcrOptions field that takes the text_score setting (RapidOCR text_score, EasyOCR confidence_threshold);
-    # empty when the engine has no recognition-confidence filter.
-    threshold_field: str = ""
-    # sys.platform value the engine runs on ("" = any). Docling's OcrMacModel.__init__
-    # (models/stages/ocr/ocr_mac_model.py) refuses anything but "darwin".
-    sys_platform: str = ""
-    # Start of the ImportError/RuntimeError message Docling's model __init__ raises when the
-    # engine passed pre-flight but cannot start (broken dependency, program that does not run).
-    startup_errors: tuple[str, ...] = ()
-
-
-def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
-    return OcrBackend(
-        "RapidOcrOptions",
-        # rapidocr/__init__.py loads RapidOCR lazily via __getattr__, so importing rapidocr alone misses broken cv2.
-        ("rapidocr:RapidOCR", module),
-        install_hint=f"pip install rapidocr {pip_name}",
-        rapidocr_engine=engine,
-        threshold_field="text_score",
-    )
-
-
-# Kept in sync with _VISION_PROBE_SCRIPT and _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py.
-OCR_BACKENDS: dict[str, OcrBackend] = {
-    "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
-    "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
-    "rapidocr_paddle": _rapidocr("paddle", "paddle", "paddlepaddle"),
-    "rapidocr_torch": _rapidocr("torch", "torch", "torch"),
-    "easyocr": OcrBackend(
-        "EasyOcrOptions",
-        ("easyocr",),
-        install_hint="pip install easyocr",
-        threshold_field="confidence_threshold",
-    ),
-    "tesseract": OcrBackend(
-        "TesseractCliOcrOptions",
-        programs=TESSERACT_PROGRAMS,
-        install_hint=(
-            "Install the Tesseract OCR program with its eng and osd language data (Linux: your package manager; "
-            "macOS: Homebrew or MacPorts; Windows: the UB Mannheim installer). WriterAgent looks for tesseract "
-            "on PATH and in its default install folder."
-        ),
-        startup_errors=("Tesseract is not available",),
-    ),
-    "nemotron": OcrBackend(
-        "NemotronOcrOptions",
-        # Namespace package, so its real import failure arrives through startup_errors.
-        ("nemotron_ocr",),
-        install_hint=(
-            "Nemotron OCR runs in a Python venv set up for it: Linux x86_64 with an NVIDIA GPU, a CUDA build "
-            "of PyTorch, and pip install nemotron-ocr (Docling 2.151 also checks for Python 3.12 and CUDA 13). "
-            "Point Settings → Python at that venv and keep Device on Auto or CUDA."
-        ),
-        # NemotronOcrModel.validate_runtime (docling/models/stages/ocr/nemotron_ocr_model.py) raises RuntimeError
-        # for the platform, Python, CUDA and device checks; NemotronOcrModel.__init__ re-raises a failed
-        # nemotron_ocr.inference import as "Nemotron OCR is not installed".
-        startup_errors=("Nemotron OCR is not installed", "Nemotron OCR is only supported", "Nemotron OCR requires"),
-    ),
-    "ocrmac": OcrBackend(
-        "OcrMacOptions",
-        ("ocrmac.ocrmac",),
-        sys_platform="darwin",
-        install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
-        startup_errors=("Apple Vision did not report any recognition language",),
-    ),
-}
-
-
 def _import_engine_module(entry: str) -> None:
     """Import one OcrBackend.modules entry ("module" or "module:attribute")."""
     module, _sep, attr = entry.partition(":")
@@ -168,7 +93,7 @@ def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
     missing: list[str] = []
     broken: list[str] = []
     for entry in row.modules:
-        top = entry.partition(":")[0].partition(".")[0]
+        top = ocr_module_package(entry)
         try:
             _import_engine_module(entry)
         except Exception as exc:
@@ -614,9 +539,9 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             helper=helper,
             details={"import_error": root_msg},
         )
-    # Docling, RapidOCR, EasyOCR and huggingface_hub (LocalEntryNotFoundError) all raise
-    # FileNotFoundError for absent model files, so no message text is matched.
-    if isinstance(exc, FileNotFoundError):
+    # FileNotFoundError covers absent files; RapidOCR raises rapidocr.utils.download_file.DownloadFileException
+    # (a plain Exception) when a first-use download fails, and it is matched by name so RapidOCR is not imported.
+    if isinstance(exc, FileNotFoundError) or type(exc).__name__ == "DownloadFileException":
         return error_result(
             "OCR_MODELS_MISSING",
             f"Model files for OCR are missing: {exc}\nDownload them with docling-tools models download -o <folder>, or clear vision.artifacts_path and go online so they download on first use.",

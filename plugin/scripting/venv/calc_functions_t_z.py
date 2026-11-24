@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    NA_NAN,
     as_nonzero,
     build_holiday_set,
     clean_paired_arrays,
@@ -29,6 +30,7 @@ from .calc_functions_util import (
     is_calc_error,
     orient_columns,
     parse_weekend,
+    require_samples,
     round_half_up,
     scipy_stats,
     serial_to_date,
@@ -309,7 +311,7 @@ def _split_pieces(text: str, delimiter: Any, case_insensitive: bool, skip_empty:
     return [part for part in parts if part] if skip_empty else parts
 
 
-def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = float("nan")) -> Any:
+def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = NA_NAN) -> Any:
     # Case-insensitive split still returns the original text. lower() would
     # change the pieces, not just the match.
     try:
@@ -331,7 +333,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         # pad with pad_with to make rectangle
         max_cols = max(len(row) for row in res) if res else 0
         for row in res:
-            # Omitted pad_with is NaN: ScTextSplit PutError(NotAvailable).
+            # Omitted pad_with is NA_NAN (#N/A): ScTextSplit PutError(NotAvailable).
             # Do not use xlookup's "#N/A" string here.
             row.extend([pad_with] * (max_cols - len(row)))
         return res
@@ -420,6 +422,7 @@ def trend(*args: Any) -> Any:
         # bool("FALSE") is True, so a const string kept the intercept.
         # as_nonzero maps "FALSE" / "TRUE" / 0.
         const = as_nonzero(args[3]) if len(args) > 3 else True
+        require_samples(data_x.shape[0], data_x.shape[1], const)
 
         if const:
             data_x = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -930,7 +933,13 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
-    return float(best_idx + 1) if best_idx is not None else float("nan")
+    if best_idx is not None:
+        return float(best_idx + 1)
+    # ScXMatch (interpr1.cxx): a miss is #N/A. A match mode Calc rejects is IllegalParameter;
+    # 3 (regex) is not supported here. An error lookup value is the result.
+    if isinstance(lookup_val, (float, np.floating)) and math.isnan(lookup_val):
+        return float(lookup_val)
+    return NA_NAN if int(float(match_mode)) in (-1, 0, 1, 2) else float("nan")
 
 
 def xnpv(rate: Any, values: Any, dates: Any) -> float:

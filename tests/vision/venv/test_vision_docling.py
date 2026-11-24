@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from plugin.vision import vision_common as vision_common_mod
 from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv.vision_docling import export_docling_to_html, extract_structure, extract_text
 from plugin.vision.vision_common import DOCLING_MIN_VERSION, DOCLING_REQUIREMENT
@@ -736,7 +737,7 @@ def test_settings_ocr_backend_options_are_registry_ids():
     cfg = data["config"]["ocr_backend"]
     assert cfg["default"] == "rapidocr"
     for opt in cfg["options"]:
-        assert opt["value"] in docling_mod.OCR_BACKENDS
+        assert opt["value"] in vision_common_mod.OCR_BACKENDS
 
 
 @pytest.mark.parametrize(
@@ -818,7 +819,7 @@ def test_installed_ocr_backend_ocrmac_on_darwin(monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     with patch.object(docling_mod, "_import_engine_module"):
         row, program = docling_mod._installed_ocr_backend("ocrmac")
-    assert row == docling_mod.OCR_BACKENDS["ocrmac"]
+    assert row == vision_common_mod.OCR_BACKENDS["ocrmac"]
     assert program == ""
 
 
@@ -1068,7 +1069,7 @@ def test_extract_text_real_docling_detect_orientation_reads_rotated_page():
 def test_installed_ocr_backend_finds_tesseract_outside_path():
     with patch("shutil.which", side_effect=lambda c: c if c == "/opt/homebrew/bin/tesseract" else None):
         row, program = docling_mod._installed_ocr_backend("tesseract")
-    assert row == docling_mod.OCR_BACKENDS["tesseract"]
+    assert row == vision_common_mod.OCR_BACKENDS["tesseract"]
     assert program == "/opt/homebrew/bin/tesseract"
 
 
@@ -1141,9 +1142,9 @@ def test_extract_text_real_tesseract_cli_off_path(tmp_path, monkeypatch):
 
     monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.setitem(
-        docling_mod.OCR_BACKENDS,
+        vision_common_mod.OCR_BACKENDS,
         "tesseract",
-        dataclasses.replace(docling_mod.OCR_BACKENDS["tesseract"], programs=("tesseract", real)),
+        dataclasses.replace(vision_common_mod.OCR_BACKENDS["tesseract"], programs=("tesseract", real)),
     )
     result = extract_text(
         _tiny_hello_ocr_png(),
@@ -1205,11 +1206,16 @@ class _LocalEntryNotFound(FileNotFoundError, ValueError):
     pass
 
 
+class DownloadFileException(Exception):
+    pass
+
+
 @pytest.mark.parametrize(
     "exc",
     [
         FileNotFoundError("tm_config.json not found"),
         _LocalEntryNotFound("Cannot find the requested files in the disk cache"),
+        DownloadFileException("Failed to download https://example.com/model.onnx"),
     ],
 )
 def test_missing_model_files_map_to_ocr_models_missing(exc):

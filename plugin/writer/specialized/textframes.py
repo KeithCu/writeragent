@@ -30,6 +30,7 @@ from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.uno_context import uno_same
+from ..edit_review import flag_untracked_delete
 from ..search import text_box_shapes
 from ..specialized_base import ToolWriterTextFramesBase, target_params
 from ..target_resolver import insert_at_target
@@ -407,4 +408,6 @@ class FrameDelete(ToolWriterTextFramesBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "frame_name": frame_name, "deleted": True}
+        result: dict[str, Any] = {"status": "ok", "frame_name": frame_name, "deleted": True}
+        flag_untracked_delete(result, doc, "text frame")
+        return result

@@ -65,7 +65,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. The walk also stops at 200000 elements. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
-| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. A load that is not returned (unsupported type, or an exception after load) is closed. |
+| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL` (HTML files forced to `HTML (StarWriter)`), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close only if this call loaded a hidden sibling (not a user-visible doc). |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
@@ -112,7 +112,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | `detect_doc_type` | `doc_type_family_label(get_document_type(doc))` (unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
-| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes |
+| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` (excluding registered scratch documents by `RuntimeUID`; user-hidden documents count) and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes (deferred past in-progress scratch loads via `run_after_scratch_loads`) |
 
 `get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
 

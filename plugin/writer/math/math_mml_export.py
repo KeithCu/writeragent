@@ -22,6 +22,7 @@ from typing import Any, Iterator, Literal
 
 from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
+from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import (
     create_property_value,
     get_desktop,
@@ -120,8 +121,7 @@ class MathExportBatch:
             desktop = get_desktop(self.ctx)
             if desktop is None:
                 return None
-            hidden = (create_property_value("Hidden", True),)
-            self._doc = desktop.loadComponentFromURL(_MATH_FACTORY_URL, "_blank", 0, hidden)
+            self._doc = load_scratch_document(desktop, _MATH_FACTORY_URL)
             if self._doc is not None:
                 fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
                 os.close(fd)
@@ -167,7 +167,7 @@ class MathExportBatch:
         self._doc = None
         self._temp_path = None
         if doc is not None:
-            best_effort(lambda: doc.close(True), "math export: hidden Math document close failed")
+            best_effort(lambda: close_scratch_document(doc), "math export: hidden Math document close failed")
         if path:
             best_effort(lambda: os.unlink(path), "math export: temp .mml unlink failed")
 

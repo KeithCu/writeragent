@@ -7,7 +7,7 @@ This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMP
 ```bash
 git clone …/writeragent && cd writeragent
 uv sync
-make eval-deps                    # uv pip install dspy-ai (eval + optimize only)
+make eval-deps                    # uv pip install dspy-ai (run_optimize only)
 export OPENROUTER_API_KEY=sk-…   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
 make run_eval-smoke               # one model, one example
 make run_eval EVAL_ARGS="--models openai/gpt-oss-120b:nitro -n 2 -j 1"

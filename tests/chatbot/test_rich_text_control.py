@@ -442,7 +442,7 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [
             {"role": "user", "content": "q"},
             {"role": "assistant", "content": "Hel", "_open_transcript": True},
@@ -480,7 +480,7 @@ class TestRichTextChatWidget:
     def test_stream_session_rewrites_only_the_plain_tail_when_a_row_is_replaced(self):
         """The committed message replacing the open row cuts at the prefix end; no clear, no paint."""
         widget = self._streaming_widget([("user", "q"), ("assistant", "<think>x</think>Hel")], 1, 10)
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
              patch("plugin.chatbot.rich_text_control.clear_control") as clear, \
@@ -497,7 +497,7 @@ class TestRichTextChatWidget:
     def test_stream_session_appends_the_turn_user_row_formatted(self):
         """A user row that opens the turn joins the formatted prefix at the new length."""
         widget = self._streaming_widget([("user", "a"), ("assistant", "b")], 2, 20)
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [
             {"role": "user", "content": "a"},
             {"role": "assistant", "content": "b"},
@@ -516,7 +516,7 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hel"}]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
@@ -539,7 +539,7 @@ class TestRichTextChatWidget:
         widget = self._streaming_widget([("user", "q"), ("assistant", "par")], 1, 10)
         with patch("plugin.chatbot.rich_text_control.append_text_chunk"):
             widget.append_chunk("\n[Stopped by user]\n")
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [
             {"role": "user", "content": "q"},
             {"role": "assistant", "content": "par"},
@@ -560,7 +560,7 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = []
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=106), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
@@ -619,7 +619,7 @@ class TestRichTextChatWidget:
     def test_rerender_reformats_before_the_final_scroll(self):
         """One reformat per turn at Ready, then stick to the end."""
         widget = self._streaming_widget([("user", "q"), ("assistant", "Hel")], 1, 10)
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
         calls = []
         with patch("plugin.chatbot.rich_text_control.rollback_rich_insert"), \
@@ -634,7 +634,7 @@ class TestRichTextChatWidget:
     def test_rerender_formats_only_this_turns_rows(self):
         """At Ready the plain tail is cut at the prefix end and appended formatted; no full paint."""
         widget = self._streaming_widget([("user", "q"), ("assistant", "Hel")], 1, 10)
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<b>Hello</b>"}]
         with patch.object(widget, "paint_session") as full, \
              patch("plugin.chatbot.rich_text_control.rollback_rich_insert") as rollback, \
@@ -675,7 +675,7 @@ class TestRichTextChatWidget:
     def test_calc_widget_links_tail_rows_at_turn_end(self):
         widget = self._streaming_widget([("user", "q"), ("assistant", "See")], 1, 10)
         widget.cell_link_sheet_names = lambda: ["Sheet1"]
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<p>See Sheet1.B2</p>"}]
         with patch("plugin.chatbot.rich_text_control.rollback_rich_insert"), \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \

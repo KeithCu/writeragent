@@ -773,6 +773,7 @@ def test_compact_reads_key_on_worker(fake_keystore, stop_in_prompt: bool) -> Non
         assert not t.is_alive()
 
     assert reads == [False]
+    assert fake_keystore.last_cancel is cancel
     assert mock_compact.call_count == 0
     expected = "cancelled" if stop_in_prompt else "locked"
     assert expected in out["line"].lower()

@@ -849,7 +849,7 @@ def run_slash_compact_sync(
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"
 
-    fill_api_key(client.config)
+    fill_api_key(client.config, cancel)
     # Stop clicked while the unlock prompt was open reports a cancel, not a keyring error.
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"

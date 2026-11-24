@@ -1,0 +1,192 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Node-harness tests for editor_shell.js dirty tracking across async saves/runs."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+_SHELL_JS = Path(__file__).resolve().parents[2] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor_shell.js"
+
+
+def _run_shell_scenario(script_body: str) -> dict:
+    driver = f"""
+const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync({json.dumps(str(_SHELL_JS))}, "utf8");
+const els = {{}};
+function el(id) {{
+  return (els[id] ||= {{
+    id,
+    value: "",
+    checked: false,
+    disabled: false,
+    style: {{}},
+    textContent: "",
+    title: "",
+    h: {{}},
+    classList: {{ add() {{}}, remove() {{}}, toggle() {{}} }},
+    addEventListener(n, f) {{ this.h[n] = f; }},
+    click() {{ this.h.click && this.h.click(); }},
+    trigger(n) {{ this.h[n] && this.h[n](); }},
+    setAttribute() {{}},
+    appendChild() {{}},
+  }});
+}}
+const sent = [];
+const queue = [];
+let poll;
+let text = "";
+let onCh;
+const backend = {{
+  create: () => Promise.resolve(),
+  onChange(f) {{ onCh = f; }},
+  getValue: () => text,
+  setValue(v) {{ text = v; onCh && onCh(); }},
+  setLanguage() {{}},
+  setMarkers() {{}},
+  setTheme() {{}},
+}};
+const win = {{
+  WaEditorBackends: {{ monaco: backend }},
+  WA_EDITOR_BACKEND: "monaco",
+  addEventListener() {{}},
+  pywebview: {{
+    api: {{
+      notify_dirty: (d) => sent.push(d),
+      notify_save: () => sent.push("save"),
+      notify_save_script: () => sent.push("save_script"),
+      notify_run: () => sent.push("run"),
+      poll_messages: () => Promise.resolve(queue.splice(0)),
+    }},
+  }},
+}};
+const doc = {{
+  title: "",
+  body: el("body"),
+  head: {{ appendChild(s) {{ s.onload(); }} }},
+  documentElement: el("root"),
+  getElementById: el,
+  createElement: () => ({{}}),
+  addEventListener() {{}},
+  querySelectorAll: () => [],
+  querySelector: () => null,
+}};
+win.document = doc;
+vm.runInNewContext(src, {{
+  window: win,
+  document: doc,
+  setTimeout: () => 0,
+  setInterval: (f) => {{ poll = f; return 0; }},
+  console,
+}});
+const tick = () => new Promise((r) => setImmediate(r));
+async function deliver(m) {{ queue.push(m); poll(); await tick(); await tick(); }}
+(async () => {{
+  await tick();
+  {script_body}
+  console.log(JSON.stringify({{
+    sent,
+    dirty: win.waEditorUi.isDirty(),
+    text,
+    dataBinding: el("data-binding-input").value,
+  }}));
+}})();
+"""
+    proc = subprocess.run(
+        ["node", "-e", driver],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(proc.stdout.strip())
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.parametrize(
+    "edit_during_save",
+    [
+        'text = "abc"; onCh();',
+        'el("data-binding-input").value = "D1"; el("data-binding-input").trigger("input");',
+        'el("chk-plain-text").checked = true; el("chk-plain-text").trigger("change");',
+    ],
+    ids=["code", "data-binding", "plain-checkbox"],
+)
+def test_editor_shell_stays_dirty_when_edited_during_save(edit_during_save: str) -> None:
+    out = _run_shell_scenario(
+        f"""
+        await deliver({{type: "load", mode: "calc_cell", code: "a", data_binding: "C1", session_id: "s"}});
+        text = "ab"; onCh();
+        el("btn-save").click();
+        {edit_during_save}
+        await deliver({{type: "saved", session_id: "s"}});
+        """
+    )
+    assert out["dirty"] is True
+    assert out["sent"][out["sent"].index("save") + 1 :] == [True]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_clears_dirty_and_applies_rewritten_code_when_untouched() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s"});
+        text = "ab"; onCh();
+        el("btn-save").click();
+        await deliver({type: "saved", code: "rewritten", data_binding: "A1", session_id: "s"});
+        """
+    )
+    assert out["dirty"] is False
+    assert out["sent"][-1] is False
+    assert out["text"] == "rewritten"
+    assert out["dataBinding"] == "A1"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_run_edited_during_run_stays_dirty() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "run_script", code: "a", session_id: "s"});
+        text = "ab"; onCh();
+        el("btn-run").click();
+        text = "abc"; onCh();
+        await deliver({type: "saved", session_id: "s"});
+        """
+    )
+    assert out["dirty"] is True
+    assert out["sent"][out["sent"].index("run") + 1 :] == [True]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_run_no_typing_clears_dirty() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "run_script", code: "a", session_id: "s"});
+        text = "ab"; onCh();
+        el("btn-run").click();
+        await deliver({type: "saved", session_id: "s"});
+        """
+    )
+    assert out["dirty"] is False
+    assert out["sent"][-1] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_clean_after_save_script_stays_clean_on_late_run_reply() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "run_script", code: "a", session_id: "s"});
+        text = "ab"; onCh();
+        el("btn-run").click();
+        text = "abc"; onCh();
+        el("btn-save").click();
+        win.waEditorUi.markDirty(false);
+        await deliver({type: "saved", session_id: "s"});
+        """
+    )
+    assert out["dirty"] is False
+    assert out["sent"][-1] is False

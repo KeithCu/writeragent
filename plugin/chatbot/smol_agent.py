@@ -179,7 +179,8 @@ class InnerCallRecorder(SmolToolAdapter):
     """SmolToolAdapter that logs every call as InnerToolCall(name, result, mutating) into *calls*.
 
     Specialized loops hand that log to apply_inner_outcome to grade the delegation.
-    safe=True and inputs_style="specialized" are the settings every specialized loop uses.
+    ``safe=True`` turns a raising tool into an error result, so it is still recorded;
+    an exception that leaves ``forward`` means the tool did not run (except at interpreter shutdown).
     """
 
     _calls: list[InnerToolCall]
@@ -189,11 +190,8 @@ class InnerCallRecorder(SmolToolAdapter):
         tool: ToolBase,
         tctx: ToolContext,
         calls: list[InnerToolCall],
-        *,
-        safe: bool = True,
-        inputs_style: SmolInputsStyle = "specialized",
     ) -> None:
-        super().__init__(tool, tctx, safe=safe, inputs_style=inputs_style)
+        super().__init__(tool, tctx, safe=True, inputs_style="specialized")
         self._calls = calls
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:

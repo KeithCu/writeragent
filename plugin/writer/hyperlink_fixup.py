@@ -16,12 +16,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Keep Writer outline-hyperlink targets in step with a search replace.
 
-Discussion #819: a same-length ``setString`` inside ``replace_preserving_format``
-keeps ``HyperLinkURL``, so a TOC entry whose visible title changed still points
-at ``#old title|outline``. The HTML path's ``setString("")``, and a
-length-changing preserve-format replace, can clear the property on the new
-characters instead. Capture the URL before the edit and write it back after,
-in both cases.
+Discussion #819: an untracked ``replace_preserving_format`` keeps ``HyperLinkURL``
+(except on a one-character run), so a TOC entry whose visible title changed still
+points at ``#old title|outline``. HTML replaces and recorded replaces can clear
+the property on the new characters instead. Capture the URL before the edit and
+write it back after, in both cases.
 
 Bookmark targets (``#__RefHeading___Toc…``) do not embed the heading text.
 They are left alone. Only URLs ending in ``|outline`` are rewritten, and only
@@ -106,10 +105,10 @@ class OutlineSnapshot:
     matched: str
     single_paragraph: bool
     # A non-outline URL (bookmark TOC target) that covered the match. It is
-    # never rewritten. A same-length setString keeps HyperLinkURL. HTML
-    # setString("") and a length-changing preserve-format replace can clear
-    # it on the new characters; this URL is put back unchanged so the
-    # bookmark is not unlinked.
+    # never rewritten. An untracked preserve-format replace keeps HyperLinkURL
+    # except on a one-character run; HTML replaces and recorded replaces can
+    # clear it on the new characters, so this URL is put back unchanged to keep
+    # the bookmark linked.
     preserve_url: str = ""
     # Direct CharColor / CharUnderline overrides plus link character styles
     # of the matched run, copied before the text replace. A later snapshot
@@ -331,10 +330,10 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
     """Cursor covering the replaced characters, measured from the paragraph start.
 
     A cursor saved at the match start does not stay there: replace_preserving_format
-    calls setString on each changed character, and that pushes other cursors at
-    the same position forward. Painting from that drifted cursor writes the URL
-    onto the following bookmark. The paragraph start plus the saved prefix length
-    is still the replacement, including after that drift.
+    inserts and deletes text around it, pushing other cursors at the same position
+    forward. Painting from that drifted cursor writes the URL onto the following
+    bookmark. The paragraph start plus the saved prefix length is still the
+    replacement, including after that drift.
     """
     # goRight counts UTF-16 units, so an emoji is 2 (len() would stop short).
     if not snapshot.single_paragraph:
@@ -508,10 +507,10 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
 
     if not writable:
         # Put the same target back on the replaced characters only when they
-        # belonged to that one link. A same-length setString keeps HyperLinkURL.
-        # HTML setString("") and a length-changing preserve-format replace can
-        # clear it, which would unlink "New" and leave only " title". Painting
-        # links[0] or the bookmark across a match that also overlaps another
+        # belonged to that one link. An untracked preserve-format replace keeps
+        # HyperLinkURL except on a one-character run; HTML replaces and recorded
+        # replaces can clear it, which would unlink "New" and leave only " title".
+        # Painting links[0] or the bookmark across a match that also overlaps another
         # link would give the neighbor the wrong target; those characters stay
         # unlinked instead.
         put_back = ""

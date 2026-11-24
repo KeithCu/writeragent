@@ -630,7 +630,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     ``document_list_open``); the RuntimeUID also matches unsaved/untitled
     documents that have no URL yet.
     Returns (doc, doc_type) or (None, None) if not found.
-    doc_type is one of 'writer', 'calc', 'draw'.
+    doc_type is one of 'writer', 'calc', 'draw', or 'unknown'.
     """
     if not url or not str(url).strip():
         return (None, None)
@@ -711,3 +711,16 @@ def property_arg(args: Any, name: str) -> Any:
         if hasattr(pv, "Name") and pv.Name == name:
             return pv.Value
     return None
+
+
+def execute_dispatch(ctx: Any, controller: Any, command: str, args: tuple[Any, ...] = ()) -> Any:
+    """Run one ``.uno:`` command on the controller's frame through DispatchHelper and return its result.
+
+    ``args`` is a tuple of ``com.sun.star.beans.PropertyValue`` passed to ``executeDispatch``.
+    Returns an empty Any (None) when no dispatcher handled it
+    (``framework/source/services/dispatchhelper.cxx DispatchHelper::executeDispatch``).
+    ``tracking_manage`` reads that on Calc.
+    """
+    return _create_service(ctx, "com.sun.star.frame.DispatchHelper").executeDispatch(
+        controller.getFrame(), command, "", 0, args
+    )

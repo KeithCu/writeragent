@@ -571,4 +571,13 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
     assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
 
 
+def test_na_returns_err_na_payload():
+    import struct
+
+    val = calc.na()
+    assert math.isnan(val)
+    assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == 0x7FFF
+    assert calc.isna(val) is True
+
+
 

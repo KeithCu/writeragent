@@ -2,15 +2,30 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Test-only helper for calling run_sandboxed_code with loose kwargs."""
+"""Test-only helpers for calling run_sandboxed_code and forcing the SIGALRM fallback."""
 
 from __future__ import annotations
 
+import signal
 from typing import Any
+
+import pytest
 
 from plugin.scripting.payload_codec import ForceBinary
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+
+def refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force local_python_executor.timeout onto its ThreadPoolExecutor path."""
+    real_signal = signal.signal
+
+    def _signal(signum, handler):
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", _signal)
 
 
 def sandbox_run(

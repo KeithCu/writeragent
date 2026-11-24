@@ -696,7 +696,9 @@ class LlmClient:
         # A stopped run must not open the keyring's unlock prompt.
         if self._stop_latched(cancel):
             raise stopped_error()
-        fill_api_key(self.config)
+        fill_api_key(self.config, cancel)
+        if self._stop_latched(cancel):
+            raise stopped_error()
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

@@ -395,6 +395,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
 
     # 6. Global Config Listener
     get_event_bus().subscribe("config:changed", self._on_config_changed, weak=True)
+    get_event_bus().subscribe("keystore:unlocked", self._on_keystore_unlocked, weak=True)
 
     # Weekly extension update check: run once per process, late (after sidebar UI is wired)
     # so logging is initialized and AsyncCallback/msgbox are reliable.

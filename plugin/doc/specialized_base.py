@@ -14,14 +14,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Shared base class for gateway tools that delegate to specialized toolsets."""
+"""Gateway tool that delegates to specialized toolsets."""
 
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
 import logging
-from typing import Any, cast, Type, ClassVar
+from typing import Any, cast
 
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
 from plugin.framework.errors import append_warnings, is_disposal
@@ -185,9 +185,9 @@ class _CaptureInstructionAdapter(InnerCallRecorder):
 def _gather_domain_tools(ctx: ToolContext, domain: str) -> tuple[list[ToolBase], str, str]:
     """Gather tools for the requested domain (same rules as main chat ``active_domain``).
 
-    Must use ``ToolRegistry.get_tools(..., active_domain=...)`` so cross-app tools
+    Uses ``ToolRegistry.get_tools(..., active_domain=...)`` so cross-app tools
     (e.g. ``RunVenvPythonScript`` with ``specialized_cross_cutting``) are included;
-    ``isinstance(..., _special_base_class)`` alone misses Calc-registered tools on Writer delegate.
+    filtering by one app's special base class would miss Calc-registered tools on a Writer delegate.
     """
     registry = ctx.services.get("tools")
     tools = registry.get_tools(
@@ -268,13 +268,48 @@ def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_r
     return "".join(hints)
 
 
-class DelegateToSpecializedBase(ToolBase):
-    """Shared base for tools that delegate tasks to specialized sub-agents."""
+# Delegate results report edits that landed even on error, so "status error means nothing changed" does not apply to this tool.
+_DELEGATE_RESULT_LINE = (
+    "The result carries status, answer, edits (successful editing-tool calls counted by tool name; {} means nothing was edited) "
+    "and, on error, tool_errors; status error or incomplete with non-empty edits means part of the task was applied."
+)
 
-    # Subclasses MUST override these
-    _special_base_class: ClassVar[Type[ToolBase]]
-    _agent_label: ClassVar[str]  # e.g., "Writer", "Calc", "Draw"
+_WRITER_DELEGATE_DESCRIPTION = (
+    "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
+    f"{_DELEGATE_RESULT_LINE} "
+    "For the research domains, describe what to research in task (topics, sections, depth). "
+    f"{PYTHON_ROUTING_HINT}"
+)
 
+# Lead only; description_for_services appends the bound domain catalog for sidebar chat.
+_CALC_DELEGATE_DESCRIPTION = (
+    "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    f"in this spreadsheet and returns a summary. {_DELEGATE_RESULT_LINE}"
+)
+
+_DRAW_DELEGATE_LEAD = (
+    "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
+)
+
+_GENERIC_DELEGATE_DESCRIPTION = (
+    "Starts a sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    f"in this document and returns a summary. {_DELEGATE_RESULT_LINE}"
+)
+
+
+def _format_draw_delegate_description(domains: list[str]) -> str:
+    """Build the Draw/Impress delegate tool description listing the exact bound domains."""
+    domain_list = ", ".join(domains)
+    return f"{_DRAW_DELEGATE_LEAD}Available domains: {domain_list}."
+
+
+class DelegateToSubagent(ToolBase):
+    """Unified gateway tool to delegate tasks to specialized Writer, Calc, or Draw sub-agents."""
+
+    name: str | None = DELEGATE_SUBAGENT_TOOL
+    description: str = _GENERIC_DELEGATE_DESCRIPTION
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     is_mutation: bool | None = True
     long_running: bool = True
 
@@ -311,8 +346,38 @@ class DelegateToSpecializedBase(ToolBase):
         uno_services: frozenset[str] | None = None,
         doc: Any = None,
     ) -> str:
-        """Return the sub-agent label ('Writer', 'Calc', or 'Draw') for this target."""
-        return self._agent_label
+        """Resolve the sub-agent label ('Writer', 'Calc', or 'Draw') from doc_type or UNO services."""
+        if doc_type == "calc" or (uno_services and "com.sun.star.sheet.SpreadsheetDocument" in uno_services):
+            return "Calc"
+        if doc_type in ("draw", "impress") or (
+            uno_services
+            and (
+                "com.sun.star.drawing.DrawingDocument" in uno_services
+                or "com.sun.star.presentation.PresentationDocument" in uno_services
+            )
+        ):
+            return "Draw"
+        if doc_type == "writer" or (uno_services and "com.sun.star.text.TextDocument" in uno_services):
+            return "Writer"
+        if doc is not None and main.is_current():
+            from plugin.framework import doc_type as _doc_type
+
+            dt = _doc_type.doc_type_str_from_doc(doc)
+            if dt == "calc":
+                return "Calc"
+            if dt in ("draw", "impress"):
+                return "Draw"
+        return "Writer"
+
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Return the app-specific sub-agent description for *doc_type*."""
+        if doc_type == "calc":
+            return _CALC_DELEGATE_DESCRIPTION
+        if doc_type in ("draw", "impress"):
+            return _DRAW_DELEGATE_LEAD.rstrip()
+        if doc_type == "writer":
+            return _WRITER_DELEGATE_DESCRIPTION
+        return self.description
 
     def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
         """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
@@ -323,9 +388,26 @@ class DelegateToSpecializedBase(ToolBase):
         agent_label = self.agent_label_for(uno_services=uno_services)
         return sorted({e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)})
 
-    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
-        """Optional narrowed tool description for *uno_services* (None keeps the class description)."""
-        return None
+    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str:
+        """Return the app-specific description narrowed to *uno_services*.
+
+        For sidebar chat (``for_mcp=False``), appends the bound ``domain: description``
+        catalog matching the narrowed enum; for MCP, returns the compact lead (Draw
+        also lists the bound domain names).
+        """
+        label = self.agent_label_for(uno_services=uno_services)
+        if not for_mcp:
+            # Sidebar chat reads the domain catalog only here; domains_for_services reads the same entries, so the list cannot name a domain the enum rejects.
+            entries = catalog_entries_from_base(agent_label=label, uno_services=uno_services)
+            return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
+        if label == "Calc":
+            return _CALC_DELEGATE_DESCRIPTION
+        if label == "Draw":
+            domains = self.domains_for_services(uno_services)
+            hidden = chat_tier_domains()
+            domains = [d for d in domains if d not in hidden]
+            return _format_draw_delegate_description(domains)
+        return _WRITER_DELEGATE_DESCRIPTION
 
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
@@ -563,19 +645,15 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         return schemas
     out: list[dict[str, Any]] = []
     for schema, tool in zip(schemas, tools, strict=True):
-        if not isinstance(tool, DelegateToSpecializedBase):
+        if not isinstance(tool, DelegateToSubagent):
             out.append(schema)
             continue
         patched = copy.deepcopy(schema)
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
         domain_prop["enum"] = tool.domains_for_services(uno_services)
-        desc = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
-        if desc is not None:
-            if "function" in patched:
-                patched["function"]["description"] = desc
-            else:
-                patched["description"] = desc
+        target = patched["function"] if "function" in patched else patched
+        target["description"] = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
         if "inputSchema" in patched:
             domain_prop["description"] = format_specialized_domains_description(
                 agent_label=tool.agent_label_for(uno_services=uno_services),
@@ -583,109 +661,3 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
             )
         out.append(patched)
     return out
-
-
-# Delegate results report edits that landed even on error, so "status error means nothing changed" does not apply to this tool.
-_DELEGATE_RESULT_LINE = (
-    "The result carries status, answer, edits (successful editing-tool calls counted by tool name; {} means nothing was edited) "
-    "and, on error, tool_errors; status error or incomplete with non-empty edits means part of the task was applied."
-)
-
-_WRITER_DELEGATE_DESCRIPTION = (
-    "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
-    f"{_DELEGATE_RESULT_LINE} "
-    "For the research domains, describe what to research in task (topics, sections, depth). "
-    f"{PYTHON_ROUTING_HINT}"
-)
-
-# Lead only; description_for_services appends the bound domain catalog for sidebar chat.
-_CALC_DELEGATE_DESCRIPTION = (
-    "Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    f"in this spreadsheet and returns a summary. {_DELEGATE_RESULT_LINE}"
-)
-
-_DRAW_DELEGATE_LEAD = (
-    "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    f"on this drawing or presentation and returns a summary. {_DELEGATE_RESULT_LINE} "
-)
-
-_GENERIC_DELEGATE_DESCRIPTION = (
-    "Starts a sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    f"in this document and returns a summary. {_DELEGATE_RESULT_LINE}"
-)
-
-
-def _format_draw_delegate_description(domains: list[str]) -> str:
-    """Build the Draw/Impress delegate tool description listing the exact bound domains."""
-    domain_list = ", ".join(domains)
-    return f"{_DRAW_DELEGATE_LEAD}Available domains: {domain_list}."
-
-
-class DelegateToSubagent(DelegateToSpecializedBase):
-    """Unified gateway tool to delegate tasks to specialized Writer, Calc, or Draw sub-agents."""
-
-    name: str | None = DELEGATE_SUBAGENT_TOOL
-    description: str = _GENERIC_DELEGATE_DESCRIPTION
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
-    _agent_label: ClassVar[str] = "Writer"
-
-    def agent_label_for(
-        self,
-        *,
-        doc_type: str | None = None,
-        uno_services: frozenset[str] | None = None,
-        doc: Any = None,
-    ) -> str:
-        """Resolve the sub-agent label ('Writer', 'Calc', or 'Draw') from doc_type or UNO services."""
-        if doc_type == "calc" or (uno_services and "com.sun.star.sheet.SpreadsheetDocument" in uno_services):
-            return "Calc"
-        if doc_type in ("draw", "impress") or (
-            uno_services
-            and (
-                "com.sun.star.drawing.DrawingDocument" in uno_services
-                or "com.sun.star.presentation.PresentationDocument" in uno_services
-            )
-        ):
-            return "Draw"
-        if doc_type == "writer" or (uno_services and "com.sun.star.text.TextDocument" in uno_services):
-            return "Writer"
-        if doc is not None and main.is_current():
-            from plugin.framework import doc_type as _doc_type
-
-            dt = _doc_type.doc_type_str_from_doc(doc)
-            if dt == "calc":
-                return "Calc"
-            if dt in ("draw", "impress"):
-                return "Draw"
-        return "Writer"
-
-    def get_description(self, doc_type: str | None = None) -> str:
-        """Return the app-specific sub-agent description for *doc_type*."""
-        if doc_type == "calc":
-            return _CALC_DELEGATE_DESCRIPTION
-        if doc_type in ("draw", "impress"):
-            return _DRAW_DELEGATE_LEAD.rstrip()
-        if doc_type == "writer":
-            return _WRITER_DELEGATE_DESCRIPTION
-        return self.description
-
-    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
-        """Return the app-specific description narrowed to *uno_services*.
-
-        For sidebar chat (``for_mcp=False``), appends the bound ``domain: description``
-        catalog matching the narrowed enum; for MCP, returns the compact lead (Draw
-        also lists the bound domain names).
-        """
-        label = self.agent_label_for(uno_services=uno_services)
-        if not for_mcp:
-            # Sidebar chat reads the domain catalog only here; domains_for_services reads the same entries, so the list cannot name a domain the enum rejects.
-            entries = catalog_entries_from_base(agent_label=label, uno_services=uno_services)
-            return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
-        if label == "Calc":
-            return _CALC_DELEGATE_DESCRIPTION
-        if label == "Draw":
-            domains = self.domains_for_services(uno_services)
-            hidden = chat_tier_domains()
-            domains = [d for d in domains if d not in hidden]
-            return _format_draw_delegate_description(domains)
-        return _WRITER_DELEGATE_DESCRIPTION

@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from dataset import ALL_EXAMPLES, to_dspy_examples, to_eval_examples
+from dataset import ALL_EXAMPLES, to_eval_examples
 from eval_auth import (
     active_native_route,
     require_eval_keys,
@@ -428,11 +428,10 @@ def _run_one_model(
     task_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
-    from dataset import ALL_EXAMPLES, to_dspy_examples
     from eval_core import summarize_results
 
     _tools_lo.VERBOSE = verbose
-    examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
+    examples = to_eval_examples(ALL_EXAMPLES)
     if task_ids is not None:
         by_id = {getattr(ex, "task_id", ""): ex for ex in examples}
         examples = [by_id[tid] for tid in task_ids if tid in by_id]
@@ -755,11 +754,7 @@ def main(argv: list[str] | None = None) -> int:
             check_ids.append(judge_model_id)
         require_eval_keys(endpoint=api_base, api_key=api_key, models=check_ids)
 
-    # Dataset selection. Gold generation must not import dspy.
-    if args.generate_golds:
-        examples = to_eval_examples(ALL_EXAMPLES)
-    else:
-        examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
+    examples = to_eval_examples(ALL_EXAMPLES)
     if args.example:
         examples = [
             ex

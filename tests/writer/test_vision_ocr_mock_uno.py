@@ -526,3 +526,41 @@ def test_mock_ocr_delete_after_insert_skips_empty_and_reports_deleted_images_uno
         assert result["deleted_images"] == [names[0]]
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer")
+def test_mock_ocr_image_removed_mid_run_continues_and_returns_partial_uno(ctx, doc):
+    """When image 2 is removed while image 1 is OCR'd, image 3 still inserts and the result is partial."""
+    fixture = _build_labeled_fixture(ctx, doc, image_count=3)
+    names = fixture["names"]
+    assert len(names) == 3
+
+    captured: list[tuple[str, str]] = []
+    original_ok = _make_fake_run_vision(captured)
+
+    def fake_run_vision(_ctx, spec, png_bytes, context=None, cancel=None):
+        res = original_ok(_ctx, spec, png_bytes, context=context, cancel=cancel)
+        image_name = (context or {}).get("image_name")
+        if image_name == names[0]:
+            doc.getText().removeTextContent(fixture["graphics"][1])
+        return res
+
+    try:
+        _select_whole_document(doc)
+        with patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision):
+            result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={})
+
+        assert result["status"] == "error"
+        assert result["code"] == "IMAGE_NOT_FOUND"
+        assert result["partial"] is True
+        assert result["failed_image"] == names[1]
+        assert result["image_names"] == [names[0], names[2]]
+        body = doc.getText().getString()
+        tok1 = _ocr_token_for_name(captured, names[0])
+        tok3 = _ocr_token_for_name(captured, names[2])
+        assert tok1 in body
+        assert tok3 in body
+        assert body.index(tok1) < body.index(tok3)
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])

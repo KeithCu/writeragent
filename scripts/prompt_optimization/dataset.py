@@ -392,7 +392,7 @@ FLOWCHART_GEN = {
     "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final shape_get_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
 }
 
-# Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcStringState.range_sort
+# Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcStringState.sort_range
 DATA_SORTING = {
     "document_content": (
         "Product\tRevenue\n"

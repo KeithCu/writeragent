@@ -345,8 +345,8 @@ def test_execute_logs_each_warning_once(caplog, supervisor) -> None:
         def is_alive(self) -> bool:
             return True
 
-        def request(self, payload: dict[str, Any], deadline: Any) -> dict[str, Any]:
-            del payload, deadline
+        def request(self, payload: dict[str, Any], deadline: Any, *, cancel: Any = None) -> dict[str, Any]:
+            del payload, deadline, cancel
             return {"status": "ok", "warning": self.warning}
 
         def kill(self) -> None:
@@ -428,7 +428,8 @@ def test_delayed_ready_script_timeout_kills_child(tmp_path, supervisor):
 def test_alive_worker_execute_shares_clock(monkeypatch, supervisor):
     recorded_timeout: list[float] = []
 
-    def tracked_request(self, payload, deadline):
+    def tracked_request(self, payload, deadline, *, cancel=None):
+        del cancel
         recorded_timeout.append(deadline.left())
         return {"status": "ok"}
 
@@ -628,12 +629,12 @@ def test_base_exception_during_request_propagates(tmp_path, monkeypatch, supervi
     orig_request = WarmChild.request
     first = True
 
-    def mock_request(self, payload, deadline):
+    def mock_request(self, payload, deadline, *, cancel=None):
         nonlocal first
         if first:
             first = False
             raise KeyboardInterrupt()
-        return orig_request(self, payload, deadline)
+        return orig_request(self, payload, deadline, cancel=cancel)
 
     monkeypatch.setattr(WarmChild, "request", mock_request)
     script = _fake_worker_script(tmp_path)
@@ -657,3 +658,37 @@ def test_shutdown_kokoro_pool_drops_singleton(monkeypatch) -> None:
     mock_pool.shutdown.assert_called_once()
     assert kokoro_pool._POOL is None
     assert kokoro_pool._POOL_CONFIG_VENV is None
+
+
+def test_pool_cancel_just_before_spawn_does_not_run_the_job(tmp_path, supervisor) -> None:
+    from plugin.audio.kokoro_pool import WORKER_CANCELLED
+    from plugin.framework.send_cancellation import SendCancellation
+
+    script = _fake_worker_script(tmp_path)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
+    scope = SendCancellation()
+    real_lock = pool._warm._io_lock
+    cancelled_once = False
+
+    class _LockProxy:
+        def acquire(self, *args: Any, **kwargs: Any) -> bool:
+            nonlocal cancelled_once
+            acquired = real_lock.acquire(*args, **kwargs)
+            if acquired and not cancelled_once:
+                cancelled_once = True
+                scope.cancel()
+            return acquired
+
+        def release(self) -> None:
+            real_lock.release()
+
+    pool._warm._io_lock = _LockProxy()  # type: ignore[assignment]
+    out_path = tmp_path / "should_not_exist.wav"
+    try:
+        res = pool.execute({"text": "Hi.", "out_path": str(out_path)}, cancel=scope)
+        assert res["status"] == "error"
+        assert res["code"] == WORKER_CANCELLED
+        assert not out_path.exists()
+    finally:
+        pool._warm._io_lock = real_lock
+        pool.shutdown()

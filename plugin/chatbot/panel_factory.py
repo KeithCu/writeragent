@@ -162,6 +162,7 @@ from plugin.framework.client.model_fetcher import (
     set_text_model,
 )
 from plugin.framework.i18n import _
+from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document
 from plugin.doc.udprops import get_document_property, set_document_property
@@ -408,6 +409,22 @@ def _wire_selector_sync_listeners(
         selector.addFocusListener(_SelectorFocusCommitListener(panel, on_sync))
 
 
+def _holds_typed_text(
+    ctrl: Any,
+    painted: tuple[str, str] | None,
+    endpoint: str,
+    stored: str,
+) -> bool:
+    """True when *ctrl* holds uncommitted text the user typed for *endpoint*.
+
+    Focus loss already commits the text, so differing text can only be
+    uncommitted. ``hasFocus`` is not used because a dropdown combo is a compound
+    control (``vcl/source/control/combobox.cxx:220``) and reports ``False``.
+    """
+    typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
+    return painted is not None and painted[0] == endpoint and typed not in ("", painted[1], stored)
+
+
 class ChatPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
@@ -435,6 +452,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     _doc_type_label: str
     _doc_type_title: str
     _doc_uno_services: frozenset[str]
+    _painted_models: dict[str, tuple[str, str]]
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
@@ -459,6 +477,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._doc_type_label = "unknown"
         self._doc_type_title = "Unknown"
         self._doc_uno_services = frozenset()
+        self._painted_models = {}
         # Document id from the frame session, not from whichever component is current.
         self.frame_session = frame_session
         self._live_panel_uid = ""
@@ -477,6 +496,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             main.post(self._refresh_controls_from_config)
             return
         self._refresh_controls_from_config()
+
+    def _on_keystore_unlocked(self, **_kwargs: Any) -> None:
+        """Post a sidebar refresh after a locked keyring item is unlocked later.
+
+        Always posts rather than running inline: ``get_secret`` can run inside
+        ``config.save()`` with the re-entrant ``_config_write_lock`` held, so an
+        inline refresh could save between that outer save's load and write.
+        ``bound_scope=None`` keeps a later Stop of the send from dropping the repaint.
+        """
+        if self._released:
+            return
+        main.post(self._refresh_controls_from_config, bound_scope=None)
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.getRealInterface called (toolpanel already exists=%s)", bool(self.toolpanel))
@@ -588,7 +619,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         from plugin.framework.event_bus import get_event_bus
 
-        get_event_bus().unsubscribe("config:changed", self._on_config_changed)
+        bus = get_event_bus()
+        bus.unsubscribe("config:changed", self._on_config_changed)
+        bus.unsubscribe("keystore:unlocked", self._on_keystore_unlocked)
 
         # Clean up the always-present resize listener.
         # This listener is attached unconditionally in panel_wiring. Failing to
@@ -636,6 +669,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Reload sidebar controls from config (e.g. after user changes Settings).
 
         Refreshes model, image, and mode selectors, Voice (TTS) checkbox, and backend indicator.
+        Model combos preserve uncommitted typed text while the endpoint is unchanged.
         Does not re-run ``translate_dialog`` — sidebar strings are translated once at wire/load.
 
         Re-entrancy Guard:
@@ -770,13 +804,22 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 _on_fetched,
                 task_name="sidebar-models",
             )
+            keep = _holds_typed_text(
+                model_selector,
+                self._painted_models.get("model_lru"),
+                current_endpoint,
+                str(current_model or ""),
+            )
             set_val = populate_combobox_with_lru(
                 model_selector,
                 current_model,
                 "model_lru",
                 current_endpoint,
                 remote_models=catalog,
+                keep_text=keep,
             )
+            if not keep:
+                self._painted_models["model_lru"] = (current_endpoint, sanitize_model_combobox_value(set_val))
             if set_val != current_model:
                 set_text_model(set_val, update_lru=False)
 
@@ -792,22 +835,31 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 _on_image_fetched,
                 task_name="sidebar-image-models",
             )
+            keep_image = _holds_typed_text(
+                image_model_selector,
+                self._painted_models.get("image_model_lru"),
+                current_endpoint,
+                str(current_image or ""),
+            )
             set_image_val = populate_image_model_selector(
                 image_model_selector,
                 current_endpoint,
                 remote_models=image_catalog,
+                keep_text=keep_image,
             )
+            if not keep_image:
+                self._painted_models["image_model_lru"] = (current_endpoint, sanitize_model_combobox_value(set_image_val))
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 
     def _paint_fetched_text_models(self, endpoint: str, ids: list[str]) -> None:
         """Repaint the sidebar text model combo after an off-thread catalog fetch.
 
-        When the box holds typed text, only the list items are replaced, so
-        the text and caret stay exactly as they were. When the box is empty
-        or holds a placeholder, the stored model is shown. It runs between
-        commit points (item select, focus lost, Send), so it writes nothing
-        to config.
+        When the box holds uncommitted typed text for *endpoint*, only the list
+        items are replaced, so the text and caret stay as they were. Otherwise
+        the stored model is shown and recorded as the last painted value. It runs
+        between commit points (item select, focus lost, Send), so it writes
+        nothing to config.
         """
         if self._released or endpoint != get_current_endpoint():
             return
@@ -815,31 +867,34 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not sel:
             return
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
-        from plugin.framework.model_lru import sanitize_model_combobox_value
 
         prior = self._in_refresh_controls
         self._in_refresh_controls = True
         try:
             with suppress_disposed("paint fetched sidebar models", logger=log):
-                typed = sanitize_model_combobox_value(str(sel.getText() or ""))
-                populate_combobox_with_lru(
+                stored = str(get_text_model() or "")
+                keep = _holds_typed_text(sel, self._painted_models.get("model_lru"), endpoint, stored)
+                shown = populate_combobox_with_lru(
                     sel,
-                    get_text_model(),
+                    stored,
                     "model_lru",
                     endpoint,
                     remote_models=ids,
-                    keep_text=bool(typed),
+                    keep_text=keep,
                 )
+                if not keep:
+                    self._painted_models["model_lru"] = (endpoint, sanitize_model_combobox_value(shown))
         finally:
             self._in_refresh_controls = prior
 
     def _paint_fetched_image_models(self, endpoint: str, ids: list[str]) -> None:
         """Repaint the sidebar image model combo after an off-thread catalog fetch.
 
-        When the box holds typed text, only the list items are replaced, so
-        the text and caret stay exactly as they were. When the box is empty
-        or holds a placeholder, the stored model (or endpoint placeholder) is
-        shown. It runs between commit points, so it writes nothing to config.
+        When the box holds uncommitted typed text for *endpoint*, only the list
+        items are replaced, so the text and caret stay as they were. Otherwise
+        the stored model (or endpoint placeholder) is shown and recorded as the
+        last painted value. It runs between commit points, so it writes nothing
+        to config.
         """
         if self._released or endpoint != get_current_endpoint():
             return
@@ -847,19 +902,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not sel:
             return
         from plugin.chatbot.config_ui_helpers import populate_image_model_selector
-        from plugin.framework.model_lru import sanitize_model_combobox_value
 
         prior = self._in_refresh_controls
         self._in_refresh_controls = True
         try:
             with suppress_disposed("paint fetched sidebar image models", logger=log):
-                typed = sanitize_model_combobox_value(str(sel.getText() or ""))
-                populate_image_model_selector(
+                stored = str(get_image_model() or "")
+                keep = _holds_typed_text(sel, self._painted_models.get("image_model_lru"), endpoint, stored)
+                shown = populate_image_model_selector(
                     sel,
                     endpoint,
                     remote_models=ids,
-                    keep_text=bool(typed),
+                    keep_text=keep,
                 )
+                if not keep:
+                    self._painted_models["image_model_lru"] = (endpoint, sanitize_model_combobox_value(shown))
         finally:
             self._in_refresh_controls = prior
 

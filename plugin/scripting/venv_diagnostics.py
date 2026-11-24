@@ -25,20 +25,28 @@ from plugin.scripting.config_limits import (
 )
 from plugin.framework.subprocess_env import get_subprocess_creationflags, scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, wrap_command_for_sandbox
-from plugin.vision.vision_common import DOCLING_MIN_VERSION, DOCLING_REQUIREMENT, docling_too_old
+from plugin.vision.vision_common import (
+    DEFAULT_OCR_BACKEND,
+    DOCLING_MIN_VERSION,
+    DOCLING_REQUIREMENT,
+    OCR_BACKENDS,
+    docling_too_old,
+    merge_vision_params,
+    ocr_module_package,
+    resolve_ocr_backend,
+)
 
 log = logging.getLogger(__name__)
 
 # Vision stack (docs/images/recognition.md §7–§13): heavy trusted-helper dependencies; probed outside the AST sandbox and not part of the curated extras.
-# Primary OCR: docling + rapidocr + onnxruntime. Fallback: paddleocr + paddle.
-# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program on PATH or its default install folder) are imported/checked when present and never counted as Missing.
+# Primary OCR is Docling + the configured vision.ocr_backend engine from OCR_BACKENDS + css_inline; fallback is paddleocr + paddle when Docling is absent.
+# All OCR_BACKENDS engines are probed so Test can check whichever engine is configured without counting other engines as Missing.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
-_OCR_ENGINE_KEYS = ("easyocr", "openvino", "nemotron_ocr", "ocrmac", "tesseract")
+_OCR_ENGINE_ENTRIES = {ocr_module_package(e): e for row in OCR_BACKENDS.values() for e in row.modules}
+_OCR_ENGINE_KEYS = (*_OCR_ENGINE_ENTRIES, "tesseract")
 _NEMOTRON_RUNTIME_ERROR_KEY = "nemotron_ocr_runtime_error"  # probe key: Docling's reason when nemotron_ocr is present but cannot run
-_VISION_PACKAGE_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage") + _OCR_ENGINE_KEYS
-# Primary Docling OCR keys shown under Missing (OCR) when the stack is not ready.
-_VISION_OCR_PRIMARY_KEYS = ("docling", "rapidocr", "onnxruntime", "css_inline")
-# Always optional in Test output (never required Missing once OCR readiness is decided).
+_VISION_PACKAGE_KEYS = ("docling", *_OCR_ENGINE_KEYS, "css_inline", "paddleocr", "ultralytics", "skimage")
+# Always optional in Test output unless the configured engine needs it.
 _VISION_OPTIONAL_KEYS = ("paddleocr", "paddle", "ultralytics", "skimage")
 _AUDIO_PACKAGE_KEYS = (
     "sounddevice",
@@ -81,7 +89,7 @@ def _audio_linux_portaudio_hint() -> str:
 
 
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
-_NON_PIP_PROBE_KEYS = frozenset({"input_device", "tesseract"})
+_NON_PIP_PROBE_KEYS = frozenset({"input_device", "nemotron_ocr", "ocrmac", "tesseract"})
 # Probe import/key name → PyPI package name for the global install footer.
 _PROBE_KEY_TO_PIP: dict[str, str] = {
     "sklearn": "scikit-learn",
@@ -191,12 +199,10 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
 
-# Engines are really imported in _VISION_PROBE_SCRIPT below (Docling has already loaded torch).
 # docling then docling-slim matches _check_docling_version; Tesseract reads version from stdout then stderr
 # and languages after the first header line, matching Docling's tesseract_ocr_cli_model.py.
 # A present nemotron_ocr runs Docling's NemotronOcrModel.validate_runtime (platform, Python, CUDA)
-# and its real import (docling/models/stages/ocr/nemotron_ocr_model.py:152).
-# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py (_VISION_PROBE_SCRIPT + _OCR_ENGINE_PROBE_BODY).
+# and its real imports (docling/models/stages/ocr/nemotron_ocr_model.py:NemotronOcrModel.__init__).
 _OCR_ENGINE_PROBE_BODY = f"""\
 import importlib.metadata
 import shutil
@@ -222,26 +228,23 @@ if out.get("nemotron_ocr") == "present":
         from docling.datamodel.accelerator_options import AcceleratorOptions
         from docling.models.stages.ocr.nemotron_ocr_model import NemotronOcrModel
         NemotronOcrModel.validate_runtime(AcceleratorOptions())
+        from nemotron_ocr.inference.pipeline import CHECKPOINT_FILES
         from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
     except BaseException as exc:
         out[{_NEMOTRON_RUNTIME_ERROR_KEY!r}] = str(exc)[:300]
 """
 
-# rapidocr uses name="RapidOCR" because rapidocr/__init__.py is lazy (__getattr__), so a plain import misses broken cv2.
-# ocrmac imports ocrmac.ocrmac because ocrmac/__init__.py imports nothing.
+# Docling runs first so it loads torch before the engine imports; engine blocks come from OCR_BACKENDS.
 _VISION_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("docling", "docling.document_converter", report_broken=True),
-    _import_try_block("rapidocr", "rapidocr", name="RapidOCR", report_broken=True),
-    _import_try_block("onnxruntime", "onnxruntime", report_broken=True),
+    *(
+        _import_try_block(key, entry.partition(":")[0], name=entry.partition(":")[2], report_broken=True)
+        for key, entry in _OCR_ENGINE_ENTRIES.items()
+    ),
+    _import_try_block("css_inline", "css_inline", report_broken=True),
     _import_try_block("paddleocr", "paddleocr", report_broken=True),
-    _import_try_block("paddle", "paddle", report_broken=True),
     _import_try_block("ultralytics", "ultralytics", report_broken=True),
     _import_try_block("skimage", "skimage", report_broken=True),
-    _import_try_block("css_inline", "css_inline", report_broken=True),
-    _import_try_block("easyocr", "easyocr", report_broken=True),
-    _import_try_block("openvino", "openvino", report_broken=True),
-    _import_try_block("nemotron_ocr", "nemotron_ocr", report_broken=True),
-    _import_try_block("ocrmac", "ocrmac.ocrmac", report_broken=True),
     _OCR_ENGINE_PROBE_BODY,
 )
 
@@ -495,24 +498,38 @@ except ImportError:
 """
 
 
-def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
-    return (
-        probe.get("docling") == "present"
-        and probe.get("rapidocr") == "present"
-        and probe.get("onnxruntime") == "present"
-    )
+def _ocr_engine_keys(backend: str) -> tuple[str, ...]:
+    """Probe keys the engine needs: its imported packages and its program; () for an unknown id."""
+    row = OCR_BACKENDS.get(backend)
+    return (*map(ocr_module_package, row.modules), *row.programs[:1]) if row else ()
 
 
-def _vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
+def _docling_ocr_ready(probe: dict[str, Any], backend: str) -> bool:
+    if probe.get("docling") != "present":
+        return False
+    keys = _ocr_engine_keys(backend)
+    if not keys or not all(probe.get(k) == "present" for k in keys):
+        return False
+    if backend == "nemotron" and _NEMOTRON_RUNTIME_ERROR_KEY in probe:
+        return False
+    return True
+
+
+def _vision_primary_keys(backend: str) -> tuple[str, ...]:
+    return ("docling", *_ocr_engine_keys(backend), "css_inline")
+
+
+def _vision_ocr_stack_ready(probe: dict[str, Any], backend: str) -> bool:
     """True when an OCR backend and css-inline are both present.
 
-    When docling is installed, readiness requires _docling_ocr_ready (rapidocr + onnxruntime):
-    missing onnxruntime raises OCR_BACKEND_UNAVAILABLE without falling back to Paddle.
-    Paddle (paddleocr + paddle) counts as ready only when docling is absent or too old, matching the
-    DOCLING_UNAVAILABLE / DOCLING_API_MISMATCH fallback gate in vision.py.
+    When docling is installed, readiness requires _docling_ocr_ready for the
+    configured *backend*: missing engine packages raise OCR_BACKEND_UNAVAILABLE
+    without falling back to Paddle. Paddle (paddleocr + paddle) counts as ready
+    only when docling is absent or too old, matching the DOCLING_UNAVAILABLE /
+    DOCLING_API_MISMATCH fallback gate in vision.py.
     """
     if probe.get("docling") == "present":
-        ocr_backend = _docling_ocr_ready(probe)
+        ocr_backend = _docling_ocr_ready(probe, backend)
     else:
         ocr_backend = (
             probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
@@ -557,31 +574,47 @@ def _format_group_lines(
     return lines
 
 
-def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], packages: dict[str, Any]) -> list[str]:
-    """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing."""
+def _format_vision_group_lines(
+    title: str,
+    keys: tuple[str, ...] | list[str],
+    packages: dict[str, Any],
+    backend: str,
+) -> list[str]:
+    """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing unless the configured engine needs it."""
     present = [key for key in keys if packages.get(key) == "present"]
     lines: list[str] = [f"\n{title}: {', '.join(present)}" if present else f"\n{title}:"]
+    primary_keys = _vision_primary_keys(backend)
     optional_missing = [
         key
         for key in _VISION_OPTIONAL_KEYS
         if packages.get(key) != "present" and f"{key}{_BROKEN_SUFFIX}" not in packages
     ]
-    if _vision_ocr_stack_ready(packages):
-        engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
+    if _vision_ocr_stack_ready(packages, backend):
+        docling_ready = _docling_ocr_ready(packages, backend)
+        engine = "Docling" if docling_ready else "Paddle"
         lines.append(f"OCR: ready ({engine})")
-        if not _docling_ocr_ready(packages):
-            for key in ("docling", "rapidocr", "onnxruntime"):
-                if packages.get(key) != "present" and f"{key}{_BROKEN_SUFFIX}" not in packages:
+        if docling_ready:
+            lines.append(f"{_('OCR engine:')} {backend}")
+        else:
+            for key in ("docling", *_ocr_engine_keys(backend)):
+                if key not in optional_missing and packages.get(key) != "present" and f"{key}{_BROKEN_SUFFIX}" not in packages:
                     optional_missing.append(key)
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
     else:
         lines.append("OCR: not ready")
-        primary_missing = [key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"]
+        lines.append(f"{_('OCR engine:')} {backend}")
+        primary_missing = [key for key in primary_keys if packages.get(key) != "present"]
         if primary_missing:
             lines.append(f"Missing (OCR): {', '.join(primary_missing)}")
-        if optional_missing:
-            lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
+        not_ready_optional = [key for key in optional_missing if key not in primary_keys]
+        if not_ready_optional:
+            lines.append(f"Optional (not installed): {', '.join(not_ready_optional)}")
+        row = OCR_BACKENDS.get(backend)
+        if row is None:
+            lines.append(_("This OCR engine is not known to WriterAgent."))
+        elif any(key in _NON_PIP_PROBE_KEYS and packages.get(key) != "present" for key in _ocr_engine_keys(backend)):
+            lines.append(row.install_hint)
     docling_version = packages.get("docling_version")
     if docling_version:
         lines.append(f"Docling: {docling_version}")
@@ -607,6 +640,7 @@ class GroupResult:
     packages: tuple[str, ...]
     optional_keys: tuple[str, ...]
     failure: str | None
+    ocr_backend: str
 
     def __init__(
         self,
@@ -616,17 +650,19 @@ class GroupResult:
         *,
         optional_keys: tuple[str, ...] = (),
         failure: str | None = None,
+        ocr_backend: str = DEFAULT_OCR_BACKEND,
     ) -> None:
         self.key = key
         self.title = title
         self.packages = packages
         self.optional_keys = optional_keys
         self.failure = failure
+        self.ocr_backend = ocr_backend
 
     def missing_keys(self, packages: dict[str, Any]) -> list[str]:
         if self.key == "vision":
-            if not _vision_ocr_stack_ready(packages):
-                return [k for k in _VISION_OCR_PRIMARY_KEYS if packages.get(k) != "present"]
+            if not _vision_ocr_stack_ready(packages, self.ocr_backend):
+                return [k for k in _vision_primary_keys(self.ocr_backend) if packages.get(k) != "present"]
             return []
         effective_keys = [
             k for k in self.packages if k not in self.optional_keys and k not in _NON_PIP_PROBE_KEYS
@@ -641,7 +677,7 @@ class GroupResult:
     ) -> list[str]:
         lines: list[str] = []
         if self.key == "vision":
-            lines.extend(_format_vision_group_lines(self.title, self.packages, packages))
+            lines.extend(_format_vision_group_lines(self.title, self.packages, packages, self.ocr_backend))
             if self.failure:
                 lines.append(f"  {self.failure}")
             return lines
@@ -783,12 +819,14 @@ def _attach_external_probes(
                 version, "%d.%d" % DOCLING_MIN_VERSION
             )
         report.packages.update(probes)
+    ocr_backend = resolve_ocr_backend(merge_vision_params()) if group == "vision" else DEFAULT_OCR_BACKEND
     result = GroupResult(
         key=group,
         title=title,
         packages=spec.keys,
         optional_keys=optional_keys,
         failure=failure,
+        ocr_backend=ocr_backend,
     )
     report.groups.append(result)
     return result

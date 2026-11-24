@@ -25,56 +25,6 @@ def test_agent_session_marks_active_with_nesting() -> None:
     assert (sc.is_agent_active() is False)
 
 
-@pytest.fixture(autouse=True)
-def _reset_main_state() -> Any:
-    orig_ctx = main._ctx
-    orig_init = main._initialized
-    orig_service = main._async_callback_service
-    orig_cb = main._callback_instance
-    orig_logged = main._logged_callback_problem
-    main._ctx = None
-    main._initialized = False
-    main._async_callback_service = None
-    main._callback_instance = None
-    main._logged_callback_problem = False
-    with main._init_lock:
-        pass
-    _drain_default_work_queue()
-    try:
-        yield
-    finally:
-        main._ctx = orig_ctx
-        main._initialized = orig_init
-        main._async_callback_service = orig_service
-        main._callback_instance = orig_cb
-        main._logged_callback_problem = orig_logged
-
-
-def _drain_default_work_queue() -> None:
-    while not main._work_queue.empty():
-        try:
-            main._work_queue.get_nowait()
-        except queue.Empty:
-            break
-    # A post with no AsyncCallback waits in _pending_posts; the next test's post() would flush it.
-    with main._pending_lock:
-        main._pending_posts.clear()
-        main._pending_lock.notify_all()
-    import plugin.framework.vcl_pumping as vp
-    from plugin.framework.vcl_pumping import _secondary_idle_lock
-
-    with _secondary_idle_lock:
-        vp._secondary_idle_in_flight = False
-
-
-@pytest.fixture(autouse=True)
-def empty_work_queue():
-    # Drain after the test too: execute()'s timeout marks items cancelled without
-    # dequeuing them, and mocked pokes may not run process_queue before the next test.
-    _drain_default_work_queue()
-    yield
-    _drain_default_work_queue()
-
 def test_work_item():
 
     def func(x):
@@ -1878,3 +1828,21 @@ def test_unscoped_post_executes_when_scope_is_cancelled() -> None:
             assert executed == [True], "Unscoped cleanup work must execute even if turn scope is cancelled"
     finally:
         _current_send_cancellation.reset(token)
+
+
+def test_reset_main_thread_drops_a_leaked_async_callback() -> None:
+    from tests.harness.main_thread import reset_main_thread
+
+    ran: list[int] = []
+    main.set_context(MagicMock())
+    main.post(ran.append, 1)
+    assert main.is_marshal_ready() is True
+    assert main.pending_work_count() == 1
+    assert ran == []
+
+    reset_main_thread()
+
+    assert main.is_marshal_ready() is False
+    assert main.pending_work_count() == 0
+    main.post(ran.append, 2)
+    assert ran == [2]

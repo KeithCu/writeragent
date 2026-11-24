@@ -1918,20 +1918,29 @@ def test_same_image_adds_anchor_to_old_tag():
     assert _get_tag(shape) == f"wa-plot:1,2@1,2:{sha}"
 
 
-def test_drop_plots_of_undone_formula_keeps_array_py_and_removes_empty():
-    """Array-entered {=PY("x")} keeps its plot; an empty cell has its plot removed."""
-    from plugin.calc.python.image_egress import _drop_plots_of_undone_formula
+def test_drop_egress_of_undone_formula_keeps_array_py_and_removes_empty():
+    """Array-entered {=PY("x")} keeps its plot and note; an empty cell has both removed."""
+    from plugin.calc.python.image_egress import _drop_egress_of_undone_formula
 
     cell = CalcCellStub(col=0, row=0)
+    cell.getAnnotation = lambda: SimpleNamespace(getString=lambda: f"{_IMAGE_ANNOTATION_PREFIX}err")
     plot = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     page = _DrawPage([plot])
     doc = MagicMock()
     doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
 
+    annotations = MagicMock()
+    annotations.getCount.return_value = 1
+    annotations.getByIndex.return_value = SimpleNamespace(getPosition=lambda: SimpleNamespace(Column=0, Row=0))
+
     array_sheet = _SheetStub(page, formulas={(0, 0): '{=PY("x")}'})
-    _drop_plots_of_undone_formula(doc, array_sheet, cell, page)
+    array_sheet.getAnnotations = lambda: annotations
+    _drop_egress_of_undone_formula(doc, array_sheet, cell, page)
     assert plot in page.shapes
+    annotations.removeByIndex.assert_not_called()
 
     empty_sheet = _SheetStub(page, formulas={(0, 0): ""})
-    _drop_plots_of_undone_formula(doc, empty_sheet, cell, page)
+    empty_sheet.getAnnotations = lambda: annotations
+    _drop_egress_of_undone_formula(doc, empty_sheet, cell, page)
     assert plot not in page.shapes
+    annotations.removeByIndex.assert_called_once_with(0)

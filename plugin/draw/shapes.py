@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.i18n import _
+from plugin.writer.edit_review import flag_untracked_delete
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
@@ -235,21 +237,36 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
         log.debug("create_shape writer_invalidate: %s", ex)
 
 
-def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tuple[bool, str | None]:
-    """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render."""
+def _apply_enhanced_custom_shape_type(
+    shape: Any, custom_shape_type: str, adjustment: int | None = None
+) -> tuple[bool, str | None]:
+    """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render.
+
+    When *adjustment* is ``None``, the preset's default adjustment values are kept.
+    """
     from com.sun.star.beans import PropertyValue
     import uno
 
-    prop = PropertyValue()
-    prop.Name = "Type"
-    prop.Value = custom_shape_type
+    # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
+    uno_any = getattr(uno, "Any")
+    props: list[Any] = [PropertyValue(Name="Type", Value=custom_shape_type)]
+    if adjustment is not None:
+        from com.sun.star.drawing import EnhancedCustomShapeAdjustmentValue
+
+        adj = EnhancedCustomShapeAdjustmentValue()
+        adj.Value = adjustment
+        adj.State = uno.Enum("com.sun.star.beans.PropertyState", "DIRECT_VALUE")
+        props.append(
+            PropertyValue(
+                Name="AdjustmentValues",
+                Value=uno_any("[]com.sun.star.drawing.EnhancedCustomShapeAdjustmentValue", (adj,)),
+            )
+        )
     try:
         import typing
 
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
-        # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
-        uno_any = getattr(uno, "Any")
-        prop_seq = uno_any("[]com.sun.star.beans.PropertyValue", (prop,))
+        prop_seq = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
         uno.invoke(shape, "setPropertyValue", typing.cast("typing.Any", ("CustomShapeGeometry", prop_seq)))
         log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
@@ -270,7 +287,7 @@ class GetDrawSummary(_AnyDocumentShapeTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.tree import iter_shape_addresses
+        from plugin.draw.tree import custom_shape_geometry, iter_shape_addresses
 
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
@@ -286,6 +303,9 @@ class GetDrawSummary(_AnyDocumentShapeTool):
                 "width": s.getSize().Width,
                 "height": s.getSize().Height,
             }
+            preset = custom_shape_geometry(s).get("Type")
+            if preset:
+                info["custom_shape_type"] = preset
             if hasattr(s, "getString"):
                 info["text"] = s.getString()
             shapes.append(info)
@@ -447,6 +467,22 @@ class DrawShapes:
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
 
+def set_shape_string(shape: Any, text: str) -> None:
+    """Write *text* onto *shape* and re-apply any direct ParaAdjust on previously empty shapes."""
+    was_empty = shape.getString() == ""
+    shape.setString(text)
+    if was_empty and text:
+        # A fresh paragraph does not inherit the object's ParaAdjust
+        # (svx/source/unodraw/unoshtxt.cxx: SvxTextEditSourceImpl::GetBackgroundTextForwarder),
+        # and a cursor on an empty shape stores nothing and clears IsEmptyPresObj
+        # (svx/source/unodraw/unoshtxt.cxx:759-792, UpdateData). Re-applying the direct
+        # object item pushes it into the new paragraph via TextProperties::ItemSetChanged
+        # (svx/source/sdr/properties/textproperties.cxx:86).
+        state = uno_read(lambda: shape.getPropertyState("ParaAdjust"), None)
+        if getattr(state, "value", None) == "DIRECT_VALUE":
+            shape.setPropertyValue("ParaAdjust", shape.getPropertyValue("ParaAdjust"))
+
+
 def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> None:
     """Keep explicit Size after setString; default TextFitToSize=AUTOFIT.
 
@@ -505,6 +541,26 @@ def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
         shape.setPropertyValue(name_prop, "")
 
 
+def _apply_corner_radius(shape: Any, radius: int) -> None:
+    """Set CornerRadius on primitive shapes, or map rectangle/round-rectangle presets."""
+    from plugin.draw.tree import custom_shape_geometry
+
+    # CustomShape has no CornerRadius (svx/source/unodraw/unoprov.cxx: ImplGetSvxCustomShapePropertyMap).
+    # Its radius is the round-rectangle preset's adjustment: 1/21600 of the shorter side, at most half of it
+    # (svx/source/customshapes/EnhancedCustomShapeGeometry.cxx: mso_sptRoundRectangleHandle).
+    if custom_shape_geometry(shape).get("Type") not in ("rectangle", "round-rectangle"):
+        shape.setPropertyValue("CornerRadius", radius)
+        return
+    size = shape.getSize()
+    if radius > 0:
+        preset, adjustment = "round-rectangle", min(10800, round(21600 * radius / min(size.Width, size.Height)))
+    else:
+        preset, adjustment = "rectangle", None
+    applied, error = _apply_enhanced_custom_shape_type(shape, preset, adjustment)
+    if not applied:
+        raise WriterAgentException(error or "corner radius not applied")
+
+
 def _try(failed: list[str], name: str, fn: Any) -> None:
     if not uno_write(fn):
         failed.append(name)
@@ -518,7 +574,6 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if "text" in kwargs and hasattr(shape, "setString"):
 
         def _apply_text() -> None:
-            was_empty = shape.getString() == ""
             text_str = "" if kwargs["text"] is None else str(kwargs["text"])
             # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
             if kwargs.get("action") == "edit":
@@ -526,17 +581,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             else:
                 apply_autofit = "font_size" not in kwargs
             _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
-            shape.setString(text_str)
-            if was_empty and text_str:
-                # A fresh paragraph does not inherit the object's ParaAdjust
-                # (svx/source/unodraw/unoshtxt.cxx: SvxTextEditSourceImpl::GetBackgroundTextForwarder),
-                # and a cursor on an empty shape stores nothing and clears IsEmptyPresObj
-                # (svx/source/unodraw/unoshtxt.cxx:759-792, UpdateData). Re-applying the direct
-                # object item pushes it into the new paragraph via TextProperties::ItemSetChanged
-                # (svx/source/sdr/properties/textproperties.cxx:86).
-                state = uno_read(lambda: shape.getPropertyState("ParaAdjust"), None)
-                if getattr(state, "value", None) == "DIRECT_VALUE":
-                    shape.setPropertyValue("ParaAdjust", shape.getPropertyValue("ParaAdjust"))
+            set_shape_string(shape, text_str)
 
         _try(failed_props, "text", _apply_text)
 
@@ -658,13 +703,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     if kwargs.get("wrap_text") is not None:
         # Only custom shapes read this flag (svx/source/sdr/contact/viewcontactofsdrobjcustomshape.cxx);
-        # the rectangle and ellipse primitives pass bWordWrap=false.
+        # RectangleShape and EllipseShape primitives pass bWordWrap=false.
         _try(failed_props, "wrap_text", lambda: shape.setPropertyValue("TextWordWrap", bool(kwargs["wrap_text"])))
 
     if kwargs.get("corner_radius") is not None:
-        # CustomShape has no CornerRadius (svx/source/unodraw/unoprov.cxx: ImplGetSvxCustomShapePropertyMap),
-        # so the set fails and is reported as a warning.
-        _try(failed_props, "corner_radius", lambda: shape.setPropertyValue("CornerRadius", int(kwargs["corner_radius"])))
+        _try(failed_props, "corner_radius", lambda: _apply_corner_radius(shape, int(kwargs["corner_radius"])))
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
@@ -690,7 +733,7 @@ _CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "
 
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
-    "Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. "
+    "Basic types: rectangle, round-rectangle, ellipse, text, line, connector. "
     "Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; "
     "stars (star4, star5, star8, star24); "
     "arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); "
@@ -775,13 +818,9 @@ class UpsertShape(_AnyDocumentShapeTool):
             },
             "wrap_text": {
                 "type": "boolean",
-                "description": (
-                    "Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); "
-                    "on by default. Text boxes (text) always wrap. "
-                    "rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label."
-                ),
+                "description": "Wrap text at the shape width (on by default). Text boxes (text) always wrap.",
             },
-            "corner_radius": {"type": "integer", "description": "Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners)."},
+            "corner_radius": {"type": "integer", "description": "Corner radius, 1/100 mm. Only for rectangle and round-rectangle."},
             "rotation_angle": {"type": "number", "description": "Rotation angle in degrees"},
         },
         "required": ["action"],
@@ -828,7 +867,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if wanted_name and wanted_name in _page_shape_names(page):
             return _name_taken_error(tool, wanted_name)
 
-        type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
+        type_map = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
         is_custom_shape = False
@@ -840,7 +879,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         elif "." in shape_type_raw or shape_type_raw.endswith("Shape"):
             uno_type = shape_type_raw
         else:
-            # Fallback to CustomShape for things like 'octagon', 'smiley', 'heart'
+            # Fallback to CustomShape for presets like 'rectangle', 'ellipse', 'octagon', 'smiley', 'heart'
             uno_type = "CustomShape"
             is_custom_shape = True
             custom_shape_type = shape_type_raw
@@ -877,6 +916,11 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             # (svx/source/unodraw/unoshap2.cxx:1733-1749) so ViewBox and Path are built and the shape paints.
             if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
+
+            if is_custom_shape:
+                # LibreOffice's own drawing tool turns this off (sd/source/ui/func/fuconcs.cxx: SetAttributes).
+                # Left on, the first text written later resizes the box to the text.
+                _clamp_shape_text_autogrow(shape, apply_autofit=False)
 
             props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if is_custom_shape else kwargs
             failed_props = _apply_shape_properties(shape, props)
@@ -1447,4 +1491,11 @@ class DeleteShape(_AnyDocumentShapeTool):
                 raise
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
-        return {"status": "ok", "message": "Shape deleted", "page": actual_idx}
+        result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
+        flag_untracked_delete(
+            result,
+            ctx.doc,
+            "shape",
+            message=_("This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+        )
+        return result

@@ -109,8 +109,12 @@ class CatalogMemo:
     stt_ids: list[str] | None = None
     together_voices: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     ollama_show: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Monotonic time of the last failed background fetch, guarded by _catalog_fetch_lock.
+    # Monotonic time of the last failed background or vision fetch, guarded by _catalog_fetch_lock.
     fetch_failed_at: float | None = None
+
+    def held_off(self) -> bool:
+        """True when a recent fetch failed within ``CATALOG_RETRY_S``. Caller holds ``_catalog_fetch_lock``."""
+        return self.fetch_failed_at is not None and time.monotonic() - self.fetch_failed_at < CATALOG_RETRY_S
 
     def is_warm(self, provider: str | None) -> bool:
         """True when this memo has the catalogs Settings would show."""
@@ -790,11 +794,7 @@ def _memo_models_or_fetch(
         if waiter_key in _catalog_fetch_waiters:
             _catalog_fetch_waiters[waiter_key].append((kind, on_fetched))
             return None
-        if (
-            memo is not None
-            and memo.fetch_failed_at is not None
-            and time.monotonic() - memo.fetch_failed_at < CATALOG_RETRY_S
-        ):
+        if memo is not None and memo.held_off():
             return None
         _catalog_fetch_waiters[waiter_key] = [(kind, on_fetched)]
 
@@ -1454,9 +1454,10 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
        Studio via ``/api/v1/models``, and Ollama via ``/api/show``).
     4. Cold memo for those providers: on the UI thread
        (``main.is_current()``) never fetch; schedule one background lookup and
-       fall through. Off the UI thread, fetch inline and re-read the memo.
+       fall through. Off the UI thread, fetch inline and re-read the memo
+       (skipping ``/v1/models`` for ``CATALOG_RETRY_S`` after a failure).
        Answers live only in those process memos; a failed fetch stores
-       nothing, so the next check tries again.
+       nothing, so the next check tries again (subject to the ``/v1/models`` hold-off).
     4b. UI-thread uncached keystore guard: when ``api_key_override`` is None,
        ``main.is_current()`` is True, and the endpoint's key is an uncached
        ``keystore:`` ref, skip both the provider memo (whose key hashes the
@@ -1504,7 +1505,16 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
             elif _vision_list_url(provider, raw_ep):
                 _fetch_vision_list(raw_ep, provider, api_key_override)
             else:
-                fetch_available_models(raw_ep, api_key_override=api_key_override)
+                # Only /v1/models is held off here: a 404 from LM Studio's
+                # /api/v1/models must not hold off the sidebar's working /v1/models fetch.
+                memo = _get_catalog_memo(raw_ep, api_key_override)
+                with _catalog_fetch_lock:
+                    skip = memo.held_off()
+                if not skip:
+                    fetched = fetch_available_models(raw_ep, api_key_override=api_key_override)
+                    if fetched is None:
+                        with _catalog_fetch_lock:
+                            memo.fetch_failed_at = time.monotonic()
             answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)[1]
     if answer is not None:
         return answer

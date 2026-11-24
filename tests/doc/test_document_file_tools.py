@@ -2,6 +2,8 @@ import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.doc.document_file_tools import (
     DocumentExport,
     DocumentOpen,
@@ -295,3 +297,93 @@ def test_document_save_and_export_missing_folder(tmp_path):
     assert res_export["code"] == "DIRECTORY_NOT_FOUND"
     assert str(missing_dir) in res_export["message"]
     doc.storeToURL.assert_not_called()
+
+
+def _make_calc_doc(sheet_names: tuple[str, ...], *, filter_name: str = "calc8"):
+    doc = _make_model(url="file:///tmp/book.ods", uid="uid-calc")
+    doc.getArgs.return_value = (SimpleNamespace(Name="FilterName", Value=filter_name),)
+    sheets = MagicMock()
+    sheets.getCount.return_value = len(sheet_names)
+    sheets.getElementNames.return_value = sheet_names
+    doc.getSheets.return_value = sheets
+    return doc
+
+
+def test_multisheet_csv_refuses_save_and_export_without_sheet(tmp_path):
+    doc = _make_calc_doc(("Summary", "_hidden", "Detail"))
+    csv_path = tmp_path / "out.csv"
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC):
+        res_save = DocumentSave().execute(_make_ctx(doc), path=str(csv_path))
+        res_export = DocumentExport().execute(_make_ctx(doc), path=str(csv_path))
+        res_empty_sheet = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="  ")
+
+    for res in (res_save, res_export, res_empty_sheet):
+        assert res["status"] == "error"
+        assert res["code"] == "SHEET_REQUIRED"
+        assert "3" in res["message"]
+        assert "Summary" in res["message"]
+        assert "Detail" in res["message"]
+        assert "_hidden" not in res["message"]
+    doc.storeAsURL.assert_not_called()
+    doc.storeToURL.assert_not_called()
+
+
+@pytest.mark.parametrize("filter_name", ["Text - txt - csv (StarCalc)", "DIF"])
+def test_inplace_save_single_sheet_format_checks_sheet_count(filter_name):
+    doc_multi = _make_calc_doc(("One", "Two"), filter_name=filter_name)
+    res_err = DocumentSave().execute(_make_ctx(doc_multi))
+    assert res_err["status"] == "error"
+    assert res_err["code"] == "SHEET_REQUIRED"
+    doc_multi.store.assert_not_called()
+
+    doc_one = _make_calc_doc(("One",), filter_name=filter_name)
+    with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/book.ods"):
+        res_ok = DocumentSave().execute(_make_ctx(doc_one))
+    assert res_ok["status"] == "ok"
+    doc_one.store.assert_called_once()
+
+
+def test_document_export_sheet_not_supported(tmp_path):
+    calc_doc = _make_calc_doc(("One", "Two"))
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC):
+        res_xlsx = DocumentExport().execute(_make_ctx(calc_doc), path=str(tmp_path / "out.xlsx"), sheet="One")
+    assert res_xlsx["status"] == "error"
+    assert res_xlsx["code"] == "SHEET_NOT_SUPPORTED"
+
+    writer_doc = _make_model(url="file:///tmp/doc.odt", uid="uid-w")
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.WRITER):
+        res_txt = DocumentExport().execute(_make_ctx(writer_doc), path=str(tmp_path / "out.txt"), sheet="One")
+    assert res_txt["status"] == "error"
+    assert res_txt["code"] == "SHEET_NOT_SUPPORTED"
+
+
+def test_document_export_sheet_refuses_open_path(tmp_path):
+    doc = _make_calc_doc(("One", "Two"))
+    csv_path = tmp_path / "open.csv"
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(MagicMock(), "calc")):
+        res = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="One")
+
+    assert res["status"] == "error"
+    assert res["code"] == "PATH_IS_OPEN"
+    doc.storeToURL.assert_not_called()
+
+
+def test_document_export_sheet_missing_output_leaves_existing_file_intact(tmp_path):
+    doc = _make_calc_doc(("One", "Two"))
+    sheet_obj = MagicMock()
+    sheet_obj.getRangeAddress.return_value = SimpleNamespace(Sheet=1)
+    doc.getSheets.return_value.hasByName.return_value = True
+    doc.getSheets.return_value.getByName.return_value = sheet_obj
+
+    csv_path = tmp_path / "existing.csv"
+    csv_path.write_text("keep-me\n", encoding="utf-8")
+
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)):
+        res = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="Two")
+
+    assert res["status"] == "error"
+    assert res["code"] == "EXPORT_FAILED"
+    assert csv_path.read_text(encoding="utf-8") == "keep-me\n"

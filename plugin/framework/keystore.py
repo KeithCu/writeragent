@@ -26,11 +26,15 @@ form ``keystore:<8 hex>`` (``REF_PREFIX``). When no OS store is available or
 a write fails, secrets remain in plain text in ``writeragent.json``.
 
 Concurrency: all ``set_secret`` and ``delete_secret`` calls run inside
-``config.save()`` while ``_config_write_lock`` is held. ``_cache_lock`` is a
-leaf lock that guards ``_cache`` only and is never held across an OS call.
-Setters write the OS first and overwrite ``_cache[name]``; readers call the OS
-without ``_cache_lock`` on a miss and merge with ``_cache.setdefault(name,
-value)`` so a stale read never overwrites a newer write or delete.
+``config.save()`` while ``_config_write_lock`` is held. ``_read_locks[name]``
+is held across the OS read so concurrent readers of one name share one OS call
+and one outcome. Lock order is ``_config_write_lock`` -> read lock ->
+``_cache_lock``; nothing inside a read takes ``_config_write_lock``.
+``_cache_lock`` is a leaf lock that guards ``_cache``, ``_locked``, and
+``_read_locks`` only and is never held across an OS call. Setters write the OS
+first and overwrite ``_cache[name]``; readers call the OS without
+``_cache_lock`` on a miss and merge with ``_cache.setdefault(name, value)`` so
+a stale read never overwrites a newer write or delete.
 
 Troubleshooting unreadable stores:
 - Linux (Secret Service / gnome-keyring / Plasma ksecretd): unlock the login
@@ -53,13 +57,17 @@ import secrets
 import sys
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Protocol, final
 
 from plugin.framework.errors import WriterAgentException
+from plugin.framework.event_bus import get_event_bus
+from plugin.framework.send_cancellation import acquire_unless_cancelled
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from plugin.framework.send_cancellation import SendCancellation
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +93,9 @@ _read_failures_logged: set[str] = set()
 # read on every request. A cancelled prompt must not come right back for each of
 # them; Send itself reads once on its LLM worker.
 _locked: dict[str, float] = {}
+# One lock per secret name (not a global lock): on macOS each item has its own
+# access prompt, so an open prompt for one item must not block already-allowed items.
+_read_locks: dict[str, threading.Lock] = {}
 LOCKED_RETRY_S = 5.0
 
 
@@ -103,7 +114,7 @@ class KeystoreLocked(KeystoreError):
 class _KeystoreBackend(Protocol):
     label: str
 
-    def get(self, name: str) -> str | None: ...
+    def get(self, name: str, cancel: SendCancellation | None = None) -> str | None: ...
     def set(self, name: str, value: str) -> None: ...
     def delete(self, name: str) -> None: ...
 
@@ -140,6 +151,25 @@ class _SecretSchema(ctypes.Structure):
         ("reserved6", ctypes.c_void_p),
         ("reserved7", ctypes.c_void_p),
     ]
+
+
+@final
+class _Cancellable:
+    """GCancellable wrapper whose native handle outlives late Stop hooks."""
+
+    def __init__(self, new_fn: Any, cancel_fn: Any, is_cancelled_fn: Any, unref_fn: Any) -> None:
+        self.ptr = new_fn()
+        self._cancel_fn = cancel_fn
+        self._is_cancelled_fn = is_cancelled_fn
+        self._finalizer = weakref.finalize(self, unref_fn, self.ptr)
+        self._finalizer.atexit = False
+
+    def cancel(self) -> None:
+        if self.ptr:
+            self._cancel_fn(self.ptr)
+
+    def is_cancelled(self) -> bool:
+        return bool(self.ptr and self._is_cancelled_fn(self.ptr))
 
 
 @final
@@ -218,8 +248,23 @@ class _LibSecret:
             ]
             self._searchv_sync.restype = ctypes.c_void_p
 
+        libgio = ctypes.CDLL("libgio-2.0.so.0")
+        self._g_cancellable_new = libgio.g_cancellable_new
+        self._g_cancellable_new.argtypes = []
+        self._g_cancellable_new.restype = ctypes.c_void_p
+
+        self._g_cancellable_cancel = libgio.g_cancellable_cancel
+        self._g_cancellable_cancel.argtypes = [ctypes.c_void_p]
+        self._g_cancellable_cancel.restype = None
+
+        self._g_cancellable_is_cancelled = libgio.g_cancellable_is_cancelled
+        self._g_cancellable_is_cancelled.argtypes = [ctypes.c_void_p]
+        self._g_cancellable_is_cancelled.restype = ctypes.c_int
+
         libgobject = ctypes.CDLL("libgobject-2.0.so.0")
         self._g_object_unref = libgobject.g_object_unref
+        self._g_object_unref.argtypes = [ctypes.c_void_p]
+        self._g_object_unref.restype = None
         self._g_list_free_full = libglib.g_list_free_full
         self._g_list_free_full.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self._g_list_free_full.restype = None
@@ -267,21 +312,48 @@ class _LibSecret:
         finally:
             self._g_hash_table_unref(table)
 
-    def get(self, name: str) -> str | None:
+    def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
         err = ctypes.POINTER(_GError)()
-        with self._attrs(name) as table:
-            ptr = self._lookupv_sync(ctypes.byref(self._schema), table, None, ctypes.byref(err))
-            self._raise_gerror(err)
-            if not ptr:
-                if self._item_exists(table):
-                    raise KeystoreLocked(f"Secret {name!r} is in a locked keyring")
-                return None
-            try:
-                return ctypes.string_at(ptr).decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise KeystoreError(f"Invalid UTF-8 in secret {name!r}: {exc}") from exc
-            finally:
-                self._secret_password_free(ptr)
+        cancellable = (
+            _Cancellable(
+                self._g_cancellable_new,
+                self._g_cancellable_cancel,
+                self._g_cancellable_is_cancelled,
+                self._g_object_unref,
+            )
+            if cancel is not None
+            else None
+        )
+        if cancel is not None and cancellable is not None:
+            cancel.register_on_cancel(cancellable.cancel)
+        try:
+            with self._attrs(name) as table:
+                ptr = self._lookupv_sync(
+                    ctypes.byref(self._schema),
+                    table,
+                    cancellable.ptr if cancellable is not None else None,
+                    ctypes.byref(err),
+                )
+                if err and cancellable is not None and cancellable.is_cancelled():
+                    # Raise KeystoreLocked rather than KeystoreError: a plain
+                    # KeystoreError is cached as None for the session, so Stop
+                    # would lose the key until restart.
+                    self._g_error_free(err)
+                    raise KeystoreLocked(f"Reading {name!r} was stopped")
+                self._raise_gerror(err)
+                if not ptr:
+                    if self._item_exists(table):
+                        raise KeystoreLocked(f"Secret {name!r} is in a locked keyring")
+                    return None
+                try:
+                    return ctypes.string_at(ptr).decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise KeystoreError(f"Invalid UTF-8 in secret {name!r}: {exc}") from exc
+                finally:
+                    self._secret_password_free(ptr)
+        finally:
+            if cancel is not None and cancellable is not None:
+                cancel.unregister_on_cancel(cancellable.cancel)
 
     def _item_exists(self, table: Any) -> bool:
         """True when a matching item exists, locked or not, without prompting."""
@@ -380,7 +452,8 @@ class _WinCredentials:
         self._cred_free.argtypes = [ctypes.c_void_p]
         self._cred_free.restype = None
 
-    def get(self, name: str) -> str | None:
+    def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
+        # Windows Credential Manager has no cancellable read, so Stop leaves any prompt open.
         pcred: Any = ctypes.POINTER(self._cred_struct)()
         if not self._cred_read(f"{SERVICE}/{name}", 1, 0, ctypes.byref(pcred)):
             err = int(self._get_last_error())
@@ -517,7 +590,8 @@ class _MacKeychain:
             self._val_callbacks,
         )
 
-    def get(self, name: str) -> str | None:
+    def get(self, name: str, cancel: SendCancellation | None = None) -> str | None:
+        # macOS Keychain has no cancellable read, so Stop leaves the prompt open.
         q = self._create_query(
             kSecClass=self._k("kSecClassGenericPassword"),
             kSecMatchLimit=self._k("kSecMatchLimitOne"),
@@ -617,6 +691,7 @@ def reset_for_tests(backend: Any = _UNSET) -> None:
         _cache.clear()
         _read_failures_logged.clear()
         _locked.clear()
+        _read_locks.clear()
     _writes_failed = False
 
 
@@ -645,39 +720,76 @@ def can_store() -> bool:
     return _get_backend() is not None and not _writes_failed
 
 
-def get_secret(name: str) -> str | None:
-    """Read *name* from the OS keystore, returning ``None`` when absent or unreadable."""
+def _answer_without_read(name: str) -> Any:
+    """Return cached value or None for a recent lock, else _UNSET."""
     with _cache_lock:
         if name in _cache:
             return _cache[name]
         locked_at = _locked.get(name)
         if locked_at is not None and time.monotonic() - locked_at < LOCKED_RETRY_S:
             return None
-    backend = _get_backend()
-    if backend is None:
-        return None
+    return _UNSET
+
+
+def _read_backend(
+    backend: _KeystoreBackend,
+    name: str,
+    cancel: SendCancellation | None,
+) -> tuple[str | None, bool]:
+    """Read *name* from *backend* and update cache/lock state; returns (value, was_locked)."""
     try:
-        value = backend.get(name)
+        value = backend.get(name, cancel=cancel)
     except KeystoreLocked as exc:
         # Not cached: a later read (Send, Settings) may prompt again and succeed.
         with _cache_lock:
             # A save or delete that landed while this read waited on the
             # unlock prompt wins; a name is never both cached and locked.
             if name in _cache:
-                return _cache[name]
+                return _cache[name], False
             if name not in _locked:
                 log.warning("Secret %r unavailable: %s", name, exc)
             _locked[name] = time.monotonic()
-        return None
+        return None, False
     except KeystoreError as exc:
         with _cache_lock:
             if name not in _read_failures_logged:
                 _read_failures_logged.add(name)
                 log.warning("Failed to read secret %r from %s: %s", name, backend.label, exc)
-            return _cache.setdefault(name, None)
+            return _cache.setdefault(name, None), False
     with _cache_lock:
-        _locked.pop(name, None)
-        return _cache.setdefault(name, value)
+        was_locked = _locked.pop(name, None) is not None
+        return _cache.setdefault(name, value), was_locked
+
+
+def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
+    """Read *name* from the OS keystore, returning ``None`` when absent or unreadable.
+
+    *cancel* is an explicit parameter rather than a contextvar because
+    ``run_in_background`` copies the caller's context, so a tunnel or sidebar
+    worker spawned during a send would otherwise inherit that send's Stop.
+    """
+    cached = _answer_without_read(name)
+    if cached is not _UNSET:
+        return cached
+    backend = _get_backend()
+    if backend is None:
+        return None
+    with _cache_lock:
+        lock = _read_locks.setdefault(name, threading.Lock())
+    if not acquire_unless_cancelled(lock, cancel):
+        return None
+    was_locked = False
+    try:
+        cached = _answer_without_read(name)
+        if cached is not _UNSET:
+            return cached
+        value, was_locked = _read_backend(backend, name, cancel)
+    finally:
+        lock.release()
+    # Emit after releasing the read lock so a subscriber never runs inside the read.
+    if was_locked:
+        get_event_bus().emit("keystore:unlocked")
+    return value
 
 
 def is_locked(name: str) -> bool:

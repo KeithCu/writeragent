@@ -32,7 +32,7 @@ from plugin.doc.text_helpers import (
     walk_cap_warning,
 )
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
-from plugin.framework.scratch_writer import new_blank_writer
+from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.uno_context import create_property_value
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
@@ -625,7 +625,7 @@ def _range_to_content_via_temp_doc(
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
-            best_effort(lambda: temp_doc.close(True), "_range_to_content_via_temp_doc: close temp doc failed")
+            best_effort(lambda: close_scratch_document(temp_doc), "_range_to_content_via_temp_doc: close temp doc failed")
             range_copy.release_scratch_style_holds(temp_doc)
 
 
@@ -898,7 +898,7 @@ def xtext_to_content(
 
         return content
     finally:
-        best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
+        best_effort(lambda: close_scratch_document(temp_doc), "xtext_to_content: close temp doc failed")
         range_copy.release_scratch_style_holds(temp_doc)
 
 

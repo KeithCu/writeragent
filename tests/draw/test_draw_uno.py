@@ -107,7 +107,7 @@ def test_upsert_and_verify_shape(ctx, doc):
 
     shape_id = None
     for s in shapes:
-        if "RectangleShape" in s.get("type", ""):
+        if s.get("custom_shape_type") == "rectangle":
             shape_id = s.get("index")
     assert shape_id is not None, "Summary missing the created rectangle"
 

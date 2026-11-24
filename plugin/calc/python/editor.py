@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import Any, TypeGuard
 
@@ -280,13 +281,26 @@ def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_
         return result
 
 
+def parts_after_save(parsed_parts: PyFormula | None, outcome: dict[str, Any], data_binding_text: str | None) -> PyFormula | None:
+    """Formula parts whose ranges are the Data text just saved; the next follow save compares with these.
+
+    The Data text is kept as typed (with $). Reading the cell back would pick up shifted or appended refs.
+    """
+    saved = outcome.get("data_binding", data_binding_text)
+    if parsed_parts is None or outcome.get("type") != "saved" or saved is None:
+        return parsed_parts
+    args = parse_data_binding_text(saved)
+    return replace(parsed_parts, data_suffix=f";{format_data_binding_text(args)})" if args else ")")
+
+
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PyFormula | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
     follow = is_follow(code_ref, code_cell, cell)
     data_binding = data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
-        return apply_cell_save(
+        nonlocal parsed_parts
+        outcome = apply_cell_save(
             doc,
             cell,
             parsed_parts=parsed_parts,
@@ -296,6 +310,8 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
             code_cell=code_cell if follow else None,
             code_ref=code_ref if follow else None,
         )
+        parsed_parts = parts_after_save(parsed_parts, outcome, data_binding)
+        return outcome
 
     label = format_cell_a1(display_cell)
     doc_url = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")

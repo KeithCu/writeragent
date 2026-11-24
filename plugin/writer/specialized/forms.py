@@ -30,6 +30,7 @@ from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from ..edit_review import flag_untracked_delete
 from ..html_import import insert_html_fragment_at_cursor
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
@@ -945,4 +946,6 @@ class FormDeleteControl(ToolWriterFormBase):
         )
         if batch_err is not None:
             return batch_err
-        return {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
+        result: dict[str, Any] = {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
+        flag_untracked_delete(result, ctx.doc, "form control")
+        return result

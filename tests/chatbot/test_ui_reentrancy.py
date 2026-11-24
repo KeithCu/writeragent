@@ -98,6 +98,7 @@ def _make_panel(combo: FiringCombo):
         xFrame=None,
         send_listener=None,
         refresh_count=0,
+        _painted_models={},
         _get_document_model=lambda: None,
         _update_backend_indicator=lambda root_window=None: None,
     )

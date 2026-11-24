@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.temp_files import with_temp_buffer
-from plugin.framework.uno_context import create_property_value, get_desktop
+from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
+from plugin.framework.uno_context import get_desktop
 
 log = logging.getLogger("writeragent.writer")
 
@@ -123,8 +124,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     try:
         with with_temp_buffer(content=payload, ext=".mml") as (_path, url):
             desktop = get_desktop(ctx)
-            hidden = (create_property_value("Hidden", True),)
-            doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
+            doc = load_scratch_document(desktop, url)
             if doc is None:
                 return MathConversionResult(False, None, "load_returned_none")
             try:
@@ -144,7 +144,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
                 )
             finally:
                 try:
-                    doc.close(True)
+                    close_scratch_document(doc)
                 except Exception as exc:
                     log.debug("math doc close: %s", exc)
     except Exception as exc:

@@ -64,7 +64,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame():
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
-        patch("plugin.calc.rich_html.create_property_value", return_value=hidden_prop),
+        patch("plugin.framework.scratch_writer.create_property_value", return_value=hidden_prop),
         patch("plugin.calc.rich_html.clear_writer_body", return_value=True),
     ):
         mock_bridge = mock_bridge_cls.return_value
@@ -81,6 +81,34 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame():
     assert args[3] == (hidden_prop,)
     # GHA 33771766524: close after a live paste hung the next desktop enum.
     temp_doc.close.assert_not_called()
+
+
+def test_insert_cell_html_rich_keeps_temp_writer_registered_as_scratch(monkeypatch):
+    """After a successful paste, the retained temp Writer remains a registered scratch doc."""
+    import plugin.framework.scratch_writer as scratch_writer
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
+    temp_doc.getRuntimeUID.return_value = "901"
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body", return_value=True),
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_cell_by_address.return_value = cell
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
+
+        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
+
+    temp_doc.close.assert_not_called()
+    assert scratch_writer.is_scratch_document(temp_doc) is True
 
 
 def test_insert_cell_html_rich_steps_go_to_stderr(capsys):

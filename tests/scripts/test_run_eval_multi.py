@@ -139,11 +139,6 @@ def test_main_refuses_unlisted_gemini_staying_on_openrouter(
 
     monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
     monkeypatch.setattr(
-        run_eval_multi,
-        "to_dspy_examples",
-        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
-    )
-    monkeypatch.setattr(
         sys,
         "argv",
         [
@@ -181,11 +176,6 @@ def test_main_pricing_label_follows_route(
     if env_key is not None:
         monkeypatch.setenv("GEMINI_API_KEY", env_key)
     monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
-    monkeypatch.setattr(
-        run_eval_multi,
-        "to_dspy_examples",
-        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
-    )
     monkeypatch.setattr(
         run_eval_multi,
         "_run_one_model",
@@ -445,3 +435,40 @@ def test_pareto_tradeoff_score_decreases_with_distance() -> None:
     assert scores[id(near)] > scores[id(far)]
     for row_id, dist in distances.items():
         assert scores[row_id] == max(0.0, 1.0 - dist)
+
+
+def test_scripted_run_needs_no_dspy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import llm_chat_eval
+
+    monkeypatch.setitem(sys.modules, "dspy", None)
+    monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
+    out_path = tmp_path / "o.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_eval_multi.py",
+            "--models",
+            "openai/gpt-oss-20b",
+            "--api-base",
+            "https://openrouter.ai/api/v1",
+            "--student",
+            "scripted",
+            "-e",
+            "table_from_mess",
+            "-j",
+            "1",
+            "--no-bust-cache",
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert run_eval_multi.main() == 0
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    summary = payload[0]
+    assert summary["n_examples"] == 1
+    assert summary["n_error"] == 0
+    assert summary["hard_pass_rate"] == 1.0

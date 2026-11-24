@@ -114,7 +114,7 @@ def catalog_entries_from_base(
             continue
         if ctx is not None or uno_services:
             # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
-            # Only the enum in DelegateToSpecializedBase.get_parameters, read with neither, keeps every domain,
+            # Only the enum in DelegateToSubagent.get_parameters, read with neither, keeps every domain,
             # so a venv or MCP server added later in Settings still passes validation without a restart.
             # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
             from plugin.vision.vision_availability import specialized_domain_available
@@ -282,10 +282,15 @@ def record_edits(payload: dict[str, Any], calls: Sequence[InnerToolCall]) -> Non
 
     The note is true on every exit because mutating is the tool kind; if no editing
     tool ran at all, the document is unchanged whether the run finished, stopped
-    early, or failed.
+    early, or failed. A nested delegation that failed after its own edits landed
+    reports them in ``edits``.
     """
     payload["edits"] = dict(
-        Counter(c.name for c in calls if c.mutating and not _is_error_result(c.result))
+        Counter(
+            c.name
+            for c in calls
+            if c.mutating and (not _is_error_result(c.result) or bool(c.result.get("edits")))
+        )
     )
     if not any(c.mutating for c in calls):
         payload["note"] = NO_EDIT_TOOL_NOTE

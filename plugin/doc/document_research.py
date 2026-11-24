@@ -557,6 +557,10 @@ def resolve_path_or_name(
 _HIDDEN_READONLY_SEARCH_FLAGS = 8 | 55
 _WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
 
+HTML_WRITER_FILTER = "HTML (StarWriter)"
+# Extensions list in filter/source/config/fragments/types/generic_HTML.xcu.
+_HTML_EXTENSIONS = frozenset({".html", ".htm", ".xhtml"})
+
 
 def _hidden_readonly_load_args() -> tuple[str, int]:
     """Target + FrameSearchFlag for a Hidden+ReadOnly sibling open.
@@ -592,7 +596,14 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:
-        return existing, existing_type or doc_type_family_label(get_document_type(existing)), None, False
+        if existing_type == "unknown":
+            return (
+                None,
+                None,
+                f"{path} is already open as a document type these tools cannot read; close that window first.",
+                False,
+            )
+        return existing, existing_type, None, False
 
     # A successful load that is not returned must not leave a hidden
     # component open. An unknown doc_type that returns the error
@@ -604,12 +615,15 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     model: Any = None
     try:
         desktop = get_desktop(ctx)
-        load_props = (
+        load_props: list[Any] = [
             create_property_value("Hidden", True),
             create_property_value("ReadOnly", True),
-        )
+        ]
+        if os.path.splitext(path)[1].lower() in _HTML_EXTENSIONS:
+            # Without FilterName, LibreOffice loads Writer/Web, which get_document_type reports as UNKNOWN.
+            load_props.append(create_property_value("FilterName", HTML_WRITER_FILTER))
         target, flags = _hidden_readonly_load_args()
-        model = desktop.loadComponentFromURL(url, target, flags, load_props)
+        model = desktop.loadComponentFromURL(url, target, flags, tuple(load_props))
         if model is None:
             return None, None, f"Failed to open {path}", False
         doc_type = doc_type_family_label(get_document_type(model))

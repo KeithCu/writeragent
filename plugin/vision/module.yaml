@@ -46,7 +46,7 @@ config:
     label_width: 100
     x: 290
     width: 52
-    helper: Stops Docling processing of one document after this many seconds and keeps the pages finished so far. Model download and loading do not count. 0 turns the limit off.
+    helper: Stops Docling processing of one document after this many seconds. A PDF keeps the pages finished so far; an image gives no text. Model download and loading do not count. 0 turns the limit off.
 
   ocr_backend:
     type: string

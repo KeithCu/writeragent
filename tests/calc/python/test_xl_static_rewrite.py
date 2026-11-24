@@ -202,6 +202,17 @@ def test_rewrite_keeps_sheets_that_differ_apart():
     assert "y = data[1]" in res.code
     res_sep = apply_xl_static_rewrite('x = xl("Sheet1!A1")\ny = xl("Sheet1.A1")')
     assert res_sep.data_args == ["Sheet1!A1"]
+    res_dollar = apply_xl_static_rewrite("x = xl(\"Sales.A1\")\ny = xl(\"'$Sales'.A1\")")
+    assert res_dollar.data_args == ["Sales.A1", "'$Sales'.A1"]
+    assert "x = data[0]" in res_dollar.code
+    assert "y = data[1]" in res_dollar.code
+    res_dot = apply_xl_static_rewrite("x = xl(\"'Q1.$x'.A1\")\ny = xl(\"'Q1.x'.A1\")")
+    assert res_dot.data_args == ["'Q1.$x'.A1", "'Q1.x'.A1"]
+    assert "x = data[0]" in res_dot.code
+    assert "y = data[1]" in res_dot.code
+    res_case = apply_xl_static_rewrite("x = xl(\"'Q1.Sales'.A1\")\ny = xl(\"'q1.sales'!$A$1\")")
+    assert res_case.data_args == ["'Q1.Sales'.A1"]
+    assert res_case.code == "x = data\ny = data"
 
 
 def test_rewrite_collapses_duplicate_existing_data_args():

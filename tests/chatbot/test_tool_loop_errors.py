@@ -1524,8 +1524,13 @@ def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked:
 
 
 def test_send_reads_locked_keyring_once_off_main_thread(test_instance, mock_get_tools, fake_keystore):
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    test_instance._send_cancellation = scope
     reads, items, client = _send_with_keystore(test_instance, mock_get_tools, fake_keystore, locked=True)
     assert reads == [False]
+    assert fake_keystore.last_cancel is scope
     assert client.stream_request_with_tools.call_count == 0
     errors = [item for item in items if item and item[0] == StreamQueueKind.ERROR]
     assert len(errors) == 1
@@ -1533,8 +1538,13 @@ def test_send_reads_locked_keyring_once_off_main_thread(test_instance, mock_get_
 
 
 def test_send_reads_unlocked_keyring_once_off_main_thread(test_instance, mock_get_tools, fake_keystore):
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    test_instance._send_cancellation = scope
     reads, items, client = _send_with_keystore(test_instance, mock_get_tools, fake_keystore, locked=False)
     assert reads == [False]
+    assert fake_keystore.last_cancel is scope
     assert client.stream_request_with_tools.call_count == 1
     assert client.config["api_key"] == "sk-1"
 

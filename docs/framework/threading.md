@@ -178,7 +178,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 
 **Pooled** (default) — short fire-and-forget: `_update_menu_icons`, `notify_menu_update`, settings probes/fetches, `status-dialog-probe`, `warm-venv-worker` from `plugin/scripting/python_runner_ui.py` and `plugin/scripting/editor_host.py`.
 
-**Not on this pool:** Opengrep-excluded raw threads (`grammar_work_queue.py`, `venv_worker.py` IPC, `harper.py` stdout, CDP `browser_supervisor`). Local `ThreadPoolExecutor` in `web_research_deep.py` and jedi (`editor_main.py`) stay local.
+**Not on this pool:** Opengrep-excluded raw threads (`grammar_work_queue.py`, `venv_worker.py` IPC, `harper.py` stdout). Local `ThreadPoolExecutor` in `web_research_deep.py` and jedi (`editor_main.py`) stay local.
 
 Never `join()` a **pooled** job from another **pooled** job (pool-join deadlock). Anything joined with a timeout from a context that might itself be pooled must be dedicated.
 
@@ -270,7 +270,7 @@ flowchart TD
    - A `tool_call`, `llm_request`, or `worker_event` marks the turn non-replayable before the handler runs. A raise during that dispatch is not resent, including when `exec_started` never arrived.
    - PPT-Master intermediate turns are non-replayable; write timeouts terminate the worker without replaying the turn because host-side UNO mutations may already have occurred.
    - Replay (one retry per request) is signaled as a `RetryWithNewLease` value from `_execute_ipc_unlocked`; `_run_in_session` loops at most twice. Same rules: replay only before start; no replay after `exec_started`, a tool/llm/worker frame, read timeout, or bad frame. The worker kill belongs to the outcome: `_retry_after_kill` before start, `_fail_no_replay` after; the write helper only raises.
-6. **One serialized writer per child:** All stdin writes to a subprocess share the warm-child pipe lock (`WarmChild._io_lock`). Every caller waits up to `_IO_LOCK_ACQUIRE_TIMEOUT_SEC` (600s) via `WarmChild.lease(cancel=, refuse=, poll_sec=)`; venv passes `_refuse_lease` and `is_cancelled`, and refuses only for the owner thread, or while the holder enters a host callback (tool RPC or the heartbeat callback, set by `PythonWorkerManager.serving_callback` in `_serving_tool_call`), so a host callback that needs the waiting thread cannot sit in `acquire()` forever. That refusal says the worker is busy. The reentry sentence is only for the thread that already holds the pipe. One `lease` call per `_io_session` attempt covers the full wait budget; replay after a spawn failure reuses the same budget (invariant 5).
+6. **One serialized writer per child:** All stdin writes to a subprocess share the warm-child pipe lock (`WarmChild._io_lock`). Every caller waits up to `_IO_LOCK_ACQUIRE_TIMEOUT_SEC` (600s) via `WarmChild.lease(cancel=, refuse=, poll_sec=)` (`cancel` also refuses the publish of a spawn started by that lease); venv passes `_refuse_lease` and `is_cancelled`, and refuses only for the owner thread, or while the holder enters a host callback (tool RPC or the heartbeat callback, set by `PythonWorkerManager.serving_callback` in `_serving_tool_call`), so a host callback that needs the waiting thread cannot sit in `acquire()` forever. That refusal says the worker is busy. The reentry sentence is only for the thread that already holds the pipe. One `lease` call per `_io_session` attempt covers the full wait budget; replay after a spawn failure reuses the same budget (invariant 5).
 
 ---
 

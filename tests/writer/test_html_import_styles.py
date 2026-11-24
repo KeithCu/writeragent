@@ -252,7 +252,7 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
 
     report = html_import_styles.WriteReport(
         unapplied_para=["margin-left"],
-        style_skips=["STYLE_IGNORED_RECORDING"],
+        style_skips=["STYLE_IGNORED_PARTIAL_MATCH"],
     )
     res = {"status": "ok", "message": "Inserted content."}
     out = html_import_styles.attach_write_report(
@@ -265,7 +265,7 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
     assert "warnings" in out
     assert len(out["warnings"]) == 1
     diag = out["warnings"][0]
-    assert diag["code"] == "PARA_IGNORED_RECORDING"
+    assert diag["code"] == "PARA_IGNORED_PARTIAL_MATCH"
     assert out["message"] == "Inserted content."
 
 
@@ -279,13 +279,13 @@ def test_write_report_extend_preserves_order_and_unions_tokens() -> None:
     )
     r2 = html_import_styles.WriteReport(
         unapplied_para=["margin-bottom", "color"],
-        style_skips=["STYLE_IGNORED_RECORDING"],
+        style_skips=["STYLE_IGNORED_PARTIAL_MATCH"],
         style_tokens=["Heading2", "Heading3", "Heading1"],
         math=[{"snippet": "b", "ok": False}],
     )
     r1.extend(r2)
     assert r1.unapplied_para == ["color", "margin-top", "margin-bottom", "color"]
-    assert r1.style_skips == ["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+    assert r1.style_skips == ["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_PARTIAL_MATCH"]
     assert r1.style_tokens == ["Heading1", "Heading2", "Heading3"]
     assert r1.math == [{"snippet": "a", "ok": True}, {"snippet": "b", "ok": False}]
 

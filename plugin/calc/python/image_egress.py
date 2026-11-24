@@ -21,8 +21,9 @@ from typing import Any, NamedTuple, NoReturn
 from plugin.calc.calc_utils import get_cell_geometry, selection_top_left_cell, sheet_is_rtl
 from plugin.calc.python.formula_edit import match_py_alias, normalize_formula_string
 from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-from plugin.calc.python.undo import attach_to_newest_undo, undo_lock
+from plugin.calc.python.undo import add_undo_action, attach_to_newest_undo, undo_lock
 from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
@@ -420,8 +421,8 @@ def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_c
             taken.add(slot_idx)
 
 
-def _drop_plots_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: Any) -> None:
-    """Remove *cell*'s plots when Undo took its =PY formula away; runs after the Undo finished."""
+def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: Any) -> None:
+    """Remove *cell*'s plots and image note when Undo took its =PY formula away; runs after the Undo finished."""
     # Proxies on a deleted sheet shift to the neighbouring sheet instead of raising,
     # so check the DrawPage identity before reading the cell or removing shapes.
     if sheet.DrawPage != draw_page:
@@ -431,6 +432,7 @@ def _drop_plots_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: An
         return
     with undo_lock(doc, hide=False):
         _drop_extra_plot_slots(draw_page, _anchored_plot_slots(sheet, cell), 0)
+    _remove_image_note(doc, sheet, cell)
 
 
 def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
@@ -457,6 +459,20 @@ def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int
         return None
 
 
+def _remove_image_note(doc: Any, sheet: Any, cell: Any) -> None:
+    """Remove *cell*'s note if it is a ``WriterAgent image:`` note, without an undo entry."""
+    if not (cell.getAnnotation().getString() or "").startswith(_IMAGE_ANNOTATION_PREFIX):
+        return
+    addr = cell.getCellAddress()
+    annotations = sheet.getAnnotations()
+    for i in range(annotations.getCount()):
+        pos = annotations.getByIndex(i).getPosition()
+        if (pos.Column, pos.Row) == (addr.Column, addr.Row):
+            with undo_lock(doc, hide=False):
+                annotations.removeByIndex(i)
+            return
+
+
 def _set_image_cell_annotation(doc: Any, code: str | None, error_message: str) -> None:
     """Set error annotation on the located formula cell after off-main egress failure."""
     located = _located_image_cell(doc, code)
@@ -476,7 +492,15 @@ def _set_image_cell_annotation(doc: Any, code: str | None, error_message: str) -
             # (ReplaceNote would overwrite the cell's sole annotation).
             log.debug("_set_image_cell_annotation: user annotation left in place")
             return
-        sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
+        # The note is written by a recalculation, so it gets no undo entry of its own
+        # and leaves redo alone; undoing the formula's entry removes it.
+        with undo_lock(doc, hide=False) as um:
+            sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
+        if um is not None:
+            best_effort(
+                partial(attach_to_newest_undo, um, partial(_drop_egress_of_undone_formula, doc, sheet, cell, sheet.DrawPage)),
+                "could not attach image note to the undo step",
+            )
     except Exception:
         log.debug("_set_image_cell_annotation failed", exc_info=True)
 
@@ -486,22 +510,8 @@ def _clear_image_cell_annotation(doc: Any, code: str | None) -> None:
     located = _located_image_cell(doc, code)
     if located is None:
         return
-    sheet, cell, (row, col) = located
-    try:
-        ann = cell.getAnnotation()
-        val = ann.getString() or ""
-        if val.startswith(_IMAGE_ANNOTATION_PREFIX):
-            annotations = sheet.getAnnotations()
-            for i in range(annotations.getCount()):
-                item = annotations.getByIndex(i)
-                pos = item.getPosition() if hasattr(item, "getPosition") else None
-                if pos is not None and getattr(pos, "Column", None) == col and getattr(pos, "Row", None) == row:
-                    annotations.removeByIndex(i)
-                    break
-            else:
-                ann.setString("")
-    except Exception:
-        log.debug("_clear_image_cell_annotation failed", exc_info=True)
+    sheet, cell, _unused = located
+    best_effort(partial(_remove_image_note, doc, sheet, cell), "_clear_image_cell_annotation failed")
 
 
 class ImageEgressError(Exception):
@@ -891,9 +901,24 @@ def _insert_image_result_on_sheet_impl(
         with undo_lock(doc, hide=False) if code else nullcontext() as um:
             try:
                 if shape is None:
-                    _place_new_plot(
-                        doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
-                    )
+                    # SvxDrawPage::add records no undo, but naming the shape does, and undoing
+                    # that would leave the picture without its slot name. Place it unrecorded;
+                    # a plot without a formula then gets its own insert/remove entry.
+                    with undo_lock(doc, hide=False) as place_um:
+                        placed = _place_new_plot(
+                            doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
+                        )
+                    if not code and place_um is not None:
+                        best_effort(
+                            partial(
+                                add_undo_action,
+                                place_um,
+                                _("WriterAgent: Insert plot"),
+                                partial(draw_page.remove, placed),
+                                partial(draw_page.add, placed),
+                            ),
+                            "could not record the plot insert for undo",
+                        )
                 else:
                     _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
             finally:
@@ -908,7 +933,7 @@ def _insert_image_result_on_sheet_impl(
                     _drop_extra_plot_slots(draw_page, slots, image_count)
         if um is not None and shape is None:
             best_effort(
-                partial(attach_to_newest_undo, um, partial(_drop_plots_of_undone_formula, doc, sheet, target_cell, draw_page)),
+                partial(attach_to_newest_undo, um, partial(_drop_egress_of_undone_formula, doc, sheet, target_cell, draw_page)),
                 "could not attach plot to the undo step",
             )
     except ImageEgressError:

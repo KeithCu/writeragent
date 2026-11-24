@@ -50,6 +50,7 @@ from plugin.framework.errors import (
     uno_call, uno_read,
 )
 from plugin.framework.event_bus import get_event_bus
+from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
 from plugin.framework.service import ServiceBase
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import (
@@ -661,7 +662,11 @@ class DocumentService(ServiceBase):
         return "writer" if family == "unknown" else family
 
     def open_documents(self) -> list[Any]:
-        """Every open real document (Start Center excluded), in desktop order. Main-thread only."""
+        """Every open real document, in desktop order. Main-thread only.
+
+        Start Center and WriterAgent's scratch documents are excluded (see
+        ``plugin.framework.scratch_writer``); user-hidden documents are included.
+        """
         docs = []
         try:
             desktop = get_desktop()
@@ -670,7 +675,7 @@ class DocumentService(ServiceBase):
             while enum is not None and enum_has_more(enum):
                 doc = enum.nextElement()
                 try:
-                    if doc.supportsService("com.sun.star.document.OfficeDocument"):
+                    if doc.supportsService("com.sun.star.document.OfficeDocument") and not is_scratch_document(doc):
                         docs.append(doc)
                 except Exception as exc:
                     log.debug("open_documents: skip component (%s)", type(exc).__name__)
@@ -720,7 +725,7 @@ class DocumentService(ServiceBase):
         from plugin.framework.uno_listeners import install_view_doc_listener
 
         def _report(_source: Any) -> None:
-            on_change(self.open_doc_types())
+            run_after_scratch_loads(lambda: on_change(self.open_doc_types()))
 
         _OPEN_DOC_TYPES_LISTENER = install_view_doc_listener(
             get_ctx(),
