@@ -118,6 +118,7 @@ class Debounce:
 class WorkbookState:
     key: str
     spills: dict[tuple[str, int, int], "SpillRecord"] = field(default_factory=dict)  # (sheet, row, col)
+    # sheet name -> (EndRow, EndColumn) last seen by spill/cleanup; memory-only witness, never saved.
     used_ends: dict[str, tuple[int, int]] = field(default_factory=dict)
     loaded: bool = False
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher

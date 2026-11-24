@@ -18,8 +18,6 @@ from com.sun.star.table import CellAddress
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.spill import (
-    SpillRecord,
-    _used_end,
     perform_deferred_spill,
 )
 from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
@@ -376,11 +374,16 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
             sheet.setName("Sheet1")
         code = "result = [1, 2, 3, 4, 5]"
         sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
-        for r in range(5, 10):
-            sheet.getCellByPosition(0, r).setValue(float(r - 4))
-
-        SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, rows=6, cols=1)
-        st.used_ends["Sheet1"] = _used_end(sheet)
+        perform_deferred_spill(
+            "Sheet1",
+            4,
+            0,
+            [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
 
         from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
 
@@ -767,11 +770,14 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert nan_cell.getString() == "#NUM!"
         assert sheet.getCellByPosition(1, 1).getValue() == 1.0
 
-        # Delete formula in A1, and replace E1 (#DIV/0!) with a user error formula =1/0 (ERROR result is not guarded)
+        # Flush the modify pass from adding B2 so used_ends reflects (1, 4), then delete A1.
+        from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet.Name)
+
+        # Delete formula in A1 -> whole rectangle B1:E1 (including spilled =#ERR532! in E1) is cleared
         sheet.getCellByPosition(0, 0).setFormula("")
-        sheet.getCellByPosition(4, 0).setFormula("=1/0")
         doc.calculateAll()
-        st.used_ends[sheet.Name] = _used_end(sheet)
 
         cleanup_orphans(st, sheet, doc=doc, sheet_name=sheet.Name)
 
@@ -780,7 +786,7 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert sheet.getCellByPosition(3, 0).getType() == EMPTY
         assert sheet.getCellByPosition(4, 0).getType() == EMPTY
 
-        # Re-spill, put =SUM(1) (VALUE result) in E1, delete A1 -> nothing cleared, record gone
+        # Re-spill, put =1/0 in E1, delete A1 -> user formula prevents clearing, record gone
         sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
         perform_deferred_spill(
             sheet.Name,
@@ -792,7 +798,7 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
             code=code,
             key=st.key,
         )
-        sheet.getCellByPosition(4, 0).setFormula("=SUM(1)")
+        sheet.getCellByPosition(4, 0).setFormula("=1/0")
         sheet.getCellByPosition(0, 0).setFormula("")
         doc.calculateAll()
 
@@ -801,7 +807,7 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert (sheet.Name, 0, 0) not in st.spills
         assert sheet.getCellByPosition(1, 0).getType() != EMPTY
         assert sheet.getCellByPosition(4, 0).getType() == FORMULA
-        assert sheet.getCellByPosition(4, 0).getFormula() == "=SUM(1)"
+        assert sheet.getCellByPosition(4, 0).getFormula() == "=1/0"
     finally:
         WorkbookState.forget_key(st.key)
 
@@ -902,15 +908,52 @@ def test_py_spill_cut_paste_leaves_block_and_drops_record_uno(ctx, doc):
         assert (sheet.Name, 4, 3) not in st.spills
         assert sheet.getCellByPosition(0, 5).getValue() == 2.0
         assert sheet.getCellByPosition(0, 6).getValue() == 3.0
-        assert st.used_ends[sheet.Name] == _used_end(sheet)
+        assert st.used_ends[sheet.Name] == (9, 5)
     finally:
         WorkbookState.forget_key(st.key)
 
 
 @native_test
 @with_native_doc("calc")
+def test_py_spill_user_formula_referencing_origin_blocks_during_recalc_uno(ctx, doc):
+    """During a real =PY() recalc, a user formula inside the rectangle referencing the origin still blocks."""
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code1 = "result = [[10, 20]]"
+        origin_cell = sheet.getCellByPosition(0, 0)
+        origin_cell.setFormula(f'=PY("{code1}")')
+        perform_deferred_spill(
+            sheet.Name,
+            0,
+            0,
+            [[10.0, 20.0]],
+            doc=doc,
+            sheet=sheet,
+            code=code1,
+            key=st.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getValue() == 20.0
+
+        # Put a user formula referencing A1 inside the spill rectangle, then recalculate A1.
+        sheet.getCellByPosition(1, 0).setFormula("=A1+1")
+        origin_cell.setFormula('=PY("result = [[99, 30]]")')
+        doc.calculateAll()
+        _wait_spill_settled(doc)
+
+        assert origin_cell.getString() == "#SPILL!" or origin_cell.getValue() == 99.0
+        b1_formula = sheet.getCellByPosition(1, 0).getFormula()
+        assert b1_formula == "=A1+1", f"got {b1_formula!r}, origin={origin_cell.getString()!r}"
+    finally:
+        _wait_spill_settled(doc)
+        WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
 def test_py_spill_user_formula_in_rect_blocks_uno(ctx, doc):
-    """A VALUE/STRING formula inside the spill rectangle blocks respill; an ERROR formula does not."""
+    """Any user formula (including =1/0) inside the spill rectangle blocks respill; error literals do not."""
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
     from plugin.calc.python.spill import perform_deferred_spill, prepare_auto_spill
     from plugin.calc.python.workbook_state import WorkbookState
@@ -931,6 +974,10 @@ def test_py_spill_user_formula_in_rect_blocks_uno(ctx, doc):
         assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
 
         sheet.getCellByPosition(1, 0).setFormula("=1/0")
+        doc.calculateAll()
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+
+        sheet.getCellByPosition(1, 0).setFormula("=#ERR519!")
         doc.calculateAll()
         assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
     finally:

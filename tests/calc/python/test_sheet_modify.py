@@ -21,7 +21,6 @@ from plugin.calc.python.sheet_modify import (
 )
 from plugin.calc.python.spill import (
     SpillRecord,
-    _used_end,
     perform_deferred_spill,
 )
 from plugin.calc.python.workbook_state import WorkbookState
@@ -157,7 +156,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     )
     st_rename = WorkbookState.for_doc(doc)
     assert st_rename is not None
-    st_rename.used_ends["Sheet1"] = _used_end(sheet)
+    st_rename.used_ends["Sheet1"] = (0, 1)
 
     sheet.setName("SheetRenamed")
     doc.getSheets()._sheets["SheetRenamed"] = sheet
@@ -180,7 +179,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     # Now clear formula cell and run modify pass
     cell_formula.setFormula("")
     cell_formula.setString("")
-    st_rename.used_ends["SheetRenamed"] = _used_end(sheet)
+    st_rename.used_ends["SheetRenamed"] = (0, 1)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet, sheet_name="SheetRenamed")
 
     assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY

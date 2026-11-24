@@ -149,13 +149,13 @@ def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) 
     first-match would spill into the wrong formula. Matrix/array formulas are one origin
     (top-left of the formula range).
     """
-    matches = _collect_matching_formula_origins(sheet, code_str, doc=doc)
+    matches = collect_matching_formula_origins(sheet, code_str, doc=doc)
     if len(matches) == 1:
         return matches[0]
     return None
 
 
-def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
+def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
@@ -192,7 +192,7 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
         count = sheets.getCount() if hasattr(sheets, "getCount") else 0
         for i in range(count):
             sheet = sheets.getByIndex(i)
-            for cell, r, c in _collect_matching_formula_origins(sheet, code_str, doc=doc):
+            for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
                 collected.append((sheet, cell, (r, c)))
             if len(collected) > 1:
                 break
