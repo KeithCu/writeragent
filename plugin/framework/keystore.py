@@ -53,6 +53,7 @@ import ctypes
 import functools
 import logging
 import os
+import re
 import secrets
 import sys
 import threading
@@ -73,6 +74,7 @@ log = logging.getLogger(__name__)
 
 SERVICE = "WriterAgent"
 REF_PREFIX = "keystore:"
+_REF_RE = re.compile(rf"{re.escape(REF_PREFIX)}[0-9a-f]{{8}}")
 
 _UNSET = object()
 _detected: bool = False
@@ -696,8 +698,8 @@ def reset_for_tests(backend: Any = _UNSET) -> None:
 
 
 def is_ref(value: object) -> bool:
-    """True when *value* is a ``keystore:<token>`` reference string."""
-    return isinstance(value, str) and value.startswith(REF_PREFIX)
+    """True when *value* is a ``keystore:<8 hex>`` reference string."""
+    return isinstance(value, str) and _REF_RE.fullmatch(value) is not None
 
 
 def new_ref() -> str:

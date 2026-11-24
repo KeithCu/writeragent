@@ -449,3 +449,14 @@ def test_keystore_unlocked_event_fires_only_after_locked_read(fake_keystore):
         assert events == ["unlocked"]
     finally:
         bus.unsubscribe("keystore:unlocked", handler)
+
+
+def test_is_ref_matches_only_the_exact_form():
+    assert keystore.is_ref("keystore:deadbeef") is True
+    assert keystore.is_ref("keystore:01234567") is True
+    assert keystore.is_ref("keystore:9f3a1c2bsk-new") is False
+    assert keystore.is_ref("keystore:") is False
+    assert keystore.is_ref("keystore:deadbee") is False
+    assert keystore.is_ref("keystore:legacy01") is False
+    assert keystore.is_ref("keystore:DEADBEEF") is False
+    assert keystore.is_ref(None) is False
