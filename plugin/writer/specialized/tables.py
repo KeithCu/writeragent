@@ -42,6 +42,7 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 _EMPTY_ROW_ANCHOR = "\u200d"
 # LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
 _UNO_TABLE_COLUMN_SUM = 10000
+_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1)."}
 
 
 def _tables(doc: Any) -> Any:
@@ -721,7 +722,7 @@ class TableGetCells(ToolWriterTableBase):
                 "type": "string",
                 "description": "Optional. One A1-style address; return that cell only.",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],
@@ -816,7 +817,7 @@ class TableSetCell(ToolWriterTableBase):
             "name": {"type": "string", "description": "Table name from table_list."},
             "cell": {"type": "string", "description": "A1-style cell address, e.g. 'B2'."},
             "text": {"type": "string", "description": "New plain text for the cell."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": ["cell", "text"],
@@ -893,7 +894,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 "type": "integer",
                 "description": "0-based row or column index (insert at count = append).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "shape_index": {
                 "type": "integer",
                 "description": "Draw/Impress: table shape index (not the row/column index).",
@@ -1131,7 +1132,7 @@ class TableInsert(ToolWriterTableBase):
                 "type": "string",
                 "description": "Writer: A1-style host cell (requires parent).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (active if omitted)"},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted)"},
             "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
             "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
             "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},
@@ -1250,7 +1251,7 @@ class TableDelete(ToolWriterTableBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],

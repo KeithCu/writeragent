@@ -31,6 +31,7 @@ class MockSession:
         self.active_specialized_domain = None
         self.python_tool_domain = None
         self.session_id: str | None = None
+        self.compaction = None
         self.refresh_calls: list[tuple[Any, Any, Any]] = []
 
     def set_system_context(self, base_prompt, doc_text=""):

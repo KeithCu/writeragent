@@ -1105,11 +1105,12 @@ def test_slash_local_messages_omitted_from_llm_view():
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
 
     session = SimpleNamespace(
+        compaction=None,
         messages=[
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "help text", SLASH_LOCAL: True},
-        ]
+        ],
     )
     view = messages_for_llm(session)
     assert all(not m.get(SLASH_LOCAL) for m in view)
@@ -1279,3 +1280,17 @@ def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
     es_line = format_slash_item(help_cmd)
     assert es_line.startswith("/ayuda — ")
     assert "Print the command list" not in es_line
+
+
+def test_writer_selection_explain_block_reads_get_selection_text():
+    from plugin.chatbot.slash_commands import _writer_selection_explain_block
+
+    model = MagicMock()
+    with patch("plugin.chatbot.slash_commands.get_selection_text", return_value="  Visible words  "):
+        block = _writer_selection_explain_block(model)
+    assert block is not None
+    assert "Visible words" in block
+
+    for empty in (None, "", "   \n\t "):
+        with patch("plugin.chatbot.slash_commands.get_selection_text", return_value=empty):
+            assert _writer_selection_explain_block(model) is None

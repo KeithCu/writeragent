@@ -225,7 +225,7 @@ result = [[1.0, np.nan, 3.0]]     # 1, error, 3
 - Blanks on ingress are `np.nan` in numeric arrays — use `np.nansum` / `np.nanmean` when you mean "ignore missing."
 - A computed `nan` is a sheet error and poisons dependents. Return a string for a quiet marker.
 - `None` is the way to produce a true empty cell on egress.
-- Shared helper: `is_missing_value` in [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py) (None, `""`, LO error tokens and `Err:<n>` text (`is_error_token`), float/NumPy NaN) — used by dataframe coercion and Excel-parity formula helpers. Criteria helpers (`countif`, `sumif`, the D* functions) compare an error by its text as Calc does, so an error is not blank there, and text criteria with `=`/`<>` compare numbers and booleans by their displayed text.
+- Shared helper: `is_missing_value` in [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py) (None, `""`, LO error tokens and `Err:<n>` text (`is_error_token`), float/NumPy NaN) — used by dataframe coercion and Excel-parity formula helpers. Criteria helpers (`countif`, `sumif`, the D* functions) compare an error by its text as Calc does, so an error is not blank there, and text criteria with `=`/`<>` compare numbers and booleans by their displayed text. Numeric criteria compare with Calc's `approxEqual`, a boolean cell is `1` or `0` for a numeric criterion, and the text `TRUE`/`FALSE` is `1`/`0`.
 
 Codec details: [numpy-serialization — Split-Grid encoding](../scripting/numpy-serialization.md#strategy-3-split-grid-serialization-detail).
 

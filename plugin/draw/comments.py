@@ -189,7 +189,7 @@ class ListPageComments(ToolDrawCommentBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (all pages if omitted)."},
+            "page": {"type": "integer", "description": "0-based page index (the user's page 2 is page=1; all pages if omitted)."},
             "offset": {"type": "integer", "default": 0, "description": "Skip this many comments in deck order."},
         },
         "required": [],
