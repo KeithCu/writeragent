@@ -31,6 +31,7 @@ from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
+from .hyperlink_fixup import StaleReason
 from .record_changes import record_changes
 
 if TYPE_CHECKING:
@@ -663,10 +664,10 @@ class WriteReport:
     paragraph because the content was block-level. ``added_content`` is internal (not
     reported): False when the import added nothing (e.g. ``<p></p>``), so
     ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
-    outline hyperlinks updated after a heading rename, and ``stale_links`` lists
-    ``|outline`` URLs on field-backed links that could not be rewritten as tracked changes
-    while recording. ``tables_added`` is internal (not reported): tables the import
-    added, or None when not measured. all_matches merges one report per match with ``extend``.
+    outline hyperlinks updated after a heading rename, and ``stale_links`` maps
+    each ``|outline`` URL still naming an old title to its reason. ``tables_added``
+    is internal (not reported): tables the import added, or None when not measured.
+    all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
@@ -676,7 +677,7 @@ class WriteReport:
     snapped_to_paragraph: bool = False
     added_content: bool = True
     links_retargeted: int = 0
-    stale_links: list[str] = field(default_factory=list)
+    stale_links: dict[str, StaleReason] = field(default_factory=dict)
     tables_added: int | None = None
 
     def extend(self, other: WriteReport) -> None:
@@ -787,14 +788,17 @@ def attach_write_report(
 
     if report.links_retargeted:
         result["links_retargeted"] = report.links_retargeted
-    for url in report.stale_links:
+    for url, reason in report.stale_links.items():
+        cause = (
+            "they hold a field, which cannot be rewritten as a tracked change."
+            if reason == "field"
+            else "the edit removed that heading and no new heading clearly replaces it. "
+            "Point them at the right heading or remove them."
+        )
         diags.append({
             "code": "LINK_TARGET_STALE",
             "link_target": url,
-            "message": (
-                f'Links to "{url}" still use the old heading title: '
-                "they hold a field, which cannot be rewritten as a tracked change."
-            ),
+            "message": f'Links to "{url}" still use the old heading title: {cause}',
         })
 
     return append_warnings(result, diags)

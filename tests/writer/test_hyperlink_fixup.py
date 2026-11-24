@@ -624,26 +624,122 @@ def test_restore_keeps_inherited_look_without_direct_color():
 
 
 @pytest.mark.parametrize(
-    ("before", "after", "expected"),
+    ("before", "after", "expected_renames", "expected_lost"),
     [
         # Two renames around an equal title
-        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], {"A": "A2", "B": "B2"}),
+        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], {"A": "A2", "B": "B2"}, []),
         # A rename plus an added heading gives the rename only
-        ([(1, "A"), (2, "B")], [(1, "A2"), (2, "B"), (2, "C")], {"A": "A2"}),
-        # A repeated old title gives none
-        ([(1, "Dup"), (2, "Dup")], [(1, "X"), (2, "Y")], {}),
-        # A level change gives none
-        ([(1, "A")], [(2, "A2")], {}),
+        ([(1, "A"), (2, "B")], [(1, "A2"), (2, "B"), (2, "C")], {"A": "A2"}, []),
+        # A repeated old title gives none and is reported lost
+        ([(1, "Dup"), (2, "Dup")], [(1, "X"), (2, "Y")], {}, ["Dup"]),
+        # A level change gives none and is reported lost
+        ([(1, "A")], [(2, "A2")], {}, ["A"]),
         # A swap gives none
-        ([(1, "A"), (1, "B")], [(1, "B"), (1, "A")], {}),
+        ([(1, "A"), (1, "B")], [(1, "B"), (1, "A")], {}, []),
         # Two headings renamed to the same title gives none
-        ([(1, "A"), (1, "B")], [(1, "Same"), (1, "Same")], {}),
-        # Unequal stretch lengths gives none
-        ([(1, "A")], [(1, "A2"), (1, "B")], {}),
+        ([(1, "A"), (1, "B")], [(1, "Same"), (1, "Same")], {}, ["A", "B"]),
+        # Swap plus rename pairs by title similarity
+        (
+            [(1, "Project scope"), (1, "Delivery costs")],
+            [(1, "Total delivery costs"), (1, "Agreed project scope")],
+            {"Project scope": "Agreed project scope", "Delivery costs": "Total delivery costs"},
+            [],
+        ),
+        # Numbered chapter prefixes: follow Intro and Methods rather than chapter numbers
+        (
+            [(1, "Chapter 1: Intro"), (1, "Chapter 2: Methods")],
+            [(1, "Chapter 1: Methods"), (1, "Chapter 2: Intro")],
+            {"Chapter 1: Intro": "Chapter 2: Intro", "Chapter 2: Methods": "Chapter 1: Methods"},
+            [],
+        ),
+        # Renamed heading moved past kept headings
+        (
+            [(1, "Project scope"), (1, "Costs"), (1, "Risks")],
+            [(1, "Costs"), (1, "Risks"), (1, "Agreed project scope")],
+            {"Project scope": "Agreed project scope"},
+            [],
+        ),
+        # Rename next to an added heading
+        (
+            [(1, "Project scope"), (1, "Costs")],
+            [(1, "Background"), (1, "Agreed project scope"), (1, "Costs")],
+            {"Project scope": "Agreed project scope"},
+            [],
+        ),
+        # Rename next to a deleted heading
+        (
+            [(1, "Old annex"), (1, "Project scope"), (1, "Costs")],
+            [(1, "Agreed project scope"), (1, "Costs")],
+            {"Project scope": "Agreed project scope"},
+            ["Old annex"],
+        ),
+        # In-place translation pairs by position when nothing moved
+        (
+            [(1, "Scope"), (2, "Costs"), (1, "Risks")],
+            [(1, "Alcance"), (2, "Presupuesto"), (1, "Peligros")],
+            {"Scope": "Alcance", "Costs": "Presupuesto", "Risks": "Peligros"},
+            [],
+        ),
+        # Swap plus rename alongside an unrelated deleted/added pair
+        (
+            [(1, "Project scope"), (1, "Delivery costs"), (1, "Old annex")],
+            [(1, "Total delivery costs"), (1, "Agreed project scope"), (1, "Glossary")],
+            {"Project scope": "Agreed project scope", "Delivery costs": "Total delivery costs"},
+            ["Old annex"],
+        ),
+        # Kept titles compete in similarity so Q1 results does not pair with Q4 results
+        (
+            [(1, "Q1 results"), (1, "Q2 results"), (1, "Q3 results")],
+            [(1, "Q2 results"), (1, "Q3 results"), (1, "Q4 results")],
+            {},
+            ["Q1 results"],
+        ),
+        # Ambiguous 1-to-2 split leaves A unpaired and lost
+        ([(1, "A")], [(1, "A2"), (1, "A3")], {}, ["A"]),
+        # Shared "Chapter N:" prefix must not dominate unrelated in-place retitles
+        (
+            [
+                (1, "Chapter 1: Introduction"),
+                (1, "Chapter 2: Literature Review"),
+                (1, "Chapter 3: Methodology"),
+                (1, "Chapter 4: Results"),
+            ],
+            [
+                (1, "Chapter 1: Background"),
+                (1, "Chapter 2: Related Work"),
+                (1, "Chapter 3: Approach"),
+                (1, "Chapter 4: Findings"),
+            ],
+            {
+                "Chapter 1: Introduction": "Chapter 1: Background",
+                "Chapter 2: Literature Review": "Chapter 2: Related Work",
+                "Chapter 3: Methodology": "Chapter 3: Approach",
+                "Chapter 4: Results": "Chapter 4: Findings",
+            },
+            [],
+        ),
+        # Shared "Article N." prefix must not dominate unrelated in-place retitles
+        (
+            [(1, "Article 1. Definitions"), (1, "Article 2. Term"), (1, "Article 3. Fees")],
+            [(1, "Article 1. Interpretation"), (1, "Article 2. Duration"), (1, "Article 3. Charges")],
+            {
+                "Article 1. Definitions": "Article 1. Interpretation",
+                "Article 2. Term": "Article 2. Duration",
+                "Article 3. Fees": "Article 3. Charges",
+            },
+            [],
+        ),
+        # Renumbered "Step N:" headings still follow their body text when a step is inserted
+        (
+            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
+            [(1, "Step 1: Download"), (1, "Step 2: Install"), (1, "Step 3: Configure")],
+            {"Step 1: Install": "Step 2: Install", "Step 2: Configure": "Step 3: Configure"},
+            [],
+        ),
     ],
 )
-def test_heading_renames(before, after, expected):
-    assert heading_renames(before, after) == expected
+def test_heading_renames(before, after, expected_renames, expected_lost):
+    assert heading_renames(before, after) == (expected_renames, expected_lost)
 
 
 @pytest.mark.parametrize(
