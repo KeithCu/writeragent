@@ -2269,30 +2269,52 @@ def test_style_format_text_records_set_and_warns_for_para_props():
     assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
 
-def test_style_format_text_reset_under_review_mode_is_unreviewed_and_untracked():
+def test_recordable_reset_values():
+    from plugin.writer.styles import _recordable_reset_values
+
+    cursor = MagicMock()
+    defaults = {
+        "CharFontName": "Liberation Serif",
+        "CharStyleName": "Default Character Style",
+        "CharTopBorderComplexColor": None,
+        "ParaLeftMargin": 0,
+    }
+    cursor.getPropertyDefault.side_effect = defaults.get
+    got = _recordable_reset_values(
+        cursor,
+        ["ParaLeftMargin", "CharStyleName", "CharTopBorderComplexColor", "CharFontName"],
+    )
+    assert got == {"CharFontName": "Liberation Serif"}
+
+
+def test_style_format_text_reset_under_review_mode_is_tracked():
     cursor = _noncollapsed_cursor()
-    ctx = _font_ctx(recording=False)
+    ctx = _style_ctx()
+    rec_states = [False, True, True]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = StyleFormatText().execute(ctx, reset=["CharFontName"])
     assert res["status"] == "ok"
-    assert res["tracked"] is False
-    assert res["style_unreviewed"] is True
-    assert "pending_review" not in res
+    assert res["tracked"] is True
+    assert res["pending_review"] is True
+    assert "style_unreviewed" not in res
     rec_calls = [c.args for c in ctx.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
-    assert rec_calls == []
+    assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
-    # Mixed set + reset under record mode carries both pending_review and style_unreviewed.
-    rec_states = [False, True, True]
+    # Mixed set + recordable reset under record mode is tracked and has no style_unreviewed.
+    rec_states2 = [False, True, True]
     ctx2 = _style_ctx()
-    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states2.pop(0) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         mixed = StyleFormatText().execute(ctx2, properties={"CharWeight": 150}, reset=["CharFontName"])
     assert mixed["status"] == "ok"
     assert mixed["tracked"] is True
     assert mixed["pending_review"] is True
-    assert mixed["style_unreviewed"] is True
+    assert "style_unreviewed" not in mixed
+    rec_calls2 = [c.args for c in ctx2.doc.setPropertyValue.call_args_list if c.args[0] == "RecordChanges"]
+    assert rec_calls2 == [("RecordChanges", True), ("RecordChanges", False)]
 
 
 def test_style_format_text_warns_when_font_not_installed():

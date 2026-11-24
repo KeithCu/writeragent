@@ -947,3 +947,58 @@ def test_without_sheet_index_off_calc():
 
     no_sheet = {"type": "object", "properties": {"name": {"type": "string"}}, "required": []}
     assert visual_helpers.without_sheet_index_off_calc(no_sheet, "writer") is no_sheet
+
+
+def test_delete_graphic_tracked_selection_mismatch_refuses_without_dispatch():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+
+    graphic = MagicMock()
+    graphic.supportsService.side_effect = lambda s: s == visual_helpers.WRITER_GRAPHIC_SERVICE
+    graphic.getName.return_value = "Pic1"
+
+    wrong_sel = MagicMock()
+    wrong_sel.supportsService.return_value = False
+
+    controller = MagicMock()
+    controller.getSelection.return_value = wrong_sel
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getCurrentController.return_value = controller
+    doc.getPropertyValue.side_effect = lambda name: True if name == "RecordChanges" else None
+
+    ctx = MagicMock()
+    with patch("plugin.doc.visual_helpers.KeepViewSelection") as keep_sel:
+        keep_sel.return_value.__enter__.return_value = None
+        keep_sel.return_value.__exit__.return_value = False
+        with pytest.raises(ToolExecutionError) as exc_info:
+            visual_helpers.delete_graphic(ctx, doc, graphic)
+
+    assert exc_info.value.code == "IMAGE_DELETE_NOT_TRACKABLE"
+    ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_delete_graphic_tracked_controller_select_error_raises_delete_failed():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+
+    graphic = MagicMock()
+    graphic.supportsService.side_effect = lambda s: s == visual_helpers.WRITER_GRAPHIC_SERVICE
+
+    controller = MagicMock()
+    controller.select.side_effect = AttributeError("no select on print preview")
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getCurrentController.return_value = controller
+    doc.getPropertyValue.side_effect = lambda name: True if name == "RecordChanges" else None
+
+    ctx = MagicMock()
+    with patch("plugin.doc.visual_helpers.KeepViewSelection") as keep_sel:
+        keep_sel.return_value.__enter__.return_value = None
+        keep_sel.return_value.__exit__.return_value = False
+        with pytest.raises(ToolExecutionError) as exc_info:
+            visual_helpers.delete_graphic(ctx, doc, graphic)
+
+    assert exc_info.value.code == "IMAGE_DELETE_FAILED"

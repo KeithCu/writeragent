@@ -371,7 +371,7 @@ def test_run_vision_insert_empty_ocr_inserts_nothing():
     mock_delete.assert_not_called()
 
 
-def test_run_vision_insert_reports_image_kept_for_review():
+def test_run_vision_insert_reports_image_kept():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
@@ -386,11 +386,11 @@ def test_run_vision_insert_reports_image_kept_for_review():
             "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
             return_value={"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]},
         ),
-        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_kept_for_review"),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_kept"),
     ):
         status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
 
-    assert status == "Inserted: 3 characters. Image kept because Agent edit review is recording changes."
+    assert status == "Inserted: 3 characters. Image kept because LibreOffice cannot record deleting it as a tracked change."
 
 
 def test_run_vision_insert_counts_only_images_with_text():
