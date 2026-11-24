@@ -55,7 +55,8 @@ that tool for sort.
 (same LlmClient + production schemas + inner specialized loop as
 `make run_eval`) and rewrites a **named slice** (`--slice calc_core`,
 `sort_range`, …). Do not paste `optimized_writer_prompt.json` into
-[`plugin/framework/prompts.py`](../../plugin/framework/prompts.py).
+[`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) because it
+holds ReAct scaffolding (`Next Thought:` / `Next Tool Name:`).
 
 Do not optimize one giant Writer instruction over all 17 tasks. 20b’s
 misses live in Calc/Draw directives and **tool descriptions**.

@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[2]
 _PO = _REPO / "scripts" / "prompt_optimization"
 for p in (str(_REPO), str(_PO)):
@@ -301,7 +303,8 @@ def test_workflow_finished_without_answer_fails_delegation(monkeypatch: Any) -> 
     assert len(fake_inner.calls) == 1
 
 
-def test_workflow_finished_same_on_both_backends(monkeypatch: Any) -> None:
+@pytest.mark.parametrize("backend", ["string", "lo"])
+def test_workflow_finished_same_on_both_backends(monkeypatch: Any, backend: Any) -> None:
     from eval_worlds import WriterWorld
 
     def _boom(*_a: Any, **_kw: Any) -> str:
@@ -314,9 +317,21 @@ def test_workflow_finished_same_on_both_backends(monkeypatch: Any) -> None:
             state,
             "workflow_finished",
             json.dumps({"answer": None}),
-            backend="lo",
+            backend=backend,
             verbose=False,
         )
     )
     assert out["status"] == "ok"
     assert out["answer"] == ""
+
+    structured = json.loads(
+        llm_chat_eval._dispatch_world_tool(
+            state,
+            "workflow_finished",
+            json.dumps({"answer": {"a": 1}}),
+            backend=backend,
+            verbose=False,
+        )
+    )
+    assert structured["status"] == "ok"
+    assert structured["answer"] == '{"a": 1}'

@@ -574,5 +574,100 @@ def test_apply_style_errors_carry_codes() -> None:
     )
     assert sel["status"] == "error"
     assert sel["code"] == "unsupported_in_eval"
+
+    full = json.loads(
+        dispatch_string_tool(w, "apply_style", json.dumps({"style": "Heading 1", "target": "full_document"}))
+    )
+    assert full["status"] == "error"
+    assert full["code"] == "unsupported_in_eval"
     assert w.get_html() == "<p>Hello</p>"
+
+
+def test_apply_content_invalid_param_and_all_matches_rebuild() -> None:
+    w = WriterWorld("a ... a")
+    no_target = json.loads(dispatch_string_tool(w, "apply_content", json.dumps({"content": "x"})))
+    assert no_target["status"] == "error"
+    assert no_target["code"] == "INVALID_PARAM"
+
+    no_old = json.loads(
+        dispatch_string_tool(w, "apply_content", json.dumps({"target": "search", "content": "x"}))
+    )
+    assert no_old["status"] == "error"
+    assert no_old["code"] == "INVALID_PARAM"
+
+    blank_old = json.loads(
+        dispatch_string_tool(
+            w, "apply_content", json.dumps({"target": "search", "old_content": "   ", "content": "x"})
+        )
+    )
+    assert blank_old["status"] == "error"
+    assert blank_old["code"] == "INVALID_PARAM"
+
+    miss_all = json.loads(
+        dispatch_string_tool(
+            w,
+            "apply_content",
+            json.dumps({"target": "search", "old_content": "zzz", "content": "x", "all_matches": True}),
+        )
+    )
+    assert miss_all["status"] == "error"
+    assert miss_all["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert miss_all["replaced_count"] == 0
+
+    rebuilt = json.loads(
+        dispatch_string_tool(
+            w,
+            "apply_content",
+            json.dumps({"target": "search", "old_content": "a", "content": "XYZ", "all_matches": True}),
+        )
+    )
+    assert rebuilt["status"] == "ok"
+    assert rebuilt["replaced_count"] == 2
+    assert w.get_html() == "XYZ ... XYZ"
+
+
+def test_comment_add_occurrence_case_fallback_and_negative() -> None:
+    w = WriterWorld("<p>Alpha ... Beta ... Alpha</p>")
+    neg = json.loads(
+        dispatch_string_tool(
+            w, "comment_add", json.dumps({"search": "Alpha", "content": "n", "occurrence": -1})
+        )
+    )
+    assert neg["status"] == "error"
+    assert neg["code"] == "INVALID_PARAM"
+    assert w.get_html() == "<p>Alpha ... Beta ... Alpha</p>"
+
+    second = json.loads(
+        dispatch_string_tool(
+            w, "comment_add", json.dumps({"search": "Alpha", "content": "second", "occurrence": 1})
+        )
+    )
+    assert second["status"] == "ok"
+    assert second["anchor_text"] == "Alpha"
+    assert w.get_html() == "<p>Alpha ... Beta ... Alpha [second]</p>"
+
+    ci = json.loads(
+        dispatch_string_tool(w, "comment_add", json.dumps({"search": "beta", "content": "ci"}))
+    )
+    assert ci["status"] == "ok"
+    assert ci["anchor_text"] == "Beta"
+    assert w.get_html() == "<p>Alpha ... Beta [ci] ... Alpha [second]</p>"
+
+
+def test_search_non_overlapping_hits() -> None:
+    w = WriterWorld("aaaa")
+    res = json.loads(dispatch_string_tool(w, "search", json.dumps({"pattern": "aa"})))
+    assert res["status"] == "ok"
+    assert [(r["start"], r["end"]) for r in res["ranges"]] == [(0, 2), (2, 4)]
+
+
+def test_write_range_array_true_leading_space_is_calc_error() -> None:
+    c = CalcWorld("A\tB\n1\t2")
+    before = [list(r) for r in c._grid]
+    res = json.loads(
+        dispatch_string_tool(c, "write_range", json.dumps({"range": ["C2"], "values": " =B2*2", "array": True}))
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "CALC_ERROR"
+    assert c._grid == before
 

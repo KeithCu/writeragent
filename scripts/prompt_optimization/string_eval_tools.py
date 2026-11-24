@@ -23,7 +23,13 @@ from eval_worlds import CalcWorld, DrawWorld, WriterWorld, unsupported_in_eval
 
 World = WriterWorld | DrawWorld | CalcWorld
 
+
 def _finish(_state: World, *, answer: Any) -> dict[str, Any]:
+    """Validate/normalize workflow_finished via the real tool instead of copying it.
+
+    The tool ignores ctx.doc_type and only formats answer, so one writer context works
+    for all three worlds.
+    """
     ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services=None, caller="chat")
     return headless_registry().get("workflow_finished").execute(ctx, answer=answer)
 

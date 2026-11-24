@@ -192,7 +192,6 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 ## What not to do
 
 - Treat the 429 backup as the model’s score.
-- Optimize one giant Writer instruction over all tasks instead of a named slice.
 - Ship Calc dest / `sort_range` wording without 20b + 120b on Phase F and
   `data_sorting`.
 - Expect 12/17 from the 20b patches alone.

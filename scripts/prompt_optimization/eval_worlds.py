@@ -357,9 +357,11 @@ class WriterWorld:
         return self._html
 
     def _find_spans(self, needle: str, case_sensitive: bool | None) -> list[tuple[int, int]]:
+        """Return non-overlapping literal spans; omitted case_sensitive tries exact then ignore-case."""
         escaped = re.escape(needle)
         for cs in case_ladder(case_sensitive):
             flags = 0 if cs else re.IGNORECASE
+            # re.finditer resumes after each match, matching live findNext(found.getEnd(), ...).
             spans = [(m.start(), m.end()) for m in re.finditer(escaped, self._html, flags)]
             if spans:
                 return spans
@@ -570,7 +572,6 @@ class WriterWorld:
                 f"occurrence {occurrence} out of range (found {len(spans)} match(es), use 0..{len(spans) - 1}).",
                 code="OCCURRENCE_OUT_OF_RANGE",
                 top_level={"matched": False, "comment_added": False},
-                count=len(spans),
             )
         start, end = spans[occurrence]
         anchor_text = self._html[start:end]
@@ -1143,7 +1144,7 @@ class CalcWorld:
             return make_tool_error("values is required when source is omitted", code="INVALID_PARAM")
         raw_values = kwargs["values"]
         if kwargs.get("array") and isinstance(raw_values, str) and raw_values not in ("", "[]", "{}"):
-            if not raw_values.lstrip().startswith("="):
+            if not raw_values.startswith("="):
                 return make_tool_error(
                     "array=true needs a formula starting with '='.",
                     code="CALC_ERROR",
