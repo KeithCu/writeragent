@@ -2963,6 +2963,10 @@ def test_failed_insert_on_full_undo_stack_does_not_undo_prior_insert_uno(ctx: An
     cur = text.createTextCursor()
     for _idx in range(105):
         text.insertString(cur, "a", False)
+    um = doc.getUndoManager()
+    full_count = len(um.getAllUndoActionTitles() or ())
+    text.insertString(cur, "b", False)
+    assert len(um.getAllUndoActionTitles() or ()) == full_count
 
     vc = doc.getCurrentController().getViewCursor()
     vc.gotoEnd(False)
