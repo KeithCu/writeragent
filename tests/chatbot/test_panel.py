@@ -139,6 +139,14 @@ class TestGrammarStatusDocType:
             listener._on_grammar_status(phase="failed", preview="sample", length=6, result="API error")
         assert listener.status_control.getText() == ""
 
+    def test_done_with_grammar_off_not_shown_and_clears_leftover(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.status_control = _FakeStatusControl("Grammar: checking…")
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
+            listener._on_grammar_status(phase="done", preview="sample", length=6, result="0 issues")
+        assert listener.status_control.getText() == ""
+
     def test_calc_sidebar_ignores_cleared_phase(self) -> None:
         listener = _make_send_listener()
         listener.cached_doc_type = "calc"

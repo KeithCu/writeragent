@@ -1342,11 +1342,8 @@ def test_inner_call_recorder_records_editing_tool_that_raises():
     assert "note" not in payload
 
 
-def _make_unstarted_test_recorders():
-    from plugin.chatbot.smol_agent import InnerCallRecorder
-    from plugin.doc.specialized_catalog import InnerToolCall
+def _make_edit_doc_tool():
     from plugin.framework.tool import ToolBase, ToolContext
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     class _EditTool(ToolBase):
         name = "edit_doc"
@@ -1358,14 +1355,23 @@ def _make_unstarted_test_recorders():
 
         def execute(self, ctx: ToolContext, **kwargs):
             del ctx, kwargs
-            return {"status": "ok"}
+            return {"status": "ok", "n": 1}
+
+    return _EditTool()
+
+
+def _make_unstarted_test_recorders():
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.framework.tool import ToolContext
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     ctx = MagicMock(spec=ToolContext)
     ctx.doc_type = "writer"
     ctx.caller = None
     ctx.read_only_target = False
     calls: list[InnerToolCall] = []
-    edit_rec = InnerCallRecorder(_EditTool(), ctx, calls)
+    edit_rec = InnerCallRecorder(_make_edit_doc_tool(), ctx, calls)
     finish_rec = InnerCallRecorder(SpecializedWorkflowFinished(), ctx, calls)
     return edit_rec, finish_rec, calls
 
@@ -1537,18 +1543,6 @@ def _make_partial_turn_agent(mock_model, *, extra_tools=()):
     from plugin.framework.tool import ToolBase, ToolContext
     from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
-    class _EditTool(ToolBase):
-        name = "edit_doc"
-        description = "Mutates document."
-        parameters = {"type": "object", "properties": {}}
-
-        def detects_mutation(self) -> bool:
-            return True
-
-        def execute(self, ctx: ToolContext, **kwargs):
-            del ctx, kwargs
-            return {"status": "ok", "n": 1}
-
     class _OtherTool(ToolBase):
         name = "other_tool"
         description = "Another tool."
@@ -1567,7 +1561,7 @@ def _make_partial_turn_agent(mock_model, *, extra_tools=()):
     ctx.read_only_target = False
     calls: list[InnerToolCall] = []
     tools = [
-        InnerCallRecorder(_EditTool(), ctx, calls),
+        InnerCallRecorder(_make_edit_doc_tool(), ctx, calls),
         InnerCallRecorder(_OtherTool(), ctx, calls),
         *[InnerCallRecorder(t, ctx, calls) for t in extra_tools],
         InnerCallRecorder(SpecializedWorkflowFinished(), ctx, calls),
@@ -1584,6 +1578,21 @@ def _make_partial_turn_agent(mock_model, *, extra_tools=()):
             examples_block="e",
         )
     return agent, calls
+
+
+def _fail_edit_doc_on_call(fail_on: int):
+    attempts = 0
+
+    def _call(fn, *a, **kw):
+        nonlocal attempts
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            attempts += 1
+            if attempts == fail_on:
+                raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    _call.attempts = lambda: attempts  # type: ignore[attr-defined]
+    return _call
 
 
 def _flatten_messages(messages) -> str:
@@ -1618,24 +1627,15 @@ def test_partial_turn_preserves_ran_failed_and_skipped_in_model_messages():
 
     mock_model.generate.side_effect = _generate
     agent, _calls = _make_partial_turn_agent(mock_model)
+    fake_call = _fail_edit_doc_on_call(2)
 
-    edit_attempts = 0
-
-    def _call(fn, *a, **kw):
-        nonlocal edit_attempts
-        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
-            edit_attempts += 1
-            if edit_attempts == 2:
-                raise TimeoutError("Main thread busy")
-        return fn(*a, **kw)
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fake_call):
         result = agent.run("t")
 
     assert result["status"] == "ok"
     assert result["finished"] is True
     assert result["answer"] == "done"
-    assert edit_attempts == 2
+    assert fake_call.attempts() == 2
     second_req = seen_messages[1]
     assert '"n": 1' in second_req
     assert "Call 1 (edit_doc) ran:" in second_req
@@ -1657,17 +1657,7 @@ def test_partial_turn_skipped_other_tool_grades_error_with_edits():
     ]
     agent, calls = _make_partial_turn_agent(mock_model)
 
-    edit_attempts = 0
-
-    def _call(fn, *a, **kw):
-        nonlocal edit_attempts
-        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
-            edit_attempts += 1
-            if edit_attempts == 2:
-                raise TimeoutError("Main thread busy")
-        return fn(*a, **kw)
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_fail_edit_doc_on_call(2)):
         ans = agent.run("t")
 
     out = normalize_inner_result(ans, ["structural"], calls)
@@ -1695,17 +1685,7 @@ def test_partial_turn_skipped_call_recovered_by_retry():
     ]
     agent, calls = _make_partial_turn_agent(mock_model)
 
-    edit_attempts = 0
-
-    def _call(fn, *a, **kw):
-        nonlocal edit_attempts
-        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
-            edit_attempts += 1
-            if edit_attempts == 2:
-                raise TimeoutError("Main thread busy")
-        return fn(*a, **kw)
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_fail_edit_doc_on_call(2)):
         ans = agent.run("t")
 
     out = normalize_inner_result(ans, ["structural"], calls)
@@ -1777,12 +1757,7 @@ def test_single_failing_call_leaves_observations_and_tool_calls_none():
     ]
     agent, _calls = _make_partial_turn_agent(mock_model)
 
-    def _call(fn, *a, **kw):
-        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
-            raise TimeoutError("Main thread busy")
-        return fn(*a, **kw)
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_fail_edit_doc_on_call(1)):
         agent.run("t")
 
     first_action = agent.memory.steps[1]

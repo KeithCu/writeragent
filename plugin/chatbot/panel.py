@@ -667,13 +667,13 @@ class SendButtonListener(BaseActionListener):
                 return
             if self._send_busy or self._approval_event is not None:
                 return
-            if phase == "failed":
-                # Importing grammar_settings at module top loads the whole Writer package with the panel.
-                from plugin.writer.locale import grammar_settings
+            # A check that started before grammar was turned off still reports;
+            # importing grammar_settings at module top loads the whole Writer package with the panel.
+            from plugin.writer.locale import grammar_settings
 
-                if not grammar_settings.is_grammar_enabled():
-                    self._clear_grammar_status()
-                    return
+            if not grammar_settings.is_grammar_enabled():
+                self._clear_grammar_status()
+                return
             self._set_status(text)
 
         try:

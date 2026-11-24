@@ -464,6 +464,7 @@ class WriterAgentToolCallingAgent(ToolCallingAgent):
                     outputs[item.id] = item
                 yield item
         except AgentError:
+            # The error text alone already reports a single-call failure.
             if len(requested) > 1:
                 self._record_partial_turn(memory_step, requested, outputs)
             raise
@@ -476,6 +477,7 @@ class WriterAgentToolCallingAgent(ToolCallingAgent):
     ) -> None:
         """Populate step memory with ran, failed, and skipped calls and record skipped tools."""
         lines: list[str] = []
+        # Calls run one at a time in request order, so the first without an output is the one that raised.
         saw_failure = False
         for i, call in enumerate(requested.values(), 1):
             output = outputs.get(call.id)
