@@ -493,11 +493,11 @@ def _one_line(text: str, repl: str) -> str:
     return text.replace("\n", repl).replace("\r", repl)
 
 
-def _copy_hyperlink_report(target: dict[str, Any], report: dict[str, Any]) -> None:
-    for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated"):
-        target[key] = report[key]
-    if "hyperlink_note" in report:
-        target["hyperlink_note"] = report["hyperlink_note"]
+def _put_hyperlink_reports(target: dict[str, Any], reports: list[dict[str, Any]]) -> None:
+    if len(reports) == 1:
+        target.update(reports[0])
+    elif reports:
+        target["hyperlinks"] = reports
 
 
 # Generated TOC rows use paragraph styles "Contents 1" … "Contents 10"
@@ -883,10 +883,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         reports = public_hyperlink_reports(plans)
         before, after = _entry_before(found, content)
         preview: dict[str, Any] = {"text": before, "text_after": after}
-        if len(reports) == 1:
-            _copy_hyperlink_report(preview, reports[0])
-        elif reports:
-            preview["hyperlinks"] = reports
+        _put_hyperlink_reports(preview, reports)
         return preview, None
 
     def _write(
@@ -918,8 +915,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 preview["text_after"] = lived
             if snapshot.links or snapshot.preserve_url:
                 reports = restore_links(doc, point, snapshot, content, override)
-                if len(reports) == 1:
-                    _copy_hyperlink_report(preview, reports[0])
+                _put_hyperlink_reports(preview, reports)
             return None
 
         return _commit_toc_mutation(

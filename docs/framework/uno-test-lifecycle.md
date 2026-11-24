@@ -804,6 +804,10 @@ terminal. `TEST end … OK` also prints `exit=` (`-` while the child lives).
 
 `*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, write the config file the way `_enable_geometric_flag` does, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
 
+### Look a shape up once and keep the proxy
+
+Do not drop a shape proxy and immediately fetch the same shape again (for example `page.getByIndex(i).getShapeType()` followed by `shape = page.getByIndex(i)`). UNO tests talk to soffice over URP, where `release` runs on its own thread (`binaryurp/source/bridge.cxx`, `Bridge::makeReleaseCall`). If the old wrapper's destructor (`svx/source/unodraw/unoshape.cxx`, `SvxShape::~SvxShape`) runs after the second lookup has created a new wrapper, it calls `SdrObject::setUnoShape(nullptr)` (`svx/source/svdraw/svdobj.cxx`), which detaches the new wrapper. The detached proxy still answers `getShapeType()`, but `getParent()` is `None`, `getSize()` reports a default (100), and `GraphicExportFilter.setSourceDocument` raises `IllegalArgumentException`. Bind the shape to a variable once and reuse it.
+
 ## Findings: Unspecified Application Error
 
 QA soak (`make test-uno-soak PAIR=dup-move REPEAT=20`): mid

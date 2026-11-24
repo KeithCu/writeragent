@@ -555,9 +555,9 @@ def _writer_has_selection(model: Any) -> bool:
         return False
     rng = selected_text_range(controller)
     if rng is not None:
-        from plugin.doc.text_helpers import get_string_without_tracked_deletions
+        from plugin.doc.text_helpers import visible_range_text
 
-        return bool(get_string_without_tracked_deletions(rng).strip())
+        return bool(visible_range_text(model, rng).strip())
     text = get_selection_text(model)
     return bool(text and str(text).strip())
 
@@ -566,14 +566,14 @@ def _writer_selection_explain_block(model: Any) -> str | None:
     """Selected Writer text for /explain; None when nothing is selected."""
     if not _writer_has_selection(model):
         return None
-    from plugin.doc.text_helpers import get_selection_text, get_string_without_tracked_deletions, selected_text_range
+    from plugin.doc.text_helpers import get_selection_text, selected_text_range, visible_range_text
 
     controller = model.getCurrentController()
     if controller is None:
         return None
     rng = selected_text_range(controller)
     if rng is not None:
-        text = get_string_without_tracked_deletions(rng).strip()
+        text = visible_range_text(model, rng).strip()
     else:
         text = (get_selection_text(model) or "").strip()
     if not text:

@@ -672,6 +672,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
+    from plugin.doc.text_helpers import DeletionState, visible_range_text
     from plugin.tests.testing_utils import strike_across_paragraphs
     from plugin.writer.range_copy import cell_has_visible_text
     from plugin.writer.table_nesting import cell_plain_siblings
@@ -684,8 +685,8 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
 
     cell_a1 = tbl.getCellByName("A1")
     strike_across_paragraphs(doc, cell_a1)
-    assert "gone" not in cell_plain_siblings(cell_a1)
-    assert "Keep" in cell_plain_siblings(cell_a1)
+    assert "gone" not in cell_plain_siblings(cell_a1, DeletionState())
+    assert "Keep" in cell_plain_siblings(cell_a1, DeletionState())
 
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
     res = TableGetCells().execute(tctx, name="T1")
@@ -693,7 +694,7 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     assert "gone" not in res["cells"]["A1"], res["cells"]
     assert "Tail" in res["cells"]["A1"], res["cells"]
 
-    # cell_has_visible_text is False for a cell whose three paragraphs are one Delete.
+    # cell_has_visible_text is False and visible_range_text is empty for a cell whose three paragraphs are one Delete.
     cell_b1 = tbl.getCellByName("B1")
     b_cur = cell_b1.createTextCursor()
     for idx, line in enumerate(["d1", "d2", "d3"]):
@@ -716,3 +717,44 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     while mid_enum.hasMoreElements():
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
     assert cell_has_visible_text(cell_b1) is False
+    assert visible_range_text(doc, cell_b1).strip("\n") == ""
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_get_cells_hides_struck_table_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_all_after_leading_table
+
+    tbl = strike_all_after_leading_table(doc, ctx)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    res = TableGetCells().execute(tctx, name=tbl.getName())
+    assert res["status"] == "ok", res
+    assert res["cells"]["A1"] == "", res["cells"]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_nested_live_table_keeps_deletion_recorded_false_uno(ctx, doc):
+    from plugin.writer.specialized.tables import _delete_redline_count, _deletion_recorded
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    doc.getText().insertTextContent(doc.getText().getEnd(), outer, False)
+    host_cell = outer.getCellByName("A1")
+    host_cell.setString("host")
+    h_cur = host_cell.createTextCursor()
+    h_cur.gotoStart(False)
+    h_cur.gotoEnd(True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        h_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host_cell.insertTextContent(host_cell.getEnd(), inner, False)
+    inner.getCellByName("A1").setString("live inner")
+
+    before = _delete_redline_count(doc)
+    assert before is not None
+    assert _deletion_recorded(doc, before, [host_cell]) is False

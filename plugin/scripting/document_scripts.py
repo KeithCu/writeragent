@@ -31,7 +31,7 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError, is_disposal
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import enumeration_should_continue, get_desktop, normalize_doc_url
+from plugin.framework.uno_context import get_desktop, iter_open_models, normalize_doc_url
 from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
     PICKER_WIRING,
@@ -232,38 +232,14 @@ def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
 def _enumerate_calc_documents(desktop: Any) -> list[Any]:
     """Calc models from desktop.getComponents(), in enumeration order."""
     matches: list[Any] = []
-    try:
-        comps = desktop.getComponents()
-        if not comps:
-            return matches
-        enum = comps.createEnumeration()
-        if not enum:
-            return matches
-        # enumeration_should_continue caps desktop enumeration so a broken nextElement() cannot spin the UI thread forever.
-        seen = 0
-        while True:
-            if not enumeration_should_continue(enum, seen, label="document_scripts"):
-                break
-            seen += 1
-            try:
-                elem = enum.nextElement()
-            except Exception:
-                log.debug("document_scripts: nextElement failed; trying later components", exc_info=True)
-                continue
-            try:
-                model = None
-                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                    model = elem
-                elif hasattr(elem, "getController") and elem.getController():
-                    model = elem.getController().getModel()
-                if model and is_calc(model):
-                    matches.append(model)
-            except Exception:
-                # Catch per element so one disposed or broken element does not abort enumeration
-                log.debug("document_scripts: skipping invalid component during enumeration", exc_info=True)
-                continue
-    except Exception:
-        log.debug("document_scripts: Calc component enumeration failed", exc_info=True)
+    for model in iter_open_models(desktop, strict=False, label="document_scripts"):
+        try:
+            if is_calc(model):
+                matches.append(model)
+        except Exception:
+            # Catch per element so one disposed or broken element does not abort enumeration
+            log.debug("document_scripts: skipping invalid component during enumeration", exc_info=True)
+            continue
     return matches
 
 

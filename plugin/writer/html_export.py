@@ -25,17 +25,24 @@ from typing import Any, Callable, Iterator, NamedTuple
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     DeletionState,
+    TrackedDeletions,
     get_string_without_tracked_deletions,
     get_writer_selection_positions,
     iter_elements,
+    iter_table_paragraphs,
+    iter_xtext_paragraphs,
     starts_at_or_after,
     visible_portions,
     walk_cap_warning,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
-from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
-from plugin.framework.uno_context import create_property_value
+from plugin.framework.scratch_writer import (
+    close_scratch_document,
+    load_scratch_document,
+    new_blank_writer,
+)
+from plugin.framework.uno_context import create_property_value, get_desktop
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     inject_exported_math_tex,
@@ -266,8 +273,10 @@ def _restore_anchor_hrefs(
 # template create-href and common/table_of_content.xsl), an "|outline" link is written
 # as "#a_" + the link's own visible text, so the heading target is lost. Footnote anchors
 # (#ftn0) sit between them in the exported HTML, so only #a_ hrefs are paired with
-# only outline URLs, and only when the counts agree.
-_EXPORTED_OUTLINE_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")(#a_[^"]*)(")', re.IGNORECASE)
+# only outline URLs, and only when the counts agree. A tracked deletion that splits
+# across a hyperlink leaves empty <a href="#a_"/> anchors in the split paragraphs;
+# requiring at least one char after #a_ skips them so the count guard still matches.
+_EXPORTED_OUTLINE_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")(#a_[^"]+)(")', re.IGNORECASE)
 
 
 def _is_outline_url(url: str) -> bool:
@@ -291,9 +300,9 @@ def _put_outline_urls(content: str, urls: list[str]) -> str:
 
 
 def _body_hyperlink_urls(model: Any) -> list[str]:
-    state = DeletionState()
+    body = model.getText()
     urls: list[str] = []
-    for para in range_copy.iter_xtext_paragraphs(model.getText()):
+    for para, state in iter_xtext_paragraphs(body, TrackedDeletions(model).state_at(body)):
         urls.extend(_hyperlink_urls(list(_visible_portions(para, state=state))))
     return urls
 
@@ -569,7 +578,7 @@ def _copy_window_to_scratch(
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
 
-    state = DeletionState()
+    state = TrackedDeletions(model).state_at(text)
     tables: list[Any] = []
     need_break = False
     for el in iter_elements(enum):
@@ -603,8 +612,7 @@ def _copy_window_to_scratch(
             # keeping the source name (when unused in temp_doc) prevents a later write-back
             # (image_placeholders) from restoring a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
-            table_state = DeletionState()
-            for para in range_copy.iter_table_paragraphs(table):
+            for para, table_state in iter_table_paragraphs(table):
                 copied_ruby.extend(
                     html_ruby.ruby_spans_in_window(para, 0, len(para.getString()), table_state)
                 )
@@ -682,7 +690,7 @@ def _range_to_content_via_temp_doc(
     try:
         # Blank scratch doc: the factory URL honours the user's default template,
         # and this function reads the whole body back (see new_blank_writer).
-        temp_doc = new_blank_writer(ctx, target="_default")
+        temp_doc = new_blank_writer(ctx)
         if not temp_doc:
             # Missing scratch Writer raises ToolExecutionError instead of returning
             # empty content with status ok.
@@ -728,6 +736,28 @@ def _range_to_content_via_temp_doc(
             best_effort(lambda: close_scratch_document(temp_doc), "_range_to_content_via_temp_doc: close temp doc failed")
             range_copy.release_scratch_style_holds(temp_doc)
 
+
+
+def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
+    """Export the full document via XHTML, splitting deleted paragraph breaks first.
+
+    ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
+    multi-paragraph deletion; when tracked deletions cross a paragraph break,
+    split them in the flat-ODF sidecar and export a hidden copy instead.
+    """
+    if not TrackedDeletions(model):
+        return _export_semantic(model, read_ruby=True)
+    split = xhtml_post.split_deleted_breaks(_read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION))
+    if split is None:
+        return _export_semantic(model, read_ruby=True)
+    with with_temp_buffer(split, ext=FODT_EXTENSION) as (_path, url):
+        copy = load_scratch_document(get_desktop(ctx), url)
+        if copy is None:
+            raise ToolExecutionError("Could not read the document (no scratch document).")
+        try:
+            return _export_semantic(copy, read_ruby=True)
+        finally:
+            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
 
 
 def document_to_content(
@@ -806,7 +836,7 @@ def document_to_content(
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
     xhtml_error: Exception | None = None
     try:
-        content, fodt_has_ruby = _export_semantic(model, read_ruby=True)
+        content, fodt_has_ruby = _export_full(model, ctx)
         content = _restore_outline_hrefs(model, content)
         content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
         return _done(content, "xhtml")
@@ -892,11 +922,10 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
     return _enum_token(num_type, PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
 
 
-def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
+def extract_page_number_fields(model: Any, text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
-    state = DeletionState()
-    for para in range_copy.iter_xtext_paragraphs(text_obj):
+    for para, state in iter_xtext_paragraphs(text_obj, TrackedDeletions(model).state_at(text_obj)):
         # Must skip the same fields as _copy_xtext_by_portions, or the count check skips attribute injection.
         for portion, _unused in visible_portions(para, abort_on_portion_error=True, state=state):
             if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "TextField":
@@ -970,7 +999,7 @@ def xtext_to_content(
     if text_obj is None:
         return ""
 
-    extracted_fields = extract_page_number_fields(text_obj)
+    extracted_fields = extract_page_number_fields(model, text_obj)
 
     temp_doc = new_blank_writer(ctx)
     if not temp_doc:

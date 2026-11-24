@@ -725,8 +725,12 @@ class DocumentService(ServiceBase):
         # the isolated document_helpers import (see module header).
         from plugin.framework.uno_listeners import install_view_doc_listener
 
+        # One callable so several view events in one load queue one report; it reads current state.
+        def _report_types() -> object:
+            return on_change(self.open_doc_types())
+
         def _report(_source: Any) -> None:
-            run_after_scratch_loads(lambda: on_change(self.open_doc_types()))
+            run_after_scratch_loads(_report_types)
 
         _OPEN_DOC_TYPES_LISTENER = install_view_doc_listener(
             get_ctx(),

@@ -765,7 +765,7 @@ def _read_annotation(
             except Exception:
                 preview = ""
             if not preview:
-                ptxt = (enclosing_paragraph_text(anchor) or "").strip()
+                ptxt = (enclosing_paragraph_text(doc, anchor) or "").strip()
                 if ptxt:
                     preview = ptxt[:120]
                     entry["anchor_is_paragraph_context"] = True

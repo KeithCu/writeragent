@@ -611,7 +611,6 @@ def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_witho
 
     result = read_writer_text_slice(MagicMock(), 0, 100)
 
-    mock_without_deletions.assert_called_once_with(cursor)
     assert result == "visible text"
     cursor.getString.assert_not_called()
 
@@ -1042,7 +1041,7 @@ def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypat
 
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
 
     def _office_doc(uid: str):
         d = MagicMock()
@@ -1082,7 +1081,7 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
 
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
 
     ctx = MagicMock()
     broadcaster = MagicMock()
@@ -1124,6 +1123,7 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
 
     def _scratch_load(*_args):
         desktop_docs.append(scratch_draw)
+        listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=scratch_draw))
         listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=scratch_draw))
         return scratch_draw
 

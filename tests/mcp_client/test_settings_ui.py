@@ -198,7 +198,7 @@ def test_unreadable_ref_keeps_ref_and_blocks_rename(
     fake_keystore.locked = True
     initial = {"claw": {"url": "http://claw/mcp", "token": "keystore:deadbeef"}}
     editor, dlg = _attach_editor(monkeypatch, initial)
-    assert dlg.controls["mcp_client__token"].getText() == ""
+    assert dlg.controls["mcp_client__token"].getText() == "keystore:deadbeef"
     assert "keyring" in dlg.controls["mcp_client__status"].getText().lower()
 
     # Attempt rename while unreadable: refused.
@@ -217,6 +217,32 @@ def test_unreadable_ref_keeps_ref_and_blocks_rename(
     saved = save_mock.call_args[0][0]["mcp_client.servers"]
     assert set(saved) == {"claw"}
     assert saved["claw"]["token"] == "keystore:deadbeef"
+
+
+def test_clearing_missing_token_removes_ref_and_allows_rename(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_keystore: Any,
+) -> None:
+    from pathlib import Path
+    from plugin.framework import config as fw_config
+
+    fw_config.save({"mcp_client.servers": {"claw": {"url": "http://claw/mcp", "token": "tok-1"}}})
+    ref = fw_config.get_config("mcp_client.servers")["claw"]["token"]
+    fake_keystore.store.clear()
+    keystore_mod = settings_ui.keystore
+    keystore_mod.reset_for_tests(fake_keystore)
+
+    editor, dlg = _attach_editor(monkeypatch, fw_config.get_config("mcp_client.servers"))
+    assert dlg.controls["mcp_client__token"].getText() == ref
+
+    dlg.controls["mcp_client__token"].setText("")
+    dlg.controls["mcp_client__name"].setText("claw2")
+    editor.save()
+
+    saved = fw_config.get_config("mcp_client.servers")
+    assert set(saved) == {"claw2"}
+    assert "token" not in saved["claw2"]
+    assert ref not in Path(fw_config.get_config_file_path()).read_text(encoding="utf-8")
 
 
 def test_add_with_existing_name_saves_no_new_entry(monkeypatch: pytest.MonkeyPatch) -> None:

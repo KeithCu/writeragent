@@ -128,7 +128,7 @@ Row insert that only **moves** existing PY cells: Calc’s own reference adjust 
 
 - Do not mutate other cells from `execute_python_addin` / `finalize_python_return`.
 - Do not `processEventsToIdle` during recalc (re-enters the engine → `#VALUE!`).
-- Auto-spill already defers neighbor writes: collision check sync, then `WorkbookState.debounce` (0.1s) → `perform_deferred_spill` on the **UI thread**, inside `undo_lock`.
+- Auto-spill already defers neighbor writes: collision check sync, then `WorkbookState.debounce` (0.1s) → `perform_deferred_spill` on the **UI thread**, inside `undo_lock`, where it checks collisions again before clearing or writing.
 
 Geometric rewrites use that same shape (and the prototype does):
 

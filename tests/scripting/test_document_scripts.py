@@ -1416,9 +1416,8 @@ def test_picker_delete_missing_script_returns_error():
     assert "does not exist" in sent_user[-1].get("status_error_text", "")
 
 
-def test_enumerate_calc_documents_stops_on_stuck_enum():
+def test_enumerate_calc_documents_ends_on_failed_next_element():
     from plugin.scripting.document_scripts import _enumerate_calc_documents
-    from plugin.framework.uno_context import _ENUM_CAP
 
     enum = MagicMock()
     enum.hasMoreElements.return_value = True
@@ -1430,13 +1429,13 @@ def test_enumerate_calc_documents_stops_on_stuck_enum():
 
     results = _enumerate_calc_documents(desktop)
     assert results == []
-    assert enum.nextElement.call_count == _ENUM_CAP
+    assert enum.nextElement.call_count == 1
 
 
-def test_enumerate_calc_documents_cap_hides_calc_past_cap():
+def test_enumerate_calc_documents_finds_calc_past_32():
     from plugin.scripting.document_scripts import _enumerate_calc_documents
 
-    non_calcs = [MagicMock(name=f"non_calc_{i}") for i in range(32)]
+    non_calcs = [MagicMock(name=f"non_calc_{i}") for i in range(39)]
     calc = MagicMock(name="calc")
     calc.getURL.return_value = "file:///calc.ods"
     for m in non_calcs:
@@ -1448,17 +1447,7 @@ def test_enumerate_calc_documents_cap_hides_calc_past_cap():
 
     with patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda m: m is calc):
         results = _enumerate_calc_documents(desktop)
-    assert calc not in results
-
-    further_non_calcs = [MagicMock(name=f"further_{i}") for i in range(40)]
-    for m in further_non_calcs:
-        m.getURL.return_value = "file:///other.ods"
-    early_comps = _calc_component_enum(*([calc] + further_non_calcs))
-    desktop.getComponents.return_value = early_comps
-
-    with patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda m: m is calc):
-        results_early = _enumerate_calc_documents(desktop)
-    assert results_early == [calc]
+    assert results == [calc]
 
 
 def test_enumerate_calc_documents_skips_disposed_element_and_continues():

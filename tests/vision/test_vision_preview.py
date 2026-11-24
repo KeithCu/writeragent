@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.module_config_dialog import PreviewImage
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled
 from plugin.vision.vision_preview import render_preview_page, run_vision_insert, run_vision_preview
 
@@ -466,3 +466,27 @@ def test_run_vision_insert_counts_only_images_with_text():
         status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
 
     assert status == "Inserted: 3 characters."
+
+
+def test_preview_closed_document_raises_document_disposed():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner._get_graphic_object", side_effect=DisposedException("SwXTextDocument not valid")),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_vision_preview(ctx, {}, cancel, lambda _t: None)
+
+    mock_run_vision.assert_not_called()
+

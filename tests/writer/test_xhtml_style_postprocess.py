@@ -8,6 +8,8 @@
 #
 # Pure pytest unit tests (no LibreOffice) for the XHTML style post-process pipeline.
 # Fixtures mirror the real "XHTML Writer File" output captured from LibreOffice.
+import pytest
+
 from plugin.writer.xhtml_style_postprocess import (
     parse_fodt_autostyles,
     compact_lo_style_name,
@@ -382,7 +384,6 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
     assert ov_none["P1"] == "text-align:left"
 
 
-
 def test_xhtml_to_semantic_html_drops_image_title_text():
     from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
 
@@ -406,3 +407,131 @@ def test_xhtml_to_semantic_html_drops_image_title_text():
         '<html><body><p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>other</span></p></body></html>'
     )
     assert "other</span>" in kept
+
+
+def test_split_deleted_breaks_no_deletions_or_single_block():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    assert split_deleted_breaks("<office:body><office:text><text:p>a</text:p></office:text></office:body>") is None
+
+    single = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>x</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>a<text:change text:change-id="ct1"/>b</text:p></office:text></office:body>'
+    )
+    assert split_deleted_breaks(single) is None
+
+
+@pytest.mark.parametrize("nested_xml", [
+    '<office:annotation><text:p>comment</text:p></office:annotation>',
+    '<text:note text:note-class="footnote"><text:note-body><text:p>fn</text:p></text:note-body></text:note>',
+    '<draw:frame><draw:text-box><text:p>box</text:p></draw:text-box></draw:frame>',
+])
+def test_split_deleted_breaks_ignores_nested_paragraphs(nested_xml: str):
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    single = (
+        '<office:body><office:text><text:tracked-changes>'
+        f'<text:changed-region text:id="ct1"><text:deletion><text:p>struck{nested_xml}</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
+    )
+    assert split_deleted_breaks(single) is None
+
+    two = (
+        '<office:body><office:text><text:tracked-changes>'
+        f'<text:changed-region text:id="ct1"><text:deletion><text:p>a{nested_xml}</text:p><text:p>b</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
+    )
+    out = split_deleted_breaks(two)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == "<text:p>Keep </text:p><text:p>rest</text:p></office:text></office:body>"
+
+
+def test_split_deleted_breaks_three_blocks_reopens_span():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    three = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p text:style-name="P1">d1</text:p>'
+        '<text:h text:style-name="H1">d2</text:h>'
+        '<text:p text:style-name="P2">d3</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p text:style-name="P1">Start <text:span text:style-name="T1"><text:change text:change-id="ct1"/>Tail</text:span></text:p>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(three)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>'
+        '<text:h text:style-name="H1"><text:span text:style-name="T1"></text:span></text:h>'
+        '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>'
+        '</office:text></office:body>'
+    )
+
+
+def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    list_fodt = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p>d1</text:p><text:p xml:id="p2">d2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One<text:change text:change-id="ct1"/>Two</text:p></text:list-item></text:list>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(list_fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One</text:p></text:list-item>'
+        '<text:list-item><text:p>Two</text:p></text:list-item></text:list></office:text></office:body>'
+    )
+
+
+def test_split_deleted_breaks_deleted_heading_keeps_start_value():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    fodt = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:p>d1</text:p><text:h text:style-name="H1" text:start-value="5" xml:id="h5">d2</text:h>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:h>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p>Start </text:p>'
+        '<text:h text:style-name="H1" text:start-value="5">Heading</text:h>'
+        '</office:text></office:body>'
+    )
+
+
+def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_format():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    fodt = (
+        '<office:body><office:text><text:tracked-changes>'
+        '<text:changed-region text:id="ct1"><text:format-change/><text:deletion>'
+        '<text:p>d1</text:p><table:table><table:table-row><table:table-cell><text:p>cell</text:p></table:table-cell></table:table-row></table:table><text:p>d2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '<text:changed-region text:id="ct2"><text:deletion>'
+        '<text:p>e1</text:p><text:p>e2</text:p>'
+        '</text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>A<text:change text:change-id="ct1"/>B<text:change text:change-id="ct2"/>C</text:p>'
+        '</office:text></office:body>'
+    )
+    out = split_deleted_breaks(fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p>A</text:p><text:p>B</text:p><text:p>C</text:p></office:text></office:body>'
+    )
