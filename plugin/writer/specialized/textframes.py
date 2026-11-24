@@ -336,6 +336,12 @@ class FrameInsert(ToolWriterTextFramesBase):
         def mutate(cursor: Any) -> dict[str, Any] | None:
             host = cursor.getText()
             host.insertTextContent(cursor, frame, False)
+            if anchor_type == 2:
+                # Inserting an AT_PAGE frame without a page number makes it AT_CHARACTER
+                # (sw/source/core/unocore/unoframe.cxx:SwXFrame::attachToRange). Setting the type on the
+                # inserted frame lets LibreOffice fill in the page it sits on
+                # (sw/source/core/frmedt/fefly1.cxx:lcl_FindAnchorPos).
+                frame.setPropertyValue("AnchorType", AT_PAGE)
             if frame_name:
                 # XNamed::setName is valid only after the frame is anchored (not a Name property).
                 frame.setName(frame_name)
@@ -359,7 +365,9 @@ class FrameInsert(ToolWriterTextFramesBase):
             return err
 
         inserted_name = frame_name or frame.getName() or ""
-        return {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
+        # LibreOffice changes an anchor type the target cannot hold, such as AT_FRAME outside a frame.
+        real_anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
+        return {"status": "ok", "frame_name": inserted_name, "anchor_type": real_anchor_type}
 
 
 class FrameDelete(ToolWriterTextFramesBase):
