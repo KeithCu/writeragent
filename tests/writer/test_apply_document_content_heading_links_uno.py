@@ -1052,4 +1052,3 @@ def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
             with pytest.raises(RuntimeError, match="boom"):
                 tool.execute(tool_ctx, target="search", old_content="only", content="")
         assert _snapshot() == before
-

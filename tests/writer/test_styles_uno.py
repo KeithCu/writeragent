@@ -932,5 +932,3 @@ def test_tab_stop_words_reach_the_document_uno(ctx, doc):
     assert stops_after[0].Alignment.value == "RIGHT"
     assert stops_after[0].FillChar.value == "."
 
-
-

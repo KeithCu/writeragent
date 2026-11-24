@@ -2805,4 +2805,3 @@ def test_coerce_uno_field_builds_enum_and_char_from_strings():
 
         assert styles._coerce_uno_field(struct, "Alignment", "SIDEWAYS") == "SIDEWAYS"
 
-

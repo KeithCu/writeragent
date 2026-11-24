@@ -1022,6 +1022,7 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
         if isinstance(current, uno.Char):
             return uno.Char(value[:1] or " ")
     except Exception:
+        # uno.Enum rejects an unknown member; the caller's setattr then reports the field and value.
         return value
     return value
 
@@ -1128,7 +1129,7 @@ def _convert_value(prop_name: str, value: Any) -> Any:
 def _typed_property_value(prop_name: str, value: Any) -> Any:
     """Wrap sequence-of-struct values in uno.Any so PyUNO passes a typed sequence."""
     if prop_name == "ParaTabStops" and isinstance(value, tuple):
-        # cast: the type stubs do not export uno.Any.
+        # cast: the type stubs do not declare uno.Any or uno.invoke as callable this way (same for the other casts of uno here).
         return cast("Any", uno).Any("[]com.sun.star.style.TabStop", value)
     return value
 
