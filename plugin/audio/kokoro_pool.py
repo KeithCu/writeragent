@@ -12,8 +12,7 @@ reaper. Stop cancels the request's ``SendCancellation``, and its hook kills the 
 
 Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
 Desktop quit retires the warm child via the supervisor hook registered in
-``main.py``; this module does not register a hook. ``shutdown_kokoro_pool`` clears
-the module singleton for tests only.
+``main.py``; this module does not register a hook.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
-_SPAWN_READY_TIMEOUT_SEC = 20.0
 _DEFAULT_JOB_TIMEOUT_SEC = 120.0
 # Long enough to cover a chat reply; short enough an abandoned CPU model does not sit in RAM.
 _DEFAULT_IDLE_TTL_SEC = 300.0
@@ -73,7 +71,6 @@ class KokoroProcessPool:
             name="kokoro",
             argv=[python_executable, self.script_path],
             env=_child_env(),
-            ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
             idle_ttl_sec=ttl,
         )
         sup = supervisor if supervisor is not None else warm_supervisor
@@ -116,9 +113,6 @@ class KokoroProcessPool:
 
             if is_cancelled(cancel):
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
-
-            if self._shutdown:
-                return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
             if result.get("status") == "error":
                 return result
@@ -196,14 +190,3 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
             _POOL = KokoroProcessPool(py)
         _POOL_CONFIG_VENV = venv_str
         return _POOL
-
-
-def shutdown_kokoro_pool() -> None:
-    """Tests only. Safe to call when the pool was never used."""
-    global _POOL, _POOL_CONFIG_VENV
-    with _POOL_LOCK:
-        pool = _POOL
-        _POOL = None
-        _POOL_CONFIG_VENV = None
-    if pool is not None:
-        pool.shutdown()

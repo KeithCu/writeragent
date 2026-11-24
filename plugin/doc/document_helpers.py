@@ -755,7 +755,8 @@ class DocumentService(ServiceBase):
         anchor = get_anchor() if callable(get_anchor) else element
 
         controller = uno_call(model.getCurrentController, "Get current controller")
-        vc = uno_call(controller.getViewCursor, "Get view cursor")
+        # Print Preview controllers lack getViewCursor; read it inside uno_call so missing attributes become UnoObjectError.
+        vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
 
         def _resolve_page() -> int:
             uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
@@ -802,13 +803,13 @@ class DocumentService(ServiceBase):
             # recalculates DocumentStatistics.PageCount from the layout (DocumentStatisticsManager.cxx:145-160)
             # only when modified or uninitialized (lines 70-77). ODF import initializes stats from
             # meta.xml (xmlmeta.cxx:100-130), so mark modified briefly to force a layout count.
-            was_modified = uno_call(model.isModified, "Check modified flag")
+            was_modified = uno_call(lambda: model.isModified(), "Check modified flag")
             try:
                 uno_call(lambda: model.setModified(True), "Mark modified for statistics")
                 uno_call(lambda: model.WordCount, "Update document statistics")
             finally:
                 best_effort(lambda: model.setModified(was_modified), "restore modified flag after page count")
-            doc_props = uno_call(model.getDocumentProperties, "Get document properties")
+            doc_props = uno_call(lambda: model.getDocumentProperties(), "Get document properties")
             stats = uno_call(lambda: doc_props.DocumentStatistics, "Get document statistics")
             for prop in stats:
                 if getattr(prop, "Name", None) == "PageCount":
