@@ -21,7 +21,7 @@ from eval_catalog import (
     TOOL_PRESETS,
     apply_schema_density,
     apply_schema_patches,
-    _headless_registry,
+    headless_registry,
     build_eval_tool_schemas,
     filter_eval_tool_schemas,
     parse_tools_spec,
@@ -45,7 +45,7 @@ def _names(kind: str) -> set[str]:
 
 
 def test_eval_catalog_matches_registry_get_schemas() -> None:
-    registry = _headless_registry()
+    registry = headless_registry()
     for kind in ("writer", "calc", "draw"):
         live = {
             _schema_name(s)
@@ -107,7 +107,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
         app.bootstrap(ctx)
         sidebar = app.get_tools()
         assert sidebar is not None
-        eval_reg = _headless_registry()
+        eval_reg = headless_registry()
         for kind in ("writer", "calc", "draw"):
             kwargs: dict = {"doc_type": kind, "filter_doc_type": True}
             sidebar_rows = sidebar.get_schemas("openai", **kwargs)

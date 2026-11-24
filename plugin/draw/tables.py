@@ -10,6 +10,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, cast
 
+from plugin.draw.tree import ensure_shape_name
 from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_helpers import (
     edit_table_band,
@@ -294,9 +295,7 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
             shape = ctx.doc.createInstance("com.sun.star.drawing.TableShape")
             page.add(shape)
             added = True
-            from plugin.draw.shapes import _ensure_shape_name
-
-            shape_name = _ensure_shape_name(page, shape)
+            shape_name = ensure_shape_name(page, shape)
             shape.setSize(Size(width, height))
             shape.setPosition(Point(x, y))
 
