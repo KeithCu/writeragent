@@ -38,10 +38,10 @@ logger = logging.getLogger(__name__)
 _LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 CDP_DOCS_URL = "https://chromedevtools.github.io/devtools-protocol/"
+# Per-call limit in seconds.
+CDP_CALL_TIMEOUT_SEC = 30.0
 
-# ``websockets`` is a transitive dependency of hermes-agent (via fal_client
-# and firecrawl-py) and is already imported by gateway/platforms/feishu.py.
-# Wrap the import so a clean error surfaces if the package is ever absent.
+# Vendored by "make vendor". A source deploy without it still imports this module, and browser_cdp returns an error.
 try:
     import websockets
     from websockets.exceptions import WebSocketException
@@ -401,7 +401,7 @@ async def _cdp_call(
         req: Dict[str, Any] = {
             "id": call_id,
             "method": method,
-            "params": params or {},
+            "params": params,
         }
         if session_id:
             req["sessionId"] = session_id
@@ -430,31 +430,23 @@ async def _cdp_call(
 
 def browser_cdp(
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: Dict[str, Any],
     target_id: Optional[str] = None,
-    timeout: float = 30.0,
 ) -> str:
     """Send a raw CDP command.  See ``CDP_DOCS_URL`` for method documentation.
 
     Args:
         method: CDP method name, e.g. ``"Target.getTargets"``.
-        params: Method-specific parameters; defaults to ``{}``.
+        params: Method-specific parameters.
         target_id: Optional target/tab ID for page-level methods.  When set,
             we first attach to the target (``flatten=True``) and send
             ``method`` with the resulting ``sessionId``.  Uses a fresh
             stateless CDP connection.
-        timeout: Seconds to wait for the call to complete.
 
     Returns:
         JSON string ``{"success": True, "method": ..., "result": {...}}`` on
         success, or ``{"error": "..."}`` on failure.
     """
-
-    if not method or not isinstance(method, str):
-        return tool_error(
-            "'method' is required (e.g. 'Target.getTargets')",
-            cdp_docs=CDP_DOCS_URL,
-        )
 
     if not _WS_AVAILABLE:
         return tool_error(
@@ -470,30 +462,13 @@ def browser_cdp(
             cdp_docs=CDP_DOCS_URL,
         )
 
-    if not endpoint.startswith(("ws://", "wss://")):
-        return tool_error(
-            f"CDP endpoint is not a WebSocket URL: {endpoint!r}."
-        )
-
-    call_params: Dict[str, Any] = params or {}
-    if not isinstance(call_params, dict):
-        return tool_error(
-            f"'params' must be an object/dict, got {type(call_params).__name__}"
-        )
-
-    try:
-        safe_timeout = float(timeout) if timeout else 30.0
-    except (TypeError, ValueError):
-        safe_timeout = 30.0
-    safe_timeout = max(1.0, min(safe_timeout, 300.0))
-
     try:
         result = _run_async(
-            _cdp_call(endpoint, method, call_params, target_id, safe_timeout)
+            _cdp_call(endpoint, method, params, target_id, CDP_CALL_TIMEOUT_SEC)
         )
     except TimeoutError as exc:
         return tool_error(
-            f"CDP call timed out after {safe_timeout}s: {exc}",
+            f"CDP call timed out after {CDP_CALL_TIMEOUT_SEC}s: {exc}",
             method=method,
         )
     except RuntimeError as exc:

@@ -43,6 +43,9 @@ ALL_DOCUMENT_SERVICES: tuple[str, ...] = (
     "com.sun.star.presentation.PresentationDocument",
 )
 
+# Filter for a full Writer document. The generic "HTML" filter loads Writer/Web.
+HTML_WRITER_FILTER = "HTML (StarWriter)"
+
 CDP_BROWSER_TYPES: tuple[str, ...] = ("brave", "chromium", "chrome")
 BIDI_BROWSER_TYPE: str = "firefox"
 

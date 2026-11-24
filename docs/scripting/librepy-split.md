@@ -257,7 +257,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Role |
 |------|------|
-| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | Child stdin/stdout loop, trusted-action handler, heartbeat and result frames; debug-log lines masked by `log_redaction.RedactingFormatter` |
+| [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | Child stdin/stdout loop, trusted-action handler, heartbeat and result frames; debug-log lines masked by `log_redaction.RedactingFormatter`, each record opens and closes the file |
 | [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `LocalPythonExecutor`, user-code sandbox |
 | [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py) | Grid → DataFrame coercion |
 | [`plugin/scripting/venv/__init__.py`](../../plugin/scripting/venv/__init__.py) | Package |

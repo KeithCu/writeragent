@@ -656,7 +656,7 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         patched = copy.deepcopy(schema)
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
-        domain_prop["enum"] = tool.domains_for_services(uno_services)
+        domain_prop["enum"] = tool.domains_for_services(uno_services, for_mcp="inputSchema" in patched)
         target = patched["function"] if "function" in patched else patched
         target["description"] = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
         if "inputSchema" in patched:

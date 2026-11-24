@@ -43,7 +43,7 @@ tokens** (~39% of the whole run) and hit `max_tool_rounds` (25).
 — left `john doe` / the original summary), `bulk_cleanup`,
 `format_preservation`, `style_application`, `comment_management`.
 
-Simple Writer “read then `apply_document_content`” works. Multi-constraint
+Simple Writer “read then `apply_content`” works. Multi-constraint
 Writer edits and **all five Calc tasks** fail.
 
 | Task | What Lightning did | Gate | Same as 20b? |
@@ -131,7 +131,7 @@ Lightning gained `tax_column` to 7/19 in `benchmark_results_details.json`,
 while `py_refuse_overlap`, `py_no_bulk_read`, and `data_sorting` still fail).
 
 Wording in `CALC_CORE_DIRECTIVES` / `CALC_WORKFLOW` and
-`write_formula_range` / `sort_range` descriptions
+`write_range` / `sort_range` descriptions
 ([`plugin/framework/prompts.py`](../../plugin/framework/prompts.py),
 [`plugin/calc/cells.py`](../../plugin/calc/cells.py)):
 

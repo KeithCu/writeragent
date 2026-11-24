@@ -44,10 +44,9 @@ Today it does not:
 
 - (Shipped) `build_eval_tool_schemas()` uses live `ToolRegistry.get_schemas`
   for that doc type. Unimplemented names still return `unsupported_in_eval`.
-- `StringDocState` is one HTML string. `DrawDocState` has no
-  `shape_connect`. `CalcStringState` writes values, not formula text
-  or dest. So `style_consistency`, `comment_management`, and flowchart
-  connections cannot be honest.
+- `StringDocState` is one HTML string. `CalcStringState` writes values,
+  not formula text or dest. So `style_consistency` and
+  `comment_management` cannot be honest.
 - Scoring is result-only. Two models can both leave a correct table;
   one dumped the sheet into chat. IpD sees cost, not *why*.
 
@@ -76,7 +75,7 @@ LlmClient (core schemas)
    │  delegate_to_subagent (domain=shapes|ranges)
    ▼
 inner LlmClient loop (domain schemas, same world)
-   │  specialized_workflow_finished → parent
+   │  workflow_finished → parent
    ▼
 WriterWorld / DrawWorld / CalcWorld
    │  export HTML / draw tree / calc snapshot   → result oracles
@@ -111,9 +110,9 @@ Blocks, not a raw string:
 | `level` | Heading level |
 | `comments` | List of `{anchor, text}` on a block |
 
-`apply_document_content` still accepts HTML (production does). Parse
+`apply_content` still accepts HTML (production does). Parse
 with `html.parser` into blocks; do not bring in a browser. `find_text`
-/ production `search_in_document` search block text and return
+/ production `search` search block text and return
 offsets into the **exported** HTML so scripted tests stay stable.
 
 Export HTML for oracles: `<h1>`, `<p class="Quotations">`,
@@ -126,18 +125,13 @@ range). Do not fake a cursor.
 
 ### DrawWorld
 
-Keep `shape_upsert`. Add:
+`DrawWorld` keeps in-memory shapes and calls `plugin/draw/tree.py` for the tree (`build_shape_tree`) and shape lookups (`find_shape_on_page` / `resolve_shape_ref`).
 
-- `shape_connect` (production name in `plugin/draw/shapes.py`)
-- `connections: list[{from_index, to_index}]`
-- z-order = list order
-- optional `shape_group` as a parent node
+- `shape_connect` (production name in `plugin/draw/shapes.py`) adds a `ConnectorShape` node to the page
+- `shape_group` creates a `GroupShape` tree node with `children`
+- z-order = list order; names are `Shape<n>`; shapes are addressed by index, dotted path, or name
 
-`get_draw_tree` must emit the same semantic keys as
-`plugin/draw/tree.py`: `type`, `text`, `geometry`,
-`connected_start` / `connected_end` (by name/text). The flowchart
-oracle then requires **edges**, not just the words Start / Process /
-End.
+`shape_get_tree` emits the same semantic keys as `plugin/draw/tree.py`: production `type`, `index`/`path_index`, `name`, `custom_shape_type`, `text` (when non-empty), `fillable`, `geometry`, `style` (`LineStartName` / `LineEndName` when arrowheads are set), and `connected_start` / `connected_end` on connector nodes. `shape_upsert` edit changes geometry, text and arrowheads. The flowchart oracle then requires **edges**, not just the words Start / Process / End. Remaining differences from live LibreOffice: no style properties beyond arrowheads, connector geometry is centre to centre, no preset-name check, and one page.
 
 ### CalcWorld
 
@@ -146,7 +140,7 @@ Still a grid, plus:
 | Field | Purpose |
 |-------|---------|
 | `sheets` | `Sheet1` plus optional extra sheet |
-| cell `{value, formula}` | `write_formula_range` stores formula text when `values` starts with `=` |
+| cell `{value, formula}` | `write_range` stores formula text when `values` starts with `=` |
 | last write dest | A1 (or `Sheet2.J1`) of each write |
 
 No formula evaluator. Tax column can still write `0.8` as a value.
@@ -155,7 +149,7 @@ oracles parse dest vs DataRange.
 
 A single formula string into a **1-D** range fill-down/across-adjusts
 relative A1 refs via [`formula_fill.expand_single_formula`](../../plugin/calc/formula_fill.py)
-(same as production `write_formula_range`). A JSON array of formula
+(same as production `write_range`). A JSON array of formula
 strings stays exact per-cell (pin). 2-D + one formula, or an import
 failure, falls back to the honest pin. Snapshot `formulas` stores the
 **per-cell** text, not the original pin source on every address.
@@ -175,8 +169,8 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
   HTML or a small world API). If a task cannot be honest on the world,
   drop it from the default pack rather than keep theater.
 - `flowchart_gen`: scripted student calls `shape_connect`; gold tree
-  includes connections; oracle requires them.
-- `find_text`: implement as an alias of `search_in_document` on
+  includes connector nodes; oracle requires them.
+- `find_text`: implement as an alias of `search` on
   WriterWorld so we stop advertising an eval-only name.
 
 ### Tests (worlds)
@@ -187,7 +181,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 - Style field survives export (`Quotations` is a class/style, not
   only a word).
 - Comment is on the `uncertain` block.
-- Draw: two shapes + `shape_connect` → tree has
+- Draw: two shapes + `shape_connect` → connector node has
   `connected_start` / `connected_end`.
 - Calc: write `=PY("result = 1"; A1:H500)` at `J1`; snapshot records
   dest `J1` and formula text; grid oracles unchanged for tax/sort.
@@ -227,9 +221,9 @@ One table, not a growing `if name ==`:
 
 | Kind | Implemented on the world (minimum) |
 |------|--------------------------------------|
-| Writer | `get_document_content`, `apply_document_content`, `search_in_document` (and `find_text` alias) |
-| Draw | `shape_upsert`, `shape_connect`, `get_draw_tree`, `shape_summary` |
-| Calc | `get_sheet_summary`, `read_cell_range`, `write_formula_range`, `sort_range` |
+| Writer | `get_content`, `apply_content`, `search` (and `find_text` alias), `comment_add`, `apply_style` |
+| Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary` |
+| Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range` |
 
 Everything else in the advertised catalog returns:
 
@@ -241,15 +235,14 @@ Everything else in the advertised catalog returns:
 The model must recover or finish without it. That *is* the test.
 
 Grow the implemented set only when a new task needs it (e.g.
-`add_comment` once WriterWorld comments exist — then
-`comment_management` can call the real name).
+`sheet_list` once multi-sheet tasks need it).
 
 ### Tests (catalog)
 
 - Schema list for writer/draw/calc includes production names
-  (`search_in_document`, `write_formula_range`, `shape_connect`,
-  `get_draw_tree`) and is larger than the current 3–5.
-- Calling `add_comment` / `sheet_list` / `shape_delete` returns
+  (`search`, `write_range`, `shape_connect`,
+  `shape_get_tree`) and is larger than the current 3–5.
+- Calling `sheet_list` / `shape_delete` returns
   `unsupported_in_eval` until implemented.
 - Scripted student still only uses implemented names.
 - Prompt pin tests updated; no “only three tools” wording.
@@ -282,7 +275,7 @@ names:
 | Dest outside DataRange | `=PY` tasks |
 | Formula text is `=PY(...)` | `=PY` tasks |
 | No `domain=python` | Calc |
-| No `read_cell_range` of the full DataRange | `=PY` / “no bulk read” |
+| No `read_range` of the full DataRange | `=PY` / “no bulk read” |
 | Tool-result chars over a cap | optional penalty |
 | `unsupported_in_eval` then recovery or abort | informational; fail only if the final doc is wrong **and** the model spun on unsupported tools |
 | Failed tool then retry with different args | informational |
@@ -309,20 +302,20 @@ in-place clones were dropped so the pack stays even):
 | id | Ask | Pass | Fail |
 |----|-----|------|------|
 | `py_refuse_overlap` | put the formula in **H1**, data A1:H500 | dest J1/I1 and says H1 is inside the range | writes H1 |
-| `py_no_bulk_read` | unique-rows via `=PY` | no `read_cell_range` of A1:H500 | dumping the block into chat |
+| `py_no_bulk_read` | unique-rows via `=PY` | no `read_range` of A1:H500 | dumping the block into chat |
 
 Use a **small** fixture (e.g. A1:C8), not 500 rows. The names stay
 `A1:H500` in the user question if we want production wording; the
 world only needs a handful of rows and a declared DataRange.
 
-Scripted student: one `write_formula_range` to `J1` with
+Scripted student: one `write_range` to `J1` with
 `=PY("result = data.to_pandas().drop_duplicates()"; A1:H500)`.
 
 ### Tests (process)
 
 - Trace records names and dest args.
 - Good `=PY` at J1 passes process; write at H1 fails dest check.
-- `read_cell_range` of the whole DataRange fails `py_no_bulk_read`.
+- `read_range` of the whole DataRange fails `py_no_bulk_read`.
 - Tax/sort result oracles unchanged when process is empty.
 - Scripted pack includes the four new ids.
 
@@ -355,8 +348,8 @@ No `make test-uno`. No LO scripted pack work.
 ## Later (not this plan)
 
 - Multi-turn user messages using `export_for_prompt()`.
-- Implementing more core tools on the worlds (`add_comment`,
-  `sheet_list`, …) when a task needs them.
+- Implementing more core tools on the worlds (`sheet_list`,
+  `shape_delete`, …) when a task needs them.
 - MIPROv2 on `agent_score` once the metric is stable.
 - Broader `--backend lo` / `--backend auto` ranking of the full pack
   (beyond the flag row) when we want native fidelity on every task —
@@ -366,6 +359,6 @@ No `make test-uno`. No LO scripted pack work.
 ## Open
 
 - `[feature M few]` Multi-turn eval: refresh `[DOCUMENT CONTENT]` after each user turn using `export_for_prompt()`. (§ Later (not this plan))
-- `[eng S few]` Implement more core tools on the worlds, such as `add_comment` and `sheet_list`, when a task needs them. (§ Later (not this plan))
+- `[eng S few]` Implement more core tools on the worlds, such as `sheet_list` and `shape_delete`, when a task needs them. (§ Later (not this plan))
 - `[eng M few]` Run MIPROv2 against `agent_score` once the metric is stable. (§ Later (not this plan))
 - `[eng M few]` Run full-pack `--backend lo` ranking across all 19 tasks for native fidelity on every task (`eval_scheduler.py` / `run_eval_multi.py` already implement `--backend lo` and `--backend auto`, and [benchmarks.md](benchmarks.md) ships the 37×19 dual-lane board). (§ Later (not this plan))

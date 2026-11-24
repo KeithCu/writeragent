@@ -31,6 +31,7 @@ from plugin.doc.text_helpers import (
     visible_portions,
     walk_cap_warning,
 )
+from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.uno_context import create_property_value
@@ -46,7 +47,6 @@ from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
 
-HTML_FILTER = "HTML (StarWriter)"
 XHTML_FILTER = "XHTML Writer File"
 XHTML_EXTENSION = ".xhtml"
 FLAT_ODF_FILTER = "OpenDocument Text Flat XML"
@@ -153,7 +153,7 @@ def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
 
 
 def _export_starwriter_html(doc: Any) -> str:
-    return strip_html_boilerplate(_read_filter_text(doc, HTML_FILTER))
+    return strip_html_boilerplate(_read_filter_text(doc, HTML_WRITER_FILTER))
 
 
 def _export_xhtml(doc: Any) -> str:
