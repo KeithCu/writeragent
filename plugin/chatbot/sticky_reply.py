@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.config_schema import as_bool
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -108,7 +107,8 @@ class StickyReplyToUserTool(ToolBase):
         del ctx
         answer = kwargs.get("answer")
         answer_text = "" if answer is None else str(answer)
-        if self.mode.leave_flag and as_bool(kwargs.get(self.mode.leave_flag, False)):
+        # SmolToolAdapter runs prepare_tool_call first, so the flag is a bool or absent here.
+        if self.mode.leave_flag and kwargs.get(self.mode.leave_flag):
             payload: dict[str, Any] = {
                 "status": self.mode.leave_status,
                 "result": answer_text,

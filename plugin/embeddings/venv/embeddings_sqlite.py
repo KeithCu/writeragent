@@ -212,7 +212,7 @@ def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | N
     return best_part
 
 
-def _partition_is_local(path: str | Path, part: Any) -> bool:
+def _partition_is_local(part: Any) -> bool:
     """Classify a psutil disk_partitions row as local or remote."""
     fstype = str(part.fstype or "").strip()
     opts = str(part.opts or "")
@@ -245,7 +245,7 @@ def path_is_local_disk(path: str | Path) -> bool:
     part = _longest_mount_partition(path, partitions)
     if part is None:
         return True
-    return _partition_is_local(path, part)
+    return _partition_is_local(part)
 
 
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:

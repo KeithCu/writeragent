@@ -56,6 +56,7 @@ def _setup_mock(ctx):
     # OXT send path is not still using the user's real endpoint; fold test flags
     # into the same start save so the single 2s OXT settle covers them too.
     # Packet E1–E8 must not block on HITL Accept; R8 turns prompt_for_web_research on locally.
+    # librarian_invoked alone makes a new deck open in Chat, so the suite leaves the user's USER.md alone.
     _session = start_mock_sidebar_session(
         delay_ms=20,
         offline=True,
@@ -64,12 +65,6 @@ def _setup_mock(ctx):
             "chatbot.prompt_for_web_research": False,
         },
     )
-    from plugin.chatbot.memory import MemoryStore
-
-    try:
-        MemoryStore().write("# Test User Profile\n")
-    except Exception:
-        pass
     # Import hooks before later panel creates; factory WeakSet also sees panels
     # that were wired before this module loaded (debug-only).
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
@@ -1314,12 +1309,12 @@ def test_d4_think_then_look_up_not_tool_calls(ctx):
     prior = first.get("last_assistant_tool_calls") or []
     called = first.get("called_tools") or []
     assert prior == [], "D4 prior thinking must not be session tool_calls: %r" % first
-    junk = [name for name in called if name not in {"web_research", "web_search", "visit_webpage", "final_answer"}]
+    junk = [name for name in called if name not in {"delegate_to_subagent", "web_search", "visit_webpage", "final_answer"}]
     assert not junk, "D4 unexpected history tool names: %r" % first
     decided = []
     for row in snaps:
         decided.extend(row.get("decided_tools") or [])
-    assert "web_research" in decided or "final_answer" in decided or "web_search" in decided, (
+    assert "delegate_to_subagent" in decided or "final_answer" in decided or "web_search" in decided, (
         "D4 expected research tools after look up, got %r" % snaps[-8:]
     )
     _hello_ok()
@@ -1338,9 +1333,13 @@ def test_e1_offline_look_up_then_hello(ctx):
         "E1 expected research wrap-up, got %r" % _transcript()[-500:]
     )
     snaps = _captures()
-    assert any(row.get("has_current_query_mark") or row.get("decided_tools") == ["web_research"] for row in snaps), (
-        "E1 expected CURRENT QUERY or web_research in mock captures, got %r" % snaps[-5:]
+    assert any("delegate_to_subagent" in (row.get("decided_tools") or []) for row in snaps), (
+        "E1 expected delegate_to_subagent in mock captures, got %r" % snaps[-5:]
     )
+    assert any(
+        row.get("has_current_query_mark") and {"web_search", "visit_webpage"} & set(row.get("advertised_tools") or [])
+        for row in snaps
+    ), "E1 expected CURRENT QUERY on inner research POST, got %r" % snaps[-5:]
     _hello_ok()
 
 
@@ -3570,8 +3569,8 @@ def test_r8_accept_and_stop(ctx):
         assert wait_controls_send_finished(controls, timeout=60.0, transcript_fn=_transcript, before=before), (
             f"R8 did not settle: {_transcript()[-400:]}"
         )
-        runs = sum(1 for row in _captures() for t in (row.get("called_tools") or []) if t == "web_research")
-        assert runs <= 1, f"R8 web_research ran {runs} times"
+        runs = sum((row.get("decided_tools") or []).count("delegate_to_subagent") for row in _captures())
+        assert runs == 1, f"R8 research delegate ran {runs} times"
     finally:
         _session.config.offline = was_offline
         execute_debug_sidebar_op("WEB_RESEARCH_PROMPT_OFF")

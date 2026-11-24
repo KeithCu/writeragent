@@ -220,6 +220,18 @@ def _reset_sentry_state_for_tests():
         reset_sentry_state()
 
 
+@pytest.fixture(autouse=True)
+def _reset_package_extension_id_for_tests_between_tests():
+    """A MagicMock ctx makes every package location truthy, so resolve_package_extension_id would pin the LibrePy id for later tests."""
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+
+    reset_package_extension_id_for_tests()
+    try:
+        yield
+    finally:
+        reset_package_extension_id_for_tests()
+
+
 _WORKER_ENV_VARS = ("WRITERAGENT_IS_WORKER", "WRITERAGENT_COMPUTE_WORKER")
 for _worker_var in _WORKER_ENV_VARS:
     os.environ.pop(_worker_var, None)
