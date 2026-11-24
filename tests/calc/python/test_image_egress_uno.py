@@ -596,7 +596,6 @@ def test_beside_plot_follows_cut_paste_and_xlsx_uno(ctx, doc):
     payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
     b3 = sheet.getCellByPosition(1, 2)
     f9 = sheet.getCellByPosition(5, 8)
-    reloaded = None
 
     try:
         b3.setFormula(formula)
@@ -625,14 +624,15 @@ def test_beside_plot_follows_cut_paste_and_xlsx_uno(ctx, doc):
             hidden_prop.Name = "Hidden"
             hidden_prop.Value = True
             reloaded = desktop.loadComponentFromURL(xlsx_url, "_blank", 0, (hidden_prop,))
-            reloaded_sheet = reloaded.getSheets().getByIndex(0)
-            reloaded_f9 = reloaded_sheet.getCellByPosition(5, 8)
-            assert len(_anchored_plot_slots(reloaded_sheet, reloaded_f9)) == 1
+            try:
+                reloaded_sheet = reloaded.getSheets().getByIndex(0)
+                reloaded_f9 = reloaded_sheet.getCellByPosition(5, 8)
+                assert len(_anchored_plot_slots(reloaded_sheet, reloaded_f9)) == 1
+            finally:
+                reloaded.close(True)
     finally:
         for cell in (b3, f9):
             cell.setFormula("")
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))
         um.clear()
-        if reloaded is not None:
-            reloaded.close(True)
