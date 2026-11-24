@@ -272,6 +272,13 @@
     updateDataBindingEnabled();
   }
 
+  function lockForRequestedSave() {
+    if (requestedSave) {
+      setSavePendingLoad(true);
+    }
+    return requestedSave;
+  }
+
   function updateDataBindingEnabled() {
     var plainEl = getPlainTextCheckbox();
     var input = getDataBindingInput();
@@ -304,11 +311,15 @@
               } else if (msg.type === "request_save") {
                 var saveBtn = document.getElementById("btn-save");
                 if (saveBtn) {
-                  // Lock only in this shell's handler: a named Run Script save is taken by the capture
-                  // listener in scripts_manager.js and gets no saved reply, so locking here would stick.
+                  // Named Run Script saves go through scripts_manager.js's capture listener;
+                  // it calls lockForRequestedSave() so the editor locks before save_script leaves.
                   requestedSave = true;
                   saveBtn.click();
                   requestedSave = false;
+                }
+              } else if (msg.type === "scripts_list") {
+                if (!msg.load_follows) {
+                  setSavePendingLoad(false);
                 }
               } else if (msg.type === "saved") {
                 if (!msg.load_follows) {
@@ -381,7 +392,8 @@
         ui = msg.ui;
         applyUiChrome();
       }
-    }
+    },
+    lockForRequestedSave: lockForRequestedSave
   };
 
   function rememberSent(code) {
@@ -406,9 +418,7 @@
     if (window.pywebview && window.pywebview.api) {
       if (currentMode === "run_script" && window.pywebview.api.notify_save_script) {
         window.pywebview.api.notify_save_script(code, sessionId, currentMode, sessionTarget);
-        if (requestedSave) {
-          setSavePendingLoad(true);
-        }
+        lockForRequestedSave();
         setStatus(t("saving", "Saving…"), "");
         return;
       }
@@ -423,9 +433,7 @@
       var dataBinding = (followCodeRef || !saveAsPlain) ? (input ? input.value.trim() : "") : "";
       rememberSent(code);
       window.pywebview.api.notify_save(code, saveAsPlain, dataBinding, "cell_save", sessionId, currentMode, sessionTarget);
-      if (requestedSave) {
-        setSavePendingLoad(true);
-      }
+      lockForRequestedSave();
       setStatus(pendingStatusText, "");
     }
   });

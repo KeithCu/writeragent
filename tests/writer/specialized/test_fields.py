@@ -589,6 +589,32 @@ def test_document_properties_set_writes_and_rejects_internal():
     assert bad["code"] == "INVALID_PARAM"
 
 
+def test_document_properties_set_coerces_user_defined_numbers():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+
+    class _DocProps:
+        UserDefinedProperties = props
+        Title = Subject = Author = Description = ""
+        Keywords = ()
+
+    doc.getDocumentProperties = lambda: _DocProps()
+    ctx = MagicMock(doc=doc)
+    tool = DocumentPropertiesSet()
+    prepared = prepare_tool_call(tool, ctx, "document_set_properties", {"user_defined": {"Count": 5}})
+    assert prepared.error is None, prepared.error
+    with patch("plugin.framework.queue_executor.main.run", side_effect=lambda fn: fn()):
+        res = tool.execute(ctx, **prepared.kwargs)
+    assert res["status"] == "ok"
+    assert props.values["Count"] == "5"
+
+    bad_bool = prepare_tool_call(tool, ctx, "document_set_properties", {"user_defined": {"Flag": True}})
+    assert bad_bool.error is None, bad_bool.error
+    res_bool = tool.execute(ctx, **bad_bool.kwargs)
+    assert res_bool["status"] == "error"
+    assert res_bool["code"] == "INVALID_PARAM"
+
+
 def test_document_properties_set_no_changes_and_conflicts():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)

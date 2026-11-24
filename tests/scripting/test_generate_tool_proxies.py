@@ -65,6 +65,31 @@ def test_schema_to_signature_optional_bool_without_default_is_none():
     assert pos == ["content: list[Any]"]
     assert kw == ["dry_run: bool | None = None"]
 
+
+def test_schema_to_signature_nested_array_item_types():
+    tool = MockTool(
+        "nested_types",
+        "Check nested array item annotations.",
+        {
+            "type": "object",
+            "properties": {
+                "colors": {"type": "array", "items": {"type": ["string", "integer"]}},
+                "ids": {"type": "array", "items": {"type": "integer"}},
+                "matrix": {"type": "array", "items": {"type": "array"}},
+                "records": {"type": "array", "items": {"type": "object"}},
+            },
+            "required": ["colors", "ids", "matrix", "records"],
+        },
+    )
+    pos, kw = schema_to_signature(_as_tool(tool))
+    assert pos == [
+        "colors: list[str | int]",
+        "ids: list[int]",
+        "matrix: list[list[Any]]",
+        "records: list[dict[str, Any]]",
+    ]
+    assert kw == []
+
 def test_schema_to_signature_empty_schema():
     tool = MockTool("calc_test", "desc", {})
     pos, kw = schema_to_signature(_as_tool(tool))

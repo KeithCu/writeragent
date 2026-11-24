@@ -14,6 +14,7 @@ from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_
 from plugin.framework.uno_context import enum_has_more
 from plugin.doc.text_helpers import (
     FAILED,
+    DeletionState,
     get_string_without_tracked_deletions,
     go_right,
     iter_elements,
@@ -36,13 +37,6 @@ def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, d
     ph = chr(0xE000 + len(records))
     records.append((ph, read_starmath(emb), display_block))
     return ph
-
-
-def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
-    try:
-        dest_text.insertString(cursor, el.getString() if el else "", False)
-    except Exception as exc:
-        log.debug("paragraph text fallback failed: %s", exc)
 
 
 def iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
@@ -576,6 +570,7 @@ def _copy_visible_portions(
     math_records: list[tuple[str, str, bool]] | None,
     *,
     in_cell: bool,
+    state: DeletionState,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
 
@@ -584,7 +579,7 @@ def _copy_visible_portions(
     each run as they go.
     """
     copied: list[tuple[Any, str]] = []
-    for portion, chunk in visible_portions(para, abort_on_portion_error=True):
+    for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state):
         kind = portion.getPropertyValue("TextPortionType")
         if kind == "TextField":
             field = _portion_field(portion)
@@ -624,8 +619,12 @@ def _copy_cell_xtext(
     except Exception:
         dest_cell.setString(src_cell.getString())
         return
+    state = DeletionState()
     fresh = True
     for para in iter_elements(para_enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(para, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_cell, dest_cursor)
         fresh = supports_service(para, "com.sun.star.text.TextTable")
@@ -634,7 +633,7 @@ def _copy_cell_xtext(
             copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
             continue
         _copy_visible_portions(
-            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True
+            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state
         )
         dest_cursor.gotoEnd(False)
         clone_graphics(para, dest_doc, dest_cell, dest_cursor)
@@ -807,8 +806,12 @@ def _copy_xtext_by_portions(
     except Exception:
         dest_text.setString(src_text.getString())
         return
+    state = DeletionState()
     fresh = True
     for el in iter_elements(enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_text, dest_cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
@@ -824,7 +827,7 @@ def _copy_xtext_by_portions(
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
         copied = _copy_visible_portions(
-            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False
+            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
@@ -836,7 +839,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
 
     Used by page-style clone. Does not select the source, does not use the
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
-    Returns how many fields were inserted.
+    Tracked deletions are left out. Returns how many fields were inserted.
 
     The walk copies inside the live document without selecting, clipboard transfer,
     or in-process XHTML/ODF export — that export path could corrupt soffice when
@@ -858,8 +861,12 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
+    state = DeletionState()
     fresh = True
     for el in iter_elements(enum):
+        # A table inside an open deletion is struck whole.
+        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+            continue
         if not fresh:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
@@ -868,13 +875,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             # handles only graphics anchored directly in src_text.
             copy_table(el, doc, dest_text, cursor, None)
             continue
-        try:
-            portions = el.createEnumeration()
-        except Exception:
-            _fallback_insert_para_text(dest_text, cursor, el)
-            _copy_para_properties_to_end(dest_text, cursor, el)
-            continue
-        for portion, kind in iter_portions(portions):
+        for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
+            kind = portion.getPropertyValue("TextPortionType")
             if kind == "TextField":
                 field = _portion_field(portion)
                 if field is None:
@@ -883,12 +885,9 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
                     fields_copied += 1
                 cursor.gotoEnd(False)
             elif kind == "Text":
-                chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
                 copy_text_run(portion, dest_text, cursor, chunk)
-            else:
-                continue
         _copy_para_properties_to_end(dest_text, cursor, el)
 
     return fields_copied

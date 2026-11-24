@@ -34,6 +34,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
+from plugin.framework.i18n import _
 from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.mcp_server.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
@@ -154,7 +155,7 @@ def parse_bore_provider_config(value: str) -> tuple[str, str]:
 
 
 def build_bore_command(port: int, provider_token: str = "") -> list[str]:
-    server, _ = parse_bore_provider_config(provider_token)
+    server, _secret = parse_bore_provider_config(provider_token)
     return ["bore", "local", str(int(port)), "--to", server]
 
 
@@ -313,6 +314,7 @@ class Provider:
     label: str = ""
     version_args: tuple[str, ...] = ()
     install_url: str = ""
+    uses_token: bool = True
     reset: FunnelReset | None = None
 
     def build_command(self, port: int, provider_token: str) -> list[str]:
@@ -360,7 +362,7 @@ class BoreProvider(Provider):
         token = (provider_token or "").strip()
         if not token:
             return {}
-        _, secret = parse_bore_provider_config(token)
+        _server, secret = parse_bore_provider_config(token)
         if secret:
             return {"BORE_SECRET": secret}
         return {}
@@ -390,6 +392,7 @@ class TailscaleProvider(Provider):
     label: str = "Tailscale"
     version_args: tuple[str, ...] = ("tailscale", "version")
     install_url: str = "https://tailscale.com/download"
+    uses_token: bool = False
     ARM_FILENAME: str = "writeragent-tailscale-funnel-armed"
     reset: FunnelReset | None
 
@@ -850,8 +853,12 @@ class TunnelManager:
         with self._lock:
             self._pending_start = token
 
-    def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
-        """Start (or keep) a tunnel to *port*. Returns False if start failed."""
+    def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str | None = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
+        """Start (or keep) a tunnel to *port*. Returns False if start failed.
+
+        ``provider_token=None`` means a token is configured but could not be read; a provider
+        that uses it is refused rather than started without it.
+        """
         from plugin.framework.queue_executor import Policy, main
 
         if main.policy is Policy.test_inline:
@@ -860,16 +867,22 @@ class TunnelManager:
         provider = (provider or DEFAULT_PROVIDER).strip().lower()
         token = (provider_token or "").strip()
         provider_obj = self._providers.get(provider)
-        if provider_obj is None:
-            log.error("Unknown tunnel provider: %s", provider)
+        if provider_obj is None or (provider_token is None and provider_obj.uses_token):
+            # Without its token Cloudflare opens an anonymous public tunnel and Bore drops its server and secret.
+            refusal = (
+                "unknown tunnel provider: %s" % provider
+                if provider_obj is None
+                else _("the tunnel token could not be read (keyring locked?). Unlock it, then stop and start the MCP server.")
+            )
             with self._lock:
                 if start_token is not None and self._pending_start is not start_token:
                     log.info("Ignoring superseded MCP tunnel start (%s)", provider)
                     return False
+                log.error("MCP tunnel not started (%s): %s", provider, refusal)
                 self._replace_session()
                 self._pending_start = None
                 self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
-                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
+                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error=refusal, desired_running=False)
             self._retire_snippet_provider(provider)
             return False
 
@@ -971,8 +984,6 @@ def tunnel_status_line(
     tunnel_enabled: bool,
 ) -> str | None:
     """One Status/toast line for public tunnel state, or None if tunnel off."""
-    from plugin.framework.i18n import _
-
     if not tunnel_enabled:
         return None
     if public_url:
@@ -1006,7 +1017,6 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
     Does not validate provider credentials and does not start a tunnel.
     Returns (ok, user_facing_message, public_url).
     """
-    from plugin.framework.i18n import _
     from plugin.framework.queue_executor import Policy, main
 
     if main.policy is Policy.test_inline:

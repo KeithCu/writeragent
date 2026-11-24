@@ -222,7 +222,7 @@ def test_prepare_stt_reads_keystore_off_main_thread(fake_keystore, tmp_path):
 
     url = "https://openrouter.ai/api"
     fw_config.save({"endpoint": url, "text_model": "chat"})
-    fw_config.set_api_key_for_endpoint(url, "sk-stt")
+    fw_config.save({"api_keys_by_endpoint": {url: "sk-stt"}})
     keystore.reset_for_tests(fake_keystore)
 
     reads: list[bool] = []

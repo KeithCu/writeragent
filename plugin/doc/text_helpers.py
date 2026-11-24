@@ -575,11 +575,21 @@ class DeletionState:
 
     Redline marker portions exist only in a redline's start and end paragraphs
     (``lcl_FillRedlineArray`` in ``sw/source/core/unocore/unoportenum.cxx``). Pass one
-    instance across every paragraph of a text, in order, so middle paragraphs
-    inside a multi-paragraph deletion are skipped too.
+    instance across every paragraph of a text, in order, so paragraphs between the
+    markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
+    its cells carry no markers.
     """
 
     in_delete: bool = False
+
+    def apply_marker(self, portion: Any) -> None:
+        """Update the state from one ``Redline`` portion."""
+        try:
+            if str(portion.getPropertyValue("RedlineType")) == "Delete":
+                # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
+                self.in_delete = bool(portion.getPropertyValue("IsStart"))
+        except Exception as exc:
+            log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
 
 
 def visible_portions(
@@ -602,16 +612,22 @@ def visible_portions(
 
     When *limit* stops the walk with more portions waiting, *truncated_out*
     (if given) receives the seen count so the caller can warn.
+
+    Pass a shared *state* across consecutive paragraphs of one ``XText`` so
+    deletions spanning multiple paragraphs stay hidden.
     """
     try:
         portion_enum = para.createEnumeration()
     except Exception:
         return
-    state = state or DeletionState()
+    if state is None:
+        state = DeletionState()
     seen = 0
     while enum_has_more(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
+            # The end marker was not read, and an open state would hide the rest of the document.
+            state.in_delete = False
             if truncated_out is not None:
                 truncated_out.append(seen)
             return
@@ -620,20 +636,19 @@ def visible_portions(
             portion = portion_enum.nextElement()
         except Exception:
             if abort_on_portion_error:
+                # The end marker was not read, and an open state would hide the rest of the document.
+                state.in_delete = False
                 return
             continue
         portion_type = _portion_type(portion)
         if portion_type is None:
             if abort_on_portion_error:
+                # The end marker was not read, and an open state would hide the rest of the document.
+                state.in_delete = False
                 return
             continue
         if portion_type == "Redline":
-            try:
-                if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
-                    state.in_delete = bool(portion.getPropertyValue("IsStart"))
-            except Exception as exc:
-                log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
+            state.apply_marker(portion)
             continue
         if state.in_delete:
             continue
@@ -648,14 +663,14 @@ def visible_portions(
             yield portion, chunk
 
 
-def _paragraph_visible_text(para: Any) -> str:
+def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> str:
     """Visible text of one paragraph via ``visible_portions``.
 
     Falls back to ``getString()`` only when the portion enum cannot be opened.
     An empty walk after a successful enum is kept
     empty so tracked-only paragraphs do not re-include deleted text.
     """
-    chunks = list(visible_portions(para))
+    chunks = list(visible_portions(para, state=state))
     if chunks:
         return "".join(chunk for _unused, chunk in chunks)
     try:
@@ -680,14 +695,15 @@ def _table_visible_text(table: Any) -> str:
 
 
 @main_thread_only
-def get_string_without_tracked_deletions(text_range: Any) -> str:
+def get_string_without_tracked_deletions(text_range: Any, state: DeletionState | None = None) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
     A draw shape returns ``getString()`` directly. A paragraph
     (``com.sun.star.text.Paragraph``, or first child has ``TextPortionType``)
     concatenates visible portions without a mid-``\\n``. A document or
-    multi-paragraph range still joins paragraphs with ``\\n`` and includes
-    table-cell text, including nested tables.
+    multi-paragraph range still joins paragraphs with ``\\n`` (keeping
+    deleted paragraph breaks) and includes table-cell text, including nested
+    tables, unless the table falls inside an open tracked deletion.
     """
     try:
         # Draw-shape text is editeng, which never reports a Redline portion
@@ -703,11 +719,13 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
         if _is_draw_shape_text(text_range):
             return text_range.getString()
         if _range_is_paragraph(text_range):
-            return _paragraph_visible_text(text_range)
+            return _paragraph_visible_text(text_range, state)
         para_enum = text_range.createEnumeration()
     except Exception:
         return text_range.getString()
 
+    if state is None:
+        state = DeletionState()
     parts: list[str] = []
     try:
         first_para = True
@@ -716,12 +734,10 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
                 parts.append("\n")
             first_para = False
             if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextRange"):
-                parts.append(_table_visible_text(para))
+                parts.append("" if state.in_delete else _table_visible_text(para))
                 continue
-            # Each paragraph's portion enum is independent; Delete start/end
-            # markers for this walk live in that para. Reset is inside
-            # visible_portions (same as UNO per-paragraph redline markers).
-            parts.append(_paragraph_visible_text(para))
+            # Markers may be in an earlier paragraph, so one state covers the walk.
+            parts.append(_paragraph_visible_text(para, state))
     except Exception as exc:
         # Return deletion-free prefix on mid-walk error; do not fall back to getString().
         reraise_if_disposed(exc, object_type="TextRange")
@@ -730,6 +746,26 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
         return "".join(parts)
 
     return "".join(parts)
+
+
+@main_thread_only
+def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
+    """For each element of a text enumeration: does it start inside a tracked deletion?
+
+    For readers that jump to one paragraph. The list is all False, without a portion
+    walk, when the document has no redlines.
+    """
+    # A portion walk costs 1.0–1.7 s per 1000 paragraphs over the bridge; hasElements() is under 1 ms.
+    if not uno_read(lambda: model.getRedlines().hasElements() is True, False):
+        return [False] * len(elements)
+    state = DeletionState()
+    flags: list[bool] = []
+    for element in elements:
+        flags.append(state.in_delete)
+        if uno_read(lambda: element.supportsService(_PARAGRAPH_SERVICE) is True, False):
+            for _unused in visible_portions(element, state=state):
+                pass
+    return flags
 
 
 @main_thread_only
@@ -751,7 +787,7 @@ def get_document_path(model: Any) -> str | None:
 
 @main_thread_only
 def build_heading_tree(model: Any, elements: list[Any] | None = None) -> HeadingTreeNode:
-    """Build a hierarchical heading tree. Single pass enumeration."""
+    """Build a hierarchical heading tree, skipping tracked-deleted heading text."""
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
@@ -767,7 +803,10 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                 while uno_call(lambda: enum_has_more(enum), "Check more elements"):
                     yield uno_call(enum.nextElement, "Get next element")
 
-        for para_index, element in enumerate(_iter_elements()):
+        walked = list(_iter_elements())
+        flags = paragraph_deletion_flags(model, walked)
+
+        for para_index, element in enumerate(walked):
             if uno_call(lambda: element.supportsService("com.sun.star.text.Paragraph"), "Check supportsService Paragraph"):
                 outline_level = 0
                 try:
@@ -780,7 +819,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                         stack.pop()
                     node: HeadingTreeNode = {
                         "level": outline_level,
-                        "text": get_string_without_tracked_deletions(element),
+                        "text": get_string_without_tracked_deletions(element, DeletionState(flags[para_index])),
                         "para_index": para_index,
                         "children": [],
                         "body_paragraphs": 0,
@@ -816,7 +855,7 @@ def get_selection_text(model: Any) -> str | None:
         if doc_type == _doc_type.DocumentType.WRITER:
             rng = selected_text_range(controller)
             if not rng:
-                vc = uno_call(controller.getViewCursor, "Get view cursor")
+                vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
                 if vc:
                     return uno_call(vc.getString, "Get view cursor string")
             else:

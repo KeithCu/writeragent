@@ -502,7 +502,7 @@ def test_grep_text_in_writer_uses_visible_text():
         )
         assert len(matches) == 1
         assert partial is False
-        mock_helper.assert_called_with(para)
+        assert mock_helper.call_args.args[0] is para
 
         matches_del, _ = _grep_text_in_writer(
             model,

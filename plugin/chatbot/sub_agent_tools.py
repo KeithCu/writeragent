@@ -73,6 +73,8 @@ SUB_AGENT_DOC_CORE_TOOLS = frozenset(["get_content", "get_tree", "search"])
 class HtmlContentToolBase(ToolWriterSpecialBase):
     """Base class for sub-agent HTML content insertion tools."""
 
+    # Sidebar modes reach this by active_domain; MCP cannot list or call it.
+    tier: str = "unlisted"
     is_mutation: bool | None = True
     long_running: bool = True
     timeout: float = 300.0
@@ -104,7 +106,8 @@ class HtmlContentToolBase(ToolWriterSpecialBase):
 class SubAgentResearchWebBase(ToolBase):
     """Base class for sub-agent web research tools."""
 
-    tier: str = "specialized"
+    # Sidebar modes reach this by active_domain; MCP cannot list or call it.
+    tier: str = "unlisted"
     is_mutation: bool | None = False
     long_running: bool = True
     deep_research: ClassVar[bool] = False

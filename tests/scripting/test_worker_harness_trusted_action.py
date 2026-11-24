@@ -425,3 +425,65 @@ def test_worker_debug_log_masks_secret_arguments(tmp_path, monkeypatch) -> None:
     assert "Sec" in text
     assert "[Worker]" in text
 
+
+def test_worker_log_follows_host_rotation(tmp_path, monkeypatch) -> None:
+    import logging
+    import os
+
+    from plugin.scripting.venv import worker_harness
+
+    log_path = tmp_path / "worker_debug.log"
+    monkeypatch.setenv("WRITERAGENT_DEBUG_LOG_PATH", str(log_path))
+
+    root = logging.getLogger()
+    saved_handlers = list(root.handlers)
+    saved_level = root.level
+    added: list[logging.Handler] = []
+    try:
+        worker_harness._init_logging()
+        added = [h for h in root.handlers if h not in saved_handlers]
+        assert len(added) == 1
+        worker_log = logging.getLogger("worker_harness")
+        worker_log.debug("first")
+        assert added[0].stream is None  # type: ignore[attr-defined]
+        os.replace(log_path, str(log_path) + ".1")
+        worker_log.debug("second")
+        assert added[0].stream is None  # type: ignore[attr-defined]
+    finally:
+        for h in list(root.handlers):
+            if h not in saved_handlers:
+                root.removeHandler(h)
+                h.close()
+        root.setLevel(saved_level)
+
+    assert "first" not in log_path.read_text(encoding="utf-8")
+    assert "second" in log_path.read_text(encoding="utf-8")
+    backup_text = (tmp_path / "worker_debug.log.1").read_text(encoding="utf-8")
+    assert "first" in backup_text
+    assert "second" not in backup_text
+
+
+def test_worker_log_open_failure_does_not_raise(tmp_path, monkeypatch) -> None:
+    import logging
+
+    from plugin.scripting.venv import worker_harness
+
+    log_dir = tmp_path / "not_a_file"
+    log_dir.mkdir()
+    monkeypatch.setenv("WRITERAGENT_DEBUG_LOG_PATH", str(log_dir))
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+
+    root = logging.getLogger()
+    saved_handlers = list(root.handlers)
+    saved_level = root.level
+    try:
+        worker_harness._init_logging()
+        worker_log = logging.getLogger("worker_harness")
+        worker_log.debug("should not raise")
+    finally:
+        for h in list(root.handlers):
+            if h not in saved_handlers:
+                root.removeHandler(h)
+                h.close()
+        root.setLevel(saved_level)
+

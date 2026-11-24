@@ -1308,3 +1308,54 @@ def test_shape_create_diagram_arrowheads_uno(ctx, doc):
     assert plain_conn.getPropertyValue("LineEndName") == ""
     assert len(plain_conn.getPropertyValue("LineEnd").Coordinates) == 0
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_integer_colors_and_nested_arrowhead_uno(ctx, doc):
+    from plugin.draw.shapes import CreateDiagram, UpsertShape
+    from plugin.framework.tool import prepare_tool_call
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+
+    upsert = UpsertShape()
+    prep_shape = prepare_tool_call(
+        upsert,
+        tctx,
+        "shape_upsert",
+        {
+            "action": "create",
+            "shape_type": "rectangle",
+            "x": 1000,
+            "y": 1000,
+            "width": 2000,
+            "height": 1000,
+            "line_color": 255,
+            "fill_color": 0,
+        },
+    )
+    assert prep_shape.error is None, prep_shape.error
+    res_shape = upsert.execute(tctx, **prep_shape.kwargs)
+    assert res_shape.get("status") == "ok", res_shape
+    shape = page.getByIndex(res_shape["index"])
+    assert int(shape.getPropertyValue("LineColor")) == 0x0000FF
+    assert int(shape.getPropertyValue("FillColor")) == 0
+
+    diagram = CreateDiagram()
+    prep_diag = prepare_tool_call(
+        diagram,
+        tctx,
+        "shape_create_diagram",
+        {
+            "layout": "horizontal_flow",
+            "nodes": [{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+            "connections": [{"from": "a", "to": "b", "line_end": "Arrow", "line_color": 255}],
+        },
+    )
+    assert prep_diag.error is None, prep_diag.error
+    res_diag = diagram.execute(tctx, **prep_diag.kwargs)
+    assert res_diag.get("status") == "ok", res_diag
+    conn = page.getByIndex(res_diag["connections"][0]["index"])
+    assert conn.getPropertyValue("LineEndName") == "Arrow"
+    assert int(conn.getPropertyValue("LineColor")) == 0x0000FF
+

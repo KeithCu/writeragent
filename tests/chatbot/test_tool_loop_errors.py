@@ -1470,7 +1470,7 @@ def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked:
 
     url = "https://openrouter.ai/api"
     fw_config.save({"endpoint": url, "text_model": "vendor/cold-vision-model"})
-    fw_config.set_api_key_for_endpoint(url, "sk-1")
+    fw_config.save({"api_keys_by_endpoint": {url: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = locked
 
@@ -1556,7 +1556,7 @@ def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_too
 
     url = "https://openrouter.ai/api"
     fw_config.save({"endpoint": url, "text_model": "vendor/cold-vision-model"})
-    fw_config.set_api_key_for_endpoint(url, "sk-1")
+    fw_config.save({"api_keys_by_endpoint": {url: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 

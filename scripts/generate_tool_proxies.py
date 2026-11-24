@@ -117,14 +117,6 @@ JSON_TO_PYTHON = {
     "array": "list[Any]",
 }
 
-def _get_schema_type(schema: dict) -> str:
-    t = schema.get("type", "")
-    if isinstance(t, list):
-        types_list = [x for x in t if x != "null"]
-        t = types_list[0] if types_list else ""
-    return str(t)
-
-
 def _qualify_proxy_annotation(annotation: str, shadowed: frozenset[str]) -> str:
     """Avoid class-body method names shadowing builtins in parameter annotations."""
     if "list" in shadowed:
@@ -139,35 +131,21 @@ def _qualify_proxy_annotation(annotation: str, shadowed: frozenset[str]) -> str:
 def _python_type(schema: dict) -> str:
     """JSON Schema property -> Python annotation with type arguments.
 
-    Bare ``dict`` / ``list`` would trip ``reportMissingTypeArgument``. Match
-    the type-checking dialect: ``dict[str, Any]``, ``list[str]`` when items
-    are strings, otherwise ``list[Any]``.
+    Bare ``dict`` / ``list`` would trip ``reportMissingTypeArgument``, so an
+    array takes its element type from ``items`` and is ``list[Any]`` without one.
     """
-    t = schema.get("type", "")
-    if isinstance(t, list):
-        types_list = [x for x in t if x != "null"]
-        has_null = "null" in t
-        sub_types: list[str] = []
-        for member in types_list:
-            if member == "array":
-                items = schema.get("items")
-                if isinstance(items, dict) and _get_schema_type(items) == "string":
-                    sub_types.append("list[str]")
-                else:
-                    sub_types.append("list[Any]")
-            else:
-                sub_types.append(JSON_TO_PYTHON.get(str(member), "Any"))
-        deduped = list(dict.fromkeys(sub_types))
-        if has_null:
-            deduped.append("None")
-        return " | ".join(deduped) if deduped else "Any"
-
-    if t == "array":
-        items = schema.get("items")
-        if isinstance(items, dict) and _get_schema_type(items) == "string":
-            return "list[str]"
-        return "list[Any]"
-    return JSON_TO_PYTHON.get(t, "Any")
+    declared = schema.get("type", "")
+    members = declared if isinstance(declared, list) else [declared]
+    names: list[str] = []
+    for member in members:
+        if member == "array":
+            items = schema.get("items")
+            names.append(f"list[{_python_type(items)}]" if isinstance(items, dict) else "list[Any]")
+        elif member != "null":
+            names.append(JSON_TO_PYTHON.get(str(member), "Any"))
+    if isinstance(declared, list) and "null" in declared:
+        names.append("None")
+    return " | ".join(dict.fromkeys(names)) or "Any"
 
 
 def _param_default(schema: dict) -> str:

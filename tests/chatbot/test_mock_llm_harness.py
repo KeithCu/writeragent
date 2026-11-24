@@ -18,9 +18,9 @@ from plugin.framework.config import (
     get_config_file_path,
     get_current_endpoint,
     save,
-    set_api_key_for_endpoint,
 )
 from plugin.framework.model_lru import update_lru_history
+from plugin.framework.url_utils import normalize_endpoint_url
 from tests.chatbot.mock_llm_harness import (
     _config_backup_path,
     start_mock_sidebar_session,
@@ -38,7 +38,7 @@ USER_URL = "https://api.example.com/v1"
 
 def _seed_user_config() -> bytes:
     save({"endpoint": USER_URL, "text_model": "user-model", "chatbot.prompt_for_web_research": True})
-    set_api_key_for_endpoint(USER_URL, "sk-user")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(USER_URL): "sk-user"}})
     update_lru_history("user-model", "model_lru", USER_URL)
     return Path(get_config_file_path()).read_bytes()
 

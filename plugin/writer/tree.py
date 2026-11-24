@@ -29,11 +29,13 @@ from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import find_paragraph_for_range
 from plugin.doc.text_helpers import (
+    DeletionState,
     build_heading_tree,
     find_heading_by_chapter_number,
     get_string_without_tracked_deletions,
     iter_heading_nodes,
     jump_view_cursor_to_page,
+    paragraph_deletion_flags,
     with_view_cursor_left_body_locked,
 )
 
@@ -56,7 +58,7 @@ def _preview_text(text: str, max_chars: int = 100) -> str:
 def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
     for idx, element in enumerate(para_ranges[start_idx:end_idx], start_idx):
         if element.supportsService("com.sun.star.text.Paragraph"):
-            yield idx, element
+            yield idx
 
 
 def _named_doc_item(
@@ -108,6 +110,12 @@ class _TreeContext(NamedTuple):
     tree: dict[str, Any]
     next_heading_map: dict[int, int]
     bookmark_map: dict[int, str]
+    starts_deleted: list[bool]
+
+    def visible_text(self, para_index: int) -> str:
+        return get_string_without_tracked_deletions(
+            self.para_ranges[para_index], DeletionState(self.starts_deleted[para_index])
+        )
 
 
 class TreeService(ServiceBase):
@@ -195,8 +203,8 @@ class TreeService(ServiceBase):
             if strategy == "first_lines":
                 preview_parts = []
                 current_len = 0
-                for _idx, element in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx):
-                    para_text = get_string_without_tracked_deletions(element).strip()
+                for idx in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx):
+                    para_text = ctx.visible_text(idx).strip()
                     if para_text:
                         preview_parts.append(para_text)
                         current_len += len(para_text)
@@ -206,8 +214,8 @@ class TreeService(ServiceBase):
                 node["body_preview"] = _preview_text(full_preview)
             else:
                 parts = [
-                    get_string_without_tracked_deletions(element)
-                    for _idx, element in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx)
+                    ctx.visible_text(idx)
+                    for idx in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx)
                 ]
                 node["body_text"] = "\n".join(parts)
 
@@ -249,6 +257,7 @@ class TreeService(ServiceBase):
     def _load_tree_context(self, doc: Any) -> _TreeContext:
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc, elements=para_ranges)
+        starts_deleted = paragraph_deletion_flags(doc, para_ranges)
         heading_indices = collect_heading_indices(tree)
         total = len(para_ranges)
         next_heading_map = {
@@ -258,7 +267,7 @@ class TreeService(ServiceBase):
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=heading_indices, para_ranges=para_ranges
         )
-        return _TreeContext(para_ranges, tree, next_heading_map, bookmark_map)
+        return _TreeContext(para_ranges, tree, next_heading_map, bookmark_map, starts_deleted)
 
     def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get serialized document tree with content strategies."""
@@ -304,14 +313,14 @@ class TreeService(ServiceBase):
         total = len(ctx.para_ranges)
         next_heading_para_index = ctx.next_heading_map.get(heading_para_index, total)
 
-        for idx, element in _iter_body_paragraphs(ctx.para_ranges, heading_para_index + 1, next_heading_para_index):
+        for idx in _iter_body_paragraphs(ctx.para_ranges, heading_para_index + 1, next_heading_para_index):
             if content_strategy == "heading_only":
                 children.append({"type": "body", "para_index": idx})
             elif content_strategy == "full":
-                para_text = get_string_without_tracked_deletions(element)
+                para_text = ctx.visible_text(idx)
                 children.append({"type": "body", "para_index": idx, "text": para_text})
             else:
-                para_text = get_string_without_tracked_deletions(element)
+                para_text = ctx.visible_text(idx)
                 children.append({"type": "body", "para_index": idx, "preview": _preview_text(para_text)})
 
         for child in target["children"]:
