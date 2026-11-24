@@ -736,7 +736,7 @@ def test_coerce_additional_properties_maps():
         "obj_map": {
             "type": ["object", "null"],
             "additionalProperties": {
-                "type": ["object", "string"],
+                "type": "object",
                 "properties": {"headers": {"type": "boolean"}},
             },
         },

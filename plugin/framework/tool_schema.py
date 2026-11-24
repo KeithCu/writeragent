@@ -20,8 +20,9 @@
 Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
 converts arguments (including nested ``properties``, ``items``, and
 ``additionalProperties`` maps without ``patternProperties``) to their declared
-schema types and folds enum spellings; rules are listed on the function. ``call_properties`` / ``without_unknown_kwargs`` are the one
-allow-list for a call: an empty ``properties`` object is a no-arg schema.
+schema types and folds enum spellings; rules are listed on the function.
+``call_properties`` / ``without_unknown_kwargs`` are the one allow-list for a
+call: an empty ``properties`` object is a no-arg schema.
 ``normalize_outbound_tool_calls`` applies that allow-list once, before any
 provider shim builds a request.
 """
@@ -342,11 +343,13 @@ def _match_enum(value: str, enum: list[Any]) -> str:
 
 
 def _coerce_value(spec: dict[str, Any], value: Any, *, is_item: bool = False) -> Any:
-    """Coerce *value* toward one property or ``items`` schema, then walk into it.
+    """Coerce *value* toward one property, ``items``, or ``additionalProperties`` schema, then walk into it.
 
-    List elements convert only when the item type is one non-array type: a union
-    is the tool's to parse, and wrapping a bare row of an array of arrays would
-    hide the tool's own check for a row that is not a list.
+    Map values follow property rules (``is_item=False``), so unions convert and
+    scalars wrap for an array type. List elements convert only when the item
+    type is one non-array type: a union is the tool's to parse, and wrapping a
+    bare row of an array of arrays would hide the tool's own check for a row
+    that is not a list.
     """
     schema_type = spec.get("type")
     convertible = schema_type is not None and (not is_item or (isinstance(schema_type, str) and schema_type != "array"))
