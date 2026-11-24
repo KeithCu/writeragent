@@ -1960,6 +1960,34 @@ def test_redact_secret_pairs_in_text_variants() -> None:
     assert redacted_unterm == '{"password": "<redacted>'
 
 
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "it's",
+        'a"TAIL',
+        "b'\"TAIL",
+        "trail\\",
+    ],
+)
+@pytest.mark.parametrize(
+    "encode",
+    [
+        lambda d: repr(d),
+        lambda d: json.dumps({"e": str(d)}),
+        lambda d: repr({"arguments": json.dumps(d)}),
+    ],
+)
+def test_redact_secret_pairs_in_text_repr_and_mixed_layers(secret: str, encode: Any) -> None:
+    from plugin.framework.logging import redact_secret_pairs_in_text
+
+    text = encode({"name": "S", "password": secret})
+    redacted = redact_secret_pairs_in_text(text)
+    assert "TAIL" not in redacted
+    assert "it's" not in redacted
+    assert "trail" not in redacted
+    assert "<redacted>" in redacted
+
+
 def test_redact_secret_pairs_leaves_other_text() -> None:
     from plugin.framework.logging import redact_secret_pairs_in_text
 

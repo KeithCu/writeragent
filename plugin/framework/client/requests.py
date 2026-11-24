@@ -9,8 +9,9 @@ The stop / timeout / retry / redaction / strict-JSON behavior is
 ``LlmHttpTransport``. This module adapts a URL into a shared persistent
 transport per ``(origin, connect_timeout)`` so repeated requests to the same
 host (such as web search bursts) reuse one keep-alive connection, while
-``shared=False`` callers (image URLs) get a one-off transport, and
-keeping LibrePy free of ``llm_client``.
+keeping LibrePy free of ``llm_client``. Callers hitting arbitrary origins
+(image URLs) pass ``shared=False`` for a one-off transport so those origins
+do not grow the cache until quit.
 """
 
 from __future__ import annotations
@@ -111,7 +112,7 @@ def sync_request(
     fresh_connection: bool = False,
     shared: bool = True,
 ) -> Any:
-    """Blocking HTTP GET or POST on the shared transport.
+    """Blocking HTTP GET or POST on the shared transport, or a one-off one with ``shared=False``.
 
     ``timeout`` is the read budget (Settings ``request_timeout`` for LLM and
     image work, or an explicit probe value). Connect uses

@@ -156,14 +156,15 @@ def is_secret_key(key: str) -> bool:
     return False
 
 
-# One quoted key, then ":" and either an opening quote or a number. Group 1 is the run
-# of backslashes before the quote: 0 in plain JSON or a Python repr, 1 when that JSON is
-# itself inside a JSON string, 3 one level deeper.
-_SECRET_PAIR_RE = re.compile(r"""(?<!\\)(\\*)(["'])([^"'\\\n]{1,64})\1\2\s*:\s*(?:\1(["'])|(-?\d[\d.eE+-]*))""")
+# One quoted key, then ":" and either an opening quote (with its own escape run) or a number.
+# Group 1 is the key's backslash run; group 4 is the value's opening backslash run, which can
+# differ when a Python repr is inside JSON or JSON is inside a Python repr.
+_SECRET_PAIR_RE = re.compile(r"""(?<!\\)(\\*)(["'])([^"'\\\n]{1,64})\1\2\s*:\s*(?:(\\*)(["'])|(-?\d[\d.eE+-]*))""")
 _CLOSING_QUOTE_RES = {
     '"': re.compile(r'(?<!\\)(\\*)"'),
     "'": re.compile(r"(?<!\\)(\\*)'"),
 }
+_AFTER_VALUE_RE = re.compile(r"""\s*(?:[,}\])"']|\\n|$)""")
 
 
 def redact_secret_pairs_in_text(text: str) -> str:
@@ -171,7 +172,9 @@ def redact_secret_pairs_in_text(text: str) -> str:
 
     Log lines hold tool arguments as text (raw argument strings, sub-agent replay
     messages, error text), where redact_sensitive_payload_for_log cannot see the keys.
-    An unterminated value is masked to the end of the text.
+    Separate from redact_sensitive_payload_for_log because approval cards round-trip
+    that function's output through restore_masked, so a partly masked string could be
+    sent to the remote server. An unterminated value is masked to the end of the text.
     """
     if not _SECRET_KEY_WORD_RE.search(text):
         return text
@@ -183,17 +186,17 @@ def redact_secret_pairs_in_text(text: str) -> str:
             # Resume at the value: it may be a string that holds another, escaped pair.
             at = m.end(3) + len(escape) + 1
             continue
-        if m[4] is None:
+        if m[5] is None:
             quote = escape + m[2]
-            out.append(text[pos : m.start(5)] + quote + LOG_REDACT_SECRET_PLACEHOLDER + quote)
+            out.append(text[pos : m.start(6)] + quote + LOG_REDACT_SECRET_PLACEHOLDER + quote)
             pos = at = m.end()
             continue
-        # A closing quote has the key's own escape run plus whole escaped backslashes,
-        # which come in multiples of 2 * (depth + 1); an inner quote does not.
-        depth = len(escape)
+        # A closing quote has the value's own escape run plus whole escaped backslashes,
+        # which come in multiples of 2 * (depth + 1), followed by valid post-value syntax.
+        depth = len(m[4])
         stop = len(text)
-        for c in _CLOSING_QUOTE_RES[m[4]].finditer(text, m.end()):
-            if len(c[1]) % (2 * (depth + 1)) == depth:
+        for c in _CLOSING_QUOTE_RES[m[5]].finditer(text, m.end()):
+            if len(c[1]) % (2 * (depth + 1)) == depth and _AFTER_VALUE_RE.match(text, c.end()):
                 stop = c.end() - 1 - depth
                 break
         out.append(text[pos : m.end()] + LOG_REDACT_SECRET_PLACEHOLDER)

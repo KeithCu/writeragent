@@ -512,13 +512,14 @@ def test_sync_request_unshared_closes_on_error():
 
     def _factory(*_args, **_kwargs):
         conn = MagicMock()
-        conn.getresponse.return_value = _response(500, b"", "Internal Server Error")
+        conn.getresponse.return_value = _response(200, b"{not json", "OK")
         conns.append(conn)
         return conn
 
     with patch("http.client.HTTPSConnection", side_effect=_factory):
-        with pytest.raises(NetworkError):
-            sync_request("https://api.example/v1/a", parse_json=False, timeout=1, shared=False)
+        with pytest.raises(NetworkError) as raised:
+            sync_request("https://api.example/v1/a", parse_json=True, timeout=1, shared=False)
 
+    assert raised.value.code == "BAD_RESPONSE"
     assert len(conns) == 1
-    conns[0].close.assert_called()
+    conns[0].close.assert_called_once()
