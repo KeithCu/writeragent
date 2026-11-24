@@ -12,8 +12,7 @@ reaper. Stop cancels the request's ``SendCancellation``, and its hook kills the 
 
 Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
 Desktop quit retires the warm child via the supervisor hook registered in
-``main.py``; this module does not register a hook. ``shutdown_kokoro_pool`` clears
-the module singleton for tests only.
+``main.py``; this module does not register a hook.
 """
 
 from __future__ import annotations
@@ -117,9 +116,6 @@ class KokoroProcessPool:
             if is_cancelled(cancel):
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
-            if self._shutdown:
-                return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
-
             if result.get("status") == "error":
                 return result
 
@@ -196,14 +192,3 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
             _POOL = KokoroProcessPool(py)
         _POOL_CONFIG_VENV = venv_str
         return _POOL
-
-
-def shutdown_kokoro_pool() -> None:
-    """Tests only. Safe to call when the pool was never used."""
-    global _POOL, _POOL_CONFIG_VENV
-    with _POOL_LOCK:
-        pool = _POOL
-        _POOL = None
-        _POOL_CONFIG_VENV = None
-    if pool is not None:
-        pool.shutdown()
