@@ -252,9 +252,15 @@ def get_document_context_for_chat(
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
                 tail_start = total - end_chars
-                start_excerpt = _inject_selection_markers(text[:start_chars], 0, sel_start, sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
+                # A selection across the omitted middle opens in the head and closes in the tail.
+                spans_gap = sel_start < start_chars and sel_end > tail_start
+                start_excerpt = _inject_selection_markers(
+                    text[:start_chars], 0, sel_start, None if spans_gap else sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]"
+                )
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
-                end_excerpt = _inject_selection_markers(text[tail_start:], tail_start, sel_start, sel_end, "[DOCUMENT CONTINUE]\n", "")
+                end_excerpt = _inject_selection_markers(
+                    text[tail_start:], tail_start, None if spans_gap else sel_start, sel_end, "[DOCUMENT CONTINUE]\n", ""
+                )
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _writer_snapshot(
                     model,
@@ -286,23 +292,28 @@ def get_document_context_for_chat(
 def _inject_selection_markers(
     excerpt_text: str,
     excerpt_start: int,
-    sel_start: int,
-    sel_end: int,
+    sel_start: int | None,
+    sel_end: int | None,
     prefix: str,
     suffix: str,
 ) -> str:
-    """Insert selection markers at visible offsets in *excerpt_text*."""
+    """Insert selection markers at visible offsets in *excerpt_text*.
+
+    None means that end is marked in another window.
+    """
     visible_len = len(excerpt_text)
-    s = max(0, min(sel_start - excerpt_start, visible_len))
-    e = max(0, min(sel_end - excerpt_start, visible_len))
+    s = 0 if sel_start is None else max(0, min(sel_start - excerpt_start, visible_len))
+    e = visible_len if sel_end is None else max(0, min(sel_end - excerpt_start, visible_len))
     if s >= visible_len or e <= 0:
         return prefix + excerpt_text + suffix
+    start_marker = "[SELECTION_START]" if sel_start is not None else ""
+    end_marker = "[SELECTION_END]" if sel_end is not None else ""
     return (
         prefix
         + excerpt_text[:s]
-        + "[SELECTION_START]"
+        + start_marker
         + excerpt_text[s:e]
-        + "[SELECTION_END]"
+        + end_marker
         + excerpt_text[e:]
         + suffix
     )

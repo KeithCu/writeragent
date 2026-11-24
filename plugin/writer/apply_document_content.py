@@ -815,7 +815,7 @@ class ApplyDocumentContent(ToolBase):
             if headings is None:
                 with session:
                     return run()
-            with session, UndoStepOrRollback(doc, next_agent_edit_undo_title()):
+            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 return run()
 
         def once() -> list[dict[str, Any]]:
@@ -1366,7 +1366,7 @@ class ApplyDocumentContent(ToolBase):
         captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
         headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
-        with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
+        with UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()), session:
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
@@ -1435,7 +1435,7 @@ class ApplyDocumentContent(ToolBase):
         rng = request_selection_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
-        with session, (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()):
+        with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.insert_content_at_position(
@@ -1777,7 +1777,7 @@ class ApplyDocumentContent(ToolBase):
         # review session.
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
-            # Rollback must stay outside the session: undo cannot run while its undo context is open.
+            # The undo step is outermost, so a rollback runs after the session restores RecordChanges and the author.
             with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
