@@ -216,7 +216,7 @@ def cell_sheet_value(val: Any) -> int | float | str | None:
 def _compare_formula(layout: SheetLayout, case: SerializationCase, formula_row: int) -> str:
     calc_col = calc_col_letter(layout.col_calc_oracle)
     py_col = calc_col_letter(layout.col_python_formula)
-    if case.mode == "matrix_index":
+    if case.mode == "matrix":
         return (
             f"matrix: Ctrl+Shift+Enter over 4x4 block in {py_col}; "
             f"each cell should match {calc_col}"

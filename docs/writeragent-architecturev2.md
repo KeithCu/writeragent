@@ -154,7 +154,7 @@ LibreOffice ships its own embedded Python. Compiled libraries such as **NumPy** 
 
 #### `=PY()` and `=PYTHON()` Add-Ins
 
-The Calc add-in executes Python expressions with **extension-owned array spill** (not engine spill): a single cell returning a list/2D array auto-spills into neighbors via a deferred task, `#SPILL!` on collision, and an `XModifyListener` clears orphans — all inside an undo-isolated context so Ctrl+Z removes formula and spill together. **Shared kernels** (`calc:…` sessions) persist one namespace per workbook for fast recalc; the init script seeds once. Cell ranges map to a `CalcRange` object with `.values`, `.to_numpy()`, `.to_pandas(date_cols=True)`; NumPy/pandas results are serialized back for both Calc and the LLM. A **matrix fast path** (`WorkerResultSession`) caches a formula's result on the host so repeated cells reuse one IPC call (~99.9% IPC reduction for large matrix columns).
+The Calc add-in executes Python expressions with **extension-owned array spill** (not engine spill): a single cell returning a list/2D array auto-spills into neighbors via a deferred task, `#SPILL!` on collision, and an `XModifyListener` clears orphans — all inside an undo-isolated context so Ctrl+Z removes formula and spill together. **Shared kernels** (`calc:…` sessions) persist one namespace per workbook for fast recalc; the init script seeds once. Cell ranges map to a `CalcRange` object with `.values`, `.to_numpy()`, `.to_pandas(date_cols=True)`; NumPy/pandas results are serialized back for both Calc and the LLM. Multi-cell `{=PY()}` array blocks receive a native `[][]string` / `[][]any` UNO matrix in one worker call.
 
 #### Two-Phase Orchestration
 

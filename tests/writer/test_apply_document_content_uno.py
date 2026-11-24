@@ -647,7 +647,6 @@ def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
 
-
 @native_test
 @with_native_doc("writer")
 def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ctx, doc):
