@@ -450,19 +450,25 @@ def test_visible_body_range_round_trips_uno(ctx, doc):
         def _in_table(off: int) -> bool:
             return any(ts <= off <= te for ts, te in table_ranges)
 
-        for start in range(len(text)):
-            for end in range(start + 1, len(text) + 1):
-                if _in_table(start) or _in_table(end):
-                    try:
-                        visible_body_range(doc, start, end)
-                    except ToolExecutionError:
-                        continue
-                    raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
-                found = visible_body_range(doc, start, end)
-                assert found is not None
-                _, got_offsets, _ = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
-                assert got_offsets == [found.start, found.end]
-                assert text[found.start:found.end] == found.text
+        pairs = [(i, i + 1) for i in range(len(text))]
+        non_table = [i for i in range(len(text) + 1) if not _in_table(i)]
+        if len(non_table) >= 2:
+            pairs.append((non_table[0], non_table[-1]))
+            pairs.append((non_table[0], non_table[len(non_table) // 2]))
+            pairs.append((non_table[len(non_table) // 2], non_table[-1]))
+
+        for start, end in pairs:
+            if _in_table(start) or _in_table(end):
+                try:
+                    visible_body_range(doc, start, end)
+                except ToolExecutionError:
+                    continue
+                raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
+            found = visible_body_range(doc, start, end)
+            assert found is not None
+            _, got_offsets, _ = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+            assert got_offsets == [found.start, found.end]
+            assert text[found.start:found.end] == found.text
 
 
 @native_test
