@@ -1459,3 +1459,24 @@ def test_shape_connect_prepare_keeps_arrowhead_params():
     assert prep.error is None
     assert prep.kwargs["line_end"] == "arrow"
     assert not prep.ignored
+
+
+def test_apply_shape_properties_zero_black_and_empty_omitted():
+    from plugin.draw.shapes import _apply_shape_properties
+
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    with patch("plugin.draw.shapes.apply_character_properties", return_value={}) as mock_char:
+        failed = _apply_shape_properties(shape, {"fill_color": 0, "line_color": 0, "text_color": 0})
+    assert failed == []
+    set_calls = [(c.args[0], c.args[1]) for c in shape.setPropertyValue.call_args_list]
+    assert ("FillColor", 0) in set_calls
+    assert ("LineColor", 0) in set_calls
+    assert mock_char.call_args.kwargs["color"] == 0
+
+    shape.setPropertyValue.reset_mock()
+    with patch("plugin.draw.shapes.apply_character_properties", return_value={}) as mock_char:
+        failed_empty = _apply_shape_properties(shape, {"fill_color": "", "line_color": "", "text_color": ""})
+    assert failed_empty == []
+    shape.setPropertyValue.assert_not_called()
+    mock_char.assert_not_called()

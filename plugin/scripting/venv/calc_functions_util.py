@@ -413,6 +413,45 @@ def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
     return arr
 
 
+def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.ndarray:
+    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
+
+    Same-shaped known_y and known_x are one x variable (CheckMatrix nCase 1); with one variable
+    new_x may have any shape. Inputs Calc rejects raise ValueError.
+    """
+    n = known_y.size
+    y = known_y.ravel()
+    if known_x is None:
+        x = np.arange(1, n + 1, dtype=float).reshape(-1, 1)
+    else:
+        x = np.asarray(known_x, dtype=float)
+        x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
+    # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
+    if x.ndim != 2 or x.shape[0] != n or np.any(np.isnan(x)) or np.any(np.isnan(y)):
+        raise ValueError
+    k = x.shape[1]
+    with_intercept = as_nonzero(const)
+    require_samples(n, k, with_intercept)
+    if new_x is None:
+        at = x
+    else:
+        at = np.asarray(new_x, dtype=float)
+        at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
+    # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
+    if at.ndim != 2 or at.shape[1] != k or np.any(np.isnan(at)):
+        raise ValueError
+    # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the
+    # intercept column indistinguishable to lstsq.
+    center = x.mean(axis=0) if with_intercept else np.zeros(k)
+    base = y.mean() if with_intercept else 0.0
+    # A constant column (or an all-zero one without intercept) has no slope: PushNoValue.
+    spread = np.ptp(x, axis=0) if with_intercept else np.abs(x).max(axis=0)
+    if np.any(spread == 0):
+        raise ValueError
+    slopes = np.linalg.lstsq((x - center) / spread, y - base, rcond=None)[0]
+    return (at - center) / spread @ slopes + base
+
+
 def scipy_stats() -> Any | None:
     """Return scipy.stats module if available, else None."""
     try:

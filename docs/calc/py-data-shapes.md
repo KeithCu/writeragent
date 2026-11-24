@@ -190,13 +190,13 @@ Ingress blanks can poison naive `np.sum` / `np.mean` — prefer `nan*` helpers w
 
 - Python `None` → `""` (empty cell).
 - `float('nan')` / `np.nan` → raw NaN → cascading error cell (`#NUM!`) on the formula cell and in spill neighbours. `calc.na()`, an `xmatch` miss, and omitted `textsplit` padding return a quiet NaN carrying `ERR_NA` (`0x7FFF`) so they show `#N/A` on the cell and in spill neighbours; `calc.filter` with no match and no `if_empty` returns `NESTED_ARRAY_NAN` (`533`, `Err:533`); other NaNs stay `#NUM!`.
-- `±inf` passes through (may also error in formulas). **Not a missing-value sentinel.**
+- `±inf` → `#NUM!` on the formula cell and in spill neighbours (503), like NaN. **Not a missing-value sentinel.**
 - A returned string that is exactly `#VALUE!`, `#NUM!`, `#DIV/0!`, `#N/A`, `#N/A N/A`, `#REF!`, `#NAME?`, or `#NULL!` becomes that Calc error on the formula cell (`ISERROR` true). The add-in returns a quiet NaN whose low 32 bits are the `FormulaError` code (519, 503, 532, 32767, 524, 525, 521).
 - An uncaught worker exception becomes one such error on the formula cell (default `#VALUE!`; `#DIV/0!` for `ZeroDivisionError`; `#NUM!` for `OverflowError` / `FloatingPointError`; `#NAME?` for `NameError` / `UnboundLocalError`). The sentence `Code execution failed at line …` is `log.error` and the LibrePy diagnostic, not the cell. Timeout (`VENV_TIMEOUT`, `EXECUTION_TIMEOUT`), missing venv (`VENV_NOT_FOUND`), Stop (`USER_STOPPED`), the size limit, a missing caller, and `#SPILL!` stay text. The worker's `code` decides; the message is not scanned.
 - A helper error dict that is the `=PY()` result becomes that same payload-NaN error (default `#VALUE!`, low bits 519). The dict is the `error_result` shape from `plugin/scripting/venv/results.py`: `status` is `"error"`, `code` and `message` are strings, `code` is not blank, and the only other allowed keys are `helper` (non-empty string) and `details` (a dict). `code` selects another Calc error only when it is exactly a token in `_CALC_ERROR_TOKEN_CODES` or an exception name in `_WORKER_EXC_CODES` (`ZeroDivisionError`, `OverflowError`, `FloatingPointError`, `NameError`, `UnboundLocalError`). The cell does not show the dict. `log.error("=PY() worker failure: %s")` and the LibrePy diagnostic store `helper: code: message` when `helper` is set, otherwise `code: message`. Any other dict stays text (`str(dict)` from `to_calc_compatible`), including `status: "ok"` results and error dicts with extra keys. `analyze_data`, chat, MCP, Run Python Script, and quant/tabular egress still receive the dict.
 - `calc.*` helpers report sheet errors by the four conventions in the `calc_functions_util` module docstring; text in a numeric argument of a distribution helper raises and shows `#VALUE!`, as in Calc.
 - `calc.*` flag arguments (cumulative, const, ignore_empty, match_end, …) read like Calc's `GetBool`: a blank is false, the text `TRUE`/`FALSE` (any case) are booleans, numeric text is its number, and other text is `#VALUE!`. FILTER accepts only a one-dimensional numeric include (`> 0`, no text); a two-dimensional include returns `#VALUE!`.
-- Spill neighbors: `#N/A` is written as an empty UNO value (`setDataArray` of `None` → `#N/A`). Other error tokens and NaN values (plain NaN as `=#ERR503!`, payload NaNs with their code) are written as `=#ERRxxx!` formula blocks and cleaned up with the spill when they still hold the bare error literal. Chat, MCP `python_run_script`, and Run Python Script still receive the Python string or the error dict.
+- Spill neighbors: `#N/A` is written as an empty UNO value (`setDataArray` of `None` → `#N/A`). Other error tokens and non-finite values (plain NaN and `±inf` as `=#ERR503!`, payload NaNs with their code) are written as `=#ERRxxx!` formula blocks and cleaned up with the spill when they still hold the bare error literal. Chat, MCP `python_run_script`, and Run Python Script still receive the Python string or the error dict.
 - `decimal.Decimal` and `fractions.Fraction` → `float` (precision loss is accepted; Calc only has doubles). Column kind must stay `"float"`, not `"int"` (truncation is not accepted). A text cell earlier in the same grid does not turn a later Decimal or Fraction into text.
 - **Int fidelity:** the `split_grid` buffer is float64. Integers outside ±2^53 round on pack and unpack. Account numbers and 64-bit IDs should travel as strings. There is no int64 wire lane (Calc cells are doubles anyway). On egress, an integer that overflows float64 is written as its decimal text; `NaN` is unchanged.
 - **Size threshold (mixed `None`):** a Python `None` in a mixed result below `BINARY_MIN_CELLS` stays `None` and spills as a blank. The same `None` at or above the threshold is a NaN hole in `split_grid`. Host unpack keeps that hole as `float('nan')`, so the sheet shows a Calc error. Child unpack of a mixed envelope still restores `None`. The buffer has no separate blank bit; do not collapse host NaN to `None` to hide the threshold.
@@ -218,7 +218,7 @@ result = float("nan")             # #NUM! / #VALUE! (cascades)
 result = [[1.0, np.nan, 3.0]]     # 1, error, 3
 ```
 
-**We do not round-trip "real NaN" as a special visible sentinel.** `±inf` is never coerced to empty.
+**We do not round-trip "real NaN" as a special visible sentinel.** `±inf` is never coerced to empty; it shows `#NUM!`.
 
 ### Author / LLM summary
 
@@ -306,6 +306,7 @@ Returning a DataFrame (or named Series) uses the existing `dataframe` envelope (
 | --- | --- |
 | DataFrame with rows | Header row + body (`dataframe_to_labeled_grid`) |
 | **0-row** DataFrame | **Header only** (column names, no body) |
+| DataFrame or named Series whose body is only figures | `"Image inserted"` / `"Images inserted"` (no spill) |
 | Named empty Series | Header-only one-column grid |
 | Unnamed empty Series | Empty (`""`) |
 | MultiIndex **columns** | Flattened labels `A / x` (not `"('A', 'x')"`). Blank and `None` levels are omitted and parts are stripped; a pandas `NaN` level stays the word `nan`; an all-blank tuple name is `value`. |

@@ -278,6 +278,20 @@ def test_trend_const_and_multivariate():
     pred = calc.trend(y, x, [5, 6])
     assert np.allclose(pred, [10.0, 12.0], atol=1e-6)
 
+    # Same-shaped 2x2 blocks are one x variable, matching Calc CheckMatrix nCase 1.
+    same_shape = calc.trend([[1, 2], [4, 8]], [[1, 2], [3, 4]])
+    assert len(same_shape) == 4
+    assert np.allclose(same_shape, [0.3, 2.6, 4.9, 7.2], atol=1e-9)
+
+    # Large x near 1e8 stays centred and matches the 1..5 fit.
+    y5 = [3, 5, 20, 25, 90]
+    assert np.allclose(
+        calc.trend(y5, [100000001, 100000002, 100000003, 100000004, 100000005]),
+        calc.trend(y5, [1, 2, 3, 4, 5]),
+        atol=1e-9,
+    )
+    assert calc.trend([1, 2, 3], [7, 7, 7]) == "#VALUE!"
+
 
 def _serial(year: int, month: int, day: int) -> int:
     return dt.date(year, month, day).toordinal() - 693594
@@ -618,9 +632,24 @@ def test_xmatch_miss_and_bad_mode_nan_payload():
     assert math.isnan(plain_nan_lookup)
     assert _nan_low32(plain_nan_lookup) == 0
 
+    for smode in (0, 3, -3):
+        hit = calc.xmatch(1, [1, 2], search_mode=smode)
+        miss_sm = calc.xmatch(9, [1, 2], search_mode=smode)
+        assert math.isnan(hit) and _nan_low32(hit) == 0
+        assert math.isnan(miss_sm) and _nan_low32(miss_sm) == 0
+    assert calc.xmatch(2, [1, 2], search_mode=2) == 2.0
+    assert calc.xmatch(2, [1, 2], search_mode=-2) == 2.0
+    assert calc.xmatch(2, [1, 2], search_mode=2.6) == 2.0
+
 
 def test_xlookup_invalid_match_mode_returns_value_error():
     for mode in (9, -2, 3):
         assert calc.xlookup(1, [1, 2], [10, 20], match_mode=mode) == "#VALUE!"
         assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", match_mode=mode) == "#VALUE!"
+    for smode in (0, 3, -3):
+        assert calc.xlookup(1, [1, 2], [10, 20], search_mode=smode) == "#VALUE!"
+        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", search_mode=smode) == "#VALUE!"
+    assert calc.xlookup(2, [1, 2], [10, 20], search_mode=2) == 20
+    assert calc.xlookup(2, [1, 2], [10, 20], search_mode=-2) == 20
+    assert calc.xlookup(2, [1, 2], [10, 20], search_mode=2.6) == 20
 

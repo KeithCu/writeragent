@@ -28,12 +28,11 @@ from .calc_functions_util import (
     extract_numeric_array,
     format_quantized,
     is_calc_error,
-    orient_columns,
     parse_weekend,
-    require_samples,
     round_half_up,
     scipy_stats,
     serial_to_date,
+    trend_fit,
     wildcard_fullmatch,
     yearfrac,
 )
@@ -400,40 +399,13 @@ def trend(*args: Any) -> Any:
     try:
         if not args:
             return "#VALUE!"
-        data_y = np.asarray(args[0], dtype=float).ravel()
-        if data_y.size == 0 or np.any(np.isnan(data_y)):
-            return "#VALUE!"
-        if len(args) > 1 and args[1] is not None:
-            data_x = orient_columns(np.asarray(args[1], dtype=float), len(data_y), axis=0)
-        else:
-            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
-
-        if np.any(np.isnan(data_x)):
-            return "#VALUE!"
-
-        if len(args) > 2 and args[2] is not None:
-            new_data_x = orient_columns(np.asarray(args[2], dtype=float), data_x.shape[1], axis=1)
-        else:
-            new_data_x = data_x
-
-        if np.any(np.isnan(new_data_x)):
-            return "#VALUE!"
-
-        # bool("FALSE") is True, so a const string kept the intercept.
-        # as_nonzero maps "FALSE" / "TRUE" / 0.
-        const = as_nonzero(args[3]) if len(args) > 3 else True
-        require_samples(data_x.shape[0], data_x.shape[1], const)
-
-        if const:
-            data_x = np.c_[data_x, np.ones(data_x.shape[0])]
-            new_data_x = np.c_[new_data_x, np.ones(new_data_x.shape[0])]
-        c = np.linalg.lstsq(data_x, data_y, rcond=None)[0]
-        pred = new_data_x @ c
-
-        return pred.tolist()
+        return trend_fit(
+            np.asarray(args[0], dtype=float),
+            args[1] if len(args) > 1 else None,
+            args[2] if len(args) > 2 else None,
+            args[3] if len(args) > 3 else True,
+        ).tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
-        # A broad Exception hid programming errors as #VALUE!. A bad const
-        # string still raises ValueError inside as_nonzero and stays #VALUE!.
         return "#VALUE!"
 
 
@@ -836,6 +808,12 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
 
 # ScXLookup / ScXMatch (interpr1.cxx) modes supported here; Calc also has 3 (regex).
 _MATCH_MODES = (-1, 0, 1, 2)
+_SEARCH_MODES = (-2, -1, 1, 2)
+
+
+def _modes_supported(match_mode: int | float, search_mode: int | float) -> bool:
+    # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (IllegalParameter).
+    return int(float(match_mode)) in _MATCH_MODES and int(float(search_mode)) in _SEARCH_MODES
 
 
 def _find_match_index(
@@ -896,8 +874,7 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
-    # ScXLookup (interpr1.cxx) validates match_mode before searching.
-    if int(float(match_mode)) not in _MATCH_MODES:
+    if not _modes_supported(match_mode, search_mode):
         return "#VALUE!"
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
@@ -937,9 +914,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
-    # ScXMatch (interpr1.cxx) validates match_mode before searching (IllegalParameter);
-    # 3 (regex) is not supported here.
-    if int(float(match_mode)) not in _MATCH_MODES:
+    if not _modes_supported(match_mode, search_mode):
         return float("nan")
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
