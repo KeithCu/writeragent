@@ -458,6 +458,50 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
             WorkbookState.forget_key(st.key)
 
 
+def _with_repo_venv_for_tests(ctx):
+    """Temporarily point the test profile's ``scripting.python_venv_path`` at the repo venv."""
+    from contextlib import contextmanager
+    import glob
+    import json
+    from plugin.framework.config import _resolve_config_path_from_ctx
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
+
+    @contextmanager
+    def _mgr():
+        repo_venv = _project_venv()
+        profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
+        try:
+            profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
+        except Exception:
+            pass
+
+        old_cfgs: dict[str, dict] = {}
+        for pcfg in profile_cfgs:
+            if os.path.exists(pcfg):
+                try:
+                    with open(pcfg, "r", encoding="utf-8") as f:
+                        old_cfgs[pcfg] = json.load(f)
+                    d = dict(old_cfgs[pcfg])
+                    d["scripting.python_venv_path"] = repo_venv
+                    with open(pcfg, "w", encoding="utf-8") as f:
+                        json.dump(d, f, indent=2)
+                except Exception:
+                    pass
+        shutdown_venv_workers_for_tests()
+        try:
+            yield
+        finally:
+            for pcfg, old_d in old_cfgs.items():
+                try:
+                    with open(pcfg, "w", encoding="utf-8") as f:
+                        json.dump(old_d, f, indent=2)
+                except Exception:
+                    pass
+            shutdown_venv_workers_for_tests()
+
+    return _mgr()
+
+
 @native_test
 @with_native_doc("calc")
 def test_py_addin_token_formula_errors(ctx, doc):
@@ -465,30 +509,31 @@ def test_py_addin_token_formula_errors(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     cases = [("#DIV/0!", 532), ("#N/A", 32767)]
-    try:
-        for row_idx, (token, _expected_err) in enumerate(cases):
-            sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
-        sheet.getCellByPosition(0, 2).setFormula('=PY("result=calc.na()")')
-        sheet.getCellByPosition(0, 3).setFormula('=PY("result=calc.xmatch(9,[1,2])")')
-        sheet.getCellByPosition(1, 2).setFormula("=ISNA(A3)")
-        sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
-        sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
-        sheet.getCellByPosition(2, 3).setFormula('=IFNA(A4;"na")')
-        doc.calculateAll()
-        for row_idx, (_token, expected_err) in enumerate(cases):
-            assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
-        a3 = sheet.getCellByPosition(0, 2)
-        a4 = sheet.getCellByPosition(0, 3)
-        assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
-        assert a4.getError() == 32767, (a4.getError(), a4.getString(), a4.getValue())
-        assert sheet.getCellByPosition(1, 2).getValue() == 1.0
-        assert sheet.getCellByPosition(1, 3).getValue() == 1.0
-        assert sheet.getCellByPosition(2, 2).getString() == "na"
-        assert sheet.getCellByPosition(2, 3).getString() == "na"
-    finally:
-        st = WorkbookState.known(doc)
-        if st is not None:
-            WorkbookState.forget_key(st.key)
+    with _with_repo_venv_for_tests(ctx):
+        try:
+            for row_idx, (token, _expected_err) in enumerate(cases):
+                sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
+            sheet.getCellByPosition(0, 2).setFormula('=PY("result=calc.na()")')
+            sheet.getCellByPosition(0, 3).setFormula('=PY("result=calc.xmatch(9,[1,2])")')
+            sheet.getCellByPosition(1, 2).setFormula("=ISNA(A3)")
+            sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
+            sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
+            sheet.getCellByPosition(2, 3).setFormula('=IFNA(A4;"na")')
+            doc.calculateAll()
+            for row_idx, (_token, expected_err) in enumerate(cases):
+                assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
+            a3 = sheet.getCellByPosition(0, 2)
+            a4 = sheet.getCellByPosition(0, 3)
+            assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
+            assert a4.getError() == 32767, (a4.getError(), a4.getString(), a4.getValue())
+            assert sheet.getCellByPosition(1, 2).getValue() == 1.0
+            assert sheet.getCellByPosition(1, 3).getValue() == 1.0
+            assert sheet.getCellByPosition(2, 2).getString() == "na"
+            assert sheet.getCellByPosition(2, 3).getString() == "na"
+        finally:
+            st = WorkbookState.known(doc)
+            if st is not None:
+                WorkbookState.forget_key(st.key)
 
 
 @native_test
