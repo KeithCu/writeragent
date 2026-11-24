@@ -788,9 +788,10 @@ class ApplyDocumentContent(ToolBase):
                 # Before the text edit. One override on two outline links would stamp
                 # both with the same target. Zero links would paint a bookmark or plain text.
                 raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
-            # preserve_url: a bookmark target covering the match. A same-length setString
-            # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
-            # replace can clear it on the new characters; put that target back unchanged.
+            # preserve_url: a bookmark target covering the match. An untracked
+            # preserve-format replace keeps HyperLinkURL except on a one-character
+            # run; HTML replaces and recorded replaces can clear it on the new
+            # characters, so put that target back unchanged.
             needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
 
         def run() -> list[dict[str, Any]]:
@@ -1763,8 +1764,8 @@ class ApplyDocumentContent(ToolBase):
         doc = ctx.doc
         found = _grow_over_edge_space(found, params.separator)
         # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
-        # deletes-then-imports). edited_context uses this collapsed start. A preserve-format
-        # replace's per-character setString pushes a cursor saved here forward, so the
+        # deletes-then-imports). edited_context uses this collapsed start.
+        # replace_preserving_format pushes a cursor saved here forward, so the
         # outline URL is painted from the paragraph start (_select_replacement), not from
         # this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
