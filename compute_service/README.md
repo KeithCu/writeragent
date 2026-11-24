@@ -100,7 +100,7 @@ Always unauthenticated even when Bearer authentication is configured for executi
 
 ### 2. Execution Endpoint (`POST /v1/execute[?session_id={id}]`)
 
-Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`, `NaN`/`Inf` → `null`).
+Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`, `NaN`/`Inf` → `null`, lone surrogates → U+FFFD).
 
 - **Sticky routing via URL query parameter**: Stateful (shared) execution is selected by a non-empty `session_id` query parameter (`POST /v1/execute?session_id={id}`). Omitted `session_id` is one-shot isolated. Leftover `mode` in JSON or multipart `meta` is ignored (kits may still send `mode: "isolated"`). Query-only `session_id` lets Layer 7 routers, ingress proxies, and load balancers route stickily without buffering and parsing JSON request bodies:
   - **HAProxy**: `balance url_param session_id`
@@ -504,7 +504,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 - Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker once older kits no longer send peel.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode?`, `timeout_ms?`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length). Shared vs isolated is derived from the URL `session_id` query, not client `mode`. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
 - Envelope: `{id, code, session_id (sticky calls only), init_script, timeout_sec, expect_namespace?, data_json: bytes}`. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
-- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
+- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `dumps_response` (`json.dumps(..., allow_nan=False)`, lone surrogates become U+FFFD) → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
 **Pickle framing** (control envelope only — [`plugin/framework/ipc.py`](../plugin/framework/ipc.py) `AllowlistUnpickler`, [`worker_stdio.py`](worker_stdio.py)):
