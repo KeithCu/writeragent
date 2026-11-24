@@ -1455,9 +1455,17 @@ def replace_xtext_with_html(
             for el in list(iter_elements(text_obj.createEnumeration())):
                 if _uno_service_true(el, "com.sun.star.text.TextTable"):
                     text_obj.removeTextContent(el)
-        # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-        # around tables so every shape clears, including table-only headers.
-        text_obj.setString("")
+            text_obj.setString("")
+        elif _uno_service_true(next(iter_elements(text_obj.createEnumeration()), None), "com.sun.star.text.TextTable"):
+            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
+            # around tables, needed when the region starts with a table because a text cursor
+            # cannot start there. While recording, that helper stays as a struck empty paragraph.
+            text_obj.setString("")
+        else:
+            cursor = text_obj.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)

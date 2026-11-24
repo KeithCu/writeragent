@@ -180,6 +180,7 @@ def test_deleted_by_the_edit():
         "Delete" if name == "RedlineType" else SimpleNamespace(getText=lambda: text))
     text.compareRegionStarts.return_value = 1
     text.compareRegionEnds.return_value = 1
+    model.getRedlines.return_value.hasElements.return_value = True
     model.getRedlines.return_value.getCount.return_value = 1
     enum = model.getRedlines.return_value.createEnumeration.return_value
     enum.hasMoreElements.side_effect = [True, False]

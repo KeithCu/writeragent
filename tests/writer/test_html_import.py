@@ -117,6 +117,7 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None
@@ -145,6 +146,7 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
 
 def _undo_model():
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     model.getUndoManager.return_value = undo_mgr
@@ -190,6 +192,7 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None
@@ -221,6 +224,7 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = True
     model.getUndoManager.return_value = undo_mgr
@@ -241,6 +245,7 @@ def test_replace_xtext_with_html_rollback_failure_keeps_code():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None

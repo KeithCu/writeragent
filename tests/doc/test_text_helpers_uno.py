@@ -365,3 +365,155 @@ def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ct
     text.insertTextContent(text.getEnd(), tbl, False)
     controller.select(tbl.getCellRangeByName("A1:B2"))
     assert get_selection_text(doc) is None
+
+
+@native_test
+@with_native_doc("writer")
+def test_removes_anchored_matches_accept_all_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.text_helpers import TrackedDeletions
+    from plugin.framework.uno_context import execute_dispatch
+
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png_bytes)
+    try:
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        from com.sun.star.beans import PropertyValue
+        pv = PropertyValue()
+        pv.Name = "URL"
+        pv.Value = "file://" + img_path
+        graphic = provider.queryGraphic((pv,))
+
+        def _check(name, setup_fn):
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText()
+            text.setString("")
+            gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            gfx.setPropertyValue("Graphic", graphic)
+            gfx.setPropertyValue("Width", 200)
+            gfx.setPropertyValue("Height", 200)
+            setup_fn(text, gfx)
+            gfx.setName(name)
+            predicted = TrackedDeletions(doc).removes_anchored(gfx)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            actual = not doc.getGraphicObjects().hasByName(name)
+            assert predicted is actual, f"{name}: predicted={predicted}, actual={actual}"
+
+        def _delete_range(text, start_para, start_off, end_para, end_off):
+            enum = text.createEnumeration()
+            paras = []
+            while enum.hasMoreElements():
+                paras.append(enum.nextElement())
+            c = text.createTextCursorByRange(paras[start_para].getStart())
+            if start_off:
+                c.goRight(start_off, False)
+            end_c = text.createTextCursorByRange(paras[end_para].getStart())
+            if end_off:
+                end_c.goRight(end_off, False)
+            c.gotoRange(end_c, True)
+            doc.setPropertyValue("RecordChanges", True)
+            c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _set_paras(text, lines):
+            text.setString("")
+            c = text.createTextCursor()
+            for idx, line in enumerate(lines):
+                if idx:
+                    text.insertControlCharacter(c, 0, False)
+                if line:
+                    text.insertString(c, line, False)
+
+        # AT_PARAGRAPH cases
+        def _para_mid(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 2, 1, 2)
+
+        def _para_first_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_last_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            _delete_range(text, 0, 1, 1, 3)
+
+        def _para_break_only(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 3, 1, 0)
+
+        def _para_empty_first(text, gfx):
+            _set_paras(text, ["", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_single_whole(text, gfx):
+            _set_paras(text, ["one"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 3)
+
+        def _para_single_not_whole(text, gfx):
+            _set_paras(text, ["aa", "bb"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 2)
+
+        # AT_CHARACTER cases
+        def _at_char(offset):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AT_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                _delete_range(text, 0, 1, 0, 3)
+            return _fn
+
+        # AS_CHARACTER cases
+        def _as_char(offset):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AS_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                # Anchor sits before the character at `offset`, shifting remaining chars by 1.
+                _delete_range(text, 0, 1, 0, 4)
+            return _fn
+
+        _check("p_mid", _para_mid)
+        _check("p_first", _para_first_of_multi)
+        _check("p_last", _para_last_of_multi)
+        _check("p_break", _para_break_only)
+        _check("p_empty_first", _para_empty_first)
+        _check("p_single_whole", _para_single_whole)
+        _check("p_single_not_whole", _para_single_not_whole)
+        _check("at_char_inside", _at_char(2))
+        _check("at_char_start", _at_char(1))
+        _check("at_char_end", _at_char(3))
+        _check("as_char_start", _as_char(1))
+        _check("as_char_end", _as_char(3))
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)

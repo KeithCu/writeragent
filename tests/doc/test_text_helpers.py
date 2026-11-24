@@ -1735,3 +1735,39 @@ def test_reset_direct_char_formatting_reads_language_from_start():
 
     cursor.setPropertiesToDefault.assert_called_once_with(("CharWeight", "CharLocale"))
     assert cursor_vals == start_langs
+
+
+def test_strikes_text_true_when_anchored_content_keeps_strikes_paragraph_false():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    def _text(s: str):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
+        p.getString.return_value = s
+        return p
+
+    portions = [_marker(True), _text("struck"), _marker(False)]
+    p_enum = MagicMock()
+    p_enum.hasMoreElements.side_effect = [True, True, True, False]
+    p_enum.nextElement.side_effect = portions
+
+    content_enum = MagicMock()
+    content_enum.hasMoreElements.return_value = True
+
+    para = MagicMock()
+    para.createEnumeration.return_value = p_enum
+    para.createContentEnumeration.return_value = content_enum
+    para.getString.return_value = "struck"
+
+    state = DeletionState()
+    list(visible_portions(para, state=state))
+    assert state.strikes_text(para, False) is True
+    assert state.strikes_paragraph(para, False) is False

@@ -1067,7 +1067,7 @@ def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx
 
     cloned_style = resolve_page_style(doc, "ClonedLayoutLogo")
     cloned_header = cloned_style.getPropertyValue("HeaderText")
-    shapes = _region_shapes(doc, cloned_header)
+    shapes = _region_shapes(doc, cloned_header)[0]
     assert len(shapes) == 1
     cloned_gfx = shapes[0][0]
     assert cloned_gfx.getPropertyValue("TextWrap") == WRAP_NONE
@@ -1105,7 +1105,7 @@ def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx
         res_in = copy_page_style(doc, s_inline_name, clone_name)
         assert res_in["shapes_copied"] == 1, res_in
         c_header = resolve_page_style(doc, clone_name).getPropertyValue("HeaderText")
-        c_shapes = _region_shapes(doc, c_header)
+        c_shapes = _region_shapes(doc, c_header)[0]
         assert len(c_shapes) == 1
         measure = c_header.createTextCursor()
         measure.gotoStart(False)
@@ -1137,3 +1137,100 @@ def test_page_back_color_string_transparent_and_alpha_roundtrip_uno(ctx, doc):
     res_none = tool.execute(tool_ctx, style=s_name, back_color="transparent")
     assert res_none["status"] == "ok", res_none
     assert style.getPropertyValue("FillStyle") == NONE
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_header_ignores_struck_text_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Acme one Acme")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        assert _set_text(doc, ctx, "header", "<p>Acme two Acme</p>")["status"] == "ok"
+        tool = PageReplaceHeaderFooterText()
+        res1 = tool.execute(
+            _tool_ctx(doc, ctx),
+            style=s_name,
+            region="header",
+            old_content="Acme",
+            content="Beta",
+            all_matches=True,
+        )
+        assert res1["status"] == "ok", res1
+        assert res1["replaced_count"] == 2, res1
+
+        res2 = tool.execute(
+            _tool_ctx(doc, ctx),
+            style=s_name,
+            region="header",
+            old_content="Acme",
+            content="Gamma",
+            all_matches=True,
+        )
+        assert res2["status"] == "error" and "not found" in res2["message"].lower(), res2
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert header.getString() == "Acme one Acme"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_header_with_table_uno(ctx, doc):
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    cur = header.createTextCursor()
+    cur.gotoEnd(False)
+    header.insertString(cur, "Acme", False)
+
+    res = PageReplaceHeaderFooterText().execute(
+        _tool_ctx(doc, ctx),
+        style=s_name,
+        region="header",
+        old_content="Acme",
+        content="Beta",
+        all_matches=False,
+    )
+    assert res["status"] == "ok", res
+    assert res["replaced_count"] == 1, res
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
+    from plugin.writer.page import _region_shapes
+
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("first\nsecond")
+
+    gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, _file_url_for_path(_header_logo_path())))
+    gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    gfx.setPropertyValue("Width", 300)
+    gfx.setPropertyValue("Height", 300)
+    header.insertTextContent(header.getStart(), gfx, False)
+    gfx.setName("CloneLogo")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        got_before = _set_text(doc, ctx, "header", "<p>live</p>")
+        assert got_before["status"] == "ok", got_before
+        res = copy_page_style(doc, s_name, "ClonedStruckHeader")
+        assert res["shapes_copied"] == 1, res
+        cloned_header = resolve_page_style(doc, "ClonedStruckHeader").getPropertyValue("HeaderText")
+        assert cloned_header.getString() == "live"
+        assert len(_region_shapes(doc, cloned_header)[0]) == 1
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
