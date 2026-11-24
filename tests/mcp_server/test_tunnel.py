@@ -223,7 +223,10 @@ def test_start_fails_when_binary_missing(monkeypatch):
     assert mgr.public_url is None
 
 
-def test_start_parses_url_and_restarts_on_provider_change(monkeypatch):
+def test_start_parses_url_and_restarts_on_provider_change(monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
     started_cmds = []
@@ -257,6 +260,10 @@ def test_start_parses_url_and_restarts_on_provider_change(monkeypatch):
         assert mgr.provider == "bore"
         assert mgr.mcp_public_url() == "http://bore.pub:9999/mcp"
         mgr.stop()
+
+    assert caplog.records
+    assert "xyz.trycloudflare.com" not in caplog.text
+    assert "bore.pub:9999" not in caplog.text
 
 
 def test_start_passes_provider_config_per_provider(monkeypatch):
@@ -1945,4 +1952,18 @@ def test_tunnel_child_dies_with_parent(tmp_path) -> None:
                 os.kill(child_pid, signal.SIGKILL)
             except OSError:
                 pass
+
+
+def test_health_probe_log_hides_public_host(caplog):
+    import logging
+    import urllib.error
+    from plugin.mcp_server.tunnel import _health_probe_ok
+
+    caplog.set_level(logging.DEBUG)
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=urllib.error.URLError("certificate is not valid for 'abc.trycloudflare.com'"),
+    ):
+        assert _health_probe_ok("https://abc.trycloudflare.com/health", timeout=1.0) is False
+    assert "abc.trycloudflare.com" not in caplog.text
 
