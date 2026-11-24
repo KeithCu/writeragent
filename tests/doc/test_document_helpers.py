@@ -7,7 +7,7 @@ import pytest
 import plugin.app as app
 from plugin.doc.document_helpers import (
     DocumentService,
-    _inject_selection_markers,
+    _inject_markers,
     get_document_context_for_chat,
     resolve_locator,
 )
@@ -584,12 +584,81 @@ def test_get_document_context_for_chat_writer_disposed():
     [
         pytest.param(2, 5, "[START]\nab[SELECTION_START]cde[SELECTION_END]fghij\n[END]", id="test_inject_markers_into_excerpt_selection_inside"),
         pytest.param(20, 25, "[START]\nabcdefghij\n[END]", id="test_inject_markers_no_overlap"),
+        pytest.param(2, None, "[START]\nab[SELECTION_START]cdefghij\n[END]", id="test_inject_markers_open_end"),
+        pytest.param(None, 5, "[START]\nabcde[SELECTION_END]fghij\n[END]", id="test_inject_markers_open_start"),
     ],
 )
 def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
     excerpt = "abcdefghij"
-    out = _inject_selection_markers(excerpt, 0, value, value_2, "[START]\n", "\n[END]")
+    out = _inject_markers(excerpt, 0, value, value_2, "[START]\n", "\n[END]")
     assert out == expected
+
+
+def test_inject_markers_struck_paragraphs():
+    # Single struck slot
+    assert _inject_markers("aa\n\nbb", 0, 0, 0, "", "", struck=[3]) == "aa\n[tracked deletion]\nbb"
+    # Run of consecutive struck slots collapsed to N paragraphs
+    assert _inject_markers("aa\n\n\n\nbb", 0, 0, 0, "", "", struck=[3, 4, 5]) == (
+        "aa\n[tracked deletion, 3 paragraphs]\n\n\nbb"
+    )
+    # Combined with selection
+    assert _inject_markers("aa\n\nbb", 0, 4, 6, "", "", struck=[3]) == (
+        "aa\n[tracked deletion]\n[SELECTION_START]bb[SELECTION_END]"
+    )
+
+
+@patch("plugin.doc.text_helpers.read_visible_body")
+@patch("plugin.framework.doc_type.get_document_type")
+def test_get_document_context_struck_in_omitted_middle_hidden(mock_doc_type, mock_read_body):
+    from plugin.framework.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "H" * 100 + "\n\n" + "M" * 200 + "\n\n" + "T" * 100
+    mock_read_body.return_value = (body, [], [101, 200])
+
+    ctx = get_document_context_for_chat(MagicMock(), max_context=120, include_end=True, include_selection=False)
+
+    assert f"Document length: {len(body)} characters." in ctx
+    assert "[tracked deletion]" not in ctx
+
+
+@patch("plugin.doc.text_helpers.read_visible_body")
+@patch("plugin.framework.doc_type.get_document_type")
+def test_selection_across_omitted_middle_has_one_marker_pair(mock_doc_type, mock_read_body):
+    from plugin.framework.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "A" * 9000
+    pos_start, pos_end = MagicMock(), MagicMock()
+    mock_read_body.return_value = (body, [3500, 5200], [])
+
+    with patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), pos_start, pos_end)):
+        out = get_document_context_for_chat(MagicMock(), max_context=8000, include_end=True, include_selection=True)
+
+    assert out.count("[SELECTION_START]") == 1
+    assert out.count("[SELECTION_END]") == 1
+    start_idx = out.index("[SELECTION_START]")
+    omit_idx = out.index("middle of document omitted")
+    end_idx = out.index("[SELECTION_END]")
+    assert start_idx < omit_idx < end_idx
+
+
+@patch("plugin.doc.text_helpers.read_visible_body")
+@patch("plugin.framework.doc_type.get_document_type")
+def test_selection_ending_in_omitted_middle_keeps_pair_in_head(mock_doc_type, mock_read_body):
+    from plugin.framework.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "A" * 9000
+    pos_start, pos_end = MagicMock(), MagicMock()
+    mock_read_body.return_value = (body, [3500, 4500], [])
+
+    with patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), pos_start, pos_end)):
+        out = get_document_context_for_chat(MagicMock(), max_context=8000, include_end=True, include_selection=True)
+
+    assert out.count("[SELECTION_START]") == 1
+    assert out.count("[SELECTION_END]") == 1
+    assert out.index("[SELECTION_START]") < out.index("[SELECTION_END]") < out.index("middle of document omitted")
 
 
 @patch("plugin.doc.text_helpers.read_visible_body")
@@ -601,7 +670,7 @@ def test_get_document_context_long_doc_is_head_and_tail(mock_doc_type, mock_read
     head = "H" * 4000
     middle = "M" * 12000
     tail = "T" * 4000
-    mock_read_body.return_value = (head + middle + tail, [])
+    mock_read_body.return_value = (head + middle + tail, [], [])
 
     ctx = get_document_context_for_chat(MagicMock(), max_context=8000, include_end=True, include_selection=False)
 
@@ -611,7 +680,7 @@ def test_get_document_context_long_doc_is_head_and_tail(mock_doc_type, mock_read
     assert "middle of document omitted" in ctx
 
 
-@patch("plugin.doc.text_helpers.read_visible_body", return_value=("short doc text", []))
+@patch("plugin.doc.text_helpers.read_visible_body", return_value=("short doc text", [], []))
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_read_body):
     from plugin.framework.doc_type import DocumentType
@@ -625,7 +694,7 @@ def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_read_bo
     assert "middle of document omitted" not in ctx
 
 
-@patch("plugin.doc.text_helpers.read_visible_body", return_value=("abcdefgh", []))
+@patch("plugin.doc.text_helpers.read_visible_body", return_value=("abcdefgh", [], []))
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_fitting_doc_is_one_slice(mock_doc_type, mock_read_body):
     """A document longer than half the budget but still within it is one slice.
@@ -644,7 +713,7 @@ def test_get_document_context_fitting_doc_is_one_slice(mock_doc_type, mock_read_
     assert "middle of document omitted" not in ctx
 
 
-@patch("plugin.doc.text_helpers.read_visible_body", return_value=("0123456789", []))
+@patch("plugin.doc.text_helpers.read_visible_body", return_value=("0123456789", [], []))
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_exact_budget_is_one_slice(mock_doc_type, mock_read_body):
     from plugin.framework.doc_type import DocumentType
@@ -658,7 +727,7 @@ def test_get_document_context_exact_budget_is_one_slice(mock_doc_type, mock_read
     assert "0123456789" in ctx
 
 
-@patch("plugin.doc.text_helpers.read_visible_body", return_value=("0123456789abcdef", []))
+@patch("plugin.doc.text_helpers.read_visible_body", return_value=("0123456789abcdef", [], []))
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_splits_only_past_budget(mock_doc_type, mock_read_body):
     from plugin.framework.doc_type import DocumentType
@@ -685,7 +754,7 @@ def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
     assert get_document_context_for_chat(model, max_context=8000, ctx=ctx) == "impress summary"
 
 
-@patch("plugin.doc.text_helpers.read_visible_body", return_value=("x" * 2439, []))
+@patch("plugin.doc.text_helpers.read_visible_body", return_value=("x" * 2439, [], []))
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_shows_the_visible_length(mock_doc_type, mock_read_body):
     from plugin.framework.doc_type import DocumentType
@@ -702,7 +771,7 @@ def test_get_document_context_for_chat_selection_markers_use_visible_offsets():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "start", "end")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Hello World", [6, 11])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Hello World", [6, 11], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=True)
@@ -717,7 +786,7 @@ def test_get_document_context_for_chat_selection_in_tail_none_and_capped():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=(long_body, [9980, 9986])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(long_body, [9980, 9986], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         tail_out = get_document_context_for_chat(MagicMock(), max_context=2000, include_end=True, include_selection=True)
@@ -726,7 +795,7 @@ def test_get_document_context_for_chat_selection_in_tail_none_and_capped():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Hello World", [None, None])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Hello World", [None, None], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         none_out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=True)
@@ -737,7 +806,7 @@ def test_get_document_context_for_chat_selection_in_tail_none_and_capped():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=(span_body, [10, 2400])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(span_body, [10, 2400], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         capped_out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=True)
@@ -751,7 +820,7 @@ def test_get_document_context_for_chat_truncated_selection_markers():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [12, 15])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [12, 15], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         past_out = get_document_context_for_chat(MagicMock(), max_context=10, include_end=False, include_selection=True)
@@ -762,7 +831,7 @@ def test_get_document_context_for_chat_truncated_selection_markers():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [7, 15])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(body, [7, 15], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         across_out = get_document_context_for_chat(MagicMock(), max_context=10, include_end=False, include_selection=True)
@@ -776,7 +845,7 @@ def test_document_context_end_document_markers():
     model = MagicMock()
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("short body", [])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("short body", [], [])),
     ):
         ctx_fitting = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
 
@@ -785,7 +854,7 @@ def test_document_context_end_document_markers():
 
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("x" * 20000, [])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("x" * 20000, [], [])),
     ):
         ctx_head_tail = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
 
@@ -804,8 +873,8 @@ def test_document_context_uses_given_selection():
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), pos_start, pos_end)) as mock_pos,
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("hello world", [0, 5])) as mock_read,
-        patch("plugin.doc.document_helpers._inject_selection_markers", return_value="marked"),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("hello world", [0, 5], [])) as mock_read,
+        patch("plugin.doc.document_helpers._inject_markers", return_value="marked"),
     ):
         get_document_context_for_chat(model, max_context=8000, include_end=False, include_selection=True, selection=sentinel)
 
@@ -875,7 +944,7 @@ def _writer_ctx_with_page(page=None, *, draw_page_error=None):
 
     with (
         patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
-        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Intro paragraph here.", [])),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Intro paragraph here.", [], [])),
         patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
     ):
         return get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)

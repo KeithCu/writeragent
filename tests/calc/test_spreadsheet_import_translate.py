@@ -554,7 +554,7 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=STDEV(A1:A10)", [1.0, 2.0, 3.0], pytest.approx(1.0, abs=1e-9), id="stdev"),
         pytest.param("=VLOOKUP(A1;B1:C10;2;0)", [2, [[1, 10], [2, 20]]], 20, id="vlookup"),
         pytest.param("=IFERROR(A1; 0)", float("nan"), 0, id="iferror_nan"),
-        pytest.param("=IFNA(A1; 1)", float("nan"), 1, id="ifna_nan"),
+        pytest.param("=IFNA(A1; 1)", calc.na(), 1, id="ifna_na"),
         pytest.param('=SWITCH(A1; 1; "one"; 2; "two"; "other")', 2, "two", id="switch"),
         pytest.param("=ASIN(A1)", 1.0, pytest.approx(math.pi / 2, abs=1e-9), id="asin"),
         pytest.param("=ATAN2(A1; B1)", [1.0, 1.0], pytest.approx(math.pi / 4, abs=1e-9), id="atan2"),

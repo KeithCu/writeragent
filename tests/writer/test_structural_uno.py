@@ -3,11 +3,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import base64
+import struct
+import unittest
+
 import uno  # noqa: F401
 from typing import Any
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc, writer_services_tool_context
+from plugin.writer.images.image_tools import graphic_from_bytes
 from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
 
 
@@ -262,14 +267,26 @@ def test_get_page_objects_reads_draw_shape_text_uno(ctx, doc):
     assert texts[7] == "alpha\nbeta"
 
 
+def _red_pixel_count(ctx: Any, png: bytes) -> int:
+    """Count strongly red pixels. LibreOffice decodes the PNG because its Python may not have Pillow."""
+    # getDIB returns a BMP file (vcl/source/graphic/UnoGraphic.cxx, Graphic::getDIB); rows are padded to 4 bytes.
+    dib = bytes(graphic_from_bytes(ctx, png).getDIB().value)
+    offset = struct.unpack_from("<I", dib, 10)[0]
+    width, height = struct.unpack_from("<ii", dib, 18)
+    bits, compression = struct.unpack_from("<HI", dib, 28)
+    assert bits == 24 and compression == 0, (bits, compression)
+    stride = (width * 3 + 3) // 4 * 4
+    count = 0
+    for y in range(abs(height)):
+        row = dib[offset + y * stride : offset + y * stride + width * 3]
+        count += sum(r > 200 and g < 50 and b < 50 for b, g, r in zip(row[0::3], row[1::3], row[2::3]))
+    return count
+
+
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     """page_get_objects, image_get, nav_goto_page, and page:N locators all use 0-based pages."""
-    import base64
-    import io
-    import pytest
-    from PIL import Image
     from com.sun.star.awt import Point, Size
     from com.sun.star.style.BreakType import PAGE_BEFORE
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
@@ -296,44 +313,46 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
     cur.setPropertyValue("BreakType", PAGE_BEFORE)
     text.insertString(cur, "Second page", False)
+    doc.reformat()
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     obj0 = GetPageObjects().execute(tool_ctx, page=0)
     assert obj0.get("status") == "ok", obj0
     assert obj0.get("page") == 0, obj0
-    assert [s.get("name") for s in obj0.get("shapes") or []] == ["RedBox"]
+    assert [s.get("name") for s in obj0.get("shapes") or []] == ["RedBox"], obj0
 
     obj1 = GetPageObjects().execute(tool_ctx, page=1)
     assert obj1.get("status") == "ok", obj1
     assert obj1.get("page") == 1, obj1
-    assert obj1.get("shapes") == []
+    assert obj1.get("shapes") == [], obj1
 
     def _red_pixels(page_idx: int) -> int:
         res = GetImage().execute(tool_ctx, page=page_idx)
         assert res.get("status") == "ok", res
-        raw = base64.b64decode(res["_mcp_image"]["data"])
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
-        return sum(1 for r, g, b in img.getdata() if r > 200 and g < 50 and b < 50)
+        return _red_pixel_count(ctx, base64.b64decode(res["_mcp_image"]["data"]))
 
-    assert _red_pixels(0) > 100
-    assert _red_pixels(1) == 0
+    red0 = _red_pixels(0)
+    assert red0 > 100, f"expected >100 red pixels on page 0, got {red0}"
+    red1 = _red_pixels(1)
+    assert red1 == 0, f"expected 0 red pixels on page 1, got {red1}"
 
     nav0 = NavGotoPage().execute(tool_ctx, page=0)
-    assert nav0 == {"status": "ok", "page": 0}
+    assert nav0 == {"status": "ok", "page": 0}, nav0
     vc = doc.getCurrentController().getViewCursor()
-    assert vc.getPage() == 1
+    assert vc.getPage() == 1, vc.getPage()
     nav_bad = NavGotoPage().execute(tool_ctx, page=2)
-    assert nav_bad.get("status") == "error"
-    assert "2 page(s)" in nav_bad.get("message", "")
-    assert vc.getPage() == 1
+    assert nav_bad.get("status") == "error", nav_bad
+    assert "2 page(s)" in nav_bad.get("message", ""), nav_bad
+    assert vc.getPage() == 1, vc.getPage()
 
     obj_bad = GetPageObjects().execute(tool_ctx, page=2)
-    assert obj_bad.get("status") == "error"
-    assert "2 page(s)" in obj_bad.get("message", "")
+    assert obj_bad.get("status") == "error", obj_bad
+    assert "2 page(s)" in obj_bad.get("message", ""), obj_bad
 
-    assert resolve_locator(doc, "page:1")["para_index"] == 1
-    with pytest.raises(ToolExecutionError, match="2 page\\(s\\)"):
+    loc1 = resolve_locator(doc, "page:1")
+    assert loc1["para_index"] == 1, loc1
+    with unittest.TestCase().assertRaisesRegex(ToolExecutionError, r"2 page\(s\)"):
         resolve_locator(doc, "page:2")
 
 

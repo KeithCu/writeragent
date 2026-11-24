@@ -260,7 +260,7 @@ def test_start_inner_payload_error_is_same_object() -> None:
 
 def test_start_inner_payload_status_dict_is_copied_with_domains() -> None:
     original = {"status": "ok", "value": 42}
-    result = start_inner_payload(original, ["a", "b"], text_message="ignored")
+    result = start_inner_payload(original, ["a", "b"])
     assert result is not original
     assert original == {"status": "ok", "value": 42}
     assert result == {"status": "ok", "value": 42, "domains": ["a", "b"]}
@@ -273,9 +273,6 @@ def test_start_inner_payload_plain_text() -> None:
 
     res2 = start_inner_payload(None, domains)
     assert res2 == {"status": "ok", "result": "", "domains": ["footnotes"]}
-
-    res3 = start_inner_payload("hi", domains, text_message="done")
-    assert res3 == {"status": "ok", "result": "hi", "message": "done", "domains": ["footnotes"]}
 
 
 def test_catalog_entries_narrowed_by_uno_services() -> None:
@@ -411,7 +408,10 @@ def test_indexes_toc_read_rule_reaches_sub_agent_not_catalog() -> None:
 
 
 def test_normalize_inner_result_error_reports_edits() -> None:
-    calls = [InnerToolCall("footnotes_insert", {"status": "ok"}, mutating=True)]
+    calls = [
+        InnerToolCall("footnotes_insert", {"status": "ok"}, mutating=True),
+        InnerToolCall("footnotes_delete", {"status": "error", "message": "boom"}, mutating=True),
+    ]
 
     editing = normalize_inner_result(
         {"status": "error", "code": "USER_STOPPED", "message": "Stopped."},
@@ -420,6 +420,8 @@ def test_normalize_inner_result_error_reports_edits() -> None:
     )
     assert editing["status"] == "error"
     assert editing["code"] == "USER_STOPPED"
+    assert editing["message"] == "Stopped."
+    assert "tool_errors" not in editing
     assert editing["edits"] == {"footnotes_insert": 1}
     assert "note" not in editing
 

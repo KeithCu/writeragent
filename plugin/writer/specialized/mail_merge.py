@@ -368,6 +368,7 @@ class InsertField(ToolWriterMailMergeBase):
             kwargs,
             lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
             what="the merge field",
+            review=True,
         )
         if err is not None:
             return err

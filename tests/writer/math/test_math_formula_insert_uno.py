@@ -390,7 +390,11 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             assert "cell" in a1.getString()
             paras4 = _paras()
             assert paras4[extra].getPropertyValue("ParaStyleName") == "Heading 1"
-            list_paras = [p for p in paras4 if p.getPropertyValue("NumberingStyleName")]
+            list_paras = [
+                p
+                for p in paras4
+                if (p.getPropertyValue("NumberingStyleName") or "").strip().lower() not in ("", "outline")
+            ]
             assert len(list_paras) == 2
             embeds = doc.getEmbeddedObjects()
             assert any(uno_same(embeds.getByIndex(i).getAnchor().getText(), a1) for i in range(embeds.getCount()))

@@ -188,7 +188,7 @@ class DelegateReadDocument(ToolBase):
                 doc_type=doc_type,
             )
         if not isinstance(result, dict):
-            # Discussion #2262: a plain-text return means the read agent never called the finish
-            # tool (output-limit truncation or max steps); report it with the #2029 incomplete contract.
+            # Discussion #2262: a plain-text return means the read agent's run ended without an accepted
+            # finish call (output-limit truncation, max steps, or a finish rejected because its turn failed); report it with the #2029 incomplete contract.
             return {**normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
         return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

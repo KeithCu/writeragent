@@ -517,7 +517,7 @@ setattr(lang, "IllegalArgumentException", Exception)
 
 uno_mod = _create_mock_module("com.sun.star.uno")
 setattr(uno_mod, "Exception", Exception)
-setattr(uno_mod, "RuntimeException", Exception)
+setattr(uno_mod, "RuntimeException", type("RuntimeException", (Exception,), {}))
 
 container = _create_mock_module("com.sun.star.container")
 setattr(container, "NoSuchElementException", Exception)

@@ -28,6 +28,7 @@ from .calc_functions_util import (
     finite_or_nan,
     from_complex,
     is_calc_error,
+    is_na_nan,
     is_number,
     match_criteria,
     npf_result,
@@ -124,6 +125,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
+    # Exceptions stay trapped because an #N/A index raises ValueError in np.int64 (translated INDEX/MATCH).
     return _if_caught(f, alt, isna)
 
 
@@ -392,12 +394,12 @@ def isblank(val: Any) -> bool:
 
 
 def iserr(val: Any) -> bool:
-    # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
+    # Real Calc error tokens and NaN, excluding #N/A. '#hashtag' is text.
     return is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
-    # Real Calc error tokens and NaN (NA()). '#hashtag' is text.
+    # Real Calc error tokens and any NaN. '#hashtag' is text.
     return is_calc_error(val)
 
 
@@ -424,8 +426,8 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    """True for float or numpy NaN, or a stripped #N/A token."""
-    return (isinstance(val, (float, np.floating)) and math.isnan(val)) or (isinstance(val, str) and val.strip().upper() == "#N/A")
+    """True for a NaN carrying #N/A or a stripped #N/A token; any other NaN is a different error."""
+    return (isinstance(val, (float, np.floating)) and is_na_nan(float(val))) or (isinstance(val, str) and val.strip().upper() == "#N/A")
 
 
 def isnontext(val: Any) -> bool:

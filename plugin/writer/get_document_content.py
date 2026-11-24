@@ -213,6 +213,13 @@ class GetDocumentContent(ToolBase):
                     if truncated:
                         note += " Only %d of %d insertion/deletion change(s) are listed." % (
                             len(changes), found)
+                    if 'data-lo-deleted="true"' in content:
+                        note += (
+                            " A block with data-lo-deleted=\"true\" is a paragraph slot a pending"
+                            " deletion already covers, not an empty paragraph: do not tidy, fill or"
+                            " delete it, and leave it out of content you write. It still counts as"
+                            " one break in document_length."
+                        )
                     result["tracked_changes_note"] = note
         except Exception as exc:
             # A closed document is not an ok read with the changes omitted.
