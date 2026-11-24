@@ -401,6 +401,20 @@ def test_range_xhtml_disposal_does_not_fall_back():
     temp_doc.storeToURL.assert_not_called()
 
 
+def test_range_starwriter_fallback_strips_deleted_mark():
+    from plugin.writer import html_export, xhtml_style_postprocess as xhtml_post
+
+    with patch.object(
+        html_export, "_export_starwriter_html", return_value=f"<p>{xhtml_post.DELETED_MARK}</p>"
+    ):
+        out = _run_range_export(
+            [_para("Standard")],
+            export_side_effect=RuntimeError("xhtml failed"),
+            passthrough_semantic=False,
+        )
+    assert xhtml_post.DELETED_MARK not in out
+
+
 def test_offset_window_slices_by_running_offset():
     from plugin.writer.html_export import _offset_window
 
