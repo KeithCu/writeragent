@@ -18,6 +18,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    DIV0_NAN,
     NESTED_ARRAY_NAN,
     as_nonzero,
     coupon_schedule,
@@ -891,6 +892,9 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
         return float("nan")
     if cum:
         return float(st.gamma.cdf(x_val, a, scale=b))
+    # GetGammaDistPDF (interpr6.cxx) sets DivisionByZero here.
+    if x_val == 0 and a < 1:
+        return DIV0_NAN
     return float(st.gamma.pdf(x_val, a, scale=b))
 
 

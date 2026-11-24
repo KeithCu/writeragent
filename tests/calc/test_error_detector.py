@@ -26,6 +26,10 @@ from plugin.calc.error_detector import (
 def test_is_calc_error_display_normalizes_known_tokens():
     assert is_calc_error_display("#div/0!") == "#DIV/0!"
     assert is_calc_error_display(" err:502 ") == "Err:502"
+    assert is_calc_error_display("Err:539") == "Err:539"
+    assert is_calc_error_display("err:501") == "Err:501"
+    assert is_calc_error_display("Err:999") is None
+    assert is_calc_error_display("#N/A N/A") is None
     assert is_calc_error_display("#ERROR!") == "#ERROR!"
     assert is_calc_error_display("#hashtag") is None
     assert is_calc_error_display(1) is None

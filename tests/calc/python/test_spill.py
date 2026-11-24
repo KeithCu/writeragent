@@ -1131,3 +1131,143 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
     finally:
         if key1:
             WorkbookState.forget_key(key1)
+
+
+def test_perform_deferred_spill_aborts_on_late_collision(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-late-collision.ods", props={"RuntimeUID": "uid-spill-late-collision"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_late")')
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    doc_id = "uid-spill-late-collision"
+    try:
+        prep = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "code_late",
+            [[1, 2], [3, 4]],
+        )
+        assert isinstance(prep, _spill.PreparedSpill)
+
+        # User fills B2 before the deferred write fires.
+        sheet.getCellByPosition(1, 1).setValue(99)
+
+        _spill.perform_deferred_spill(
+            prep.sheet_name,
+            prep.formula_row,
+            prep.formula_col,
+            [[1, 2], [3, 4]],
+            doc=doc,
+            sheet=sheet,
+            code=prep.code,
+            key=prep.key,
+        )
+
+        assert sheet.getCellByPosition(1, 1).getValue() == 99
+        assert sheet.getCellByPosition(1, 0).getType() == _spill.EMPTY
+        assert sheet.getCellByPosition(0, 1).getType() == _spill.EMPTY
+        assert ("Sheet1", 0, 0) not in state.spills
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), "code_late")
+        assert entry is not None
+        assert entry.status == "error"
+        assert "B2" in entry.message
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_perform_deferred_spill_allows_owned_spill_overwrite(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-owned.ods", props={"RuntimeUID": "uid-spill-owned"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_owned")')
+    sheet.getCellByPosition(1, 0).setValue(10)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(
+        code="code_owned",
+        cells=[_spill.SpillCell(row=0, col=1, kind="n", value=10)],
+    )
+    doc_id = "uid-spill-owned"
+    try:
+        _spill.perform_deferred_spill(
+            "Sheet1",
+            0,
+            0,
+            [[1, 20]],
+            doc=doc,
+            sheet=sheet,
+            code="code_owned",
+            key=state.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getValue() == 20
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-late-keep.ods", props={"RuntimeUID": "uid-spill-late-keep"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_grow")')
+    sheet.getCellByPosition(1, 0).setValue(10)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    old_record = _spill.SpillRecord(
+        code="code_grow",
+        cells=[_spill.SpillCell(row=0, col=1, kind="n", value=10)],
+    )
+    state.spills[("Sheet1", 0, 0)] = old_record
+    doc_id = "uid-spill-late-keep"
+    try:
+        prep = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "code_grow",
+            [[1, 2], [3, 4]],
+        )
+        assert isinstance(prep, _spill.PreparedSpill)
+
+        sheet.getCellByPosition(1, 1).setValue(99)
+
+        _spill.perform_deferred_spill(
+            prep.sheet_name,
+            prep.formula_row,
+            prep.formula_col,
+            [[1, 2], [3, 4]],
+            doc=doc,
+            sheet=sheet,
+            code=prep.code,
+            key=prep.key,
+        )
+
+        assert sheet.getCellByPosition(1, 0).getValue() == 10
+        assert sheet.getCellByPosition(1, 1).getValue() == 99
+        assert state.spills[("Sheet1", 0, 0)] is old_record
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
