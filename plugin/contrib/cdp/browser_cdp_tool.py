@@ -191,13 +191,14 @@ def find_browser_executable(
     return default
 
 
-def browser_profile_dir(browser_type: str) -> str:
-    """Return and create the dedicated profile dir for a research browser."""
+def browser_profile_dir(browser_type: str, *, create: bool = True) -> str:
+    """Return (and optionally create) the dedicated profile dir for a research browser."""
     # The profile lives under the WriterAgent config dir so it survives LibreOffice profile resets.
     config_dir = os.path.expanduser("~/.config/writeragent")
     safe_name = "".join([c if c.isalnum() else "_" for c in browser_type])
     profile_dir = os.path.join(config_dir, f"{safe_name}_profile")
-    os.makedirs(profile_dir, exist_ok=True)
+    if create:
+        os.makedirs(profile_dir, exist_ok=True)
     return profile_dir
 
 

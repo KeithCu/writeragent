@@ -569,24 +569,33 @@ def test_cdp_launch_failure_releases_the_run(monkeypatch):
 
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_chrome_cdp_url", fake_url)
     try:
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
             with pytest.raises(RuntimeError, match="no browser"):
                 wr._begin_shared_browser(object(), "chrome")
             # The only run failed to launch. Teardown still runs, and the count is released.
             cleanup.assert_called_once()
+            mock_rm_pid.assert_called_once_with()
         assert wr._cdp_refcount.runs == 0
 
         mode["fail"] = False
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
             assert isinstance(wr._begin_shared_browser(object(), "chrome"), wr.CdpPageDriver)
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
                 wr._begin_shared_browser(object(), "brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
+            mock_rm_pid.assert_not_called()
             assert wr._cdp_refcount.runs == 1
             wr._cdp_refcount.finish()
             cleanup.assert_called_once()
+            mock_rm_pid.assert_called_once_with()
         assert wr._cdp_refcount.runs == 0
         assert wr._cdp_refcount.closing is False
     finally:
@@ -603,12 +612,14 @@ def test_firefox_begin_dispatches_to_bidi_and_finish_closes_it():
             patch("plugin.chatbot.web_research_firefox.begin_firefox_bidi", return_value=fake_client) as mock_begin,
             patch("plugin.chatbot.web_research_firefox.close_firefox_bidi") as mock_close_bidi,
             patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as mock_cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
         ):
             assert wr._begin_shared_browser(object(), "firefox") is fake_client
             mock_begin.assert_called_once_with()
             wr._cdp_refcount.finish()
             mock_close_bidi.assert_called_once_with()
             mock_cleanup.assert_called_once_with()
+            mock_rm_pid.assert_called_once_with()
     finally:
         wr._cdp_refcount.reset_for_tests()
 

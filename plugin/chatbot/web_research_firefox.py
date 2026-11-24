@@ -196,7 +196,9 @@ class FirefoxBidiClient:
 _CLIENT: FirefoxBidiClient | None = None
 
 
-def _pidfile_path(profile_dir: str) -> str:
+def _pidfile_path(profile_dir: str | None = None) -> str:
+    if profile_dir is None:
+        profile_dir = browser_profile_dir("firefox", create=False)
     return os.path.join(profile_dir, _PIDFILE_NAME)
 
 
@@ -205,10 +207,19 @@ def _write_pidfile(pidfile: str, firefox_pid: int) -> None:
         f.write(f"{firefox_pid}\n{os.getpid()}\n")
 
 
-def remove_pidfile() -> None:
-    """Remove the Firefox BiDi pidfile if it exists."""
+def remove_pidfile(*, only_if_owner: bool = True) -> None:
+    """Remove the Firefox BiDi pidfile if it exists (and is owned by this process when *only_if_owner*)."""
+    pidfile = _pidfile_path()
+    if only_if_owner:
+        try:
+            with open(pidfile, encoding="utf-8") as f:
+                lines = [line.strip() for line in f.read().splitlines() if line.strip()]
+        except FileNotFoundError:
+            return
+        if len(lines) < 2 or lines[1] != str(os.getpid()):
+            return
     try:
-        os.remove(_pidfile_path(browser_profile_dir("firefox")))
+        os.remove(pidfile)
     except FileNotFoundError:
         pass
 
@@ -226,7 +237,8 @@ def _pid_is_alive(pid: int) -> bool:
             )
             return bool(re.search(rf"(?<!\d){pid}(?!\d)", res.stdout))
         except Exception:
-            return False
+            # Unknown status must mean "do not kill" so a transient failure never kills a sibling's browser.
+            return True
     try:
         os.kill(pid, 0)
         return True
@@ -235,7 +247,17 @@ def _pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     except OSError:
-        return False
+        # Unknown status must mean "do not kill".
+        return True
+
+
+def _cmdline_args_matches(args: list[str], profile_dir: str) -> bool:
+    """Match exact --profile <profile_dir> and --remote-debugging-port in argv."""
+    has_profile = any(
+        args[i] == "--profile" and i + 1 < len(args) and args[i + 1] == profile_dir
+        for i in range(len(args) - 1)
+    )
+    return has_profile and f"--remote-debugging-port={FIREFOX_BIDI_PORT}" in args
 
 
 def _cmdline_string_matches(cmdline_str: str, profile_dir: str) -> bool:
@@ -260,11 +282,7 @@ def _cmdline_matches_firefox_profile(pid: int, profile_dir: str) -> bool:
             args = [part.decode("utf-8", errors="replace") for part in raw.split(b"\x00") if part]
         except OSError:
             return False
-        has_profile = any(
-            args[i] == "--profile" and i + 1 < len(args) and args[i + 1] == profile_dir
-            for i in range(len(args) - 1)
-        )
-        return has_profile and f"--remote-debugging-port={FIREFOX_BIDI_PORT}" in args
+        return _cmdline_args_matches(args, profile_dir)
 
     if sys.platform == "win32":
         try:
@@ -357,7 +375,7 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
             return _CLIENT
         close_firefox_bidi()
         cleanup_local_chrome()
-        remove_pidfile()
+        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove dead pidfile")
 
     profile_dir = browser_profile_dir("firefox")
     pidfile = _pidfile_path(profile_dir)
@@ -376,7 +394,7 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
             raise
         log.warning("Killing orphaned WriterAgent Firefox (pid=%d) holding BiDi session", orphan_pid)
         best_effort(lambda: _terminate_pid(orphan_pid), "firefox bidi: kill orphan")
-        best_effort(remove_pidfile, "firefox bidi: remove orphan pidfile")
+        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove orphan pidfile")
         time.sleep(0.3)
 
     executable = find_browser_executable(
@@ -405,8 +423,9 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
             _CLIENT = connect_firefox_bidi(1.0)
             return _CLIENT
         except OSError:
-            if not managed.is_alive():
-                break
+            rc = managed.popen.poll() if managed.popen is not None else None
+            if rc is not None and rc != 0:
+                raise RuntimeError(f"Firefox exited during startup (code {rc})")
             time.sleep(0.2)
     raise RuntimeError(
         f"Firefox did not start listening for WebDriver BiDi on port {FIREFOX_BIDI_PORT} "
