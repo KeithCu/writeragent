@@ -179,7 +179,7 @@ class InnerCallRecorder(SmolToolAdapter):
 
     Specialized loops hand that log to apply_inner_outcome to grade the delegation.
     ``safe=True`` turns a raising tool into an error result, so it is still recorded;
-    an exception that leaves ``forward`` means the tool did not run.
+    an exception that leaves ``forward`` means the tool did not run (except at interpreter shutdown).
     """
 
     _calls: list[InnerToolCall]

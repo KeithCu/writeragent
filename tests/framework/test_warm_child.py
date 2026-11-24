@@ -1243,7 +1243,23 @@ def test_cancelled_scope_of_one_lease_does_not_refuse_the_next(tmp_path: Any, su
 
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     scope1 = SendCancellation()
-    scope1.cancel()
+    scope1.register_on_cancel(warm.kill)
+    real_lock = warm._io_lock
+    cancelled_once = False
+
+    class _LockProxy:
+        def acquire(self, *args: Any, **kwargs: Any) -> bool:
+            nonlocal cancelled_once
+            acquired = real_lock.acquire(*args, **kwargs)
+            if acquired and not cancelled_once:
+                cancelled_once = True
+                scope1.cancel()
+            return acquired
+
+        def release(self) -> None:
+            real_lock.release()
+
+    warm._io_lock = _LockProxy()  # type: ignore[assignment]
     try:
         with warm.lease(Deadline(10.0), cancel=scope1) as leased1:
             assert isinstance(leased1, dict)
@@ -1254,4 +1270,5 @@ def test_cancelled_scope_of_one_lease_does_not_refuse_the_next(tmp_path: Any, su
             assert not isinstance(leased2, dict)
         assert warm.child is not None
     finally:
+        warm._io_lock = real_lock
         warm.retire()
