@@ -566,3 +566,138 @@ def test_load_pptx_returns_none_when_load_returns_none(monkeypatch, tmp_path: Pa
     )
 
     assert uno_pptx_import.load_pptx_as_impress_doc(MagicMock(), pptx) is None
+
+
+def test_copy_that_lands_before_previous_shapes_is_kept(monkeypatch):
+    target, source, target_pages, _source_pages = _deck([["USER-A", "USER-B"]], 1)
+
+    def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
+        del source_page, target_doc, uno_ctx
+        target_page.shapes.insert(0, "NEW")
+        return 1
+
+    _patch_copy(monkeypatch, fake_copy)
+    result = _import_slides_from_source(object(), target, source, clear_existing=True)
+
+    assert result["status"] == "ok"
+    assert target_pages[0].shapes == ["NEW"]
+
+
+def test_failed_copy_trims_a_shape_that_landed_first(monkeypatch):
+    target, source, target_pages, _source_pages = _deck([["USER-A", "USER-B"]], 1)
+
+    def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
+        del source_page, target_doc, uno_ctx
+        target_page.shapes.insert(0, "LEAK")
+        return 0
+
+    _patch_copy(monkeypatch, fake_copy)
+    result = _import_slides_from_source(object(), target, source, clear_existing=True)
+
+    assert result["status"] == "error"
+    assert target_pages[0].shapes == ["USER-A", "USER-B"]
+
+
+@pytest.mark.parametrize("failure_mode", ["copy_raises", "copy_error", "store_raises"])
+def test_import_pptx_slide_to_odp_closes_target_on_failure(monkeypatch, tmp_path: Path, failure_mode: str) -> None:
+    from plugin.framework import scratch_writer
+    from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
+
+    class _FakeDoc:
+        def __init__(self, uid: str, *, store_raises: bool = False) -> None:
+            self._uid = uid
+            self._store_raises = store_raises
+            self.closed = False
+
+        def getRuntimeUID(self) -> str:
+            return self._uid
+
+        def getDrawPages(self) -> Any:
+            return SimpleNamespace(getByIndex=lambda _i: "page-0")
+
+        def storeToURL(self, _url: str, _args: tuple[Any, ...]) -> None:
+            if self._store_raises:
+                raise RuntimeError("store failed")
+
+        def close(self, _deliver_ownership: bool) -> None:
+            self.closed = True
+
+    target_doc = _FakeDoc("target-uid-fail", store_raises=(failure_mode == "store_raises"))
+    source_doc = _FakeDoc("source-uid-fail")
+    desktop = SimpleNamespace(loadComponentFromURL=lambda *_args: target_doc)
+
+    monkeypatch.setattr(uno_pptx_import, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(uno_pptx_import, "load_pptx_as_impress_doc", lambda _ctx, _path: source_doc)
+    monkeypatch.setattr(
+        scratch_writer,
+        "create_property_value",
+        lambda name, value: SimpleNamespace(Name=name, Value=value),
+    )
+
+    def fake_import(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        if failure_mode == "copy_raises":
+            raise RuntimeError("copy boom")
+        if failure_mode == "copy_error":
+            return {"status": "error", "message": "no shapes"}
+        return {"status": "ok"}
+
+    monkeypatch.setattr(uno_pptx_import, "_import_slides_from_source", fake_import)
+
+    odp_path = tmp_path / "out.odp"
+    if failure_mode == "copy_error":
+        assert import_pptx_slide_to_odp(MagicMock(), tmp_path / "in.pptx", 0, odp_path) is None
+    else:
+        with pytest.raises(RuntimeError):
+            import_pptx_slide_to_odp(MagicMock(), tmp_path / "in.pptx", 0, odp_path)
+
+    assert target_doc.closed is True
+    assert source_doc.closed is True
+    assert scratch_writer.is_scratch_uid("target-uid-fail") is False
+
+
+def test_import_pptx_slide_to_odp_returns_open_registered_target(monkeypatch, tmp_path: Path) -> None:
+    from plugin.framework import scratch_writer
+    from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
+
+    class _FakeDoc:
+        def __init__(self, uid: str) -> None:
+            self._uid = uid
+            self.closed = False
+
+        def getRuntimeUID(self) -> str:
+            return self._uid
+
+        def getDrawPages(self) -> Any:
+            return SimpleNamespace(getByIndex=lambda _i: "page-0")
+
+        def storeToURL(self, _url: str, _args: tuple[Any, ...]) -> None:
+            return None
+
+        def close(self, _deliver_ownership: bool) -> None:
+            self.closed = True
+
+    target_doc = _FakeDoc("target-uid-ok")
+    source_doc = _FakeDoc("source-uid-ok")
+    desktop = SimpleNamespace(loadComponentFromURL=lambda *_args: target_doc)
+
+    monkeypatch.setattr(uno_pptx_import, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(uno_pptx_import, "load_pptx_as_impress_doc", lambda _ctx, _path: source_doc)
+    monkeypatch.setattr(
+        scratch_writer,
+        "create_property_value",
+        lambda name, value: SimpleNamespace(Name=name, Value=value),
+    )
+    monkeypatch.setattr(uno_pptx_import, "_import_slides_from_source", lambda *_a, **_kw: {"status": "ok"})
+
+    imported = import_pptx_slide_to_odp(MagicMock(), tmp_path / "in.pptx", 0, tmp_path / "out.odp")
+    assert imported is not None
+    returned_doc, returned_page = imported
+    try:
+        assert returned_doc is target_doc
+        assert returned_page == "page-0"
+        assert target_doc.closed is False
+        assert source_doc.closed is True
+        assert scratch_writer.is_scratch_uid("target-uid-ok") is True
+    finally:
+        scratch_writer.close_scratch_document(returned_doc)
+    assert scratch_writer.is_scratch_uid("target-uid-ok") is False

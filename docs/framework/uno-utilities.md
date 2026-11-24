@@ -68,6 +68,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `open_document_for_read` | `document_research` | Hidden+read-only `load_scratch_document` (`_blank`, HTML files forced to `HTML (StarWriter)`, URL dropped with `attachResource("", ())` so every read loads its own copy and File > Open / `document_open` cannot adopt it), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close via `close_scratch_document` only if this call loaded a hidden sibling (not a user-visible doc). |
 | `load_pptx_as_impress_doc` | `uno_pptx_import` | Hidden+read-only `load_scratch_document` (`ReadOnly=True`) with URL dropped (`attachResource("", ())`) so the import copy takes no lock file and cannot be adopted. |
+| `import_pptx_slide_to_odp` | `uno_pptx_import` | Opens a `load_scratch_document` Impress deck, imports one slide, saves ODP, and returns `(doc, page)`; closes the target on any failure and expects the caller to close it with `close_scratch_document` on success. |
 | `only_open_calc_document` | `session_manager` | Return the only open Calc document (excluding registered scratch documents), or `None` when zero or several are open. |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
@@ -383,7 +384,7 @@ LibrePy and WriterAgent both use those helpers (`main_core.py` and `main.py`). W
 | `org.extension.librepy:` / `org.extension.writeragent:` | Menu dispatch | Product protocol handlers. |
 | `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank`, `Hidden=True`, `clear_writer_body`); Calc rich HTML uses `load_scratch_document` directly so a non-emptiable template is left open rather than closed. |
 | `private:factory/scalc` | Excel auto-open comment (OnNew vs OnLoadFinished) | Domain. |
-| `private:factory/simpress` | PPT-Master import | Domain. |
+| `private:factory/simpress` | PPT-Master import | Domain (loaded via `load_scratch_document`). |
 | `private:factory/smath` | Math embed (`math_mml_export._MATH_FACTORY_URL`) | Domain. |
 | `private:resource/toolbar/addon_org.extension.writeragent.toolbar` | Review toolbar | Domain. |
 | `https:` / `http:` | LLM endpoints; notebook remote images | `url_utils` vs importer fetch — not document URLs. |

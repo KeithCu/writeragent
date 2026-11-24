@@ -21,7 +21,7 @@ from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.draw.shape_clone import clone_shape
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
-from plugin.framework.uno_context import create_property_value, get_desktop
+from plugin.framework.uno_context import create_property_value, get_desktop, uno_same
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -95,23 +95,18 @@ def _apply_target_page_size(page: Any) -> None:
     page.setPropertyValue("Height", DEFAULT_SLIDE_HEIGHT_HMM)
 
 
-def _trim_appended_shapes(page: Any, keep_count: int) -> None:
-    """Drop shapes ``add`` appended past *keep_count*.
+def _page_shapes(page: Any) -> list[Any]:
+    return [page.getByIndex(i) for i in range(page.getCount())]
 
-    ``copy_shapes_to_page`` appends. A copy that reports no successes can
-    still have added a shape before that clone failed; those are not user
-    content and are removed from the end.
+
+def _remove_added_shapes(page: Any, previous: list[Any]) -> None:
+    """Remove every shape on *page* that is not in *previous*.
+
+    A copy that reports no successes can still have left a shape from the clone that failed.
     """
-    while page.getCount() > keep_count:
-        page.remove(page.getByIndex(page.getCount() - 1))
-
-
-def _drop_front_shapes(page: Any, drop_count: int) -> None:
-    """Remove the shapes that were on the page before a successful append."""
-    remaining = drop_count
-    while remaining > 0 and page.getCount() > 0:
-        remaining -= 1
-        page.remove(page.getByIndex(0))
+    for shape in _page_shapes(page):
+        if not any(uno_same(shape, old) for old in previous):
+            page.remove(shape)
 
 
 def _drop_page(pages: Any, page: Any) -> None:
@@ -163,27 +158,30 @@ def _import_slides_from_source(
     results: list[dict[str, Any]] = []
     for out_index, src_index in enumerate(indices):
         source_page = source_pages.getByIndex(src_index)
-        # Append shapes first. Remove the previous shapes only after this
-        # slide's copy reports at least one shape. Clearing first
-        # (_ensure_target_page(..., clear=True) then copy_shapes_to_page)
-        # destroys user content when the copy returns nothing. A failed copy
-        # trims what it appended, or drops a slide this call just created,
-        # and leaves an existing slide's shapes in place.
+        # Copy first, and remove the previous shapes only after this slide's
+        # copy reports at least one shape, because clearing first would lose
+        # the slide when nothing copies. A failed copy removes what it added,
+        # or drops a slide this call created, leaving an existing slide's
+        # shapes in place. Previous shapes are recorded and removed as objects
+        # because clone_shape copies ZOrder, which moves each clone to its
+        # source index (svx/source/unodraw/unoshape.cxx OWN_ATTR_ZORDER), so
+        # positions do not tell old shapes from new ones.
         replace = clear_existing or out_index > 0
         existed = out_index < int(pages.getCount())
         target_page = _ensure_target_page(bridge, out_index)
-        previous_count = int(target_page.getCount())
+        previous = _page_shapes(target_page)
         copied = copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx)
         if copied < 1:
             if not existed:
                 _drop_page(pages, target_page)
             else:
-                _trim_appended_shapes(target_page, previous_count)
+                _remove_added_shapes(target_page, previous)
             return format_error_payload(
                 ToolExecutionError(f"No shapes copied from PPTX slide {src_index + 1}")
             )
         if replace:
-            _drop_front_shapes(target_page, previous_count)
+            for shape in previous:
+                target_page.remove(shape)
         _apply_target_page_size(target_page)
         bridge.set_current_page_index(out_index)
         _copy_page_notes(source_page, target_page)
@@ -230,18 +228,18 @@ def import_pptx_slide_to_odp(
     slide_index: int,
     odp_path: Path,
 ) -> tuple[Any, Any] | None:
-    """Import one PPTX slide into a new one-slide Impress doc and save ODP."""
-    import uno
+    """Import one PPTX slide into a new one-slide Impress doc and save ODP.
 
+    The caller closes the returned document with ``close_scratch_document``.
+    """
     pptx_path = Path(pptx_path).expanduser().resolve()
     source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
     if source_doc is None:
         return None
     target_doc = None
+    imported: tuple[Any, Any] | None = None
     try:
-        desktop = get_desktop(ctx)
-        hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-        target_doc = desktop.loadComponentFromURL("private:factory/simpress", "_blank", 0, (hidden,))
+        target_doc = load_scratch_document(get_desktop(ctx), "private:factory/simpress")
         if target_doc is None:
             return None
         result = _import_slides_from_source(
@@ -252,12 +250,15 @@ def import_pptx_slide_to_odp(
             clear_existing=True,
         )
         if result.get("status") != "ok":
-            target_doc.close(True)
             return None
         page = target_doc.getDrawPages().getByIndex(0)
         odp_path = Path(odp_path).expanduser().resolve()
         odp_path.parent.mkdir(parents=True, exist_ok=True)
         target_doc.storeToURL(odp_path.as_uri(), ())
-        return target_doc, page
+        imported = (target_doc, page)
+        return imported
     finally:
+        if target_doc is not None and imported is None:
+            unused_doc = target_doc
+            best_effort(lambda: close_scratch_document(unused_doc), "close unused import target")
         best_effort(lambda: close_scratch_document(source_doc), "close source pptx doc")
