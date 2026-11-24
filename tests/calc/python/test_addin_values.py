@@ -494,6 +494,12 @@ def test_na_nan_spill_and_round_trip() -> None:
     assert neg_rec.kind == "err"
     assert neg_rec.error_code == 32767
 
+    from decimal import Decimal
+    for inf_val in (float("inf"), float("-inf"), Decimal("Infinity")):
+        inf_rec = addin_values.coerce_spill_value(inf_val)
+        assert inf_rec.kind == "err"
+        assert inf_rec.error_code == 503
+
     plain_rec = addin_values.coerce_spill_value(float("nan"))
     assert plain_rec.kind == "err"
     assert plain_rec.error_code == 503

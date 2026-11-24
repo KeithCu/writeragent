@@ -47,8 +47,8 @@ SLICE_SPECS: dict[str, SliceSpec] = {
     "write_range": SliceSpec(
         "write_range", "tool_description", tool_name="write_range"
     ),
-    "write_formula_range.values": SliceSpec(
-        "write_formula_range.values",
+    "write_range.values": SliceSpec(
+        "write_range.values",
         "tool_param",
         tool_name="write_range",
         param_name="values",

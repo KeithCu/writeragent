@@ -167,3 +167,27 @@ def test_scratch_documents_excluded_from_open_documents_and_events_uno(ctx):
         if user_hidden is not None:
             best_effort(lambda: user_hidden.close(True), "close user hidden calc doc")
 
+
+@native_test
+def test_page_count_in_print_preview_uno(ctx):
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.errors import UnoObjectError, best_effort
+    from plugin.framework.uno_context import execute_dispatch, get_desktop
+
+    desktop = get_desktop(ctx)
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+    try:
+        doc.getText().setString("Hello preview")
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:PrintPreview")
+        assert not hasattr(doc.getCurrentController(), "getViewCursor")
+        ds = DocumentService()
+        assert ds.get_page_count(doc) == 0
+        try:
+            ds.get_page_for_paragraph(doc, 0)
+        except UnoObjectError as exc:
+            assert "Get view cursor failed" in str(exc)
+        else:
+            raise AssertionError("Expected UnoObjectError for get_page_for_paragraph in Print Preview")
+    finally:
+        best_effort(lambda: doc.close(True), "close preview writer doc")
+

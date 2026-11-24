@@ -13,7 +13,6 @@ from plugin.framework.config import (
     _resolve_config_path_from_ctx,
     atomic_write_text,
     get_api_key_for_endpoint,
-    set_api_key_for_endpoint,
     get_config,
     get_config_dict,
     parse_config_json_text,
@@ -155,20 +154,6 @@ class TestConfigSync:
         assert (get_api_key_for_endpoint('http://localhost:11434')) == ('test-key-123')
         assert (get_api_key_for_endpoint('http://localhost:11434/')) == ('test-key-123')
 
-    def test_set_api_key_for_endpoint(self):
-        # This class stubs save. API-key writes go through update_config_mapping
-        # so the stub still has to record the map the store would patch.
-        def _record(key, fn, event_key=None):
-            del event_key
-            current = self.config_data.get(key, {})
-            self.config_data[key] = fn(current if isinstance(current, dict) else {})
-
-        with patch('plugin.framework.config.update_config_mapping', side_effect=_record):
-            set_api_key_for_endpoint('http://localhost:11434', 'new-key')
-            assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('new-key')
-            set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
-            assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('updated-key')
-
 
 class TestConfigSyncFileIO:
 
@@ -228,8 +213,8 @@ class TestConfigSyncFileIO:
         extra["temperature"] = 9
         assert get_config("openrouter_chat_extra") == {"temperature": 0.2}
 
-    def test_set_api_key_file_io(self):
-        set_api_key_for_endpoint('http://api.openai.com', 'sk-1234')
+    def test_save_api_key_file_io(self):
+        save({"api_keys_by_endpoint": {'http://api.openai.com': 'sk-1234'}})
         assert (os.path.exists(self.config_path))
         data = self._load_written()
         assert ('api_keys_by_endpoint') in (data)
@@ -312,7 +297,7 @@ class TestConfigSyncFileIO:
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             assert (f.read()) == (corrupt)
         with pytest.raises(ConfigError):
-            set_api_key_for_endpoint('http://api.openai.com', 'sk-recovered')
+            save({"api_keys_by_endpoint": {'http://api.openai.com': 'sk-recovered'}})
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == corrupt
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
@@ -570,7 +555,7 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         with patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")):
             with pytest.raises(ConfigError):
-                set_api_key_for_endpoint("https://api.openai.com", "sk-new")
+                save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-new"}})
         assert (get_api_key_for_endpoint("https://api.openai.com")) == ("")
 
     def test_save_default_heals_out_of_range_neighbor(self):
@@ -761,10 +746,10 @@ class TestConfigSyncFileIO:
         whole ``api_keys_by_endpoint`` map.
         """
         reset_config_for_tests()
-        set_api_key_for_endpoint("https://api.together.xyz", "sk-keep")
+        save({"api_keys_by_endpoint": {"https://api.together.xyz": "sk-keep"}})
         self._run_barrier_pair(
             lambda: save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}}),
-            lambda: set_api_key_for_endpoint("http://localhost:11434", "sk-b"),
+            lambda: save({"api_keys_by_endpoint": {"http://localhost:11434": "sk-b"}}),
         )
         reset_config_for_tests()
         keys = get_config("api_keys_by_endpoint")
@@ -1496,8 +1481,8 @@ def test_get_config_before_init_returns_default_when_uno_user_config_raises():
 def test_api_key_saved_to_keystore_not_file(fake_keystore):
     from plugin.framework.config import api_key_slot_value, get_config_file_path
 
-    url = "https://api.example.com/v1"
-    set_api_key_for_endpoint(url, "sk-1")
+    url = "https://api.example.com"
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
 
     raw_bytes = open(get_config_file_path(), "rb").read()
     assert b"sk-1" not in raw_bytes
@@ -1511,11 +1496,11 @@ def test_resaving_same_key_keeps_ref(fake_keystore):
     from plugin.framework.config import api_key_slot_value
 
     url = "https://api.example.com"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     first_ref = api_key_slot_value(url)
 
     with patch.object(get_event_bus(), "emit") as emit:
-        set_api_key_for_endpoint(url, "sk-1")
+        save({"api_keys_by_endpoint": {url: "sk-1"}})
     assert api_key_slot_value(url) == first_ref
     emit.assert_not_called()
 
@@ -1524,10 +1509,10 @@ def test_clearing_key_deletes_store_item(fake_keystore):
     from plugin.framework.config import api_key_slot_value
 
     url = "https://api.example.com"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     assert "api_key:https://api.example.com" in fake_keystore.store
 
-    set_api_key_for_endpoint(url, "")
+    save({"api_keys_by_endpoint": {url: ""}})
     assert api_key_slot_value(url) == ""
     assert "api_key:https://api.example.com" not in fake_keystore.store
     assert get_api_key_for_endpoint(url) == ""
@@ -1538,7 +1523,7 @@ def test_store_write_failure_falls_back_to_plain_text(fake_keystore):
 
     fake_keystore.fail_set = True
     url = "https://api.example.com"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
 
     raw_bytes = open(get_config_file_path(), "rb").read()
     assert b"sk-1" in raw_bytes
@@ -1606,7 +1591,7 @@ def test_migrate_cleans_up_orphaned_legacy_item(fake_keystore):
     norm = "https://openrouter.ai/api"
     # State left by the earlier migration: the legacy slot became a ref
     # whose item nothing reads, next to a normalized slot with its own key.
-    set_api_key_for_endpoint(norm, "sk-new")
+    save({"api_keys_by_endpoint": {norm: "sk-new"}})
     fake_keystore.store[f"api_key:{legacy}"] = "sk-old"
     save({"api_keys_by_endpoint": {legacy: keystore.new_ref()}})
 
@@ -1637,7 +1622,7 @@ def test_has_api_key_does_not_read_keystore(fake_keystore):
     from plugin.framework.config import has_api_key_for_endpoint
 
     url = "https://openrouter.ai/api"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
     assert has_api_key_for_endpoint(url) is True
@@ -1652,7 +1637,7 @@ def test_panel_model_combo_does_not_read_locked_keystore(fake_keystore):
     from plugin.framework import keystore
 
     url = "https://openrouter.ai/api"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
     ctrl = MagicMock()
@@ -1667,7 +1652,7 @@ def test_locked_keystore_reports_keyring_locked(fake_keystore):
     from plugin.framework.errors import format_error_message
 
     url = "https://openrouter.ai/api"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
     assert get_api_key_for_endpoint(url) == ""
@@ -1696,7 +1681,7 @@ def test_unreadable_ref_reads_empty_and_survives_empty_save(fake_keystore):
     from plugin.framework.config import api_key_slot_value
 
     url = "https://api.example.com"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     ref = api_key_slot_value(url)
 
     keystore.reset_for_tests(fake_keystore)
@@ -1813,11 +1798,11 @@ def test_renaming_whitespace_entry_to_stripped_name_keeps_secret(fake_keystore):
 
 def test_fill_api_key_reads_only_a_missing_key(fake_keystore):
     from plugin.framework import keystore
-    from plugin.framework.config import fill_api_key, set_api_key_for_endpoint
+    from plugin.framework.config import fill_api_key, save
     from plugin.framework.send_cancellation import SendCancellation
 
     endpoint = "https://openrouter.ai/api"
-    set_api_key_for_endpoint(endpoint, "sk-1")
+    save({"api_keys_by_endpoint": {endpoint: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
 
     scope = SendCancellation()
@@ -1836,9 +1821,9 @@ def test_fill_api_key_reads_only_a_missing_key(fake_keystore):
 def test_locked_keystore_reported_for_openwebui_flagged_endpoint(fake_keystore):
     from plugin.framework import keystore
     from plugin.framework.client.auth import AuthError, resolve_auth_for_config
-    from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint
+    from plugin.framework.config import get_api_key_for_endpoint, save
 
-    set_api_key_for_endpoint("https://openrouter.ai/api", "sk-1")
+    save({"api_keys_by_endpoint": {"https://openrouter.ai/api": "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 

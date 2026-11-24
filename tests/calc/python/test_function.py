@@ -715,6 +715,14 @@ def test_mixed_dataframe_with_image_column_spills_grid(monkeypatch: pytest.Monke
             lambda img: [dict(img), {"__wa_payload__": "dataframe", "columns": ["x"], "data": [[1]]}],
             "Image inserted",
         ),
+        (
+            lambda img: {"__wa_payload__": "dataframe", "columns": ["fig"], "data": [[dict(img)]]},
+            "Image inserted",
+        ),
+        (
+            lambda img: {"__wa_payload__": "dataframe", "columns": ["fig"], "data": [dict(img)]},
+            "Image inserted",
+        ),
     ],
 )
 def test_image_result_without_cell_values_keeps_text(
@@ -755,6 +763,35 @@ def test_mixed_image_result_index_arg(monkeypatch: pytest.MonkeyPatch) -> None:
 
     out = _function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()", data=1)
     assert out == 42
+
+
+def test_image_insert_passes_spill_cols(monkeypatch: pytest.MonkeyPatch) -> None:
+    """insert_image_result_on_sheet receives the mixed spill width (or 1 when not spilling)."""
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    seen_spill_cols: list[int] = []
+
+    def fake_insert(*_a: Any, **kwargs: Any) -> None:
+        seen_spill_cols.append(kwargs.get("spill_cols"))
+
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", fake_insert)
+    monkeypatch.setattr(_function, "finalize_python_return", lambda *_a, **_k: "ok")
+
+    def _run_with(result: Any, data: Any = None, auto_spill: bool = True) -> int:
+        _function.clear_python_addin_cache()
+        seen_spill_cols.clear()
+        monkeypatch.setattr(_function, "get_config", lambda key: auto_spill if key == "scripting.python_auto_spill" else None)
+        monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": result})
+        _function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()", data=data)
+        assert len(seen_spill_cols) == 1
+        return seen_spill_cols[0]
+
+    assert _run_with([[1, 2, dict(image)]]) == 3
+    assert _run_with([[1], [dict(image)]]) == 1
+    assert _run_with([[1, 2, dict(image)]], data=0) == 1
+    assert _run_with([[1, 2, dict(image)]], auto_spill=False) == 1
 
 
 def test_scalar_for_list_result_no_share_without_unique_origin() -> None:
