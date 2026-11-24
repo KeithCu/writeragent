@@ -1102,104 +1102,104 @@ def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ru
 
 @native_test
 @with_native_doc("writer")
-def test_html_export_range_over_struck_table_and_links_and_ruby_uno(ctx: Any, doc: Any) -> None:
+def test_html_export_range_over_struck_table_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import strike_across_table
     from plugin.writer.html_export import document_to_content
 
-    # A. Range over a struck table: no <table.
     text = doc.getText()
-    cur = text.createTextCursor()
-    text.insertString(cur, "Before delstart", False)
-    text.insertControlCharacter(cur, 0, False)
-    tbl = doc.createInstance("com.sun.star.text.TextTable")
-    tbl.initialize(1, 1)
-    text.insertTextContent(text.getEnd(), tbl, False)
-    tbl.getCellByName("A1").setString("CellGone")
-    cur.gotoEnd(False)
-    text.insertString(cur, "delend After", False)
-
-    enum = text.createEnumeration()
-    els = []
-    while enum.hasMoreElements():
-        els.append(enum.nextElement())
-    del_cur = text.createTextCursorByRange(els[0].getStart())
-    del_cur.goRight(len("Before "), False)
-    end_cur = text.createTextCursorByRange(els[2].getStart())
-    end_cur.goRight(len("delend "), False)
-    del_cur.gotoRange(end_cur, True)
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        del_cur.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
+    strike_across_table(doc, text)
 
     vis_len = len(get_string_without_tracked_deletions(text))
     html_tbl = document_to_content(doc, ctx, scope="range", range_start=0, range_end=vis_len)
     assert "<table" not in html_tbl.lower(), html_tbl
     assert "CellGone" not in html_tbl, html_tbl
 
-    # B. Full read with a struck outline link before a live one: live href is #...|outline.
-    text.setString("")
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_full_read_skips_mid_deletion_outline_link_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
     c = text.createTextCursor()
     text.insertString(c, "KeepHeading", False)
     c.setPropertyValue("ParaStyleName", "Heading 1")
     text.insertControlCharacter(c, 0, False)
     c.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(c, "StartGone", False)
+    text.insertControlCharacter(c, 0, False)
     text.insertString(c, "StruckLink", False)
     c.gotoStartOfParagraph(True)
     c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
     c.gotoEndOfParagraph(False)
-    text.insertControlCharacter(c, 0, False)
-    text.insertString(c, "MidGone", False)
     text.insertControlCharacter(c, 0, False)
     text.insertString(c, "EndGone ", False)
     text.insertString(c, "LiveLink", False)
     c.goLeft(len("LiveLink"), True)
     c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
 
-    # Strike from StruckLink through EndGone.
-    enum2 = text.createEnumeration()
-    p2 = []
-    while enum2.hasMoreElements():
-        p2.append(enum2.nextElement())
-    d2 = text.createTextCursorByRange(p2[1].getStart())
-    e2 = text.createTextCursorByRange(p2[3].getStart())
-    e2.goRight(len("EndGone "), False)
-    d2.gotoRange(e2, True)
+    # Strike from StartGone (plain text) through EndGone; StruckLink sits in the middle para.
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    d = text.createTextCursorByRange(paras[1].getStart())
+    e = text.createTextCursorByRange(paras[3].getStart())
+    e.goRight(len("EndGone "), False)
+    d.gotoRange(e, True)
     doc.setPropertyValue("RecordChanges", True)
     try:
-        d2.setString("")
+        d.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    full_html = document_to_content(doc, ctx, scope="full")
-    assert 'href="#KeepHeading|outline"' in full_html or 'href="#KeepHeading%7Coutline"' in full_html, full_html
+    assert doc.getRedlines().getCount() == 1
+    mid_enum = paras[2].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
 
-    # C. Struck ruby does not attach to a later identical base.
-    text.setString("")
+    full_html = document_to_content(doc, ctx, scope="full")
+    m = re.search(r'<a\b[^>]*\bhref="([^"]*)"[^>]*>LiveLink</a>', full_html)
+    assert m is not None, full_html
+    assert m.group(1) in ("#KeepHeading|outline", "#KeepHeading%7Coutline"), m.group(1)
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_full_read_skips_mid_deletion_ruby_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
     rc = text.createTextCursor()
-    text.insertString(rc, "漢", False)
-    rc.gotoStart(True)
-    rc.setPropertyValue("RubyText", "かん")
-    rc.gotoEnd(False)
+    text.insertString(rc, "start", False)
     text.insertControlCharacter(rc, 0, False)
-    text.insertString(rc, "mid", False)
+    text.insertString(rc, "漢", False)
+    rc.gotoStartOfParagraph(True)
+    rc.setPropertyValue("RubyText", "かん")
+    rc.gotoEndOfParagraph(False)
     text.insertControlCharacter(rc, 0, False)
     text.insertString(rc, "end 漢", False)
 
-    enum3 = text.createEnumeration()
-    p3 = []
-    while enum3.hasMoreElements():
-        p3.append(enum3.nextElement())
-    d3 = text.createTextCursorByRange(p3[0].getStart())
-    e3 = text.createTextCursorByRange(p3[2].getStart())
-    e3.goRight(len("end "), False)
-    d3.gotoRange(e3, True)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    d = text.createTextCursorByRange(paras[0].getStart())
+    e = text.createTextCursorByRange(paras[2].getStart())
+    e.goRight(len("end "), False)
+    d.gotoRange(e, True)
     doc.setPropertyValue("RecordChanges", True)
     try:
-        d3.setString("")
+        d.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+    assert doc.getRedlines().getCount() == 1
+    mid_enum = paras[1].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
 
     ruby_html = document_to_content(doc, ctx, scope="full")
     assert "<ruby>" not in ruby_html, ruby_html

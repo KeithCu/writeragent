@@ -252,6 +252,7 @@ def _cell_has_visible_text(cell: Any) -> bool:
     state = DeletionState()
     for para in iter_elements(para_enum):
         if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
+            # A nested table that opens a deleted cell can leave the start marker unexposed, which would make the recorded-delete check fail.
             continue
         if any(chunk for _portion, chunk in visible_portions(para, state=state)):
             return True

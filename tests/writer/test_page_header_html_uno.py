@@ -801,39 +801,35 @@ def test_header_table_round_trip_adds_no_paragraph_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_uno(ctx, doc):
-    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.tests.testing_utils import fill_five_paragraphs, strike_middle_three_paragraphs
     from plugin.writer.html_export import xtext_to_content
 
     style, _name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
-    strike_across_paragraphs(doc, header)
+    paras = fill_five_paragraphs(header)
 
-    # Insert a struck PageNumber field inside the deleted middle paragraph and a live one in After.
-    enum = header.createEnumeration()
-    paras = []
-    while enum.hasMoreElements():
-        paras.append(enum.nextElement())
-
+    # Insert both fields with RecordChanges off before striking so the middle field stays tracked-deleted.
     struck_field = doc.createInstance("com.sun.star.text.TextField.PageNumber")
-    struck_field.setPropertyValue("NumberingType", 4)  # ARABIC
+    struck_field.setPropertyValue("NumberingType", 4)  # ARABIC (offapi/com/sun/star/style/NumberingType.idl)
     live_field = doc.createInstance("com.sun.star.text.TextField.PageNumber")
-    live_field.setPropertyValue("NumberingType", 0)  # ROMAN_UPPER
+    live_field.setPropertyValue("NumberingType", 2)  # ROMAN_UPPER
 
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        mid_cur = header.createTextCursorByRange(paras[2].getStart())
-        header.insertTextContent(mid_cur, struck_field, False)
-        # Delete the newly inserted field so it is tracked-deleted.
-        mid_cur.gotoStartOfParagraph(False)
-        mid_cur.goRight(1, True)
-        mid_cur.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-
-    end_cur = header.createTextCursorByRange(paras[-1].getEnd())
+    mid_cur = header.createTextCursorByRange(paras[2].getStart())
+    header.insertTextContent(mid_cur, struck_field, False)
+    end_cur = header.createTextCursorByRange(paras[4].getEnd())
     header.insertTextContent(end_cur, live_field, False)
+
+    strike_middle_three_paragraphs(doc, header, paras)
+
+    field_enum = doc.getTextFields().createEnumeration()
+    page_fields = []
+    while field_enum.hasMoreElements():
+        f = field_enum.nextElement()
+        if f.supportsService("com.sun.star.text.textfield.PageNumber"):
+            page_fields.append(f)
+    assert len(page_fields) == 2, page_fields
 
     html = xtext_to_content(header, doc, ctx)
     assert "gone" not in html, html
-    assert "data-numbering-type=" in html, html
+    assert html.count('data-numbering-type="ROMAN_UPPER"') == 1, html

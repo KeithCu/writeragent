@@ -24,6 +24,7 @@ from plugin.writer.hyperlink_fixup import (
     _iter_portions,
     _paint,
     capture_outline_hyperlinks,
+    heading_renames,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_outline_hyperlinks,
@@ -600,3 +601,26 @@ def test_restore_keeps_inherited_look_without_direct_color():
         assert sl.link_style == "Index Link"
     assert ("UnvisitedCharStyleName", "Index Link") in doc.writes
     assert not any(name == "CharColor" for name, _ in doc.writes)
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        # Two renames around an equal title
+        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], {"A": "A2", "B": "B2"}),
+        # A rename plus an added heading gives the rename only
+        ([(1, "A"), (2, "B")], [(1, "A2"), (2, "B"), (2, "C")], {"A": "A2"}),
+        # A repeated old title gives none
+        ([(1, "Dup"), (2, "Dup")], [(1, "X"), (2, "Y")], {}),
+        # A level change gives none
+        ([(1, "A")], [(2, "A2")], {}),
+        # A swap gives none
+        ([(1, "A"), (1, "B")], [(1, "B"), (1, "A")], {}),
+        # Two headings renamed to the same title gives none
+        ([(1, "A"), (1, "B")], [(1, "Same"), (1, "Same")], {}),
+        # Unequal stretch lengths gives none
+        ([(1, "A")], [(1, "A2"), (1, "B")], {}),
+    ],
+)
+def test_heading_renames(before, after, expected):
+    assert heading_renames(before, after) == expected

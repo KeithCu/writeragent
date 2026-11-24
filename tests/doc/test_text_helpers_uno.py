@@ -214,35 +214,12 @@ def test_multi_para_deletion_hidden_in_helper_uno(ctx):
 
 @native_test
 def test_multi_para_deletion_hides_table_in_span_uno(ctx):
-    from plugin.tests.testing_utils import with_native_doc
+    from plugin.tests.testing_utils import strike_across_table, with_native_doc
 
     @with_native_doc("writer")
     def _run(ctx, doc):
         text = doc.getText()
-        cur = text.createTextCursor()
-        text.insertString(cur, "Before delstart", False)
-        text.insertControlCharacter(cur, _PARAGRAPH_BREAK, False)
-        tbl = doc.createInstance("com.sun.star.text.TextTable")
-        tbl.initialize(1, 1)
-        text.insertTextContent(text.getEnd(), tbl, False)
-        tbl.getCellByName("A1").setString("CellGone")
-        cur.gotoEnd(False)
-        text.insertString(cur, "delend After", False)
-
-        enum = text.createEnumeration()
-        els = []
-        while enum_has_more(enum):
-            els.append(enum.nextElement())
-        del_cur = text.createTextCursorByRange(els[0].getStart())
-        del_cur.goRight(len("Before "), False)
-        end_cur = text.createTextCursorByRange(els[2].getStart())
-        end_cur.goRight(len("delend "), False)
-        del_cur.gotoRange(end_cur, True)
-        doc.setPropertyValue("RecordChanges", True)
-        try:
-            del_cur.setString("")
-        finally:
-            doc.setPropertyValue("RecordChanges", False)
+        strike_across_table(doc, text)
         assert "CellGone" not in get_string_without_tracked_deletions(text)
 
     _run(ctx=ctx)

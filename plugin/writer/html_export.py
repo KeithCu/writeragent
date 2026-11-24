@@ -536,6 +536,7 @@ def _copy_window_to_scratch(
 
         inside, trim = window(el, para_text, tables, opened)
         if opened:
+            # A table before a paragraph that starts inside a deletion is struck whole.
             inside = []
         tables = []
         for table in inside:
@@ -832,6 +833,7 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
     state = DeletionState()
     for para in range_copy.iter_xtext_paragraphs(text_obj):
+        # Must skip the same fields as _copy_xtext_by_portions, or the count check skips attribute injection.
         for portion, _unused in visible_portions(para, abort_on_portion_error=True, state=state):
             if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "TextField":
                 try:

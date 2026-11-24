@@ -543,6 +543,29 @@ class EditReviewSession:
         refresh_review_toolbar(self.doc)
         return result
 
+    def tag_side_effects(self, apply_fn: Callable[[], Any]) -> Any:
+        """Run *apply_fn* and stamp any new redlines with one agent token, without a ChangeRecord.
+
+        Used for secondary changes (such as retargeted outline hyperlinks) whose accepted
+        and rejected text are identical, so ``wait_for_review`` neither waits for them nor
+        reports them in ``review.changes``.
+        """
+        if not self._active:
+            if not is_recording_changes(self.doc):
+                return apply_fn()
+            # LibreOffice merges same-author redlines across a paragraph mark (IsPrevPos in
+            # DocumentRedlineManager.cxx and SwRedlineData::CanCombine in docredln.cxx), so Reject
+            # would join the paragraphs; switch author to WriterAgent for these side-effect redlines.
+            prior = review_authors.begin(self.ctx)
+            try:
+                return apply_fn()
+            finally:
+                review_authors.end(self.ctx, prior)
+        before, reliable = self._redline_idents()
+        result = apply_fn()
+        tag_agent_redlines(self.doc, before, before_reliable=reliable)
+        return result
+
     # -- review ------------------------------------------------------------------------------
 
     def _pending_tokens(self) -> tuple[set[str], bool]:

@@ -707,4 +707,12 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
         b_cur.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+    assert doc.getRedlines().getCount() == 2  # 1 in A1 + 1 in B1
+    b_enum = cell_b1.createEnumeration()
+    b_paras = []
+    while b_enum.hasMoreElements():
+        b_paras.append(b_enum.nextElement())
+    mid_enum = b_paras[1].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
     assert _cell_has_visible_text(cell_b1) is False

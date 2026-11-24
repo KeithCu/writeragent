@@ -470,7 +470,7 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
 
 
 def test_section_password_params_are_secret_keys() -> None:
-    from plugin.framework.logging import is_secret_key
+    from plugin.framework.log_redaction import is_secret_key
 
     props = SectionSetPassword().parameters["properties"]
     pw_keys = [k for k in props if "password" in k]

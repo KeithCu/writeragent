@@ -736,6 +736,7 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
             if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextRange"):
                 parts.append("" if state.in_delete else _table_visible_text(para))
                 continue
+            # Markers may be in an earlier paragraph, so one state covers the walk.
             parts.append(_paragraph_visible_text(para, state))
     except Exception as exc:
         # Return deletion-free prefix on mid-walk error; do not fall back to getString().
@@ -754,6 +755,7 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
     For readers that jump to one paragraph. The list is all False, without a portion
     walk, when the document has no redlines.
     """
+    # A portion walk costs 1.0–1.7 s per 1000 paragraphs over the bridge; hasElements() is under 1 ms.
     if not uno_read(lambda: model.getRedlines().hasElements() is True, False):
         return [False] * len(elements)
     state = DeletionState()
