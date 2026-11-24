@@ -25,7 +25,7 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    or a propagated Err:<n> token). The add-in shows that error. Used where the cell must show
    a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
    and regression helpers), and the first error of a range (@propagate_errors, criteria_reduce,
-   first_error: npv, sumsq, sumproduct, subtotal). "Err:502" / "Err:504" come from xlookup bad
+   first_error: npv, sumsq, sumproduct, subtotal, aggregate; first_coded_error: D*). "Err:502" / "Err:504" come from xlookup bad
    mode, growth and trend. @propagate_errors returns an argument's own error (token or coded NaN)
    before the helper runs.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN

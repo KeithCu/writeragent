@@ -132,7 +132,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     # These are what an #N/A operand raises in translated code (np.int64 of NaN or of the token,
-    # text + number, an INT_MIN index or date); other exceptions are other errors and propagate.
+    # text + number, an INT_MIN index on x86 or date); other exceptions are other errors and propagate.
     return _if_caught(f, alt, isna, (ValueError, TypeError, IndexError, OverflowError))
 
 

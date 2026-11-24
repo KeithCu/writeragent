@@ -239,6 +239,7 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float | str:
         return float(len(arr) + n_other)
     if fn == 4:
         # ScMax pushes 0 when nothing numeric remains (text is ignored).
+        # np.max([]) raises ValueError; empty is 0 here.
         return float(np.max(arr)) if arr.size else 0.0
     if fn == 5:
         # Same empty rule as ScMin / ScMax.
