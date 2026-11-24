@@ -1801,16 +1801,18 @@ def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
     assert "data-lo-para=" not in keep_open, keep_block
 
 
+_TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
 def _insert_tiny_png(doc: Any, target_text: Any, cursor: Any, anchor_type: Any, name: str) -> str:
+    import base64
     import os
     import tempfile
     import uno
 
-    png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-        b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc`\x00\x00"
-        b"\x00\x02\x00\x01H\xaf\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
+    png = base64.b64decode(_TINY_PNG_B64)
     fd, img_path = tempfile.mkstemp(suffix=".png")
     os.close(fd)
     with open(img_path, "wb") as f:
@@ -1885,8 +1887,10 @@ def test_body_with_only_struck_table_returns_empty_full_read_uno(ctx: Any, doc: 
     try:
         res = TableDelete().execute(tctx, name="OnlyTbl")
         assert res["status"] == "ok", res
-        html = document_to_content(doc, ctx, scope="full")
-        assert "SECRET" not in html, html
+        warnings: list[str] = []
+        html = document_to_content(doc, ctx, scope="full", walk_warnings=warnings)
+        assert warnings == [], warnings
+        assert html == "", repr(html)
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1969,7 +1973,9 @@ def test_delete_row_and_struck_cell_para_marks_agree_in_full_and_range_uno(ctx: 
         range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc))
         assert "Row2Gone" not in full_html and "Row2Gone" not in range_html
         assert full_html.count("<tr") == 2 and range_html.count("<tr") == 2
-        assert _deleted_flags_from_html(full_html) == _deleted_flags_from_html(range_html)
+        expected_flags = [False, True, False, True]
+        assert _deleted_flags_from_html(full_html) == expected_flags, full_html
+        assert _deleted_flags_from_html(range_html) == expected_flags, range_html
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -2072,6 +2078,11 @@ def test_deletion_spanning_at_paragraph_image_omits_image_in_range_and_accept_un
     text.insertString(cur, "CC", False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "DD", False)
+
+    pre_range_html = document_to_content(
+        doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc), include_images=True
+    )
+    assert "<img" in pre_range_html, pre_range_html
 
     doc.setPropertyValue("RecordChanges", True)
     try:

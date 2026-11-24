@@ -979,7 +979,6 @@ def test_parse_data_lo_para_start_and_end_fallback_when_enum_missing():
         '<p data-lo-style="Textbody"/>',
         '<p data-lo-style="Textbody"><span></span></p>',
         '<ul><li data-lo-style="Textbody"></li></ul>',
-        '<blockquote data-lo-style="Textbody"><p></p><p>Inner</p></blockquote>',
     ],
 )
 def test_extract_block_lo_styles_drops_empty_block_before_content(empty_block: str):
@@ -990,6 +989,20 @@ def test_extract_block_lo_styles_drops_empty_block_before_content(empty_block: s
     assert styles[0] == "Standard"
     assert styles[-1] == "Heading1"
     assert "Textbody" not in styles
+
+
+def test_extract_block_lo_styles_keeps_alignment_after_empty_first_blockquote_para():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<blockquote data-lo-style="Textbody"><p></p><p>Inner</p></blockquote>'
+        '<h1 data-lo-style="Heading1">B</h1>'
+    )
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert len(styles) == 3
+    assert styles[0] == "Standard"
+    assert styles[-1] == "Heading1"
 
 
 @pytest.mark.parametrize(

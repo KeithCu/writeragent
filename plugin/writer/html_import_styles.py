@@ -225,8 +225,8 @@ class _OpenBlock:
 
 # StarWriter import keeps a block that holds one of these, and drops a block with no text at all.
 _CONTENT_TAGS: frozenset[str] = frozenset({
-    "table", "br", "hr", "img", "input", "select", "textarea", "button",
-    "object", "embed", "iframe", "video", "audio", "svg",
+    "table", "br", "hr", "img", "input", "select", "textarea",
+    "object", "embed", "iframe",
 })
 
 

@@ -603,8 +603,8 @@ def _copy_cell_xtext(
 ) -> None:
     """Copy one table cell: text, fields, and graphics.
 
-    *mark_struck* is for the HTML export scratch copy only, because the same copy
-    writes page-style clones into live documents.
+    Only the HTML export scratch copy sets *mark_struck*: page-style clones use
+    this function to write into live documents, where the marker would stay as text.
     """
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
