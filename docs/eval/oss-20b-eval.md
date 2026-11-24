@@ -54,7 +54,7 @@ that tool for sort.
 Default `run_optimize.py --student llm` now wraps **`llm_chat_eval`**
 (same LlmClient + production schemas + inner specialized loop as
 `make run_eval`) and rewrites a **named slice** (`--slice calc_core`,
-`range_sort`, …). `--student react-mock` still exists for comparison:
+`sort_range`, …). `--student react-mock` still exists for comparison:
 that path is DSPy ReAct + three Writer mocks; its
 `optimized_writer_prompt.json` (`Next Thought:` / `Next Tool Name:`)
 must not be pasted into
@@ -67,11 +67,11 @@ misses live in Calc/Draw directives and **tool descriptions**.
 until the metric was honest. Worlds, process oracles, and specialized
 inner loops are shipped. The optimizer was never rewired onto that loop.
 
-## Smoking gun: `=PY` docs vs `range_sort`
+## Smoking gun: `=PY` docs vs `sort_range`
 
 [`write_formula_range`](../../plugin/calc/cells.py) description is a long
 `=PY` sermon (dest, spill, `to_pandas()`, do not dump A1:H500).
-[`range_sort`](../../plugin/calc/cells.py) is one sentence and lives behind
+[`sort_range`](../../plugin/calc/cells.py) is one sentence and lives behind
 `delegate_to_subagent(domain="ranges")`.
 
 [`CALC_CORE_DIRECTIVES`](../../plugin/framework/prompts.py) ends with
@@ -96,10 +96,9 @@ Keep diffs short.
 **Calc** (`CALC_CORE_DIRECTIVES` only for sort; slim `CALC_WORKFLOW`):
 
 - Do `delegate_to_subagent(domain="ranges")` then
-  `range_sort` to reorder rows (multi-key = two stable one-column
-  passes) because `write_formula_range` / `=PY` overwrite the range
+  `sort_range` to reorder rows (multi-key = `then_by` in one call) because `write_formula_range` / `=PY` overwrite the range
   including headers.
-- Do pass `has_header=true` on `range_sort` when row 1 is labels
+- Do pass `has_header=true` on `sort_range` when row 1 is labels
   because otherwise labels sort as values.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
@@ -125,7 +124,7 @@ Keep diffs short.
 
 **Tool descriptions:**
 
-- `range_sort`: stable one-column; multi-key = multiple calls; Do pass
+- `sort_range`: stable; multi-key = `then_by` in one call; Do pass
   `has_header=true` when row 1 is labels because otherwise labels sort
   as values. Schema `required` is `["range", "has_header"]`.
 - `write_formula_range`: no sort-half sentence (slim surface). Relative
@@ -154,11 +153,11 @@ If 120b still 5/5 and 20b is up, run the full 17 for both before shipping.
 DSPy does not search “how many tools.” Same 17 tasks, 20b, vary catalog:
 
 - current catalog
-- `range_sort` visible on **core** Calc (no ranges delegate)
+- `sort_range` visible on **core** Calc (no ranges delegate)
 - shorter `write_formula_range` description that does not advertise
   sort-via-`=PY`
 
-If 20b passes `data_sorting` once `range_sort` is on the core list, that
+If 20b passes `data_sorting` once `sort_range` is on the core list, that
 is a catalog/prompt issue, not a MIPRO-instruction issue. See “How many
 tools is too many?” in [dspy-prompt-optimization-plan.md](dspy-prompt-optimization-plan.md).
 
@@ -173,7 +172,7 @@ traces and rewrites instructions. That matches this problem.
   not judge − tokens. 20b already has quality 0.89 on passes.
 - Optimize **short blobs**, separately: `CALC_CORE_DIRECTIVES` +
   `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; optionally
-  `write_formula_range.description` and `range_sort.description`
+  `write_formula_range.description` and `sort_range.description`
   (eval-dev-plan already flags MIPROv2 on that description).
 - Program: wrap `llm_chat_eval`, **not** `dspy.ReAct`.
 
@@ -212,7 +211,7 @@ production-compatible version of a demo is 2–3 lines in
 
 ## Open
 
-- [x] Draft the Calc directive patches + `range_sort` description (DO-first sort + `has_header`; relative formulas; slimmed after 120b miss)
+- [x] Draft the Calc directive patches + `sort_range` description (DO-first sort + `has_header`; relative formulas; slimmed after 120b miss)
 - [x] First 5-task A/B on 20b and 120b — 20b gained `data_sorting`; 120b `has_header` miss (`header row is not first`)
 - [x] Re-A/B after wording — header misses persist; likely explicit `has_header=false`
 - `[eng S few]` [ ] Full 17 if the A/B is a win and 120b does not regress
