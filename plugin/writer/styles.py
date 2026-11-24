@@ -26,7 +26,7 @@ from contextlib import nullcontext
 import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -65,7 +65,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
-from plugin.framework.uno_context import get_toolkit
+from plugin.framework.uno_context import create_property_value, get_toolkit
 from plugin.writer.edit_review import (
     annotate_review_status,
     flag_style_unreviewed,
@@ -73,6 +73,7 @@ from plugin.writer.edit_review import (
     review_recording_enabled,
 )
 from plugin.writer.record_changes import is_recording_changes, record_changes
+from plugin.writer.review_authors import office_author
 from . import search as search_mod
 from .page import copy_page_style, get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
@@ -92,6 +93,18 @@ STYLE_GOVERNED_CHAR_PROPERTIES = FONT_NAME_PROPERTIES + (
 CLEARABLE_PARA_PROPERTIES = (
     "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
     "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+)
+
+# Justify sub-properties (ParaComposer, ParaExpandSingleWord, ParaLastLineAdjust,
+# ParaLetterSpacing*, ParaWordSpacing*, ParaScaleWidth*) make makeRedline raise,
+# and an unknown name stops SwUnoCursorHelper::makeRedline's property loop.
+_REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
+    "ParaContextMargin", "ParaLineSpacing", "ParaTabStops", "ParaVertAlignment",
+    "ParaWidows", "ParaOrphans", "ParaIsHyphenation", "OutlineLevel",
+    "FillStyle", "FillColor",
+    "LeftBorder", "RightBorder", "TopBorder", "BottomBorder",
+    "LeftBorderDistance", "RightBorderDistance", "TopBorderDistance", "BottomBorderDistance",
+    "DropCapFormat", "ParaShadowFormat", "BreakType", "WritingMode", "ParaLineNumberCount",
 )
 
 # Must cover everything style_props clears so the report echoes every dropped slot.
@@ -243,6 +256,15 @@ class ParagraphStyleApplyReport(TypedDict, total=False):
     cleared_paragraph_properties: list[str]
     warning: str
     capture_incomplete: bool
+    tracked: bool
+    style_unreviewed: bool
+
+
+class _ParagraphRevert(NamedTuple):
+    cursor: Any                  # spans the paragraph
+    properties: tuple[Any, ...]  # PropertyValues for RedlineRevertProperties
+    recorded: bool               # already has a ParagraphFormat redline
+    numbered: bool
 
 
 def _expand_to_full_paragraphs(cur: Any) -> Any:
@@ -404,12 +426,94 @@ def _capture_direct_char_overrides(
     return overrides, read.failures, notes
 
 
+def _has_paragraph_format_redline(para: Any) -> bool:
+    portion_enum = para.createEnumeration()
+    for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
+        if (
+            portion.getPropertyValue("TextPortionType") == "Redline"
+            and portion.getPropertyValue("RedlineType") == "ParagraphFormat"
+        ):
+            return True
+    return False
+
+
+def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> list[_ParagraphRevert]:
+    """Capture each changed paragraph's pre-change formatting for a ParagraphFormat redline."""
+    read = _CountingReader()
+    notes: list[str] = []
+    para_enum = read(capture_cursor.createEnumeration)
+    if para_enum is _READ_FAILED:
+        return []
+    states: list[_ParagraphRevert] = []
+    for para in _capture_paragraphs(read, para_enum, notes):
+        old_style = para.getPropertyValue("ParaStyleName")
+        direct = [
+            name for name in _REVERT_PARA_PROPERTIES
+            if para.getPropertyState(name).value == "DIRECT_VALUE"
+        ]
+        if old_style == style_name and not direct:
+            continue
+        props: list[Any] = [create_property_value("ParaStyleName", old_style)]
+        for name in direct:
+            props.append(create_property_value(name, _typed_property_value(name, para.getPropertyValue(name))))
+        if para.getPropertyValue("NumberingStyleName"):
+            props.append(create_property_value("NumberingRules", para.getPropertyValue("NumberingRules")))
+        numbered = bool(para.getPropertyValue("ListLabelString")) or (
+            para.getPropertyState("NumberingRules").value == "DIRECT_VALUE"
+        )
+        states.append(_ParagraphRevert(
+            cursor=cursor_spanning_range(para),
+            properties=tuple(props),
+            recorded=_has_paragraph_format_redline(para),
+            numbered=numbered,
+        ))
+    return states
+
+
+def _record_paragraph_styles(states: list[_ParagraphRevert], author: str) -> tuple[int, int]:
+    """Record one ParagraphFormat redline per changed paragraph, returning ``(recorded, failed)``.
+
+    An existing ``ParagraphFormat`` redline is kept as the only one because it holds the state
+    before both changes, and Reject All would end on the later redline's state.
+    """
+    import uno  # local: tests swap sys.modules["uno"]
+
+    uno_any = getattr(uno, "Any")
+    recorded = 0
+    failed = 0
+    for state in states:
+        if state.recorded:
+            recorded += 1
+            continue
+        if state.cursor.isCollapsed():
+            continue
+        try:
+            state.cursor.makeRedline(
+                "ParagraphFormat",
+                (
+                    create_property_value("RedlineAuthor", author),
+                    create_property_value(
+                        "RedlineRevertProperties",
+                        uno_any("[]com.sun.star.beans.PropertyValue", state.properties),
+                    ),
+                ),
+            )
+            recorded += 1
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("Failed to record ParagraphFormat redline")
+            failed += 1
+    return recorded, failed
+
+
 def apply_paragraph_style_preserving_direct_char(
     doc: Any,
     cursor: Any,
     style_name: str,
     clear_direct: Literal["none", "style_props", "all"] = "none",
     style_cache: dict[Any, Any] | None = None,
+    *,
+    author: str | None = None,
 ) -> ParagraphStyleApplyReport:
     """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
 
@@ -422,6 +526,10 @@ def apply_paragraph_style_preserving_direct_char(
     ``getPropertyState`` is unreliable at the text-portion level (except for hint-level
     overrides on hyperlinks, see ``read_link_look`` in ``hyperlink_fixup``), so overrides
     are detected by VALUE (Char* differs from the paragraph's current style default).
+
+    With *author* set, the caller has turned recording off, and each changed paragraph gets a
+    ``ParagraphFormat`` redline via ``SwUnoCursorHelper::makeRedline`` whose Reject restores
+    its style, direct paragraph formatting and numbering style.
 
     *clear_direct* decides what happens to those captured overrides. The helper default is
     ``"none"`` so HTML import / style-restore callers keep inline fonts; ``apply_style``
@@ -448,6 +556,7 @@ def apply_paragraph_style_preserving_direct_char(
     capture_cursor = _expand_to_full_paragraphs(cursor)
     overrides, capture_failures, walk_notes = _capture_direct_char_overrides(doc, capture_cursor, style_cache)
     found = _summarize_char_overrides(overrides)
+    states = _paragraph_revert_states(capture_cursor, style_name) if author is not None else []
     try:
         cursor.setPropertyValue("ParaStyleName", style_name)
     except Exception as exc:
@@ -483,6 +592,26 @@ def apply_paragraph_style_preserving_direct_char(
         )
         report["cleared_char_properties"] = reset_properties_to_default(capture_cursor, char_targets)
         report["cleared_paragraph_properties"] = reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+
+    if author is not None:
+        recorded, failed = _record_paragraph_styles(states, author)
+        report["tracked"] = recorded > 0
+        unreviewed_notes: list[str] = []
+        if report.get("removed_char_overrides") or (clear_direct == "all" and bool(overrides)):
+            unreviewed_notes.append(
+                "Rejecting the tracked style change does not bring back the direct font or character formatting that was cleared."
+            )
+        if any(state.numbered for state in states):
+            unreviewed_notes.append("Rejecting it may not restore list levels or numbers.")
+        # Empty paragraphs are not flagged when at least one paragraph was recorded,
+        # because LibreOffice records nothing for them either.
+        if failed or (states and recorded == 0):
+            unreviewed_notes.append(
+                "Some paragraphs (for example empty ones) were restyled without a tracked change."
+            )
+        if unreviewed_notes:
+            report["style_unreviewed"] = True
+            walk_notes.extend(unreviewed_notes)
 
     if capture_failures > 0:
         walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
@@ -1557,10 +1686,14 @@ class ApplyStyle(FrameworkToolBase):
         uno_value: str,
         cursor: Any,
         clear_direct: Literal["none", "style_props", "all"] = "style_props",
+        *,
+        author: str | None = None,
     ) -> ParagraphStyleApplyReport | None:
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
-            return apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value, clear_direct)
+            return apply_paragraph_style_preserving_direct_char(
+                ctx.doc, cursor, uno_value, clear_direct, author=author
+            )
         cursor.setPropertyValue("CharStyleName", uno_value)
         return None
 
@@ -1580,10 +1713,18 @@ class ApplyStyle(FrameworkToolBase):
                 if rep.get(key):
                     out[key] = rep[key]  # same list for every range; last one wins
             if rep.get("warning"):
-                # First range's walk-cap note is enough — same cap applies to every range.
-                out.setdefault("warning", rep["warning"])
+                # Keep distinct warnings across ranges without repeating identical ones.
+                existing = out.get("warning")
+                if not existing:
+                    out["warning"] = rep["warning"]
+                elif isinstance(rep["warning"], str) and rep["warning"] not in existing:
+                    out["warning"] = f"{existing} {rep['warning']}"
             if rep.get("capture_incomplete"):
                 out["capture_incomplete"] = True
+            if "tracked" in rep:
+                out["tracked"] = out.get("tracked", False) or rep["tracked"]
+            if rep.get("style_unreviewed"):
+                out["style_unreviewed"] = True
         # No retry hint: default is already style_props (house font shows). preserved_char_overrides
         # is only set on the explicit none path, which the caller asked for.
         return out
@@ -1646,7 +1787,10 @@ class ApplyStyle(FrameworkToolBase):
         else:
             res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
         res.update(self._merge_reports(reports))
-        flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
+        if "tracked" not in res:
+            flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
+        if res.get("tracked"):
+            return annotate_review_status(res)
         return res
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1690,13 +1834,18 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        reports, err = apply_to_cursors(
-            self,
-            ctx,
-            cursors,
-            lambda c: self._apply_one(ctx, family, uno_value, c, clear_direct),
-            "style '%s'" % style_name,
-        )
+        recording = family == "ParagraphStyles" and is_recording_changes(ctx.doc)
+        author = office_author(ctx.ctx) if recording else None
+        # Recording is off during the write: LibreOffice records the Char* restore as Format
+        # redlines whose Reject drops the run's formatting and keeps the new style.
+        with (record_changes(ctx.doc, False) if recording else nullcontext()):
+            reports, err = apply_to_cursors(
+                self,
+                ctx,
+                cursors,
+                lambda c: self._apply_one(ctx, family, uno_value, c, clear_direct, author=author),
+                "style '%s'" % style_name,
+            )
         if err is not None:
             return err
 

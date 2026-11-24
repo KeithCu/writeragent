@@ -933,13 +933,15 @@ def _style_ctx(send_cancellation=None):
 def test_apply_style_all_matches_applies_to_each():
     from plugin.writer.styles import ApplyStyle
 
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.return_value = False
     ranges = [MagicMock(), MagicMock(), MagicMock()]
     with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
     assert res["normalized_old_content"] == "Title"
@@ -951,13 +953,15 @@ def test_apply_style_all_matches_does_not_abort_on_stop_checker():
     ranges = [MagicMock(), MagicMock(), MagicMock()]
     stop_scope = SendCancellation()
     stop_scope.cancel()
+    ctx = _style_ctx(send_cancellation=stop_scope)
+    ctx.doc.getPropertyValue.return_value = False
 
     with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(send_cancellation=stop_scope), style="Heading 1", target="search",
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok"
     assert res["applied_count"] == 3
@@ -2425,12 +2429,14 @@ def test_style_format_text_warns_for_non_para_prefix_paragraph_props():
 def test_apply_style_undo_unavailable_names_the_style():
     from plugin.doc.compound_undo import UndoUnavailable
 
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.return_value = False
     ranges = [MagicMock(), MagicMock()]
     with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.commit_or_rollback", side_effect=UndoUnavailable("no undo")):
-        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -2489,5 +2495,74 @@ def test_capture_direct_char_overrides_skips_run_only_names_without_failure():
     overrides2, failures2, _notes2 = _capture_direct_char_overrides(doc, cursor, {})
     assert failures2 == 1
     assert overrides2 == []
+
+
+def test_apply_style_merge_reports_tracked_unreviewed_and_distinct_warnings():
+    merged = ApplyStyle._merge_reports([
+        {"tracked": False, "warning": "First warning."},
+        {"tracked": True, "style_unreviewed": True, "warning": "Second warning."},
+        {"tracked": False, "warning": "First warning."},
+    ])
+    assert merged["tracked"] is True
+    assert merged["style_unreviewed"] is True
+    assert merged["warning"] == "First warning. Second warning."
+
+
+def test_apply_style_recording_passes_author_and_toggles_record_changes():
+    ctx = _style_ctx()
+    rec_states = [True, True, False]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    cursor = MagicMock()
+    seen_recording: list[bool] = []
+
+    def fake_apply(_doc, _cur, _style, _clear_direct, *, author=None):
+        seen_recording.append(False)
+        assert author == "Alice Smith"
+        return {"direct_formatting": "preserved", "clear_direct": "none", "tracked": True}
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles.office_author", return_value="Alice Smith"), \
+         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply):
+        res = ApplyStyle().execute(ctx, style="Heading 1", target="selection")
+
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert seen_recording == [False]
+    assert ctx.doc.setPropertyValue.call_args_list[0].args == ("RecordChanges", False)
+    assert ctx.doc.setPropertyValue.call_args_list[1].args == ("RecordChanges", True)
+
+
+def test_record_paragraph_styles_failure_and_disposal(monkeypatch: pytest.MonkeyPatch):
+    from types import SimpleNamespace
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import styles as fmt
+
+    monkeypatch.setitem(
+        sys.modules,
+        "uno",
+        SimpleNamespace(Any=lambda _t, v: v, createUnoStruct=lambda _name: SimpleNamespace()),
+    )
+
+    cursor_fail = MagicMock()
+    cursor_fail.isCollapsed.return_value = False
+    cursor_fail.makeRedline.side_effect = RuntimeError("refused")
+    state_fail = fmt._ParagraphRevert(cursor=cursor_fail, properties=(), recorded=False, numbered=False)
+
+    doc, _para_styles, _style = _make_style_doc()
+    with patch("plugin.writer.styles._paragraph_revert_states", return_value=[state_fail]):
+        rep = fmt.apply_paragraph_style_preserving_direct_char(
+            doc, _make_style_cursor([]), "Heading 1", author="Alice Smith"
+        )
+    assert rep["tracked"] is False
+    assert rep["style_unreviewed"] is True
+    assert "without a tracked change" in rep["warning"]
+
+    DisposedExc = type("DisposedException", (Exception,), {})
+    cursor_disp = MagicMock()
+    cursor_disp.isCollapsed.return_value = False
+    cursor_disp.makeRedline.side_effect = DisposedExc("disposed")
+    state_disp = fmt._ParagraphRevert(cursor=cursor_disp, properties=(), recorded=False, numbered=False)
+    with pytest.raises(DocumentDisposedError):
+        fmt._record_paragraph_styles([state_disp], "Alice Smith")
 
 

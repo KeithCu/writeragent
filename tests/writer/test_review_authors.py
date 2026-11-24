@@ -226,3 +226,24 @@ def test_end_current_equals_prior_does_no_write(
 
     review_authors.end(ctx, prior)
     assert len(commits) == commit_count_before_end
+
+
+@pytest.mark.parametrize(
+    ("store", "locale", "expected"),
+    [
+        ({"givenname": "Alice", "sn": "Smith"}, "en-US", "Alice Smith"),
+        ({"givenname": "Taro", "sn": "Yamada"}, "ja-JP", "Yamada Taro"),
+        ({"givenname": "Ivan", "fathersname": "Petrovich", "sn": "Sidorov"}, "ru-RU", "Ivan Petrovich Sidorov"),
+        ({"givenname": "", "sn": "", "initials": "AS"}, "en-US", "AS"),
+        ({}, "en-US", "Unknown Author"),
+    ],
+)
+def test_office_author(
+    monkeypatch: pytest.MonkeyPatch,
+    store: dict[str, str],
+    locale: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(review_authors, "_author_access", lambda _ctx: FakeAuthorAccess(store))
+    monkeypatch.setattr(review_authors, "get_lo_locale", lambda _ctx: locale)
+    assert review_authors.office_author(object()) == expected
