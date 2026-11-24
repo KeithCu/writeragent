@@ -21,6 +21,7 @@ import re
 import uuid
 from typing import Any, Generator, NamedTuple, NoReturn
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .range_copy import table_is_all_deleted
@@ -334,9 +335,29 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
             return False
     elif getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_CHARACTER":
         try:
-            end_check = anchor.getText().createTextCursorByRange(anchor.getStart())
+            anchor_text = anchor.getText()
+            end_check = anchor_text.createTextCursorByRange(anchor.getStart())
             if not end_check.goRight(1, False):
-                return False  # at the end of the last paragraph: Accept leaves it in place
+                # IsDestroyFrameAnchoredAtChar (sw/source/core/undo/undobj.cxx:1716-1728)
+                # destroys a char-anchored fly at the deletion end only when rStart and
+                # rEnd are in different nodes (a multi-paragraph Delete redline).
+                para_start = anchor_text.createTextCursorByRange(anchor.getStart())
+                para_start.gotoStartOfParagraph(False)
+                for rl in iter_elements(model.getRedlines().createEnumeration()):
+                    if str(rl.getPropertyValue("RedlineType")) != "Delete":
+                        continue
+                    rl_start = rl.getPropertyValue("RedlineStart")
+                    rl_end = rl.getPropertyValue("RedlineEnd")
+                    try:
+                        if (
+                            uno_same(rl_start.getText(), anchor_text)
+                            and anchor_text.compareRegionStarts(rl_start, para_start) == 1
+                            and anchor_text.compareRegionEnds(point, rl_end) >= 0
+                        ):
+                            return True
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                return False
         except Exception as exc:
             reraise_if_disposed(exc)
     return uno_read(lambda: "Delete" in redline_kinds_covering(model, point), False)

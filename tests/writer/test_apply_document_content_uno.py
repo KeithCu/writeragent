@@ -655,7 +655,7 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
     import os
     import tempfile
     from unittest.mock import patch
-    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
     from plugin.framework.uno_context import execute_dispatch
     from plugin.writer import html_import
     from plugin.writer.html_export import document_to_content
@@ -821,5 +821,35 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
         assert res_pic.get("status") == "ok", res_pic
         assert doc.getGraphicObjects().getCount() == 1
         assert text.getString().strip() == "abc"
+
+        # 6. Recorded full_document with AT_CHARACTER at the end of a 2-paragraph body
+        # deletes the original on Accept (IsDestroyFrameAnchoredAtChar) and keeps 1 copy.
+        _clear_body(doc)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "first", False)
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.gotoEnd(False)
+        text.insertString(cur, "second", False)
+        g2 = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g2.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g2.setPropertyValue("AnchorType", AT_CHARACTER)
+        g2.setPropertyValue("Width", 400)
+        g2.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g2, False)
+        g2.setName("BodyEndChar")
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            html_end = document_to_content(doc, ctx, scope="full", include_images=False)
+            res_end = ApplyDocumentContent().execute(
+                tctx, target="full_document", content=html_end.replace("second", "SECOND")
+            )
+            assert res_end.get("status") == "ok", res_end
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
     finally:
         os.unlink(img_path)

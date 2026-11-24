@@ -1718,7 +1718,10 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
             ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
-    assert "Table insert produced no table in document." in res["message"]
+    if extra_kwargs.get("all_matches"):
+        assert "Table insert produced no table in document." in res["message"]
+    else:
+        assert res["message"] == "Table insert produced no table in document."
 
 
 def test_table_insert_failed_inside_outline_undo_keeps_code():

@@ -957,8 +957,6 @@ def _insert_header_logo(doc, target_text, img_path, anchor_type, *, name="LogoPi
     g.setPropertyValue("AnchorType", anchor_type)
     g.setPropertyValue("Width", 500)
     g.setPropertyValue("Height", 500)
-    if anchor_type != doc.createInstance("com.sun.star.text.TextGraphicObject").getPropertyValue("AnchorType"):
-        pass
     if offset or anchor_type.value != "AS_CHARACTER":
         g.setPropertyValue("HoriOrient", 0)
         g.setPropertyValue("HoriOrientPosition", 500)
@@ -1136,6 +1134,34 @@ def test_header_logo_recording_hyperlink_refusals_and_nested_scan_uno(ctx, doc):
                     rec_anchor,
                     rdoc.getGraphicObjects().getCount(),
                 )
+            finally:
+                rdoc.close(True)
+
+        # Recorded AT_CHARACTER at the end of the last paragraph: 1-para header keeps the
+        # surviving original; 2-para header deletes it on Accept and keeps the restored copy.
+        for two_paras in (False, True):
+            rdoc = TestingFactory.create_native_doc(ctx, "writer")
+            try:
+                rstyle, _ = _style(rdoc)
+                rstyle.setPropertyValue("HeaderIsOn", True)
+                rheader = rstyle.getPropertyValue("HeaderText")
+                rcur = rheader.createTextCursor()
+                rcur.gotoStart(False)
+                rheader.insertString(rcur, "first", False)
+                if two_paras:
+                    rcur.gotoEnd(False)
+                    rheader.insertControlCharacter(rcur, 0, False)
+                    rcur.gotoEnd(False)
+                    rheader.insertString(rcur, "second", False)
+                _insert_header_logo(
+                    rdoc, rheader, img_path, AT_CHARACTER, name=f"EndChar_{two_paras}"
+                )
+                rctrl = rdoc.getCurrentController()
+                rdoc.setPropertyValue("RecordChanges", True)
+                got = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got["content"].replace("first", "FIRST")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:AcceptAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, two_paras
             finally:
                 rdoc.close(True)
 
