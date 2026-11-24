@@ -87,7 +87,7 @@ def _doc_url(raw_doc: Any) -> str:
 
 
 def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
-    """Return open models matching *predicate*, excluding registered scratch documents."""
+    """Open models matching *predicate*. Registered scratch documents (hidden helpers and research copies) never match: the user did not open them, so they must not be reset or make the only open document ambiguous."""
     # get_desktop runs before iter_open_models' own guard; a desktop that is going
     # away (createInstanceWithContext raising) means no document matches.
     try:

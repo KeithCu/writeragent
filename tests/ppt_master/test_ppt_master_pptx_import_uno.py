@@ -20,6 +20,18 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
 
+def _add_text_slide(doc, index: int) -> None:
+    pages = doc.getDrawPages()
+    if index > 0:
+        pages.insertNewByIndex(index)
+    page = pages.getByIndex(index)
+    shape = doc.createInstance("com.sun.star.drawing.TextShape")
+    page.add(shape)
+    shape.setPosition(Point(1000, 1000))
+    shape.setSize(Size(10000, 2000))
+    shape.setString(f"Slide {index}")
+
+
 def _build_deck(ctx, path: Path, slides: int) -> None:
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL(
@@ -29,16 +41,8 @@ def _build_deck(ctx, path: Path, slides: int) -> None:
         (create_property_value("Hidden", True),),
     )
     try:
-        pages = doc.getDrawPages()
         for i in range(slides):
-            if i > 0:
-                pages.insertNewByIndex(i)
-            page = pages.getByIndex(i)
-            shape = doc.createInstance("com.sun.star.drawing.TextShape")
-            page.add(shape)
-            shape.setPosition(Point(1000, 1000))
-            shape.setSize(Size(10000, 2000))
-            shape.setString(f"Slide {i}")
+            _add_text_slide(doc, i)
         doc.storeToURL(
             path.resolve().as_uri(),
             (create_property_value("FilterName", "Impress MS PowerPoint 2007 XML"),),

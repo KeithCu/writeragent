@@ -17,7 +17,7 @@ from plugin.scripting.document_scripts import (
     get_document_scripts,
 )
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 _test_ctx = None
 _temp_dir = None
@@ -56,7 +56,8 @@ def test_document_scripts_survive_save_reopen(ctx):
 
 
 @native_test
-def test_research_read_does_not_change_workbook_pick_uno(ctx):
+@with_native_doc("calc")
+def test_research_read_does_not_change_workbook_pick_uno(ctx, doc):
     import sys
     import unittest
 
@@ -69,27 +70,30 @@ def test_research_read_does_not_change_workbook_pick_uno(ctx):
     from plugin.framework.uno_context import get_runtime_uid
     from plugin.scripting.document_scripts import get_calc_document_from_ctx
     from plugin.scripting.session_manager import _enumerated_matching_models, focused_calc_document
-    from plugin.tests.testing_utils import with_native_doc
 
-    @with_native_doc("calc")
-    def _run(uno_ctx, doc):
-        with tempfile.TemporaryDirectory(prefix="wa_research_calc_") as temp_dir:
-            copy_path = os.path.join(temp_dir, "research_copy.ods")
-            doc.storeToURL(uno.systemPathToFileUrl(copy_path), ())
-            user_uid = get_runtime_uid(doc)
-            assert get_runtime_uid(get_calc_document_from_ctx(uno_ctx)) == user_uid
-            assert get_runtime_uid(focused_calc_document(uno_ctx)) == user_uid
+    def _uid(model):
+        return get_runtime_uid(model) if model is not None else ""
 
-            opened = open_document_for_read(uno_ctx, copy_path)
-            research_doc = opened["doc"]
-            try:
-                research_uid = get_runtime_uid(research_doc)
-                assert research_uid != user_uid
-                assert get_runtime_uid(get_calc_document_from_ctx(uno_ctx)) == user_uid
-                assert get_runtime_uid(focused_calc_document(uno_ctx)) == user_uid
-                enumerated_uids = [get_runtime_uid(m) for m in _enumerated_matching_models(uno_ctx, is_calc)]
-                assert research_uid not in enumerated_uids
-            finally:
-                close_document_research_document(research_doc, opened["opened_hidden"])
+    with tempfile.TemporaryDirectory(prefix="wa_research_calc_") as temp_dir:
+        copy_path = os.path.join(temp_dir, "research_copy.ods")
+        doc.storeToURL(uno.systemPathToFileUrl(copy_path), ())
+        user_uid = get_runtime_uid(doc)
+        before_doc_scripts_uid = _uid(get_calc_document_from_ctx(ctx))
+        before_focused_uid = _uid(focused_calc_document(ctx))
+        before_uids = {get_runtime_uid(m) for m in _enumerated_matching_models(ctx, is_calc)}
+        assert user_uid in before_uids
 
-    _run(ctx)
+        model, _doc_type, err, opened = open_document_for_read(ctx, copy_path)
+        try:
+            assert err is None and opened, (err, opened)
+            assert model is not None
+            research_uid = get_runtime_uid(model)
+            assert research_uid != user_uid
+            assert _uid(get_calc_document_from_ctx(ctx)) == before_doc_scripts_uid
+            assert _uid(focused_calc_document(ctx)) == before_focused_uid
+            after_uids = {get_runtime_uid(m) for m in _enumerated_matching_models(ctx, is_calc)}
+            assert after_uids == before_uids
+            assert research_uid not in after_uids
+        finally:
+            if model is not None:
+                close_document_research_document(model, opened_for_document_research=opened)

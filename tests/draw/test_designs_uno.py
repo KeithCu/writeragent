@@ -1,6 +1,6 @@
 # WriterAgent — native UNO tests for Impress list/apply design (M1′)
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prove PathSettings list, current-doc master import, and the internal create-from-template helper."""
+"""Prove PathSettings list, current-doc master import, and that the hidden design source is a separate scratch document."""
 
 from __future__ import annotations
 
