@@ -31,6 +31,7 @@ from plugin.framework.errors import ToolExecutionError, name_miss_details
 
 from ..edit_review import flag_style_unreviewed
 from ..page import apply_column_layout, column_layout_error
+from ..record_changes import record_changes, tracked_change_spans_past
 from ..specialized_base import ToolWriterSectionBase, index_error
 from ..target_resolver import resolve_target_cursor
 
@@ -412,12 +413,23 @@ class SectionCreate(ToolWriterSectionBase):
                 code="INDEX_SECTION",
             )
 
+        if tracked_change_spans_past(doc, cursor):
+            return self._tool_error(
+                "A pending tracked change runs past both ends of these paragraphs; a section would split it, and "
+                "accepting or rejecting it would then lose other text. Widen locator/end_locator to cover the whole "
+                "change, or have the user accept or reject it first.",
+                code="SECTION_IN_TRACKED_CHANGE",
+            )
+
         section = doc.createInstance("com.sun.star.text.TextSection")
         section.setName(name)
 
         # With bAbsorb=True the whole range is attached and no text is deleted (unotext.cxx:SwXText::insertTextContent).
+        # While recording, SwDoc::InsertSwSection (sw/source/core/docnode/ndsect.cxx) marks the section's existing text
+        # as a tracked insertion, so Reject would delete it.
         def mutate() -> None:
-            cursor.getText().insertTextContent(cursor, section, True)
+            with record_changes(doc, False):
+                cursor.getText().insertTextContent(cursor, section, True)
 
         return _commit(
             self,

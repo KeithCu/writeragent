@@ -344,3 +344,33 @@ def test_tracked_change_before_point(
     rl = _FakeRL(kind, _FakePoint(start_pos, text=text), _FakePoint(end_pos, text=text), author="Alice")
     doc = _FakeRedlineDoc([rl])
     assert tracked_change_before_point(doc, point) is expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "start_pos", "end_pos", "span_start", "span_end", "expected", "raise_cmp"),
+    [
+        ("Insert", 1, 10, 3, 7, True, False),
+        ("Delete", 1, 10, 3, 7, True, False),
+        ("Insert", 3, 10, 3, 7, False, False),  # equal start
+        ("Delete", 1, 7, 3, 7, False, False),   # equal end
+        ("Insert", 4, 6, 3, 7, False, False),   # inside span
+        ("Delete", 0, 2, 3, 7, False, False),   # before span
+        ("Insert", 8, 12, 3, 7, False, False),  # after span
+        ("Format", 1, 10, 3, 7, False, False),  # Format ignored
+        ("Delete", 1, 10, 3, 7, False, True),   # comparison raising -> False
+    ],
+)
+def test_tracked_change_spans_past(kind, start_pos, end_pos, span_start, span_end, expected, raise_cmp):
+    from plugin.writer.record_changes import tracked_change_spans_past
+
+    text = _FakeText(raise_on_compare=raise_cmp)
+    span = _FakePoint(span_start, span_end, text=text)
+
+    rl = _FakeRL(
+        kind,
+        _FakePoint(start_pos, start_pos, text=text),
+        _FakePoint(end_pos, end_pos, text=text),
+        author="Alice",
+    )
+    doc = _FakeRedlineDoc([rl])
+    assert tracked_change_spans_past(doc, span) is expected

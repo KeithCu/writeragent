@@ -820,3 +820,47 @@ def test_find_tokens_prefilter_skips_non_matching_paragraphs_and_walks_unreadabl
     assert len(hits) == 1
     para_skip.createEnumeration.assert_not_called()
     para_unreadable.createEnumeration.assert_called_once()
+
+
+def test_find_tokens_joins_soft_page_break_and_stops_at_text_field():
+    import re
+    from plugin.writer.field_restore import find_tokens
+
+    prefix = "[[WA-MATH:n1:"
+    token_re = re.compile(r"\[\[WA-MATH:([a-zA-Z0-9]+):(\d+)\]\]")
+
+    def _portion(kind, text, start_marker=None):
+        p = MagicMock()
+        p.getPropertyValue.return_value = kind
+        p.getString.return_value = text
+        p.getStart.return_value = start_marker
+        return p
+
+    # Token 0 split across Text + SoftPageBreak + Text with leading prose "ab"
+    p1 = _portion("Text", "ab[[WA-", "START_P1")
+    p_spb = _portion("SoftPageBreak", "")
+    p2 = _portion("Text", "MATH:n1:0]]", "START_P2")
+    # Token 1 interrupted by a TextField must not match
+    p3 = _portion("Text", "[[WA-MATH:", "START_P3")
+    p_field = _portion("TextField", "1")
+    p4 = _portion("Text", "n1:1]]", "START_P4")
+
+    para = MagicMock()
+    para.getString.return_value = "ab[[WA-MATH:n1:0]][[WA-MATH:1n1:1]]"
+    para.createEnumeration.return_value = _Enum([p1, p_spb, p2, p3, p_field, p4])
+
+    xtext = MagicMock()
+    xtext.getString.return_value = "ab[[WA-MATH:n1:0]][[WA-MATH:1n1:1]]"
+    xtext.createEnumeration.return_value = _Enum([para])
+
+    cur = MagicMock()
+    cur.goRight.return_value = True
+    cur.getString.return_value = "[[WA-MATH:n1:0]]"
+    xtext.createTextCursorByRange.return_value = cur
+
+    hits = find_tokens(xtext, prefix, token_re)
+    assert len(hits) == 1
+    assert hits[0][1].group(0) == "[[WA-MATH:n1:0]]"
+    xtext.createTextCursorByRange.assert_called_once_with("START_P1")
+    assert cur.goRight.call_args_list[0].args == (2, False)
+    assert cur.goRight.call_args_list[1].args == (16, True)

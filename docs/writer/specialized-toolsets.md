@@ -427,6 +427,7 @@ All section tools live in `sections.py` (`sections` domain); `ToolWriterStructur
   - **Whole-paragraph widening:** the resolved range is widened to paragraph boundaries so `SwDoc::InsertSwSection` does not split paragraphs mid-sentence.
   - **Duplicate-name refusal:** checks `getTextSections().hasByName(name)` before inserting so LibreOffice does not silently rename duplicates to `Section1`.
   - **Overlap refusal:** partial overlap with an existing section is refused by LibreOffice and rolled back via `commit_or_rollback_mutation`; full nesting inside an existing section is supported.
+  - **Tracked-change handling:** inserted untracked (`record_changes(doc, False)`) while recording so LibreOffice does not mark the wrapped paragraphs as a tracked insertion; refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline starts strictly before the span and ends strictly after it.
 
 - **`section_delete(name)`**
   - Removes the section container via `removeTextContent` while keeping its paragraphs and any nested child sections.

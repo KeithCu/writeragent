@@ -820,6 +820,29 @@ def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     texts3 = {n: tbl3.getCellByName(n).getString() for n in tbl3.getCellNames()}
     assert texts3 == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}, texts3
 
+    # 4. Staggered merges B1:C1 and C2:D2 in 3x5 -> col 1 names B1 (spans 2) affecting 3 columns; split 2 recovers
+    t4 = TableInsert().execute(
+        tool_ctx, rows=3, columns=5,
+        data=[
+            ["a1", "b1", "c1", "d1", "e1"],
+            ["a2", "b2", "c2", "d2", "e2"],
+            ["a3", "b3", "c3", "d3", "e3"],
+        ],
+    )["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t4, cell_range="B1:C1")
+    TableMergeCells().execute_safe(tool_ctx, name=t4, cell_range="C2:D2")
+    res4 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t4, index=1)
+    assert res4["status"] == "error"
+    assert res4["code"] == "COLUMN_HAS_SPANNING_CELL"
+    assert "'B1' spans 2 columns, so 3 columns" in res4["message"], res4["message"]
+    split4 = TableSplitCell().execute_safe(tool_ctx, name=t4, cell="B1", direction="columns", parts=2)
+    assert split4["status"] == "ok", split4
+    del4 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t4, index=1)
+    assert del4["status"] == "ok", del4
+    tbl4 = doc.getTextTables().getByName(t4)
+    row1 = [tbl4.getCellByName(c).getString() for c in ("A1", "B1", "C1", "D1")]
+    assert row1 == ["a1", "", "d1", "e1"], row1
+
 
 @native_test
 @with_native_doc("writer")

@@ -89,6 +89,15 @@ class MathSegment:
     text: str
     # Meaningful for ``math`` / ``tex``; False for ``html``.
     display_block: bool = False
+    # TeX opening delimiter for ``tex`` segments, ``""`` for ``html`` / ``math``.
+    delim: str = ""
+
+    @property
+    def source(self) -> str:
+        """Original delimiter-wrapped text for TeX segments, or ``text`` otherwise."""
+        if self.delim:
+            return f"{self.delim}{self.text}{_TEX_DELIMS[self.delim][0]}"
+        return self.text
 
 
 def html_fragment_contains_mathml(fragment: str) -> bool:
@@ -303,6 +312,7 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
                 kind="tex",
                 text=fragment[t_start + len(t_delim) : t_end - len(t_delim)],
                 display_block=display_block,
+                delim=t_delim,
             )
         )
         pos = t_end

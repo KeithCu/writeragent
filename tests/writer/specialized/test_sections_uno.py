@@ -444,3 +444,81 @@ def test_section_starting_mid_deletion_hides_deleted_text_uno(ctx, doc):
     assert res["status"] == "ok", res
     assert "gone" not in res["content"], res
     assert "Tail" in res["content"] and "After" in res["content"], res
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.specialized.sections import SectionCreate
+
+    text = doc.getText()
+
+    def _reset(lines: list[str]) -> None:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        for i, line in enumerate(lines):
+            if i:
+                text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+            text.insertString(cur, line, False)
+
+    def _paras():
+        out = []
+        enum = text.createEnumeration()
+        while enum.hasMoreElements():
+            out.append(enum.nextElement())
+        return out
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+
+    # 1. Recording on, no pending change -> section_create is untracked, Reject All keeps text and section
+    _reset(["para0", "para1", "para2"])
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = SectionCreate().execute(tctx, name="S1", locator="paragraph:1")
+        assert res["status"] == "ok", res
+        assert doc.getRedlines().getCount() == 0
+        assert doc.getPropertyValue("RecordChanges") is True
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert [p.getString() for p in _paras()] == ["para0", "para1", "para2"]
+        assert doc.getTextSections().hasByName("S1")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 2. Delete from mid p1 to mid p3: section on p2 refused; section on p1-p2 allowed and Accept matches baseline
+    def _setup_del_p1_p3() -> None:
+        _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
+        ps = _paras()
+        del_cur = text.createTextCursorByRange(ps[1].getStart())
+        del_cur.goRight(5, False)
+        p3_mid = text.createTextCursorByRange(ps[3].getStart())
+        p3_mid.goRight(5, False)
+        del_cur.gotoRange(p3_mid.getStart(), True)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            del_cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    _setup_del_p1_p3()
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+    baseline_accept = [p.getString() for p in _paras()]
+
+    _setup_del_p1_p3()
+    before_text = text.getString()
+    before_redlines = doc.getRedlines().getCount()
+    before_sections = doc.getTextSections().getCount()
+    refused = SectionCreate().execute(tctx, name="S_mid", locator="paragraph:2")
+    assert refused["status"] == "error"
+    assert refused["code"] == "SECTION_IN_TRACKED_CHANGE"
+    assert text.getString() == before_text
+    assert doc.getRedlines().getCount() == before_redlines
+    assert doc.getTextSections().getCount() == before_sections
+
+    allowed = SectionCreate().execute(tctx, name="S_edge", locator="paragraph:1", end_locator="paragraph:2")
+    assert allowed["status"] == "ok", allowed
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+    assert [p.getString() for p in _paras()] == baseline_accept

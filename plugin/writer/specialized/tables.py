@@ -365,17 +365,23 @@ def _delete_writer_table_tracked(
     raise RuntimeError("the table was removed but no tracked change was recorded")
 
 
-def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
-    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
-    if any("." in name for name in positions):
-        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
-        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+def _column_edges(table: Any) -> list[list[int]]:
+    """Per-row horizontal cell edges (0 .. _UNO_TABLE_COLUMN_SUM) from TableColumnSeparators."""
     rows = table.getRows()
     n_rows = int(rows.getCount())
     edges: list[list[int]] = []
     for r_idx in range(n_rows):
         seps = rows.getByIndex(r_idx).getPropertyValue("TableColumnSeparators")
         edges.append([0, *(int(s.Position) for s in seps), _UNO_TABLE_COLUMN_SUM])
+    return edges
+
+
+def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
+    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
+    if any("." in name for name in positions):
+        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
+        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+    edges = _column_edges(table)
     if not edges or idx < 0 or idx + 1 >= len(edges[0]):
         return []
     lo, hi = edges[0][idx], edges[0][idx + 1]
@@ -454,23 +460,44 @@ def _split_rows_hint(row_span: int) -> str:
     return "Split it repeatedly with table_split_cell (direction='rows')"
 
 
-def _column_wide_cell(table: Any, idx: int) -> tuple[str, int] | None:
-    """First cell in a row where column *idx* shares a merged cell with other columns, and max span.
+def _column_wide_cell(table: Any, idx: int) -> tuple[str, int, int] | None:
+    """Widest merged cell in the band around column *idx*, its column span, and total columns deleted.
 
     ``SwXTableColumns::removeByIndex`` (``sw/source/core/unocore/unotbl.cxx``) calls
     ``SwDoc::DeleteCol`` (``sw/source/core/docnode/ndtbl.cxx``), which expands the
     selection across any wider cell; a full-width row makes LibreOffice delete the whole table.
     """
     by_row: dict[int, list[str]] = {}
+    positions: dict[str, tuple[int, int]] = {}
     for name in _band_cell_names(table, "column", idx):
         pos = writer_cell_position(name)
         if pos is not None:
+            positions[name] = pos
             by_row.setdefault(pos[1], []).append(name)
     if not any(len(cells) > 1 for cells in by_row.values()):
         return None
-    narrowest = min(by_row.values(), key=len)
-    widest = max(len(cells) for cells in by_row.values())
-    return narrowest[0], widest
+    edges = _column_edges(table)
+    seps = sorted({p for row in edges for p in row[1:-1]})
+
+    def columns(left: int, right: int) -> int:
+        count = 1
+        last = left
+        for p in seps:
+            if last + 1 < p < right - 1:
+                count += 1
+                last = p
+        return count
+
+    bounds = {
+        name: (edges[row][col], edges[row][col + 1])
+        for name, (col, row) in positions.items()
+    }
+    cell = max(bounds, key=lambda name: columns(*bounds[name]))
+    return (
+        cell,
+        columns(*bounds[cell]),
+        columns(min(b[0] for b in bounds.values()), max(b[1] for b in bounds.values())),
+    )
 
 
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
@@ -990,7 +1017,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 else:
                     wide = _column_wide_cell(table, idx)
                     if wide is not None:
-                        cell_name, col_span = wide
+                        cell_name, col_span, doomed_cols = wide
                         split_hint = (
                             "Split it with table_split_cell (direction='columns', parts=%d)" % col_span
                             if col_span <= 20
@@ -1000,7 +1027,7 @@ class ManageTableStructure(ToolWriterTableBase):
                             "Cannot delete this column: cell '%s' spans %d columns, so %d columns "
                             "would be deleted. %s, move the text to keep into another part, then "
                             "delete the column. If the column edges still do not line up, edit the "
-                            "cells instead." % (cell_name, col_span, col_span, split_hint),
+                            "cells instead." % (cell_name, col_span, doomed_cols, split_hint),
                             code="COLUMN_HAS_SPANNING_CELL",
                         )
             if insert:

@@ -369,4 +369,13 @@ class TestMathPlaceholders:
         out, _ = math_placeholders(r"pre \(x\) post", "n1")
         assert out == "pre [[WA-MATH:n1:0]] post"
 
+    def test_segment_source_round_trips_mixed_delimiters(self):
+        from plugin.writer.math.html_math_segment import segment_html_with_mixed_math
+
+        frag = (
+            r"Prose $\tau + 1$, display $$\alpha$$, inline \(\nu\), "
+            r"bracket \[\theta\], and <math><mi>x</mi></math> end."
+        )
+        assert "".join(seg.source for seg in segment_html_with_mixed_math(frag)) == frag
+
 

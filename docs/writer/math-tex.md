@@ -129,9 +129,9 @@ The new import pipeline should be:
 1. receive HTML input
 2. detect whether math is present
 3. if no math is present, use the existing HTML import flow unchanged
-4. if math is present, replace math segments with `[[WA-MATH:<nonce>:<i>]]` placeholders and import the whole HTML fragment in one pass through the StarWriter filter (preserving paragraphs, styles, lists, tables, and ruby)
+4. if math is present, replace math segments with `[[WA-MATH:<nonce>:<i>]]` placeholders and import the whole HTML fragment in one pass through the StarWriter filter (preserving paragraphs, styles, lists, tables, and ruby). `expand_prose_escapes` expands `\n`/`\t` only outside math so TeX backslashes stay intact.
 5. convert each math segment into a LibreOffice Math command string
-6. replace each `[[WA-MATH:...]]` placeholder with a real formula object at its cursor position (breaking around display math without leaving empty neighbour paragraphs)
+6. replace each `[[WA-MATH:...]]` placeholder with a real formula object at its cursor position (tokens are matched across the paragraph's joined portions so soft page breaks do not split them; display math at a mid-paragraph match splits the paragraph without leaving empty neighbour paragraphs). `position=before/after` on `apply_content` carries math through this same path.
 
 ### Design principle
 
