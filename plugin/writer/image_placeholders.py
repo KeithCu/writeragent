@@ -329,7 +329,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
                 # A cell's last paragraph has no trailing break; restore only when the whole
                 # table is struck (not on a search-replace inside the cell).
                 table = uno_read(lambda: point.getPropertyValue("TextTable"), None)
-                return table is not None and table_is_all_deleted(table)
+                return table is not None and table_is_all_deleted(model, table)
         except Exception as exc:
             reraise_if_disposed(exc)
             return False

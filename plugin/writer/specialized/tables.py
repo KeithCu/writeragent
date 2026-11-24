@@ -250,7 +250,7 @@ def _deletion_recorded(doc: Any, before: int, cells: list[Any]) -> bool:
         return False
     if after > before:
         return True
-    return cells_all_tracked_deleted(cells)
+    return cells_all_tracked_deleted(cells, doc)
 
 
 def _place_caret_in_cell(controller: Any, table: Any, name: str, cell_name: str) -> bool:

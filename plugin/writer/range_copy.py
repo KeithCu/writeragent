@@ -897,23 +897,24 @@ def cell_has_visible_text(cell: Any) -> bool:
     return False
 
 
-def cells_all_tracked_deleted(cells: list[Any]) -> bool:
+def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
     """True when *cells* have some raw text and no cell has visible text left."""
+    deletions = TrackedDeletions(doc)
     has_raw = False
     for cell in cells:
         if uno_read(cell.getString, ""):
             has_raw = True
-        if uno_read(lambda: cell_has_visible_text(cell), True):
+        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
             return False
     return has_raw
 
 
-def table_is_all_deleted(table: Any) -> bool:
+def table_is_all_deleted(doc: Any, table: Any) -> bool:
     """True when every cell of *table* has lost all visible text (with some raw text)."""
     names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
     if not names:
         return False
-    return cells_all_tracked_deleted([table.getCellByName(n) for n in names])
+    return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
 
 
 # TextGraphicObject property list (shared with page._copy_region_graphics).
