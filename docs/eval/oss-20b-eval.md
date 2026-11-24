@@ -69,7 +69,7 @@ inner loops are shipped. The optimizer was never rewired onto that loop.
 
 ## Smoking gun: `=PY` docs vs `sort_range`
 
-[`write_formula_range`](../../plugin/calc/cells.py) description is a long
+[`write_range`](../../plugin/calc/cells.py) description is a long
 `=PY` sermon (dest, spill, `to_pandas()`, do not dump A1:H500).
 [`sort_range`](../../plugin/calc/cells.py) is one sentence and lives behind
 `delegate_to_subagent(domain="ranges")`.
@@ -96,7 +96,7 @@ Keep diffs short.
 **Calc** (`CALC_CORE_DIRECTIVES` only for sort; slim `CALC_WORKFLOW`):
 
 - Do `delegate_to_subagent(domain="ranges")` then
-  `sort_range` to reorder rows (multi-key = `then_by` in one call) because `write_formula_range` / `=PY` overwrite the range
+  `sort_range` to reorder rows (multi-key = `then_by` in one call) because `write_range` / `=PY` overwrite the range
   including headers.
 - Do pass `has_header=true` on `sort_range` when row 1 is labels
   because otherwise labels sort as values.
@@ -107,7 +107,7 @@ Keep diffs short.
 
 - Do `delegate_to_subagent(domain="shapes")` then
   `shape_upsert` + `shape_connect` for flowcharts and process diagrams
-  because an empty `get_draw_tree` means the task failed.
+  because an empty `shape_get_tree` means the task failed.
 
 **Writer** (do not ship a preserve-tokens tip):
 
@@ -127,7 +127,7 @@ Keep diffs short.
 - `sort_range`: stable; multi-key = `then_by` in one call; Do pass
   `has_header=true` when row 1 is labels because otherwise labels sort
   as values. Schema `required` is `["range", "has_header"]`.
-- `write_formula_range`: no sort-half sentence (slim surface). Relative
+- `write_range`: no sort-half sentence (slim surface). Relative
   / tax formula rule stays in Calc directives only.
 
 Then eval only the five fails, both models:
@@ -154,7 +154,7 @@ DSPy does not search “how many tools.” Same 17 tasks, 20b, vary catalog:
 
 - current catalog
 - `sort_range` visible on **core** Calc (no ranges delegate)
-- shorter `write_formula_range` description that does not advertise
+- shorter `write_range` description that does not advertise
   sort-via-`=PY`
 
 If 20b passes `data_sorting` once `sort_range` is on the core list, that
@@ -172,7 +172,7 @@ traces and rewrites instructions. That matches this problem.
   not judge − tokens. 20b already has quality 0.89 on passes.
 - Optimize **short blobs**, separately: `CALC_CORE_DIRECTIVES` +
   `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; optionally
-  `write_formula_range.description` and `sort_range.description`
+  `write_range.description` and `sort_range.description`
   (eval-dev-plan already flags MIPROv2 on that description).
 - Program: wrap `llm_chat_eval`, **not** `dspy.ReAct`.
 

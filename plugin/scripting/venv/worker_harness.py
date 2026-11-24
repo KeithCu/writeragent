@@ -42,6 +42,7 @@ from plugin.framework.ipc import (
     write_pickle_frame,
 )
 from plugin.framework.child_runtime import announce_ready, die_with_parent
+from plugin.framework.log_redaction import RedactingFormatter
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 
 # claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
@@ -186,7 +187,7 @@ def _init_logging() -> None:
         return
     try:
         handler = logging.FileHandler(log_path, encoding="utf-8")
-        formatter = logging.Formatter("%(asctime)s | %(name)s[Worker] | %(levelname)s | %(message)s")
+        formatter = RedactingFormatter("%(asctime)s | %(name)s[Worker] | %(levelname)s | %(message)s")
         handler.setFormatter(formatter)
         root = logging.getLogger()
         root.setLevel(logging.DEBUG)

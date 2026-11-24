@@ -14,13 +14,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-# Word-bounded secret key matching (_is_word_start, _is_word_end, is_secret_key)
-# adapted from Hermes Agent (agent/redact.py), MIT License.
 """Simple file logging for WriterAgent. Single debug log in the LO user config dir (writeragent_debug.log).
 
 Paths are set via init_logging(ctx). No file logging when the config dir is unavailable.
-The debug-log handler masks secret key/value pairs in every record.
+The debug-log handler masks secret key/value pairs in every record (log_redaction).
 Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON) or long opaque ``signature`` blobs.
 
 Concurrency: ``init_logging`` may run from bootstrap while workers already
@@ -37,7 +34,6 @@ you do not need another mutex around ``log.info``.
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import time
@@ -50,6 +46,7 @@ from typing import Any, TypedDict
 
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.log_redaction import LOG_REDACT_SECRET_PLACEHOLDER, RedactingFormatter, is_secret_key
 from plugin.framework.process_global import process_global
 from plugin.framework import config
 
@@ -118,91 +115,6 @@ LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
 # Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
 LOG_REDACT_SIGNATURE_MIN_LEN = 256
 _API_KEYS_BY_ENDPOINT = "api_keys_by_endpoint"
-LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
-
-_SECRET_KEY_WORD_RE = re.compile(
-    r"api[_.\-]?key|token|secret|password|passwd|passphrase|private[_.\-]?key|authorization|bearer|credentials?|cookie",
-    re.IGNORECASE,
-)
-
-
-def _is_word_start(key: str, idx: int) -> bool:
-    if idx == 0:
-        return True
-    prev = key[idx - 1]
-    if not prev.isalnum():
-        return True
-    if prev.islower() and key[idx].isupper():
-        return True
-    return prev.isupper() and key[idx].isupper() and idx + 1 < len(key) and key[idx + 1].islower()
-
-
-def _is_word_end(key: str, end: int) -> bool:
-    if end == len(key):
-        return True
-    nxt = key[end]
-    if not nxt.isalnum():
-        return True
-    if key[end - 1].islower() and nxt.isupper():
-        return True
-    return key[end - 1].isupper() and nxt.isupper() and end + 1 < len(key) and key[end + 1].islower()
-
-
-def is_secret_key(key: str) -> bool:
-    """Return True if *key* contains a word-bounded secret identifier (e.g. token, apiKey, db_password)."""
-    for match in _SECRET_KEY_WORD_RE.finditer(key):
-        if _is_word_start(key, match.start()) and _is_word_end(key, match.end()):
-            return True
-    return False
-
-
-# One quoted key, then ":" and either an opening quote (with its own escape run) or a number.
-# Group 1 is the key's backslash run; group 4 is the value's opening backslash run, which can
-# differ when a Python repr is inside JSON or JSON is inside a Python repr.
-_SECRET_PAIR_RE = re.compile(r"""(?<!\\)(\\*)(["'])([^"'\\\n]{1,64})\1\2\s*:\s*(?:(\\*)(["'])|(-?\d[\d.eE+-]*))""")
-_CLOSING_QUOTE_RES = {
-    '"': re.compile(r'(?<!\\)(\\*)"'),
-    "'": re.compile(r"(?<!\\)(\\*)'"),
-}
-_AFTER_VALUE_RE = re.compile(r"""\s*(?:[,}\])"']|\\n|$)""")
-
-
-def redact_secret_pairs_in_text(text: str) -> str:
-    """Mask the values of secret-named keys in JSON or Python-repr text, at any escape depth.
-
-    Log lines hold tool arguments as text (raw argument strings, sub-agent replay
-    messages, error text), where redact_sensitive_payload_for_log cannot see the keys.
-    Separate from redact_sensitive_payload_for_log because approval cards round-trip
-    that function's output through restore_masked, so a partly masked string could be
-    sent to the remote server. An unterminated value is masked to the end of the text.
-    """
-    if not _SECRET_KEY_WORD_RE.search(text):
-        return text
-    out: list[str] = []
-    pos = at = 0
-    while (m := _SECRET_PAIR_RE.search(text, at)) is not None:
-        escape = m[1]
-        if not is_secret_key(m[3]):
-            # Resume at the value: it may be a string that holds another, escaped pair.
-            at = m.end(3) + len(escape) + 1
-            continue
-        if m[5] is None:
-            quote = escape + m[2]
-            out.append(text[pos : m.start(6)] + quote + LOG_REDACT_SECRET_PLACEHOLDER + quote)
-            pos = at = m.end()
-            continue
-        # A closing quote has the value's own escape run plus whole escaped backslashes,
-        # which come in multiples of 2 * (depth + 1), followed by valid post-value syntax.
-        depth = len(m[4])
-        stop = len(text)
-        for c in _CLOSING_QUOTE_RES[m[5]].finditer(text, m.end()):
-            if len(c[1]) % (2 * (depth + 1)) == depth and _AFTER_VALUE_RE.match(text, c.end()):
-                stop = c.end() - 1 - depth
-                break
-        out.append(text[pos : m.end()] + LOG_REDACT_SECRET_PLACEHOLDER)
-        pos = at = stop
-    out.append(text[pos:])
-    return "".join(out)
 
 
 def _redact_sensitive_inplace(o: Any) -> None:
@@ -382,13 +294,6 @@ def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
     return _debug_slot()["handler"]
 
 
-class _RedactingFormatter(logging.Formatter):
-    """Masks secret key/value pairs in the finished line, so no caller has to."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return redact_secret_pairs_in_text(super().format(record))
-
-
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     """Return the process's debug-log handler, creating it when the path changes.
 
@@ -409,7 +314,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
         except Exception:  # noqa: S110  closing the debug FileHandler being replaced; a log call re-enters it
             pass
     handler = OptionalFlushFileHandler(path, encoding="utf-8")
-    handler.setFormatter(_RedactingFormatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    handler.setFormatter(RedactingFormatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
     _debug_slot()["handler"] = handler
     return handler
 

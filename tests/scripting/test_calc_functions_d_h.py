@@ -158,6 +158,9 @@ def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
     assert calc.growth(5, 3) == "#VALUE!"
     assert calc.growth(5) == "#VALUE!"
+    assert calc.growth([1, 2, 4], 5, None, False) == "#VALUE!"
+    assert calc.growth([1, 2, 4], 5, [6, 7], False) == "#VALUE!"
+    assert len(calc.growth([[1, 2], [4, 8]], [[1, 2], [3, 4]])) == 4
     assert math.isclose(calc.growth(5, 3, 4, False)[0], math.exp(math.log(5.0) * 4.0 / 3.0), rel_tol=1e-9)
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
 
@@ -441,9 +444,19 @@ def test_filter_vector_includes():
     filtered_cols = calc.filter(grid_2x2, row_mask)
     assert filtered_cols == [[10.0], [30.0]]
 
-    # Shape mismatch returns #VALUE!
+    # Shape mismatch or 2D include returns #VALUE!
     assert calc.filter(grid, [[True], [False]]) == "#VALUE!"
     assert calc.filter(grid, [True, False, True, False]) == "#VALUE!"
+    assert calc.filter(grid_2x2, [[True, False], [False, True]]) == "#VALUE!"
+    assert calc.filter([1, 2, 3, 4], [[True, False], [False, True]]) == "#VALUE!"
+
+    # No match with omitted if_empty returns NESTED_ARRAY_NAN (Err:533); explicit None/"" preserved
+    import struct
+    no_match = calc.filter([1, 2], [0, 0])
+    assert isinstance(no_match, float) and math.isnan(no_match)
+    assert (struct.unpack("Q", struct.pack("d", no_match))[0] & 0xFFFFFFFF) == 533
+    assert calc.filter([1, 2], [0, 0], None) is None
+    assert calc.filter([1, 2], [0, 0], "") == ""
 
 
 def test_days_integer_truncation():

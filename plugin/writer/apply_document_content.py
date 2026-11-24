@@ -59,7 +59,12 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import KeepViewSelection, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import (
+    DeletionState,
+    KeepViewSelection,
+    iter_elements,
+    visible_portions,
+)
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import (
@@ -73,9 +78,11 @@ from plugin.writer import (
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
+    heading_renames,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_links,
+    retarget_outline_links,
 )
 
 
@@ -451,13 +458,14 @@ _ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
 }
 
 
-def _document_heading_texts(doc: Any) -> list[str]:
-    """Collect heading texts from the body, table cells, and text frames (Word text boxes included).
+def _document_headings(doc: Any) -> list[tuple[int, str]]:
+    """Collect ``(level, text)`` headings from the body, table cells, and text frames (Word text boxes included).
 
     ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
     with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
     (sw/source/core/doc/docnum.cxx) searches that list. The body-only ``build_heading_tree``
-    misses headings inside tables and text frames.
+    misses headings inside tables and text frames. When *tracked* deletions exist, every
+    paragraph is walked so a deletion's end marker in a non-heading paragraph updates state.
     """
     texts: list[Any] = []
     body_text = uno_read(lambda: doc.getText(), None)
@@ -471,15 +479,60 @@ def _document_heading_texts(doc: Any) -> list[str]:
             if frame_text is not None:
                 texts.append(frame_text)
 
-    headings: list[str] = []
+    tracked = document_has_tracked_deletions(doc)
+    headings: list[tuple[int, str]] = []
     for text_obj in texts:
+        state = DeletionState()
         for para in range_copy.iter_xtext_paragraphs(text_obj):
             level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
-            if isinstance(level, int) and level > 0:
-                text = uno_read(lambda: get_string_without_tracked_deletions(para), "")
-                if text:
-                    headings.append(text)
+            is_heading = isinstance(level, int) and level > 0
+            if not is_heading and not tracked:
+                continue
+            text = uno_read(
+                lambda: "".join(chunk for _portion, chunk in visible_portions(para, state=state)),
+                "",
+            )
+            if is_heading and text:
+                headings.append((level, text))
     return headings
+
+
+def _touches_heading(text_range: Any) -> bool:
+    """True when any paragraph intersecting *text_range* has ``OutlineLevel > 0``."""
+    enum = uno_read(
+        lambda: text_range.getText().createTextCursorByRange(text_range).createEnumeration(),
+        None,
+    )
+    if enum is None:
+        return False
+    for para in iter_elements(enum):
+        level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
+        if isinstance(level, int) and level > 0:
+            return True
+    return False
+
+
+def _headings_if_touched(doc: Any, ranges: list[Any]) -> list[tuple[int, str]] | None:
+    """Snapshot document headings only when at least one edited range touches a heading."""
+    if any(_touches_heading(r) for r in ranges):
+        return _document_headings(doc)
+    return None
+
+
+def _retarget_renamed_links(
+    session: EditReviewSession,
+    doc: Any,
+    before: list[tuple[int, str]] | None,
+    report: html_import_styles.WriteReport,
+) -> None:
+    if not before:
+        return
+    renames = heading_renames(before, _document_headings(doc))
+    if not renames:
+        return
+    report.links_retargeted, report.stale_links = session.tag_side_effects(
+        lambda: retarget_outline_links(doc, renames)
+    )
 
 
 class ApplyDocumentContent(ToolBase):
@@ -521,7 +574,7 @@ class ApplyDocumentContent(ToolBase):
       occurrence selects the start match; regex, all_matches, position,
       dry_run, and hyperlink_url do not apply to anchor spans.
       Multi-line plain text becomes new paragraphs; single-line plain text replaces the span
-      inline and keeps the host paragraph and its style. Anchor replacements skip outline URL fixup.
+      inline and keeps the host paragraph and its style. A renamed heading's links follow it.
     """
 
     name: str | None = "apply_content"
@@ -539,7 +592,7 @@ class ApplyDocumentContent(ToolBase):
             "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("HTML or plain-text fragments: prefer a list with one block per item; one string is also accepted and is read the same way (a list is joined with newlines). Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty search replacement deletes the match.")},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead.")},
-            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup."},
+            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; a renamed heading's links follow it."},
             "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
             "all_matches": {"type": "boolean", "default": False, "description": "Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content."},
             "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.")},
@@ -783,7 +836,8 @@ class ApplyDocumentContent(ToolBase):
         replace verify its table inside the undo group. Returns the hyperlink reports;
         failures raise ToolExecutionError with the code the caller publishes.
         """
-        # An anchor span's text never equals one link title, so outline fixup has nothing to match.
+        # Anchor spans skip this because their text never equals one link's title;
+        # renamed headings are handled separately below.
         anchor = None
         snapshot = None
         needs_fix = False
@@ -800,6 +854,8 @@ class ApplyDocumentContent(ToolBase):
             # run; HTML replaces and recorded replaces can clear it on the new
             # characters, so put that target back unchanged.
             needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
+
+        headings = None if batch else _headings_if_touched(doc, [found])
 
         def run() -> list[dict[str, Any]]:
             original = found.getString()
@@ -825,9 +881,13 @@ class ApplyDocumentContent(ToolBase):
                     session, doc,
                     replace_single,
                     original_preview=original, proposed_preview=plain)
-            if not needs_fix or snapshot is None:
-                return []
-            return restore_links(doc, anchor, snapshot, plain, override)
+            reports = (
+                restore_links(doc, anchor, snapshot, plain, override)
+                if needs_fix and snapshot is not None
+                else []
+            )
+            _retarget_renamed_links(session, doc, headings, report)
+            return reports
 
         if batch:
             return run()
@@ -835,7 +895,10 @@ class ApplyDocumentContent(ToolBase):
         # (all_matches already entered it around the loop), or record mode would
         # only track replaces that happen to sit in an outline URL.
         if not needs_fix:
-            with session:
+            if headings is None:
+                with session:
+                    return run()
+            with session, UndoStepOrRollback(doc, next_agent_edit_undo_title()):
                 return run()
 
         def once() -> list[dict[str, Any]]:
@@ -1063,7 +1126,7 @@ class ApplyDocumentContent(ToolBase):
         document_headings: list[str] = (
             []
             if params.target == "full_document"
-            else _document_heading_texts(doc)
+            else [text for _level, text in _document_headings(doc)]
         )
 
         def is_bookmark(name: str) -> bool:
@@ -1394,7 +1457,9 @@ class ApplyDocumentContent(ToolBase):
         # tables: with review off (or own pending-insertion tables), deleting the
         # table disposes its pictures so they can no longer be read.
         captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
-        with session:
+        headings = _document_headings(ctx.doc)
+        # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
+        with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
@@ -1411,6 +1476,7 @@ class ApplyDocumentContent(ToolBase):
                 clear_first=lambda: delete_leading_tables(session, ctx.doc, ctx.ctx),
                 proposed_preview=plain,
             )
+            _retarget_renamed_links(session, ctx.doc, headings, report)
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {
             "status": "ok",
@@ -1507,6 +1573,7 @@ class ApplyDocumentContent(ToolBase):
         report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
+        headings = _headings_if_touched(doc, ranges)
         tables_before = _doc_table_count(doc) if params.has_table else None
 
         def mutate() -> None:
@@ -1529,6 +1596,7 @@ class ApplyDocumentContent(ToolBase):
                 _verify_table_insert(doc, tables_before)
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
+                _retarget_renamed_links(session, doc, headings, report)
 
         try:
             outcome = commit_or_rollback(

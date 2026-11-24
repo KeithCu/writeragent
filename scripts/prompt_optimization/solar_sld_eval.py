@@ -25,11 +25,11 @@ if str(_HERE) not in sys.path:
 from oracles import (  # noqa: E402
     _SOLAR_BOX_FLOOR,
     _SOLAR_CONN_FLOOR,
-    _flatten_draw_nodes,
-    _solar_connectors,
     _solar_labeled_boxes,
     _solar_role_keys,
     check_oracle,
+    draw_connector_count,
+    draw_nodes,
     parse_json_export,
 )
 
@@ -82,23 +82,6 @@ def _role_positions(
         for role in roles:
             out.setdefault(role, []).append(pos)
     return out
-
-
-def _counts(doc: str) -> tuple[int, int]:
-    data = parse_json_export(doc) or {}
-    tree = data.get("tree")
-    nodes: list[dict[str, Any]] = (
-        _flatten_draw_nodes([n for n in tree if isinstance(n, dict)])
-        if isinstance(tree, list)
-        else []
-    )
-    boxes = len(_solar_labeled_boxes(nodes))
-    connectors = len(_solar_connectors(nodes))
-    if connectors == 0:
-        raw = data.get("connections")
-        if isinstance(raw, list):
-            connectors = len(raw)
-    return boxes, connectors
 
 
 def _soft_layout(nodes: list[dict[str, Any]]) -> list[str]:
@@ -219,7 +202,10 @@ def score_solar_sld_example(
             summary=_STRING_FAILURE,
         )
     failures = check_oracle(SOLAR_SLD_TASK_ID, final_document or "")
-    boxes, connectors = _counts(final_document or "")
+    data = parse_json_export(final_document or "") or {}
+    nodes = draw_nodes(data)
+    boxes = len(_solar_labeled_boxes(nodes))
+    connectors = draw_connector_count(data, nodes)
     soft: list[str] = []
     if boxes != _WANT_BOXES and boxes >= _SOLAR_BOX_FLOOR:
         soft.append(
@@ -231,13 +217,6 @@ def score_solar_sld_example(
             f"connectors {connectors} != {_WANT_CONNECTORS} "
             f"(soft: >= {_SOLAR_CONN_FLOOR} still passes)"
         )
-    data = parse_json_export(final_document or "") or {}
-    tree = data.get("tree")
-    nodes: list[dict[str, Any]] = (
-        _flatten_draw_nodes([n for n in tree if isinstance(n, dict)])
-        if isinstance(tree, list)
-        else []
-    )
     soft.extend(_soft_layout(nodes))
     summary = (
         f"solar_sld_gen passed={not failures} boxes={boxes} "

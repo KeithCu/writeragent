@@ -33,6 +33,7 @@ import threading
 import time
 from typing import Any
 
+from oracles import LO_ALT_RENDERING
 from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
 _lo_queue: queue.Queue[Any] = queue.Queue()
@@ -535,7 +536,9 @@ def _compact_writer_html(html: str) -> str:
 
     LO XHTML pretty-prints (bulk_cleanup reject ``  ``), adds heading anchors
     (``<h1 data-lo-style=...><a id=...><span/></a>Introduction</h1>``), and may
-    emit bold as ``<b>`` / font-weight instead of ``<strong>``.
+    emit bold as ``<b>`` / font-weight instead of ``<strong>``. The first
+    rendering is the document oracles score; the rest serve the dataset
+    substring checks.
     """
     compact = re.sub(r">\s+<", "><", html or "")
     stripped = re.sub(r"<(/?)(\w+)(\s[^>]*)>", r"<\1\2>", compact)
@@ -549,7 +552,7 @@ def _compact_writer_html(html: str) -> str:
     parts = [compact, stripped, headings]
     if re.search(r"<b[\s>]|<strong[\s>]|font-weight\s*:\s*bold", compact, re.IGNORECASE):
         parts.append("<strong>")
-    return "\n".join(parts)
+    return LO_ALT_RENDERING.join(parts)
 
 
 def get_content_as_html() -> str:

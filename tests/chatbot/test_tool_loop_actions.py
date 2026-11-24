@@ -26,6 +26,7 @@ from plugin.framework.send_cancellation import SendCancellation  # noqa: E402
 
 class FakeSession:
     def __init__(self):
+        self.messages = []
         self.assistant_messages = []
         self.tool_results = []
         self.system_context = None
@@ -1585,11 +1586,12 @@ def test_begin_send_turn_snapshots_message_count():
     from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn
 
     class Host:
-        def __init__(self, messages=None):
-            self.session = MagicMock()
-            self.session.messages = messages
+        def __init__(self, session):
+            self.session = session
 
-    host = Host([{"role": "system", "content": "s"}, {"role": "user", "content": "u"}])
+    session = MagicMock()
+    session.messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    host = Host(session)
     turn = begin_send_turn(host)
     assert isinstance(turn, TurnController)
     assert turn.send_start_msg_count == 2

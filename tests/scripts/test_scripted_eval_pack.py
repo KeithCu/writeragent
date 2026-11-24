@@ -100,12 +100,19 @@ def _lo_eval_available() -> str | None:
     return None
 
 
-# Live soffice eval. Keep off `make pytest` (`-m "not integration"`); run via
-# `-m integration` or `python scripts/prompt_optimization/run_eval.py --backend lo`.
+# Live soffice eval. Keep off `make pytest` (`-m "not integration"`); PR CI runs
+# it in the scripts integration step. Local: `-m integration` or
+# `python scripts/prompt_optimization/run_eval.py --backend lo`.
 @pytest.mark.integration
+# Global pytest timeout is 60 s, shorter than the 300 s subprocess limit.
+@pytest.mark.timeout(330)
 def test_scripted_lo_pack_all_pass() -> None:
     reason = _lo_eval_available()
     if reason:
+        # The GitHub Linux job installs soffice, python-uno and the manifest, so a
+        # skip there would hide a broken setup.
+        if os.environ.get("GITHUB_ACTIONS") == "true" and sys.platform == "linux":
+            pytest.fail(reason)
         pytest.skip(reason)
     env = {k: v for k, v in os.environ.items() if k != "WRITERAGENT_TESTING"}
     env["WRITERAGENT_EVAL_HARNESS"] = "1"

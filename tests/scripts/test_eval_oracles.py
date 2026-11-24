@@ -16,6 +16,7 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
+import tools_lo as tl  # noqa: E402
 from dataset import (  # noqa: E402
     FORMULA_TABLE_HEADER,
     FORMULA_TABLE_ITEMS,
@@ -180,6 +181,33 @@ _FLOW_GOOD = json.dumps(
         ],
     }
 )
+_FLOW_LIVE_NODES: list[dict[str, object]] = [
+    {"type": "EllipseShape", "text": "Start"},
+    {"type": "CustomShape", "text": "Process: user login"},
+    {"type": "CustomShape", "text": "Decision: credentials valid?"},
+    {"type": "CustomShape", "text": "End"},
+    {
+        "type": "ConnectorShape",
+        "connected_start": {"name": "s0", "text": "Start"},
+        "connected_end": {"name": "s1", "text": "Process: user login"},
+    },
+    {
+        "type": "ConnectorShape",
+        "connected_start": {"name": "s1", "text": "Process: user login"},
+        "connected_end": {"name": "s2", "text": "Decision: credentials valid?"},
+    },
+    {
+        "type": "ConnectorShape",
+        "connected_start": {"name": "s2", "text": "Decision: credentials valid?"},
+        "connected_end": {"name": "s3", "text": "End"},
+    },
+    {
+        "type": "ConnectorShape",
+        "connected_start": {"name": "s2", "text": "Decision: credentials valid?"},
+        "connected_end": {"name": "s1", "text": "Process: user login"},
+    },
+]
+_FLOW_LIVE = json.dumps({"status": "ok", "tree": _FLOW_LIVE_NODES})
 
 _ORG_GOOD = json.dumps(
     {
@@ -503,6 +531,7 @@ _PY_BAD = json.dumps(
         ("paste_table", _PASTE_GOOD),
         ("formula_table", _FORMULA_GOOD),
         ("flowchart_gen", _FLOW_GOOD),
+        ("flowchart_gen", _FLOW_LIVE),
         ("org_chart_gen", _ORG_GOOD),
         ("solar_sld_gen", _SOLAR_GOOD),
         ("py_refuse_overlap", _PY_GOOD),
@@ -577,6 +606,11 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                     ],
                 }
             ),
+            "loop",
+        ),
+        (
+            "flowchart_gen",
+            json.dumps({"status": "ok", "tree": _FLOW_LIVE_NODES[:-1]}),
             "loop",
         ),
         (
@@ -1156,20 +1190,67 @@ def test_judge_only_for_quality_tasks() -> None:
     assert not uses_llm_judge("tax_column", "structural")
 
 
-def test_solar_sld_grouped_tree_still_scores() -> None:
-    """Production get_tree may wrap the diagram in a GroupShape."""
-    doc = json.dumps(
+@pytest.mark.parametrize(
+    ("task_id", "raw_doc"),
+    [
+        ("flowchart_gen", _FLOW_LIVE),
+        ("org_chart_gen", _ORG_GOOD),
+        ("solar_sld_gen", _SOLAR_GOOD),
+    ],
+)
+def test_grouped_draw_tree_still_scores(task_id: str, raw_doc: str) -> None:
+    """Production get_tree may wrap the diagram in GroupShape / nested GroupShapes."""
+    items = json.loads(raw_doc)["tree"]
+    grouped = json.dumps(
         {
             "status": "ok",
             "tree": [
                 {
                     "type": "GroupShape",
-                    "children": json.loads(_SOLAR_GOOD)["tree"],
+                    "children": [
+                        {"type": "GroupShape", "children": items[:3]},
+                        *items[3:],
+                    ],
                 }
             ],
         }
     )
-    assert check_oracle("solar_sld_gen", doc) == []
+    assert check_oracle(task_id, grouped) == []
+
+
+def test_grouped_org_chart_soft_counts() -> None:
+    from org_chart_eval import score_org_chart_example
+
+    items = json.loads(_ORG_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    score = score_org_chart_example(grouped, backend="lo")
+    assert score.passed is True
+    assert score.box_count == 10
+    assert score.connector_count == 9
+    assert score.soft == []
+
+
+def test_grouped_solar_sld_soft_counts() -> None:
+    from solar_sld_eval import score_solar_sld_example
+
+    items = json.loads(_SOLAR_GOOD)["tree"]
+    grouped = json.dumps(
+        {
+            "status": "ok",
+            "tree": [{"type": "GroupShape", "children": items}],
+        }
+    )
+    ungrouped_score = score_solar_sld_example(_SOLAR_GOOD, backend="lo")
+    grouped_score = score_solar_sld_example(grouped, backend="lo")
+    assert grouped_score.passed is True
+    assert grouped_score.box_count == ungrouped_score.box_count
+    assert grouped_score.connector_count == ungrouped_score.connector_count
+    assert grouped_score.soft == ungrouped_score.soft
 
 
 def test_solar_sld_main_service_panel_label() -> None:
@@ -1318,4 +1399,49 @@ def test_solar_sld_requires_main_panel_to_ac_disconnect() -> None:
     )
     fails = check_oracle("solar_sld_gen", doc)
     assert any("main panel" in f.casefold() and "disconnect" in f.casefold() for f in fails), fails
+
+
+def test_compact_writer_html_smart_summarization_counts_single_rendering() -> None:
+    def _summary_html(items: list[str]) -> str:
+        lis = "".join(f'<li data-lo-style="List"><p>{item}</p></li>' for item in items)
+        return (
+            '<h1 data-lo-style="Heading1"><a id="a__Exec"><span/></a>Executive Summary</h1>'
+            f'<ul class="lo-list">{lis}</ul>'
+            '<h1 data-lo-style="Heading1"><a id="a__Find"><span/></a>Findings</h1>'
+            "<p>Background stats.</p>"
+        )
+
+    five = [
+        "99.9% uptime.",
+        "45ms p95 latency.",
+        "0.01% error rate.",
+        "10k RPS scaling.",
+        "40% cost cut.",
+    ]
+    assert check_oracle("smart_summarization", tl._compact_writer_html(_summary_html(five))) == []
+
+    fails_4 = check_oracle("smart_summarization", tl._compact_writer_html(_summary_html(five[:4])))
+    assert any("got 4" in f for f in fails_4), fails_4
+
+    fails_6 = check_oracle(
+        "smart_summarization",
+        tl._compact_writer_html(_summary_html(five + ["Extra bullet."])),
+    )
+    assert any("got 6" in f for f in fails_6), fails_6
+
+
+def test_compact_writer_html_logical_rewriting_counts_single_rendering() -> None:
+    short_doc = tl._compact_writer_html(
+        '<p data-lo-style="TextBody"><b>WriterAgent 2.0</b> uses Dual-Mode evaluation '
+        "combining G-Eval and Prometheus judges to deliver accurate document scoring "
+        "across Writer, Calc, and Draw workflows without extra bloat or noise.</p>"
+    )
+    assert check_oracle("logical_rewriting", short_doc) == []
+
+    long_words = " ".join(f"word{i}" for i in range(66))
+    long_doc = tl._compact_writer_html(
+        f'<p data-lo-style="TextBody">WriterAgent 2.0 Dual-Mode G-Eval Prometheus {long_words}</p>'
+    )
+    fails = check_oracle("logical_rewriting", long_doc)
+    assert any("exceeds 70 words" in f for f in fails), fails
 

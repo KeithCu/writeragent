@@ -242,7 +242,7 @@ class TurnController:
     """
 
     session: Any
-    messages: Any
+    messages: list[dict[str, Any]]
     queue: Any
     batcher: Any
     model: Any
@@ -276,8 +276,8 @@ class TurnController:
         model: Any = None,
     ) -> None:
         self.session = session
-        self.messages = getattr(session, "messages", None) if session is not None else None
-        self.send_start_msg_count = len(self.messages) if isinstance(self.messages, list) else 0
+        self.messages = session.messages if session is not None else []
+        self.send_start_msg_count = len(self.messages)
         self.queue = None
         self.batcher = None
         self.model = model
@@ -306,19 +306,17 @@ class TurnController:
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
-        if self.session is None:
-            return True
-        return getattr(self.session, "messages", None) is self.messages
+        return self.session is None or self.session.messages is self.messages
 
     def stored_user_row(self) -> bool:
         """True when this turn appended a user row after the snapshot taken in __init__.
 
         Rows already on the list at begin_send_turn do not count.
         """
-        if not self.same_messages() or not isinstance(self.messages, list):
+        if not self.same_messages():
             return False
         return any(
-            isinstance(msg, dict) and msg.get("role") == "user"
+            msg.get("role") == "user"
             for msg in self.messages[self.send_start_msg_count :]
         )
 
@@ -331,16 +329,12 @@ class TurnController:
 
     def open_text(self) -> str:
         """Assistant bytes already folded into this turn's message list."""
-        if not self.same_messages():
+        if not self.messages or not self.same_messages():
             return ""
-        messages = self.messages
-        if not isinstance(messages, list) or not messages:
+        last = self.messages[-1]
+        if not last.get("_open_transcript"):
             return ""
-        last = messages[-1]
-        if not isinstance(last, dict) or not last.get("_open_transcript"):
-            return ""
-        content = last.get("content") or ""
-        return content.strip() if isinstance(content, str) else ""
+        return last["content"].strip()
 
     def put(self, item: Any) -> bool:
         """Enqueue only while this turn is alive.
@@ -430,7 +424,7 @@ class TurnController:
         chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
             persist_assistant_on_turn(host, content=chosen)
-        closed = _append_cancelled_tool_rows(self.messages) if isinstance(self.messages, list) else 0
+        closed = _append_cancelled_tool_rows(self.messages)
         if not chosen and closed == 0:
             persist_assistant_on_turn(host, content="No response.")
         persist_assistant_on_turn(host, content=_STOP_LINE)

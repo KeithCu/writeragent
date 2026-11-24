@@ -16,7 +16,8 @@ import tempfile
 from typing import Any, NamedTuple
 
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
-from plugin.doc.document_research import HTML_WRITER_FILTER, document_entry, resolve_file_target
+from plugin.doc.document_research import document_entry, resolve_file_target
+from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.doc_type import DOCUMENT_SERVICES, doc_type_label_for_enum, get_document_type
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
@@ -38,7 +39,7 @@ _FILTERS: dict[str, dict[str, str]] = {
         "doc": "MS Word 97",
         "rtf": "Rich Text Format",
         "txt": "Text",
-        "html": "HTML (StarWriter)",
+        "html": HTML_WRITER_FILTER,
         "pdf": "writer_pdf_Export",
     },
     "calc": {
@@ -84,7 +85,7 @@ _PLAIN_TEXT_LOSS = "Plain text keeps only the text: formatting, images, headers 
 _LOSSY_FILTERS: dict[str, str] = {
     "Text": _PLAIN_TEXT_LOSS,
     "Text (encoded)": _PLAIN_TEXT_LOSS,
-    "HTML (StarWriter)": "HTML keeps text and basic formatting; page layout and other document features may be lost.",
+    HTML_WRITER_FILTER: "HTML keeps text and basic formatting; page layout and other document features may be lost.",
     "HTML (StarCalc)": "HTML keeps displayed values and basic formatting; formulas are not in the file.",
     _CSV_FILTER: "CSV keeps the cell values of one sheet; formulas and formatting are not in the file.",
 }

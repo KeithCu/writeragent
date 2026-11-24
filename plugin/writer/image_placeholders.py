@@ -22,9 +22,8 @@ import uuid
 from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import enum_has_more
 from .range_copy import table_is_all_deleted
-from .record_changes import is_recording_changes
+from .record_changes import is_recording_changes, redline_kinds_covering
 
 log = logging.getLogger("writeragent.writer")
 
@@ -148,30 +147,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         except Exception as exc:
             reraise_if_disposed(exc)
             return False
-    try:
-        redlines = model.getRedlines()
-        total = int(redlines.getCount())
-        enum = redlines.createEnumeration()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return False
-    for _unused in range(total):
-        if not enum_has_more(enum):
-            break
-        redline = enum.nextElement()
-        try:
-            if redline.getPropertyValue("RedlineType") != "Delete":
-                continue
-            start = redline.getPropertyValue("RedlineStart")
-            end = redline.getPropertyValue("RedlineEnd")
-            text = start.getText()
-            # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal.
-            if text.compareRegionStarts(start, point) >= 0 and text.compareRegionEnds(point, end) >= 0:
-                return True
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            continue  # another text object, or not comparable
-    return False
+    return uno_read(lambda: "Delete" in redline_kinds_covering(model, point), False)
 
 
 def _find_marker(model: Any, search: Any) -> Any:

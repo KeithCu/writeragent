@@ -56,6 +56,16 @@ _STYLE_ATTR_RE = re.compile(r'(?:data-lo-style|class)\s*=\s*["\']([^"\']+)["\']'
 _MD_H_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 _TABLE_RE = re.compile(r"<table\b", re.IGNORECASE)
 
+# Separates the alternate renderings tools_lo appends to a Writer export so that
+# dataset substring checks survive LibreOffice markup. Oracles score only the
+# text before the first separator, so nothing is counted more than once.
+LO_ALT_RENDERING = "\n<!-- lo-alt-rendering -->\n"
+
+
+def first_rendering(doc: str) -> str:
+    """The rendering oracles and the judge score; the later ones only serve substring checks."""
+    return doc.split(LO_ALT_RENDERING, 1)[0]
+
 
 def visible_text(doc: str) -> str:
     """Tag-stripped text. Used so LO XHTML indent is not scored as content."""
@@ -182,17 +192,7 @@ def heading_texts(doc: str) -> list[tuple[int, str]]:
     for m in _MD_H_RE.finditer(doc or ""):
         found.append((m.start(), len(m.group(1)), _norm_ws(m.group(2))))
     found.sort(key=lambda item: item[0])
-    # LO compact export repeats the same headings in unwrap variants; keep first
-    # occurrence of each (level, text) so order checks still see document order.
-    out: list[tuple[int, str]] = []
-    seen: set[tuple[int, str]] = set()
-    for _pos, level, text in found:
-        key = (level, text.casefold())
-        if not text or key in seen:
-            continue
-        seen.add(key)
-        out.append((level, text))
-    return out
+    return [(level, text) for _pos, level, text in found if text]
 
 
 def h1_texts(doc: str) -> list[str]:
@@ -463,6 +463,105 @@ def oracle_comment_management(doc: str) -> list[str]:
     return fails
 
 
+def is_draw_connector(node: dict[str, Any]) -> bool:
+    """Production Draw tree uses ConnectorShape nodes; DrawWorld does not."""
+    return "connector" in str(node.get("type") or "").casefold()
+
+
+def draw_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return connector nodes from a Draw tree node list."""
+    return [n for n in nodes if is_draw_connector(n)]
+
+
+def draw_nodes(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Tree nodes of a Draw export with GroupShape wrappers replaced by their children."""
+    out: list[dict[str, Any]] = []
+
+    def walk(items: list[Any]) -> None:
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            kids = node.get("children")
+            if isinstance(kids, list):
+                walk(kids)
+            else:
+                out.append(node)
+
+    tree = data.get("tree")
+    if isinstance(tree, list):
+        walk(tree)
+    return out
+
+
+def draw_connector_count(data: dict[str, Any], nodes: list[dict[str, Any]]) -> int:
+    """Connector nodes, or DrawWorld's connections list when the tree has none."""
+    connectors = draw_connectors(nodes)
+    if connectors:
+        return len(connectors)
+    conns = data.get("connections")
+    return len(conns) if isinstance(conns, list) else 0
+
+
+def draw_edges(
+    data: dict[str, Any], nodes: list[dict[str, Any]]
+) -> list[tuple[str, str]]:
+    """Return (start_text, end_text) pairs from production connectors or DrawWorld."""
+    edges: list[tuple[str, str]] = []
+    for node in draw_connectors(nodes):
+        start = node.get("connected_start")
+        end = node.get("connected_end")
+        if isinstance(start, dict) and isinstance(end, dict):
+            edges.append(
+                (
+                    str(start.get("text") or "").casefold(),
+                    str(end.get("text") or "").casefold(),
+                )
+            )
+    if edges:
+        return edges
+    # String DrawWorld: top-level connections + tree texts by index.
+    by_idx_text: dict[int, str] = {}
+    for i, node in enumerate(nodes):
+        by_idx_text[i] = str(node.get("text") or "").casefold()
+        if "index" in node:
+            try:
+                by_idx_text[int(node["index"])] = by_idx_text[i]
+            except (TypeError, ValueError):
+                pass
+    conns = data.get("connections")
+    if isinstance(conns, list):
+        for conn in conns:
+            if not isinstance(conn, dict):
+                continue
+            try:
+                frm = int(conn.get("from_index"))
+                to = int(conn.get("to_index"))
+            except (TypeError, ValueError):
+                continue
+            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
+    if edges:
+        return edges
+    # DrawWorld also annotates connected_end on the start shape.
+    for node in nodes:
+        dest = node.get("connected_end")
+        if isinstance(dest, dict):
+            edges.append(
+                (
+                    str(node.get("text") or "").casefold(),
+                    str(dest.get("text") or "").casefold(),
+                )
+            )
+    return edges
+
+
+def _has_edge(edges: list[tuple[str, str]], src_key: str, dst_key: str) -> bool:
+    """Return True when any edge contains *src_key* in start and *dst_key* in end."""
+    for src, dst in edges:
+        if src_key in src and dst_key in dst:
+            return True
+    return False
+
+
 def oracle_flowchart_gen(doc: str) -> list[str]:
     fails: list[str] = []
     texts: list[str] = []
@@ -486,52 +585,17 @@ def oracle_flowchart_gen(doc: str) -> list[str]:
     if not has_decision_type:
         fails.append("flowchart missing Decision shape type")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = [n for n in tree if isinstance(n, dict)]
-    by_idx_text: dict[int, str] = {}
-    for i, node in enumerate(nodes):
-        by_idx_text[i] = str(node.get("text") or "").casefold()
+    nodes = draw_nodes(data or {})
 
-    edges: list[tuple[str, str]] = []
-    if data:
-        conns = data.get("connections")
-        if isinstance(conns, list):
-            for conn in conns:
-                if not isinstance(conn, dict):
-                    continue
-                try:
-                    frm = int(conn.get("from_index"))
-                    to = int(conn.get("to_index"))
-                except (TypeError, ValueError):
-                    continue
-                edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
-        if not edges:
-            tree = data.get("tree")
-            if isinstance(tree, list):
-                for node in tree:
-                    if not isinstance(node, dict):
-                        continue
-                    src = str(node.get("text") or "").casefold()
-                    dest = node.get("connected_end")
-                    if isinstance(dest, dict):
-                        edges.append((src, str(dest.get("text") or "").casefold()))
+    edges = draw_edges(data or {}, nodes)
 
-    def _has_edge(src_key: str, dst_key: str) -> bool:
-        for src, dst in edges:
-            if src_key in src and dst_key in dst:
-                return True
-        return False
-
-    if not _has_edge("start", "process") and not _has_edge("start", "login"):
+    if not _has_edge(edges, "start", "process") and not _has_edge(edges, "start", "login"):
         fails.append("missing Start→Process edge")
-    if not _has_edge("process", "decision") and not _has_edge("login", "credential"):
+    if not _has_edge(edges, "process", "decision") and not _has_edge(edges, "login", "credential"):
         fails.append("missing Process→Decision edge")
-    if not _has_edge("decision", "end") and not _has_edge("credential", "end"):
+    if not _has_edge(edges, "decision", "end") and not _has_edge(edges, "credential", "end"):
         fails.append("missing Yes Decision→End edge")
-    if not _has_edge("decision", "process") and not _has_edge("credential", "login"):
+    if not _has_edge(edges, "decision", "process") and not _has_edge(edges, "credential", "login"):
         fails.append("missing No Decision→Process loop")
     return fails
 
@@ -567,18 +631,10 @@ _ORG_CHART_BOX_FLOOR = 8
 _ORG_CHART_CONN_FLOOR = 7
 
 
-def _org_chart_is_connector(node: dict[str, Any]) -> bool:
-    """Production Draw tree uses ConnectorShape nodes; DrawWorld does not."""
-    typ = str(node.get("type") or "").casefold()
-    return "connector" in typ
-
-
 def _org_chart_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     boxes: list[dict[str, Any]] = []
     for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        if _org_chart_is_connector(node):
+        if is_draw_connector(node):
             continue
         text = str(node.get("text") or "").strip()
         if not text:
@@ -589,65 +645,6 @@ def _org_chart_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]
             continue
         boxes.append(node)
     return boxes
-
-
-def _org_chart_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [n for n in nodes if isinstance(n, dict) and _org_chart_is_connector(n)]
-
-
-def _org_chart_edges(
-    data: dict[str, Any], nodes: list[dict[str, Any]]
-) -> list[tuple[str, str]]:
-    """Return (start_text, end_text) pairs from production connectors or DrawWorld."""
-    edges: list[tuple[str, str]] = []
-    for node in _org_chart_connectors(nodes):
-        start = node.get("connected_start")
-        end = node.get("connected_end")
-        if isinstance(start, dict) and isinstance(end, dict):
-            edges.append(
-                (
-                    str(start.get("text") or "").casefold(),
-                    str(end.get("text") or "").casefold(),
-                )
-            )
-    if edges:
-        return edges
-    # String DrawWorld: top-level connections + tree texts by index.
-    by_idx_text: dict[int, str] = {}
-    for i, node in enumerate(nodes):
-        if isinstance(node, dict):
-            by_idx_text[i] = str(node.get("text") or "").casefold()
-            if "index" in node:
-                try:
-                    by_idx_text[int(node["index"])] = by_idx_text[i]
-                except (TypeError, ValueError):
-                    pass
-    conns = data.get("connections")
-    if isinstance(conns, list):
-        for conn in conns:
-            if not isinstance(conn, dict):
-                continue
-            try:
-                frm = int(conn.get("from_index"))
-                to = int(conn.get("to_index"))
-            except (TypeError, ValueError):
-                continue
-            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
-    if edges:
-        return edges
-    # DrawWorld also annotates connected_end on the start shape.
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        dest = node.get("connected_end")
-        if isinstance(dest, dict):
-            edges.append(
-                (
-                    str(node.get("text") or "").casefold(),
-                    str(dest.get("text") or "").casefold(),
-                )
-            )
-    return edges
 
 
 def oracle_org_chart_gen(doc: str) -> list[str]:
@@ -667,21 +664,11 @@ def oracle_org_chart_gen(doc: str) -> list[str]:
         if token.casefold() not in folded:
             fails.append(f"org chart missing {token!r}")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = [n for n in tree if isinstance(n, dict)]
+    nodes = draw_nodes(data or {})
 
     boxes = _org_chart_labeled_boxes(nodes)
-    connectors = _org_chart_connectors(nodes)
-    # When the export is DrawWorld-style (no connector nodes), fall back to
-    # the connections list length for the connector floor.
-    conn_count = len(connectors)
-    if conn_count == 0 and data:
-        raw_conns = data.get("connections")
-        if isinstance(raw_conns, list):
-            conn_count = len(raw_conns)
+    connectors = draw_connectors(nodes)
+    conn_count = draw_connector_count(data or {}, nodes)
 
     if len(boxes) < _ORG_CHART_BOX_FLOOR:
         fails.append(
@@ -708,16 +695,10 @@ def oracle_org_chart_gen(doc: str) -> list[str]:
             f"org chart linked connectors {len(linked)} < {_ORG_CHART_CONN_FLOOR}"
         )
 
-    edges = _org_chart_edges(data or {}, nodes)
-
-    def _has_edge(src_key: str, dst_key: str) -> bool:
-        for src, dst in edges:
-            if src_key in src and dst_key in dst:
-                return True
-        return False
+    edges = draw_edges(data or {}, nodes)
 
     for src_key, dst_key in _ORG_CHART_EDGES:
-        if not _has_edge(src_key, dst_key):
+        if not _has_edge(edges, src_key, dst_key):
             fails.append(f"missing {src_key.title()}→{dst_key.title()} edge")
     return fails
 
@@ -1078,7 +1059,7 @@ def oracle_smart_summarization(doc: str) -> list[str]:
         fails.append("Executive Summary heading missing")
         return fails
     summary = text[idx:]
-    # LO eval can echo the source Findings after the summary; stop at a later Findings.
+    # A student may put the summary before Findings, so the summary ends at a later Findings.
     later = summary.casefold().find("findings", 1)
     if later > 20:
         summary = summary[:later]
@@ -1177,37 +1158,10 @@ def _solar_role_keys(text: str) -> set[str]:
     return roles
 
 
-def _solar_is_connector(node: dict[str, Any]) -> bool:
-    typ = str(node.get("type") or "").casefold()
-    return "connector" in typ
-
-
-
-def _flatten_draw_nodes(nodes: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Walk GroupShape children so grouped production trees still score."""
-    out: list[dict[str, Any]] = []
-
-    def _walk(items: list[Any]) -> None:
-        for node in items:
-            if not isinstance(node, dict):
-                continue
-            typ = str(node.get("type") or "").casefold()
-            kids = node.get("children")
-            if "group" in typ and isinstance(kids, list):
-                _walk(kids)
-                continue
-            out.append(node)
-            if isinstance(kids, list):
-                _walk(kids)
-
-    _walk(list(nodes or []))
-    return out
-
-
 def _solar_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     boxes: list[dict[str, Any]] = []
     for node in nodes:
-        if not isinstance(node, dict) or _solar_is_connector(node):
+        if is_draw_connector(node):
             continue
         text = str(node.get("text") or "").strip()
         if not text:
@@ -1215,63 +1169,6 @@ def _solar_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if _solar_role_keys(text):
             boxes.append(node)
     return boxes
-
-
-def _solar_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [n for n in nodes if isinstance(n, dict) and _solar_is_connector(n)]
-
-
-def _solar_edges(
-    data: dict[str, Any], nodes: list[dict[str, Any]]
-) -> list[tuple[str, str]]:
-    """(start_text, end_text) from production connectors or DrawWorld."""
-    edges: list[tuple[str, str]] = []
-    for node in _solar_connectors(nodes):
-        start = node.get("connected_start")
-        end = node.get("connected_end")
-        if isinstance(start, dict) and isinstance(end, dict):
-            edges.append(
-                (
-                    str(start.get("text") or "").casefold(),
-                    str(end.get("text") or "").casefold(),
-                )
-            )
-    if edges:
-        return edges
-    by_idx_text: dict[int, str] = {}
-    for i, node in enumerate(nodes):
-        if isinstance(node, dict):
-            by_idx_text[i] = str(node.get("text") or "").casefold()
-            if "index" in node:
-                try:
-                    by_idx_text[int(node["index"])] = by_idx_text[i]
-                except (TypeError, ValueError):
-                    pass
-    conns = data.get("connections")
-    if isinstance(conns, list):
-        for conn in conns:
-            if not isinstance(conn, dict):
-                continue
-            try:
-                frm = int(conn.get("from_index"))
-                to = int(conn.get("to_index"))
-            except (TypeError, ValueError):
-                continue
-            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
-    if edges:
-        return edges
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        dest = node.get("connected_end")
-        if isinstance(dest, dict):
-            edges.append(
-                (
-                    str(node.get("text") or "").casefold(),
-                    str(dest.get("text") or "").casefold(),
-                )
-            )
-    return edges
 
 
 def _solar_edge_roles(edges: list[tuple[str, str]]) -> list[tuple[set[str], set[str]]]:
@@ -1370,19 +1267,10 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
         elif bad in folded:
             fails.append(f"central/string inverter drawn ({bad!r}); use microinverters")
 
-    nodes: list[dict[str, Any]] = []
-    if data:
-        tree = data.get("tree")
-        if isinstance(tree, list):
-            nodes = _flatten_draw_nodes([n for n in tree if isinstance(n, dict)])
+    nodes = draw_nodes(data or {})
 
     boxes = _solar_labeled_boxes(nodes)
-    connectors = _solar_connectors(nodes)
-    conn_count = len(connectors)
-    if conn_count == 0 and data:
-        raw_conns = data.get("connections")
-        if isinstance(raw_conns, list):
-            conn_count = len(raw_conns)
+    conn_count = draw_connector_count(data or {}, nodes)
 
     if nodes and len(boxes) < _SOLAR_BOX_FLOOR:
         fails.append(
@@ -1393,7 +1281,7 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
             f"solar SLD connectors {conn_count} < {_SOLAR_CONN_FLOOR} (~7+)"
         )
 
-    edges = _solar_edges(data or {}, nodes)
+    edges = draw_edges(data or {}, nodes)
     role_edges = _solar_edge_roles(edges)
 
     # Partial-home: Utility/Meter → Main panel → Solar AC Disconnect → MID →
@@ -1490,7 +1378,7 @@ def check_oracle(task_id: str, final_document: str) -> list[str]:
     fn = ORACLES.get(task_id or "")
     if fn is None:
         return []
-    return fn(final_document or "")
+    return fn(first_rendering(final_document or ""))
 
 
 def uses_llm_judge(task_id: str, category: str = "") -> bool:

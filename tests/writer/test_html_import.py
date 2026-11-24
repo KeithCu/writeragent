@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.writer.html_export import HTML_FILTER
+from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.writer.html_import import (
     _wrap_html_fragment,
     content_has_markup,
@@ -2044,7 +2044,7 @@ def test_filter_name_starwriter():
         insert_html_fragment_at_cursor(cursor, "<p>Hi</p>")
 
     assert filter_holder["props"][0].Name == "FilterName"
-    assert filter_holder["props"][0].Value == HTML_FILTER
+    assert filter_holder["props"][0].Value == HTML_WRITER_FILTER
 
 
 def test_replace_full_document_and_insert_content_call_restore_with_text_obj():

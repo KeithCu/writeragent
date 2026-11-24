@@ -9,14 +9,14 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 ## 📝 Writer: Document Engineering (20 Tests)
 
 ### Level 1: Formatting & Precision (Essentials)
-1.  **Format Preservation**: "Replace 'John Doe' with 'Jane Smith' in the header (Bold, 14pt)." -> Verify formatting remains. **[String-ok via apply_document_content + HTML preservation]**
+1.  **Format Preservation**: "Replace 'John Doe' with 'Jane Smith' in the header (Bold, 14pt)." -> Verify formatting remains. **[String-ok via apply_content + HTML preservation]**
 2.  **Style Application**: "Make 'Introduction' a Heading 1." -> Verify `set_style` call. **[LO-required for real styles]**
 3.  **Comment Management**: "Add a comment 'Review this' to the word 'Uncertain'." -> Verify `add_comment`. **[LO-required (comments)]**
-4.  **Bullet Consistency**: "Ensure all bullet points in this list end with a period." -> Agent must iterate and edit. **[String-ok (text cleanup via apply_document_content)]**
+4.  **Bullet Consistency**: "Ensure all bullet points in this list end with a period." -> Agent must iterate and edit. **[String-ok (text cleanup via apply_content)]**
 5.  **Font Audit**: "Change all text in 'Comic Sans' to 'Inter'." -> Search and replace formatting. **[LO-required for font styles; partial with text search]**
 
 ### Level 2: Structural Manipulation (Advanced)
-6.  **Table Engineering**: "Convert this comma-separated list into a 2-column table with headers." -> Verify `write_table_cells` (2D batch). **[String-ok (HTML table via apply_document_content)]**
+6.  **Table Engineering**: "Convert this comma-separated list into a 2-column table with headers." -> Verify `write_table_cells` (2D batch). **[String-ok (HTML table via apply_content)]**
 7.  **Markdown Import**: "Replace the second paragraph with a Markdown table from the clipboard." -> Verify `apply_markdown`. **[String-ok (HTML/markdown support in html_import)]**
 8.  **TOC Generation**: "Insert a Table of Contents at the start of the document." -> Verify TOC structure nodes. **[LO-required (TOC fields/indexes)]**
 9.  **Section Break**: "Insert a section break and set the next page to Landscape orientation." -> Complex layout tool call. **[LO-required (page styles, sections)]**
@@ -27,7 +27,7 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 12. **Style Consistency**: "Find all text in 'Default' style and change it to 'Quotations'." -> Multi-step maneuver. **[LO-required (styles)]**
 13. **Track Changes Audit**: "Accept all changes made by 'Reviewer A' but reject all by 'Reviewer B'." -> Selective auditing. **[LO-required (tracking tools)]**
 14. **Bibliography Fix**: "Locate all brackets [1], [2] and ensure they are superscripted." -> Pattern matching + formatting. **[LO-required (fields, superscripts)]**
-15. **Smart Summarization**: "Summarize the 'Finding' section into 5 bullet points and insert it into the 'Executive Summary'." -> Multi-part extraction. **[String-ok (extraction + apply_document_content); already in dataset.py]**
+15. **Smart Summarization**: "Summarize the 'Finding' section into 5 bullet points and insert it into the 'Executive Summary'." -> Multi-part extraction. **[String-ok (extraction + apply_content); already in dataset.py]**
 16. **Logical Rewriting**: "Rewrite the third paragraph to be 'professional and concise' while preserving all technical terms." -> Content-aware editing. **[String-ok (already in dataset.py)]**
 17. **Refactoring Sections**: "Move the 'Conclusion' after the 'Intro' and rename it 'Goal'." -> Structural movement. **[String-ok (already added to dataset.py)]**
 18. **Style Mapping**: "Map all 'Heading 2' text to become 'Heading 1' and adjust subsequent levels down." -> Recursive styling. **[LO-required (styles)]**
@@ -62,9 +62,9 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 19. **Sheet Protect**: "Lock all cells with formulas so they cannot be edited." -> Security/metadata tool. **[LO-required]**
 20. **Audit Log**: "Create a log entries sheet tracking every time 'Net Profit' falls below 0." -> Logic + Log creation. **[LO-required]**
 
-## 🎨 Draw: Spatial Reasoning (5 Tests) **[Feasible with DrawJSONBackend using get_draw_tree JSON "DOM" (see dev-plan.md); full LO for precise geometry/z-order]**
+## 🎨 Draw: Spatial Reasoning (5 Tests) **[Feasible with DrawJSONBackend using shape_get_tree JSON "DOM" (see dev-plan.md); full LO for precise geometry/z-order]**
 
-1.  **Shape Creation**: "Add a blue rectangle in the center of the page." -> Drawing Bridge. **[DrawJSON-ok (mock create_shape + get_draw_tree)]**
+1.  **Shape Creation**: "Add a blue rectangle in the center of the page." -> Drawing Bridge. **[DrawJSON-ok (mock shape_upsert + shape_get_tree)]**
 2.  **Simple Layout**: "Create three circles and align them horizontally." -> Offset calculation. **[DrawJSON-ok (positions in tree)]**
 3.  **Flowchart Gen**: "Create a 'Start' oval connected to a 'Process' box." -> Connection points. **[DrawJSON-ok / priority for implementation (connectors via tree); example added below]**
 4.  **Z-Order**: "Move the blue square behind the red circle." -> Layer management. **[DrawJSON partial (order in list); LO for full fidelity]**
