@@ -1973,28 +1973,40 @@ def test_merge_cells_refuses_when_calc_did_not_merge():
 
 
 def test_sort_range_validation():
+    from plugin.framework.errors import CalcError
+
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
+        manipulator.plan_sort.side_effect = CalcError(
+            "sort_column must be an integer from 0 to 1 for range A1:B2 (2 columns).",
+            code="INVALID_PARAM",
+        )
         res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1, ascending=True)
         assert res_sc_neg["status"] == "error"
+        assert res_sc_neg["code"] == "INVALID_PARAM"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
+        manipulator.plan_sort.side_effect = None
+        manipulator.plan_sort.reset_mock()
         manipulator.range_sort.return_value = "Sorted"
         prep_ok = prepare_tool_call(_tool("sort_range"), SimpleNamespace(doc_type="calc"), "sort_range", {"range": ["A1:B2"], "has_header": True})
         assert prep_ok.error is None
         res_ok = _tool("sort_range").execute_safe(ctx, **prep_ok.kwargs)
         assert res_ok["status"] == "ok"
-        manipulator.range_sort.assert_called_once_with("A1:B2", [(0, True)], has_header=True)
+        manipulator.plan_sort.assert_called_once_with("A1:B2", [(0, True)])
+        manipulator.range_sort.assert_called_once_with(manipulator.plan_sort.return_value, has_header=True)
 
+        manipulator.plan_sort.reset_mock()
         manipulator.range_sort.reset_mock()
         res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=0, ascending=True, then_by=[{"column": 0}])
         assert res_bad_then_by["status"] == "error"
         assert res_bad_then_by["code"] == "INVALID_PARAM"
         manipulator.range_sort.assert_not_called()
 
+        manipulator.plan_sort.reset_mock()
         manipulator.range_sort.reset_mock()
         res_then_by = _tool("sort_range").execute_safe(
             ctx,
@@ -2005,7 +2017,8 @@ def test_sort_range_validation():
             has_header=True,
         )
         assert res_then_by["status"] == "ok"
-        manipulator.range_sort.assert_called_once_with("A1:B2", [(1, False), (0, True)], has_header=True)
+        manipulator.plan_sort.assert_called_once_with("A1:B2", [(1, False), (0, True)])
+        manipulator.range_sort.assert_called_once_with(manipulator.plan_sort.return_value, has_header=True)
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]

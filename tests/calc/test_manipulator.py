@@ -466,8 +466,14 @@ def test_sort_range_bounds_and_valid_types():
         patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
         patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls,
     ):
-        with pytest.raises(CalcError, match=r"0 to 1"):
-            manipulator.range_sort("A1:B10", [(2, True)], has_header=True)
+        with pytest.raises(CalcError, match=r"0 to 1") as exc_info:
+            manipulator.plan_sort("A1:B10", [(2, True)])
+        assert exc_info.value.code == "INVALID_PARAM"
+        assert "A1:B10" in str(exc_info.value)
+        with pytest.raises(CalcError, match=r"0 to 1") as exc_neg:
+            manipulator.plan_sort("A1:B10", [(-1, True)])
+        assert exc_neg.value.code == "INVALID_PARAM"
+        assert "A1:B10" in str(exc_neg.value)
         mock_range.createSortDescriptor.assert_not_called()
 
         p_sort_fields = SimpleNamespace(Name="SortFields", Value=())
@@ -477,7 +483,7 @@ def test_sort_range_bounds_and_valid_types():
         with patch("uno.Any") as any_mock:
             mock_key_range = mock_range.getCellRangeByPosition.return_value
             mock_key_range.getDataArray.return_value = (("a",), ("b",))
-            res = manipulator.range_sort("A1:B10", [(0, True)], has_header=True)
+            res = manipulator.range_sort(manipulator.plan_sort("A1:B10", [(0, True)]), has_header=True)
             mock_range.sort.assert_called_once()
             any_mock.assert_called_once_with("[]com.sun.star.table.TableSortField", (tsf_cls.return_value,))
             assert p_sort_fields.Value == any_mock.return_value
@@ -486,7 +492,7 @@ def test_sort_range_bounds_and_valid_types():
             assert "no rows moved" in res
 
             mock_key_range.getDataArray.side_effect = [(("b",), ("a",)), (("a",), ("b",))]
-            res_moved = manipulator.range_sort("A1:B10", [(0, True)], has_header=True)
+            res_moved = manipulator.range_sort(manipulator.plan_sort("A1:B10", [(0, True)]), has_header=True)
             assert "sorted ascending by column 0" in res_moved
             assert "no rows moved" not in res_moved
 
@@ -504,7 +510,7 @@ def test_sort_range_skips_key_read_for_single_data_row():
         patch("plugin.calc.manipulator.TableSortField", create=True),
         patch("uno.Any"),
     ):
-        res = manipulator.range_sort("A1:B2", [(0, True)], has_header=True)
+        res = manipulator.range_sort(manipulator.plan_sort("A1:B2", [(0, True)]), has_header=True)
         mock_range.getCellRangeByPosition.assert_not_called()
         mock_range.sort.assert_called_once()
         assert "no rows moved" in res
@@ -538,8 +544,10 @@ def test_range_sort_then_by_out_of_width_refused():
 
     manipulator = CellManipulator(bridge)
     with patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr):
-        with pytest.raises(CalcError, match=r"then_by column"):
-            manipulator.range_sort("A1:B10", [(0, True), (5, False)], has_header=True)
+        with pytest.raises(CalcError, match=r"then_by column") as exc_info:
+            manipulator.plan_sort("A1:B10", [(0, True), (5, False)])
+        assert exc_info.value.code == "INVALID_PARAM"
+        assert "A1:B10" in str(exc_info.value)
     mock_range.sort.assert_not_called()
 
 
@@ -562,7 +570,7 @@ def test_range_sort_tie_reorder_is_not_no_rows_moved():
         patch("plugin.calc.manipulator.TableSortField", create=True),
         patch("uno.Any"),
     ):
-        res = manipulator.range_sort("A1:B3", [(1, False), (0, True)], has_header=True)
+        res = manipulator.range_sort(manipulator.plan_sort("A1:B3", [(1, False), (0, True)]), has_header=True)
     assert "no rows moved" not in res
     assert "column 1 descending, then column 0 ascending" in res
 

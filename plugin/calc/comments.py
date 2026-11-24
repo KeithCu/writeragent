@@ -116,8 +116,8 @@ class AddCellComment(ToolCalcCommentBase):
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
-            # parse_address and a prefix/sheet disagreement raise ValueError; the
-            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
+            # parse_address and a prefix/sheet disagreement raise ValueError; the bridge's
+            # UnoObjectError (missing sheet) and CalcError (multi-cell name) reach execute_safe.
             return self._tool_error(str(e), code="INVALID_PARAM")
 
         cell_ann, existing_text = _annotation_text(sheet, col, row)
@@ -145,8 +145,8 @@ class DeleteCellComment(ToolCalcCommentBase):
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
-            # parse_address and a prefix/sheet disagreement raise ValueError; the
-            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
+            # parse_address and a prefix/sheet disagreement raise ValueError; the bridge's
+            # UnoObjectError (missing sheet) and CalcError (multi-cell name) reach execute_safe.
             return self._tool_error(str(e), code="INVALID_PARAM")
 
         annotations = sheet.getAnnotations()
