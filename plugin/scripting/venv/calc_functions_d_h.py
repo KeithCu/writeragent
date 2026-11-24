@@ -18,6 +18,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    NESTED_ARRAY_NAN,
     as_nonzero,
     coupon_schedule,
     date_to_serial,
@@ -728,11 +729,10 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
     return float(st.f.sf(x_val, df1, df2))  # Calc returns right-tailed by default for FDIST
 
 
-def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
+def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> Any:
     # An (n, 1) include filters rows; a (1, m) include filters columns.
-    # Treating either as an elementwise mask raises IndexError.
     # On a square range a length-n vector filters rows and a (1, n)
-    # include filters columns. Those shapes are checked before a size tie.
+    # include filters columns.
     try:
         arr = np.asarray(range_arr)
         # dtype=object: a mixed list such as [1, ""] would otherwise become a text array.
@@ -748,9 +748,9 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
             (crit.ndim == 1 and crit.size == arr.shape[1])
             or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
         )
-        elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
-        # An empty mask would otherwise select nothing and return if_empty.
-        if arr.size == 0 or crit.size == 0 or not (row or col or elem):
+        # ScFilter (interpr1.cxx:8258-8263) refuses a two-dimensional include (NoValue);
+        # an empty mask would otherwise select nothing and return if_empty.
+        if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
             return "#VALUE!"
         # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric
         # text too, is an error there; an empty cell is 0; an error element is the result.
@@ -763,7 +763,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
                 return number
             include.append(number > 0)
         mask = np.asarray(include, dtype=bool)
-        out = arr[mask] if row else arr[:, mask] if col else arr[mask.reshape(arr.shape)]
+        out = arr[mask] if row else arr[:, mask]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
     if out.size == 0:
@@ -949,6 +949,10 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             x = np.arange(1, len(y) + 1, dtype=float)
         else:
             x = np.asarray(known_x, dtype=float).ravel()
+        # CheckMatrix (interpr5.cxx:2350-2373) refuses a scalar x against a vector y;
+        # numpy would broadcast it when const is FALSE, and this helper does not fit several x variables.
+        if x.size != y.size:
+            raise ValueError
         if new_x is None:
             new_x_arr = x
         else:

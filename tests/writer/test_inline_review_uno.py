@@ -653,6 +653,36 @@ def test_inline_review_accept_and_reject_multi_cell_change_uno(ctx, doc):
         assert resolved == 1
         assert not doc.getTextTables().hasByName(t_name)
         assert _redline_count(doc) == 1  # user's redline preserved
+
+        # Row delete + column delete + cursor entry point + one undo step.
+        save({"doc.agent_edit_review_mode": "off"})
+        t2_name = TableInsert().execute(tctx, rows=3, columns=3, data=[["a", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]])["table_name"]
+        save({"doc.agent_edit_review_mode": "record"})
+        from plugin.writer.inline_review import resolve_change_at_cursor
+        from plugin.writer.specialized.tables import ManageTableStructure
+
+        res_row = ManageTableStructure().execute_safe(tctx, action="delete", axis="row", name=t2_name, index=1)
+        assert res_row["status"] == "ok" and res_row["pending_review"] is True
+        t2 = doc.getTextTables().getByName(t2_name)
+        doc.getCurrentController().getViewCursor().gotoRange(t2.getCellByName("A2").getStart(), False)
+        um = doc.getUndoManager()
+        undo_before = len(um.getAllUndoActionTitles())
+        cur_ok, cur_msg = resolve_change_at_cursor(doc, ctx, accept=True)
+        assert cur_ok is True, (cur_ok, cur_msg)
+        assert len(um.getAllUndoActionTitles()) == undo_before + 1
+        assert t2.getRows().getCount() == 2
+
+        res_col = ManageTableStructure().execute_safe(tctx, action="delete", axis="column", name=t2_name, index=1)
+        assert res_col["status"] == "ok" and res_col["pending_review"] is True
+        col_comments = [
+            doc.getRedlines().getByIndex(i).getPropertyValue("RedlineComment")
+            for i in range(doc.getRedlines().getCount())
+        ]
+        col_tok = next(c for c in col_comments if is_agent_token(c))
+        col_res, _after2 = resolve_agent_change(doc, ctx, col_tok, accept=False)
+        assert col_res.status == ResolveStatus.RESOLVED, col_res
+        assert t2.getColumns().getCount() == 3
+        assert _redline_count(doc) == 1  # user's redline preserved
     finally:
         save({"doc.agent_edit_review_mode": prev})
 

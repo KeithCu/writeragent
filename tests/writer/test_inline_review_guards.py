@@ -1377,7 +1377,7 @@ def test_multi_text_foreign_redline_in_second_cell_refuses_before_dispatch():
     disp.assert_not_called()
 
 
-def test_multi_text_no_progress_stops_loop_as_partial():
+def test_multi_text_no_progress_stops_loop_as_no_op():
     t1 = FakeText()
     t2 = FakeText()
 

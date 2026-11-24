@@ -74,6 +74,8 @@ log = logging.getLogger(__name__)
 
 _BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
+# Frame portions read "", so without a mark an object-only change reads the same accepted
+# and rejected; _preview strips it because it is not document text.
 _OBJECT_MARK = "\ufffc"
 
 
@@ -313,7 +315,8 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     """Text of *text_range* with portions inside tracked *skip_type* redlines removed.
 
     ``skip_type="Delete"`` yields the text as it would read if everything were ACCEPTED;
-    ``skip_type="Insert"`` yields the text as if everything were REJECTED. Mirrors
+    ``skip_type="Insert"`` yields the text as if everything were REJECTED. ``Frame`` portions
+    read as ``_OBJECT_MARK`` so object-only changes are distinguishable. Mirrors
     ``text_helpers.get_string_without_tracked_deletions`` but parameterized.
     """
     # The raw string is the fail-closed result when the walk cannot start.
@@ -523,6 +526,9 @@ class EditReviewSession:
                         rej = _string_skipping_redline(span, "Insert")
                         accepted_all.append(acc)
                         rejected_all.append(rej)
+                        # The anchored text omits the table, so a table-only insert reads the same
+                        # after Accept and Reject and must stay untagged; with several texts, only
+                        # one that changes can tell Accept from Reject.
                         if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
                             anchor_span, accepted_text, rejected_text = span, acc, rej
                     if anchor_span is not None:
@@ -564,6 +570,29 @@ class EditReviewSession:
         # A new pending change exists -> reveal the review fast-travel toolbar (#2). Runs on the
         # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
         refresh_review_toolbar(self.doc)
+        return result
+
+    def tag_side_effects(self, apply_fn: Callable[[], Any]) -> Any:
+        """Run *apply_fn* and stamp any new redlines with one agent token, without a ChangeRecord.
+
+        Used for secondary changes (such as retargeted outline hyperlinks) whose accepted
+        and rejected text are identical, so ``wait_for_review`` neither waits for them nor
+        reports them in ``review.changes``.
+        """
+        if not self._active:
+            if not is_recording_changes(self.doc):
+                return apply_fn()
+            # LibreOffice merges same-author redlines across a paragraph mark (IsPrevPos in
+            # DocumentRedlineManager.cxx and SwRedlineData::CanCombine in docredln.cxx), so Reject
+            # would join the paragraphs; switch author to WriterAgent for these side-effect redlines.
+            prior = review_authors.begin(self.ctx)
+            try:
+                return apply_fn()
+            finally:
+                review_authors.end(self.ctx, prior)
+        before, reliable = self._redline_idents()
+        result = apply_fn()
+        tag_agent_redlines(self.doc, before, before_reliable=reliable)
         return result
 
     # -- review ------------------------------------------------------------------------------

@@ -269,6 +269,25 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
     assert out["message"] == "Inserted content."
 
 
+def test_attach_write_report_links_retargeted_and_stale_links() -> None:
+    report = html_import_styles.WriteReport(
+        links_retargeted=3,
+        stale_links=["#Old|outline"],
+    )
+    out = html_import_styles.attach_write_report({"status": "ok", "message": "Done."}, report)
+    assert out["links_retargeted"] == 3
+    assert out["warnings"] == [
+        {
+            "code": "LINK_TARGET_STALE",
+            "link_target": "#Old|outline",
+            "message": (
+                'Links to "#Old|outline" still use the old heading title: '
+                "they hold a field, which cannot be rewritten as a tracked change."
+            ),
+        }
+    ]
+
+
 def test_write_report_extend_preserves_order_and_unions_tokens() -> None:
     """extend concatenates unapplied_para, style_skips, math and unions style_tokens preserving order."""
     r1 = html_import_styles.WriteReport(

@@ -712,7 +712,7 @@ def test_record_mode_table_row_col_delete_tagged_as_one_change_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_colspan_column_delete_preserves_nested_table_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     outer_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
@@ -724,6 +724,7 @@ def test_colspan_column_delete_preserves_nested_table_uno(ctx, doc):
     nested.setName("Inner")
     b2_text.insertTextContent(b2_text.createTextCursor(), nested, False)
 
+    # Column 0 spans A1:B1 -> includes B2's nested table (refused both untracked and tracked).
     res_untracked = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=outer_name, index=0)
     assert res_untracked["status"] == "error" and "Inner" in res_untracked["message"]
     assert doc.getTextTables().hasByName("Inner")
@@ -735,6 +736,54 @@ def test_colspan_column_delete_preserves_nested_table_uno(ctx, doc):
         assert doc.getTextTables().hasByName("Inner")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+    # Column 1 (C2) must succeed when the nested table is in B2.
+    ok_col1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=outer_name, index=1)
+    assert ok_col1["status"] == "ok", ok_col1
+    assert doc.getTextTables().hasByName("Inner")
+
+    # C2 host with column 1 (index=1 of A1:B1 merged 2x3) must refuse (tracked and untracked).
+    outer2_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=outer2_name, cell_range="A1:B1")
+    outer2 = doc.getTextTables().getByName(outer2_name)
+    c2_text = outer2.getCellByName("C2").getText()
+    nested2 = doc.createInstance("com.sun.star.text.TextTable")
+    nested2.initialize(1, 1)
+    nested2.setName("InnerC2")
+    c2_text.insertTextContent(c2_text.createTextCursor(), nested2, False)
+
+    ref_c2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=outer2_name, index=1)
+    assert ref_c2["status"] == "error" and "InnerC2" in ref_c2["message"]
+    assert doc.getTextTables().hasByName("InnerC2")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ref_c2_tr = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=outer2_name, index=1)
+        assert ref_c2_tr["status"] == "error" and "InnerC2" in ref_c2_tr["message"]
+        assert doc.getTextTables().hasByName("InnerC2")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
+    from plugin.writer.range_copy import writer_cell_position
+    from plugin.writer.specialized.tables import _column_band_cells
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")
+    table = doc.getTextTables().getByName(t_name)
+    positions = {n: pos for n in table.getCellNames() if (pos := writer_cell_position(n)) is not None}
+    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, positions, 0)}
+    assert predicted_texts == {"a1\nb1", "a2", "b2"}
+
+    before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t_name, index=0)
+    assert res["status"] == "ok", res
+    after_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
+    assert before_texts - after_texts == predicted_texts
 
 
 @native_test

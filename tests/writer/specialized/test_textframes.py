@@ -261,7 +261,7 @@ def test_frame_insert_default_size_and_undo_path():
     frames_coll.hasByName.return_value = False
     doc.getTextFrames.return_value = frames_coll
     frame = MagicMock()
-    frame.getPropertyValue.return_value = "MyFrame"
+    frame.getPropertyValue.return_value = SimpleNamespace(value="AT_PARAGRAPH")
     frame_text = MagicMock()
     frame_cursor = MagicMock()
     frame_text.createTextCursor.return_value = frame_cursor
@@ -297,6 +297,7 @@ def test_frame_insert_default_size_and_undo_path():
         res = FrameInsert().execute(ctx, **prep.kwargs)
 
     assert res["status"] == "ok"
+    assert res["anchor_type"] == 0
     doc.createInstance.assert_called_with("com.sun.star.text.TextFrame")
     size_call = frame.setPropertyValue.call_args_list[0]
     assert size_call[0][0] == "Size"

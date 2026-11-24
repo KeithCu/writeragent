@@ -720,26 +720,6 @@ def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
         log.exception("Failed to remove chart %r after a create error", name)
 
 
-def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
-    """Remove a Writer chart from the text that anchors it (body, frame, or cell).
-
-    ``doc.getText()`` holds only body anchors, so removal goes through the
-    chart's own anchor text (body, frame, or table cell). The embedded-objects
-    container is the fallback that create rollback also uses.
-    """
-    try:
-        chart_obj.getAnchor().getText().removeTextContent(chart_obj)
-        return
-    except Exception as exc:
-        if is_disposal(exc):
-            raise
-        log.debug("chart anchor removal failed for '%s'; using embedded objects", name, exc_info=True)
-    objects = doc.getEmbeddedObjects()
-    if not objects.hasByName(name):
-        raise ValueError(f"Chart '{name}' is not in the embedded objects container.")
-    objects.removeByName(name)
-
-
 def _writer_body_has_no_text(text: Any) -> bool:
     """Return True if the text body has no content (empty or single empty paragraph)."""
     enum = text.createEnumeration()
@@ -1280,7 +1260,7 @@ class WriterEmbeds:
 
         # 6. Configure Diagram
         if not chart_doc:
-            _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
+            _drop_failed_chart_insert(chart_obj.dispose, actual_name)
             raise ToolExecutionError("Cannot access chart content.")
 
         warnings: list[str] = []
@@ -1294,7 +1274,7 @@ class WriterEmbeds:
             warnings = _apply_chart_styling(chart_doc, **kwargs)
         except Exception:
             # Diagram installation and styling must succeed or the embed is rolled back.
-            _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
+            _drop_failed_chart_insert(chart_obj.dispose, actual_name)
             raise
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
@@ -1330,7 +1310,9 @@ class WriterEmbeds:
 
     def remove(self, ref: ChartRef, name: str) -> None:
         if ref.kind == "writer_embed":
-            _remove_writer_chart(self.doc, ref.host, name)
+            # A page-anchored chart has no anchor range (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor),
+            # and SwXText::removeTextContent (sw/source/core/unocore/unotext.cxx) only calls dispose().
+            ref.host.dispose()
         else:
             ref.parent.remove(ref.host)
 

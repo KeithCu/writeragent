@@ -1507,6 +1507,7 @@ class DeleteShape(_AnyDocumentShapeTool):
                     if is_recording_changes(ctx.doc):
                         delete_graphic(ctx.ctx, ctx.doc, shape)
                         return True
+                    # delete_graphic's untracked arm needs an anchor, and an AT_PAGE picture has none.
                     parent.remove(shape)
                     return False
 

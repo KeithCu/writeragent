@@ -418,6 +418,7 @@ def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: i
     for r_idx, row_edges in enumerate(edges):
         for c_idx in range(len(row_edges) - 1):
             left, right = row_edges[c_idx], row_edges[c_idx + 1]
+            # 1-unit slack accounts for rounding of relative TableColumnSeparators positions.
             if left >= first - 1 and right <= last + 1:
                 picked.add((c_idx, r_idx))
     return [name for name, pos in positions.items() if pos in picked]
@@ -448,13 +449,10 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         target_cell = band_names[0]
         # swnewtable.cxx:CreateSelection grows nBottom by the RowSpan of the row's end boxes.
         for edge_name in dict.fromkeys((band_names[0], band_names[-1])):
-            def _read_row_span(c: str = edge_name) -> int:
-                return int(table.getCellByName(c).getPropertyValue("RowSpan"))
-
-            row_span = uno_read(_read_row_span, 1)
+            row_span = int(table.getCellByName(edge_name).getPropertyValue("RowSpan"))
             if row_span > 1:
                 raise ToolExecutionError(
-                    "Cell '%s' spans %d rows below, so LibreOffice would also mark those rows for deletion. "
+                    "Cell '%s' spans %d rows, so LibreOffice would also mark the rows below for deletion. "
                     "Split that cell first or turn off Track Changes." % (edge_name, row_span),
                     code="TABLE_DELETE_NOT_TRACKABLE",
                 )

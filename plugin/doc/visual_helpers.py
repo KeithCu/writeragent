@@ -769,7 +769,7 @@ _DISPATCH_SUCCESS = 1
 def _delete_writer_graphic_tracked(ctx: Any, doc: Any, graphic: Any) -> None:
     """Delete a Writer text graphic via .uno:Delete so Track Changes records it.
 
-    SwXFrame::dispose (removeTextContent) leaves no redline; SwWrtShell::DelRight
+    SwXFrame::dispose leaves no redline; SwWrtShell::DelRight
     (sw/source/uibase/wrtsh/delete.cxx, Graphic case) records a Delete redline for
     TextGraphicObject (and moves non-character anchors to the character). Checks
     controller.getSelection() after select() because SwXTextView::select returns true
@@ -821,9 +821,9 @@ def delete_graphic(ctx: Any, doc: Any, graphic: Any) -> bool:
         _delete_writer_graphic_tracked(ctx, doc, graphic)
         return True
     try:
-        anchor = graphic.getAnchor()
-        text = anchor.getText()
-        text.removeTextContent(graphic)
+        # A page-anchored picture has no anchor range (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor),
+        # and SwXText::removeTextContent (sw/source/core/unocore/unotext.cxx) only calls dispose().
+        graphic.dispose()
     except Exception as exc:
         reraise_if_disposed(exc)
         raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc

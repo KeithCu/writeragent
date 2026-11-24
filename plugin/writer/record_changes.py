@@ -22,6 +22,7 @@ import logging
 from typing import Any, Generator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
@@ -90,3 +91,21 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
             head = host.createTextCursorByRange(span.getStart())
             head.goRight(1, True)
             head.setString("")
+
+
+def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:
+    """``RedlineType`` of every tracked change that covers all of *text_range*."""
+    kinds: set[str] = set()
+    redlines = doc.getRedlines()
+    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+        try:
+            start = rl.getPropertyValue("RedlineStart")
+            end = rl.getPropertyValue("RedlineEnd")
+            text = start.getText()
+            # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal.
+            if text.compareRegionStarts(start, text_range) >= 0 and text.compareRegionEnds(text_range, end) >= 0:
+                kinds.add(str(rl.getPropertyValue("RedlineType")))
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue  # another text object, or not comparable
+    return kinds

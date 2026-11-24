@@ -932,6 +932,64 @@ def test_deferred_run_sends_result_later_and_keeps_pending_load():
     assert "sid" in editor.sessions
 
 
+def test_sync_save_with_pending_load_sets_load_follows_and_activates_next(monkeypatch):
+    editor = PersistentEditor()
+    activated: list[dict] = []
+    monkeypatch.setattr(
+        launch_mod,
+        "_activate_load",
+        lambda msg, on_save, on_closed: activated.append(dict(msg)),
+    )
+    closed_calls: list[str] = []
+    state = launch_mod.EditorSessionState(
+        "sid1",
+        "calc_cell",
+        {"cell_address": "A1"},
+        on_save=lambda *_a: {"type": "saved", "ok": True},
+        on_closed=lambda: closed_calls.append("closed"),
+    )
+    state.dirty = True
+    state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    state.pending_on_save = lambda *_a: {"type": "saved", "ok": True}
+    state.pending_on_closed = lambda: None
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, *, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+
+    editor._dispatch_incoming({"type": "save", "session_id": "sid1", "code": "x = 1"})
+    assert sent[0]["type"] == "saved"
+    assert sent[0].get("load_follows") is True
+    assert closed_calls == ["closed"]
+    assert activated == [{"type": "load", "mode": "calc_cell", "code": "next"}]
+
+    # Without pending_load, or with an error result, load_follows is omitted.
+    sent.clear()
+    state2 = launch_mod.EditorSessionState(
+        "sid2",
+        "calc_cell",
+        {"cell_address": "A2"},
+        on_save=lambda *_a: {"type": "saved", "ok": True},
+    )
+    editor.register_session(state2)
+    editor._dispatch_incoming({"type": "save", "session_id": "sid2", "code": "x = 2"})
+    assert "load_follows" not in sent[0]
+
+    sent.clear()
+    state3 = launch_mod.EditorSessionState(
+        "sid3",
+        "calc_cell",
+        {"cell_address": "A3"},
+        on_save=lambda *_a: {"type": "error", "message": "fail"},
+    )
+    state3.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    editor.register_session(state3)
+    editor._dispatch_incoming({"type": "save", "session_id": "sid3", "code": "x = 3"})
+    assert sent[0]["type"] == "error"
+    assert "load_follows" not in sent[0]
+
+
 def test_deferred_stale_deliver_does_not_clear_dirty():
     """A Run that finishes after a newer save must not mark the buffer clean."""
     editor = PersistentEditor()

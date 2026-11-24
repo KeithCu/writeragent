@@ -7,7 +7,13 @@
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
+from plugin.framework.errors import DocumentDisposedError
+from plugin.writer.record_changes import (
+    insert_recorded_content,
+    is_recording_changes,
+    record_changes,
+    redline_kinds_covering,
+)
 
 
 class _FakeDoc:
@@ -87,3 +93,92 @@ def test_insert_recorded_content_cleans_up_placeholders_when_insert_raises():
     host.insertString.assert_called_once_with(span, "xx", True)
     tail.setString.assert_called_once_with("")
     head.setString.assert_called_once_with("")
+
+
+def test_redline_kinds_covering():
+    class _Text:
+        def compareRegionStarts(self, a, b):
+            if a == "bad" or b == "bad":
+                raise RuntimeError("different text")
+            return 1 if a[0] < b[0] else (0 if a[0] == b[0] else -1)
+
+        def compareRegionEnds(self, a, b):
+            if a == "bad" or b == "bad":
+                raise RuntimeError("different text")
+            return 1 if a[1] < b[1] else (0 if a[1] == b[1] else -1)
+
+    text = _Text()
+
+    class _Point:
+        def __init__(self, lo, hi):
+            self._lo = lo
+            self._hi = hi
+
+        def __getitem__(self, idx):
+            return (self._lo, self._hi)[idx]
+
+        def getText(self):
+            return text
+
+    class _RL:
+        def __init__(self, kind, start, end):
+            self._kind = kind
+            self._start = start
+            self._end = end
+
+        def getPropertyValue(self, name):
+            if name == "RedlineType":
+                return self._kind
+            if name == "RedlineStart":
+                return self._start
+            if name == "RedlineEnd":
+                return self._end
+            raise KeyError(name)
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+            self._i = 0
+
+        def hasMoreElements(self):
+            return self._i < len(self._items)
+
+        def nextElement(self):
+            v = self._items[self._i]
+            self._i += 1
+            return v
+
+    class _Redlines:
+        def __init__(self, items):
+            self._items = items
+
+        def getCount(self):
+            return len(self._items)
+
+        def createEnumeration(self):
+            return _Enum(self._items)
+
+    class _Doc:
+        def __init__(self, items):
+            self._items = items
+
+        def getRedlines(self):
+            return _Redlines(self._items)
+
+    target = _Point(5, 10)
+    doc = _Doc([
+        _RL("Delete", _Point(0, 0), _Point(15, 15)),   # covers
+        _RL("Insert", _Point(5, 5), _Point(10, 10)),   # exact match covers
+        _RL("Format", _Point(6, 6), _Point(12, 12)),   # starts after target
+        _RL("Format", "bad", "bad"),                   # compare raises -> skipped
+    ])
+    assert redline_kinds_covering(doc, target) == {"Delete", "Insert"}
+
+    class _DisposedRL:
+        def getPropertyValue(self, name):
+            if name == "RedlineStart":
+                raise DocumentDisposedError("gone")
+            return _Point(0, 0)
+
+    with pytest.raises(DocumentDisposedError):
+        redline_kinds_covering(_Doc([_DisposedRL()]), target)

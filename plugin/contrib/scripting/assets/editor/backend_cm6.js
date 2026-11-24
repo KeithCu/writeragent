@@ -16,6 +16,7 @@
  *   setMarkers(markers)           [{line, col, endLine, endCol, message, severity}]
  *                                 severity: "error" | "warning" | "info"
  *   onChange(cb)                  cb() on every content change
+ *   setReadOnly(on)
  *   focus()
  */
 
@@ -25,6 +26,7 @@
   var view = null;
   var languageCompartment = null;
   var themeCompartment = null;
+  var readOnlyCompartment = null;
   var changeCallbacks = [];
   var currentLang = "python";
 
@@ -105,6 +107,7 @@
 
         languageCompartment = new CM.Compartment();
         themeCompartment = new CM.Compartment();
+        readOnlyCompartment = new CM.Compartment();
 
         function completionSource(context) {
           if (currentLang === "latex" || !opts.getCompletions) {
@@ -157,6 +160,7 @@
           CM.indentUnit.of("    "),
           languageCompartment.of(getLanguageExtension(CM, opts.language)),
           themeCompartment.of([]),
+          readOnlyCompartment.of([]),
           // Fill #editor like Monaco's automaticLayout; scroll inside the editor.
           CM.EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }),
           CM.lintGutter(),
@@ -225,6 +229,14 @@
     onChange: function (cb) {
       if (typeof cb === "function") {
         changeCallbacks.push(cb);
+      }
+    },
+    setReadOnly: function (on) {
+      var CM = window.CM6 || (typeof CM6 !== "undefined" ? CM6 : null);
+      if (view && readOnlyCompartment && CM) {
+        view.dispatch({
+          effects: readOnlyCompartment.reconfigure(CM.EditorState.readOnly.of(!!on))
+        });
       }
     },
     focus: function () {
