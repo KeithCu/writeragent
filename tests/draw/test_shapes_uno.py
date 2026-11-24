@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Live check: shape_group builds ShapeCollection via the service manager."""
 
+import gc
 import os
 import re
 import shutil
@@ -898,6 +899,8 @@ def _check_custom_shape_text_defaults(ctx, doc, doc_type: str) -> None:
     shape4 = page.getByIndex(res4["index"])
     sz4 = shape4.getSize()
     assert abs(sz4.Width - 8000) <= 2 and abs(sz4.Height - 4000) <= 2, (sz4.Width, sz4.Height)
+    del shape4
+    gc.collect()
 
     res4_edit = upsert.execute(
         tctx,
@@ -908,6 +911,7 @@ def _check_custom_shape_text_defaults(ctx, doc, doc_type: str) -> None:
         font_size=18,
     )
     assert res4_edit.get("status") == "ok", res4_edit
+    shape4 = page.getByIndex(res4["index"])
     pos4 = _svg_text_positions(ctx, shape4)
     assert len(pos4) == 1, pos4
     assert 3000 < pos4[0][0] < 4500, pos4
@@ -936,6 +940,67 @@ def test_draw_custom_shape_text_defaults(ctx, doc):
 @with_native_doc("impress", reuse=False)
 def test_impress_custom_shape_text_defaults(ctx, doc):
     _check_custom_shape_text_defaults(ctx, doc, "impress")
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_custom_shape_empty_save_reload_keeps_center(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    upsert = UpsertShape()
+    res = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="flowchart-process",
+        page=0,
+        x=1000,
+        y=1000,
+        width=8000,
+        height=4000,
+    )
+    assert res.get("status") == "ok", res
+
+    tmpdir = tempfile.mkdtemp(prefix="shape_reload_")
+    reloaded = None
+    try:
+        out_path = os.path.join(tmpdir, "shape.odg")
+        doc.storeToURL(uno.systemPathToFileUrl(out_path), ())
+        desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        reloaded = desktop.loadComponentFromURL(
+            uno.systemPathToFileUrl(out_path),
+            "_blank",
+            0,
+            (PropertyValue(Name="Hidden", Value=True),),
+        )
+        tctx2 = ToolContext(doc=reloaded, ctx=ctx, doc_type="draw", services=None, caller="test")
+        res_edit = upsert.execute(
+            tctx2,
+            action="edit",
+            index=res["index"],
+            page=0,
+            text="Hi",
+            font_size=18,
+        )
+        assert res_edit.get("status") == "ok", res_edit
+        page2 = DrawBridge(reloaded).get_pages().getByIndex(0)
+        pos = _svg_text_positions(ctx, page2.getByIndex(res["index"]))
+        assert len(pos) == 1, pos
+        assert 3000 < pos[0][0] < 4500, pos
+        assert 1500 < pos[0][1] < 3000, pos
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_impress_empty_placeholder_h_align_stays_empty(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    assert page.getByIndex(0).getPropertyValue("IsEmptyPresentationObject") is True
+    res = UpsertShape().execute(tctx, action="edit", index=0, page=0, h_align="center")
+    assert res.get("status") == "ok", res
+    assert page.getByIndex(0).getPropertyValue("IsEmptyPresentationObject") is True
 
 
 @native_test

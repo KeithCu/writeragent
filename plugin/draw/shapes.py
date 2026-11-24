@@ -518,13 +518,25 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if "text" in kwargs and hasattr(shape, "setString"):
 
         def _apply_text() -> None:
+            was_empty = shape.getString() == ""
+            text_str = "" if kwargs["text"] is None else str(kwargs["text"])
             # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
             if kwargs.get("action") == "edit":
                 apply_autofit = ("font_size" not in kwargs) and ("width" in kwargs or "height" in kwargs)
             else:
                 apply_autofit = "font_size" not in kwargs
             _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
-            shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
+            shape.setString(text_str)
+            if was_empty and text_str:
+                # A fresh paragraph does not inherit the object's ParaAdjust
+                # (svx/source/unodraw/unoshtxt.cxx: SvxTextEditSourceImpl::GetBackgroundTextForwarder),
+                # and a cursor on an empty shape stores nothing and clears IsEmptyPresObj
+                # (svx/source/unodraw/unoshtxt.cxx:759-792, UpdateData). Re-applying the direct
+                # object item pushes it into the new paragraph via TextProperties::ItemSetChanged
+                # (svx/source/sdr/properties/textproperties.cxx:86).
+                state = uno_read(lambda: shape.getPropertyState("ParaAdjust"), None)
+                if getattr(state, "value", None) == "DIRECT_VALUE":
+                    shape.setPropertyValue("ParaAdjust", shape.getPropertyValue("ParaAdjust"))
 
         _try(failed_props, "text", _apply_text)
 
@@ -633,12 +645,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             # CENTER, which centres the text block and ignores left/right
             # (svx/source/svdraw/svdotextdecomposition.cxx: SdrTextObj::impDecomposeBlockTextPrimitive).
             shape.setPropertyValue("TextHorizontalAdjust", _drawing_enum("TextHorizontalAdjust", "BLOCK"))
-            para_adjust = para_adjust_to_uno(kwargs["h_align"])
-            shape.setPropertyValue("ParaAdjust", para_adjust)
-            # On an empty shape the line above sets only the object, and text set later starts a
-            # fresh paragraph without it (svx/source/unodraw/unoshtxt.cxx:
-            # SvxTextEditSourceImpl::GetBackgroundTextForwarder). The cursor sets the paragraph itself.
-            shape.createTextCursor().setPropertyValue("ParaAdjust", para_adjust)
+            shape.setPropertyValue("ParaAdjust", para_adjust_to_uno(kwargs["h_align"]))
 
         _try(failed_props, "h_align", _apply_h_align)
 
@@ -667,6 +674,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     return failed_props
 
 
+# A label is centred and wrapped unless the caller says otherwise. LibreOffice leaves a
+# CustomShape created through UNO top/start aligned, and unwrapped in Writer and Calc
+# (svx/source/svdraw/svdmodel.cxx:185).
+_CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
+
 # CustomShape flowchart-* type strings (valid at runtime; omitted from create_shape schema description for brevity):
 # flowchart-alternate-process, flowchart-card, flowchart-collate, flowchart-connector, flowchart-data,
 # flowchart-decision, flowchart-delay, flowchart-direct-access-storage, flowchart-display, flowchart-document,
@@ -675,11 +687,6 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 # flowchart-or, flowchart-predefined-process, flowchart-preparation, flowchart-process, flowchart-punched-tape,
 # flowchart-sequential-access, flowchart-sort, flowchart-stored-data, flowchart-summing-junction,
 # flowchart-terminator
-
-# A label is centred and wrapped unless the caller says otherwise. LibreOffice leaves a
-# CustomShape created through UNO top/start aligned, and unwrapped in Writer and Calc
-# (svx/source/svdraw/svdmodel.cxx:185).
-_CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
 
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
