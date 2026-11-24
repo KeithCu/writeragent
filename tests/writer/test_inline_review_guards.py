@@ -1434,8 +1434,45 @@ def test_multi_text_stops_as_partial_when_unrelated_agent_token_removed():
     def _drop_both(*_a, **_k):
         redlines._items = [rl2]
 
-    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=_drop_both):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=_drop_both) as disp:
         res, _view = resolve_agent_change(model, MagicMock(), tok, accept=True)
+    assert disp.call_count == 1
+    assert res.status == ResolveStatus.PARTIAL
+
+
+def test_multi_text_returns_partial_when_single_dispatch_also_removes_unrelated_token():
+    t1 = FakeText()
+    t2 = FakeText()
+
+    class R1(FakeRange):
+        def getText(self):
+            return t1
+
+    class R2(FakeRange):
+        def getText(self):
+            return t2
+
+    tok = TOKEN_PREFIX + "s:1"
+    other = TOKEN_PREFIX + "s:2"
+    rl1 = FakeRedline(tok, 0, 5)
+    rl1._props["RedlineStart"] = R1(0, 0)
+    rl1._props["RedlineEnd"] = R1(5, 5)
+    rl2 = FakeRedline(tok, 0, 5)
+    rl2._props["RedlineStart"] = R2(0, 0)
+    rl2._props["RedlineEnd"] = R2(5, 5)
+    rl_other = FakeRedline(other, 10, 15)
+    rl_other._props["RedlineStart"] = R2(10, 10)
+    rl_other._props["RedlineEnd"] = R2(15, 15)
+
+    redlines = FakeRedlines([rl1, rl2, rl_other])
+    model = _ViewModel(redlines)
+
+    def _drop_all(*_a, **_k):
+        redlines._items = []
+
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=_drop_all) as disp:
+        res, _view = resolve_agent_change(model, MagicMock(), tok, accept=True)
+    assert disp.call_count == 1
     assert res.status == ResolveStatus.PARTIAL
 
 

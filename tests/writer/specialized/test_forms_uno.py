@@ -398,6 +398,10 @@ def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
         assert len(agent_tokens(scan_redline_view(doc))) == 1
         assert not doc.getPropertyValue("RecordChanges")
 
+        before_text = doc.getText().getString()
+        before_count = doc.getDrawPage().getCount()
+        before_tokens = agent_tokens(scan_redline_view(doc))
+
         bad = form_create.execute(
             tctx,
             fields=[
@@ -406,7 +410,9 @@ def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
             ],
         )
         assert bad["status"] == "error"
-        assert doc.getText().getString().startswith("before")
+        assert doc.getText().getString() == before_text
+        assert doc.getDrawPage().getCount() == before_count
+        assert agent_tokens(scan_redline_view(doc)) == before_tokens
         assert not doc.getPropertyValue("RecordChanges")
     finally:
         save({"doc.agent_edit_review_mode": prev})

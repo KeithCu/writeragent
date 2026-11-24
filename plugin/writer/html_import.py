@@ -214,14 +214,15 @@ def _insert_mixed_html_and_math_at_cursor(
                 after_inline_math = False
                 continue
 
-            lead = chunk[: len(chunk) - len(chunk.lstrip())]
+            lead = chunk[: len(chunk) - len(chunk.lstrip(" \t\r\n"))]
             if (
                 after_inline_math
                 and lead
                 and lead.count("\n") < 2
                 and not html_import_styles.LINEBREAK_MARKUP_RE.match(chunk, len(lead))
             ):
-                # The HTML filter drops leading whitespace of the fragment it imports.
+                # The HTML filter drops ASCII leading whitespace of the fragment it imports;
+                # a no-break space (U+00A0) survives the filter.
                 cursor.getText().insertString(cursor, " ", False)
                 cursor.gotoRange(tail.getStart(), False)
             after_inline_math = False

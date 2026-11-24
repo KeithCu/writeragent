@@ -287,6 +287,6 @@ def test_frame_insert_record_mode_inline_and_anchored_search_uno(ctx, doc):
         assert res_para["status"] == "ok", res_para
         assert res_para["tracked"] is False and "warning" in res_para
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-        assert "PARA" in text.getString()
+        assert text.getString() == "hello PARA world"
     finally:
         save({"doc.agent_edit_review_mode": prev})

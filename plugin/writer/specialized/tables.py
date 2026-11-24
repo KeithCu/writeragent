@@ -864,11 +864,15 @@ class ManageTableStructure(ToolWriterTableBase):
                     spanning = _row_start_spanning_cell(table, idx)
                     if spanning is not None:
                         cell_name, row_span = spanning
+                        split_hint = (
+                            "Split it with table_split_cell (direction='rows', parts=%d)" % row_span
+                            if row_span <= 20
+                            else "Split it repeatedly with table_split_cell (direction='rows')"
+                        )
                         return self._tool_error(
                             "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
-                            "so its content would be deleted too. Split it with table_split_cell "
-                            "(direction='rows', parts=%d), move the content to keep into a lower row, "
-                            "then delete the row." % (cell_name, row_span, row_span),
+                            "so its content would be deleted too. %s, move the content to keep into a lower row, "
+                            "then delete the row." % (cell_name, row_span, split_hint),
                             code="ROW_HAS_SPANNING_CELL",
                         )
             if insert:
