@@ -1310,7 +1310,7 @@ def test_shape_create_diagram_arrowheads_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_shape_delete_writer_picture_while_recording_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.images.image_tools import insert_image_at_locator
