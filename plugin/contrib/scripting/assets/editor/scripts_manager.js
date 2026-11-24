@@ -325,6 +325,7 @@
         if (typeof msg.selected_script_name === "string") {
           selectedScriptName = msg.selected_script_name;
           currentSelectedName = selectedScriptName;
+          currentOrigin = originFromName(selectedScriptName);
         }
         if (window.pywebview && window.pywebview.api && window.pywebview.api.request_scripts) {
           window.pywebview.api.request_scripts();
@@ -503,6 +504,13 @@
     return name.indexOf(prefix) === 0 ? name : prefix + name;
   }
 
+  function originFromName(displayName) {
+    if (scriptIndex[displayName]) {
+      return scriptIndex[displayName].origin;
+    }
+    return displayName.indexOf("[Doc] ") === 0 ? "document" : "user";
+  }
+
   function scriptExistsInSection(sectionId, name) {
     var lookup = sectionId === "document" ? documentScriptListKey(name) : name;
     for (var s = 0; s < scriptSections.length; s++) {
@@ -604,7 +612,8 @@
     if (window.editor && currentModalAction === "new") {
       window.editor.setValue(code);
     }
-    currentSelectedName = name;
+    // The list key, not the typed name: a My Scripts entry can have the same typed name.
+    currentSelectedName = origin === "document" ? documentScriptListKey(name) : name;
     currentOrigin = origin;
 
     if (window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
@@ -762,8 +771,10 @@
         if (!isRunScriptActive) {
           return;
         }
-        var selectEl = getSelectEl();
-        var activeScript = selectEl ? selectEl.value : "";
+        // After load or New, the dropdown still shows the previous script until scripts_list arrives.
+        // While a delete is in flight currentSelectedName is empty, and the plain Save path would write
+        // this text over whichever script the host selects next.
+        var activeScript = currentSelectedName || deletedScriptName;
         if (activeScript) {
           event.stopImmediatePropagation();
           event.preventDefault();

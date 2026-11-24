@@ -208,7 +208,10 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     """Resize, re-anchor, or set the orientation of a text frame."""
 
     name: str | None = "frame_set_properties"
-    description: str = "Resize, re-anchor, or set the orientation of a text frame."
+    description: str = (
+        "Resize, re-anchor, or set the orientation of a text frame. "
+        "Not for Word text boxes (frame_list entries with shape_index): resize those with shape_upsert."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -224,10 +227,26 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        frame_name = kwargs.get("name")
+        frame_name = kwargs["name"]
         frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
+
+        owner = _text_box_owner(ctx.doc, frame_name)
+        if owner is not None:
+            # LibreOffice copies a text box's size, anchor and orientation from the shape to the hidden frame,
+            # never back (sw/source/core/doc/docfly.cxx:SwDoc::SetFlyFrameAttr). Writing the frame separates the
+            # text from its shape, and AT_PAGE on an inline box's frame aborts LibreOffice.
+            shape_index, shape = owner
+            return self._tool_error(
+                "Text frame '%s' is the text of a Word text box, so its size comes from the shape. "
+                "Resize it with shape_upsert(action='edit', index=%d, width=..., height=...) in 1/100 mm "
+                "(shapes toolset, delegate_to_subagent domain='shapes'). "
+                "Its anchor and orientation cannot be set." % (frame_name, shape_index),
+                code="TEXT_BOX_SHAPE",
+                shape_index=shape_index,
+                shape_name=shape.getName(),
+            )
 
         width_mm = kwargs.get("width_mm")
         height_mm = kwargs.get("height_mm")

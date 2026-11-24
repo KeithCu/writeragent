@@ -485,6 +485,19 @@ def decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
+def normalize_character_references(text: str) -> str:
+    """Decode complete character references, keeping < > & " ' escaped so escaped markup stays text.
+
+    Needed because ``&#36;`` must become ``$`` before math detection (``R&#36;5.000,00``),
+    StarWriter prints HTML5-only names such as ``&check;`` literally, and a full decode would
+    turn ``&lt;table&gt;`` into a live table. Incomplete references like ``&sect 2o`` and bare
+    ``&`` in ``Banco & Cia`` are left untouched.
+    """
+    if "&" not in text:
+        return text
+    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.escape(html_mod.unescape(m.group(0))), text)
+
+
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
@@ -502,13 +515,14 @@ def plain_paragraphs(content: str) -> list[str]:
 def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
-    Applies complete-entity reference decoding, escape expansion, ruby stripping,
-    line-break normalization, prose angle bracket escaping, and boilerplate stripping.
+    Normalizes complete character references (keeping < > & " ' escaped),
+    expands escapes, strips ruby, normalizes line breaks, escapes prose angle
+    brackets, and strips boilerplate.
     """
     if not isinstance(content, str) or not content:
         return ""
 
-    content = decode_complete_character_references(content)
+    content = normalize_character_references(content)
     content = expand_escapes(content)
     content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
