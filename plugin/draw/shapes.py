@@ -827,12 +827,12 @@ class UpsertShape(_AnyDocumentShapeTool):
     }
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         # This override replaced ToolBase.validate, so shape_upsert had no
         # type or enum check. x="10" reached Point(), rotation_angle="5"
         # was string-repeated by `* 100`, and a fill_style outside the enum
         # was ignored with status ok.
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
 
@@ -1465,8 +1465,8 @@ class DeleteShape(_AnyDocumentShapeTool):
     }
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "Invalid arguments"
         if "index" not in kwargs and not str(kwargs.get("name") or "").strip():

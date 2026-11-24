@@ -1049,6 +1049,38 @@ def test_chat_tier_domain_refused_for_mcp_caller(
     mock_exec.assert_not_called()
 
 
+@pytest.mark.parametrize("doc_type", ["writer", "calc", "draw"])
+def test_prepare_tool_call_hides_chat_tier_domains_from_mcp_valid_options(doc_type: str) -> None:
+    from plugin.framework.tool import ToolContext, prepare_tool_call
+
+    gw = DelegateToSubagent()
+    mcp_ctx = ToolContext(doc=None, ctx=MagicMock(), doc_type=doc_type, services={}, caller="mcp")
+    mcp_call = prepare_tool_call(gw, mcp_ctx, "delegate_to_subagent", {"domain": "bogus", "task": "x"})
+    assert mcp_call.error is not None
+    mcp_opts = mcp_call.error["message"].split("Valid options: ", 1)[1].split(", ")
+    assert "web_research" not in mcp_opts
+    assert "mcp" not in mcp_opts
+
+    chat_ctx = ToolContext(doc=None, ctx=MagicMock(), doc_type=doc_type, services={}, caller="chat")
+    chat_call = prepare_tool_call(gw, chat_ctx, "delegate_to_subagent", {"domain": "bogus", "task": "x"})
+    assert chat_call.error is not None
+    chat_opts = chat_call.error["message"].split("Valid options: ", 1)[1].split(", ")
+    assert "web_research" in chat_opts
+    assert "mcp" in chat_opts
+
+
+def test_registry_execute_mcp_web_research_returns_domain_chat_only() -> None:
+    from plugin.framework.tool import ToolContext, ToolRegistry
+
+    gw = DelegateToSubagent()
+    reg = ToolRegistry(services={})
+    reg.register(gw)
+    ctx = ToolContext(doc=None, ctx=MagicMock(), doc_type="writer", services={"tools": reg}, caller="mcp")
+    res = reg.execute("delegate_to_subagent", ctx, domain="web_research", task="pizza")
+    assert res["status"] == "error"
+    assert res["code"] == "DOMAIN_CHAT_ONLY"
+
+
 def test_chat_tier_web_research_allowed_for_chat_caller(
     writer_gateway: DelegateToSubagent, mock_ctx: ToolContext
 ) -> None:
@@ -1241,11 +1273,20 @@ def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_documen
     ctx.status_callback = None
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        ctx.caller = "chat"
         out = gw.execute(ctx, domain="slide_layouts", task="Set layout")
         assert out["status"] == "error"
         assert out["code"] == "UNSUPPORTED_DOCUMENT"
         assert "slide_layouts" not in out["details"]["available"]
         assert "shapes" in out["details"]["available"]
+        assert "web_research" in out["details"]["available"]
+
+        ctx.caller = "mcp"
+        out_mcp = gw.execute(ctx, domain="slide_layouts", task="Set layout")
+        assert out_mcp["status"] == "error"
+        assert out_mcp["code"] == "UNSUPPORTED_DOCUMENT"
+        assert "web_research" not in out_mcp["details"]["available"]
+        assert "shapes" in out_mcp["details"]["available"]
 
         ctx.uno_services_supported = frozenset()
         out_unknown = gw.execute(ctx, domain="slide_layouts", task="Set layout")
