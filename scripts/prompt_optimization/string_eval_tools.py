@@ -19,7 +19,6 @@ if str(_HERE) not in sys.path:
 from eval_worlds import (  # noqa: F401 — re-export for existing imports
     CalcStringState,
     CalcWorld,
-    DrawDocState,
     DrawWorld,
     StringDocState,
     WriterWorld,
