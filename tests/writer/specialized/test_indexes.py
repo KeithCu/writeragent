@@ -1403,7 +1403,7 @@ def test_toc_match_filters_each_pass():
     outside = MagicMock()
     inside = MagicMock()
 
-    def fake_iter(d, s, mode, after=None, all_candidates=False):
+    def fake_iter(d, s, mode, deletions, after=None, all_candidates=False):
         yield outside if mode.case_sensitive else inside
 
     with patch("plugin.writer.search.iter_literal_ranges", side_effect=fake_iter), \

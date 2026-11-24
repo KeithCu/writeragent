@@ -224,6 +224,7 @@ result = [[1.0, np.nan, 3.0]]     # 1, error, 3
 
 - Blanks on ingress are `np.nan` in numeric arrays — use `np.nansum` / `np.nanmean` when you mean "ignore missing."
 - A computed `nan` is a sheet error and poisons dependents. Return a string for a quiet marker.
+- A spilled `nan`, `±inf` or `#N/A` neighbour is an error cell, not a numeric NaN. On stock Calc, a later `=PY()` whose [range argument](#multi-range-support-varargs) includes that cell shows `Err:504` and Python does not run; a single-cell argument shows the cell's own error (`#NUM!`, `#N/A`). To leave a gap a later `=PY()` can read, spill `None` (below the size threshold under Egress above) or a text marker.
 - `None` is the way to produce a true empty cell on egress.
 - Shared helper: `is_missing_value` in [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py) (None, `""`, LO error tokens and `Err:<n>` text (`is_error_token`), float/NumPy NaN) — used by dataframe coercion and Excel-parity formula helpers. Criteria helpers (`countif`, `sumif`, the D* functions) compare an error by its text as Calc does, so an error is not blank there, and text criteria with `=`/`<>` compare numbers and booleans by their displayed text. Numeric criteria compare with Calc's `approxEqual`, a boolean cell is `1` or `0` for a numeric criterion, and the text `TRUE`/`FALSE` is `1`/`0`.
 

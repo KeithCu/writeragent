@@ -26,11 +26,14 @@ from typing import Any
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
+    CLEARABLE_PARA_PROPERTIES,
     clear_direct_numbering,
     go_right,
     iter_elements,
     live_selection_range,
     normalize_linebreaks as _normalize,
+    reset_direct_char_formatting,
+    reset_properties_to_default,
 )
 from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.constants import HTML_WRITER_FILTER
@@ -878,8 +881,8 @@ def _replace_whole_paragraphs(
     ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
     empty), while Reject keeps both styles because ``AppendRedline`` skips its
     tdf#119571 restyle when the deletion starts at offset 0. We then open a
-    fresh paragraph before the struck text so the import does not inherit the
-    struck text's character formatting. The leftover synthetic paragraph is
+    fresh paragraph before the struck text and reset the copied direct paragraph
+    and character formatting on it. The leftover synthetic paragraph is
     dropped untracked because that break is our own new insertion. Where no
     following break exists (document end, before a table, section edge), the
     old paragraph stays empty after Accept; the preceding break is not used
@@ -896,11 +899,22 @@ def _replace_whole_paragraphs(
         if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
             doomed = text_obj.createTextCursorByRange(rng.getStart())
             doomed.gotoRange(following.getEnd(), True)
+    else:
+        # Before the delete: on the emptied paragraph this reset cannot be undone, and
+        # Undo would bring the old text back without its font, size and language.
+        reset_direct_char_formatting(text_obj.createTextCursorByRange(rng))
     with _deletion_author():
         doomed.setString("")
     if recording:
         text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.goLeft(1, False)
+        # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
+        # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
+        with record_changes.record_changes(model, False):
+            _drop_absorb_paragraph_props(cursor)
+            reset_direct_char_formatting(cursor)
+    else:
+        _drop_absorb_paragraph_props(cursor)
     return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
@@ -1168,7 +1182,7 @@ def _deletion_author() -> Any:
 
 
 def _drop_absorb_paragraph_props(cursor: Any) -> None:
-    """Drop direct paragraph and character formatting from the absorb paragraph before HTML import.
+    """Drop direct paragraph formatting and direct numbering from the absorb paragraph before HTML import.
 
     In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
     in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures direct paragraph
@@ -1178,20 +1192,13 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     (`RES_PARATR_TABSTOP`), those must be reset to default before `SetTextCollAttrs`
     stamps them onto every imported paragraph. Direct borders (`RES_BOX`) and
     `NumberingStyleName` (`RES_PARATR_NUMRULE`) sit outside that stamped range and
-    otherwise remain on the reused first paragraph. Character formatting left on the
-    emptied paragraph would likewise become direct formatting on every imported
-    paragraph. Clearing direct paragraph and character properties ensures imported
-    paragraphs take values from their own style (while keeping language); direct
-    formatting from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES`
+    otherwise remain on the reused first paragraph. Clearing direct paragraph
+    properties ensures imported paragraphs take values from their own style; direct
+    formatting from `data-lo-para` is applied later. Callers reset character
+    formatting separately because untracked whole-paragraph replaces must do that
+    before deleting the old text so Undo restores it. `CLEARABLE_PARA_PROPERTIES`
     remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
-    from .styles import (
-        CLEARABLE_PARA_PROPERTIES,
-        reset_direct_char_formatting,
-        reset_properties_to_default,
-    )
-
     reset_properties_to_default(
         cursor,
         CLEARABLE_PARA_PROPERTIES
@@ -1206,7 +1213,6 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
         ),
     )
     clear_direct_numbering(cursor)
-    reset_direct_char_formatting(cursor)
 
 
 def replace_full_document(
@@ -1248,6 +1254,8 @@ def replace_full_document(
         cursor.gotoStart(False)
         if not recording:
             _drop_absorb_paragraph_props(cursor)
+            # Character formatting left on the emptied paragraph would become direct formatting on every imported paragraph.
+            reset_direct_char_formatting(cursor)
             return _import_and_drop_leftover(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -1266,6 +1274,7 @@ def replace_full_document(
         # direct props for Reject.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
+            reset_direct_char_formatting(cursor)
         return _import_and_drop_leftover(model, ctx, cursor, content)
 
 

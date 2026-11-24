@@ -28,31 +28,19 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple, TypedDict, cast
 
-if TYPE_CHECKING:
-    import uno
-    from com.sun.star.beans import PropertyValue
-    from plugin.framework.tool import ToolContext
-else:
-    try:
-        import uno
-        from com.sun.star.beans import PropertyValue
-    except ImportError:
-        # Mocks for testing outside LO
-        class _UnoMock:
-            @staticmethod
-            def systemPathToFileUrl(path: str) -> str:
-                return path
-        uno = _UnoMock()
+import uno
 
-        class PropertyValue:
-            def __init__(self, Name: Any = None, Value: Any = None, **kwargs: Any) -> None:
-                self.Name = Name
-                self.Value = Value
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import (
+    CLEARABLE_PARA_PROPERTIES,
+    PROPERTY_READONLY,
     iter_elements_limited,
     record_walk_cap,
+    reset_properties_to_default,
+    writable_char_names,
 )
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
@@ -89,25 +77,52 @@ STYLE_GOVERNED_CHAR_PROPERTIES = FONT_NAME_PROPERTIES + (
     "CharHeight", "CharHeightAsian", "CharHeightComplex",
 )
 
-# Deliberately narrower than setAllPropertiesToDefault: numbering, borders, and
-# language are not the caller's to lose.
-CLEARABLE_PARA_PROPERTIES = (
-    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
-    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+# Every name is one SwUnoCursorHelper::makeRedline accepts and lcl_RejectRedline restores.
+# FillStyle/FillColor hold direct paragraph backgrounds.
+# Names sharing one pool item must all be listed, because SfxItemPropertySet::setPropertyValue
+# (itemprop.cxx) rebuilds the item from its pool default.
+# A unit or complex-colour name must follow its plain name, because later values overwrite earlier ones.
+# Never add FillBitmapMode: makeRedline crashes on its out-of-pool OWN_ATTR_FILLBMP_MODE id.
+# Never add PageNumberOffset: capturing it alone drops PageDescName, which Reject otherwise keeps.
+# FillBitmapSizeX/Y do not read back what was set (metric item conversion), so they are left out and reported.
+_REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
+    "ParaLeftMarginUnit", "ParaRightMarginUnit", "ParaFirstLineIndentUnit", "ParaIsAutoFirstLineIndent",
+    "ParaContextMargin", "ParaLineSpacing", "ParaTabStops", "ParaVertAlignment", "ParaWidows", "ParaOrphans", "OutlineLevel",
+    "ParaExpandSingleWord", "ParaLastLineAdjust", "ParaComposer",
+    "ParaWordSpacing", "ParaWordSpacingMinimum", "ParaWordSpacingMaximum",
+    "ParaLetterSpacingMinimum", "ParaLetterSpacingMaximum", "ParaScaleWidthMinimum", "ParaScaleWidthMaximum",
+    "ParaIsHyphenation", "ParaHyphenationNoCaps", "ParaHyphenationNoLastWord",
+    "ParaHyphenationMaxLeadingChars", "ParaHyphenationMaxTrailingChars",
+    "ParaHyphenationCompoundMinLeadingChars", "ParaHyphenationCompoundMinTrailingChars",
+    "ParaHyphenationMaxHyphens", "ParaHyphenationMinWordLength",
+    "ParaHyphenationZone", "ParaHyphenationZoneAlways", "ParaHyphenationZoneColumn", "ParaHyphenationZonePage", "ParaHyphenationZoneSpread",
+    "ParaHyphenationKeep", "ParaHyphenationKeepType", "ParaHyphenationKeepLine",
+    "ParaRegisterModeActive", "ParaLineNumberCount", "ParaLineNumberStartValue",
+    "ParaIsHangingPunctuation", "ParaIsCharacterDistance", "ParaIsForbiddenRules", "SnapToGrid", "ParaIsConnectBorder",
+    "FillStyle", "FillColor", "FillComplexColor", "FillBackground", "FillTransparence", "FillTransparenceGradient",
+    "FillGradient", "FillGradientStepCount", "FillHatch",
+    "FillBitmap", "FillBitmapLogicalSize", "FillBitmapOffsetX", "FillBitmapOffsetY",
+    "FillBitmapPositionOffsetX", "FillBitmapPositionOffsetY", "FillBitmapRectanglePoint", "FillBitmapStretch", "FillBitmapTile",
+    "LeftBorder", "RightBorder", "TopBorder", "BottomBorder",
+    "LeftBorderComplexColor", "RightBorderComplexColor", "TopBorderComplexColor", "BottomBorderComplexColor",
+    "LeftBorderDistance", "RightBorderDistance", "TopBorderDistance", "BottomBorderDistance",
+    "DropCapFormat", "DropCapWholeWord", "ParaShadowFormat", "BreakType", "WritingMode", "WritingModeAutomatic",
 )
 
-# Justify sub-properties (ParaComposer, ParaExpandSingleWord, ParaLastLineAdjust,
-# ParaLetterSpacing*, ParaWordSpacing*, ParaScaleWidth*) make makeRedline raise,
-# and an unknown name stops SwUnoCursorHelper::makeRedline's property loop.
-# FillStyle/FillColor store direct paragraph backgrounds.
-_REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
-    "ParaContextMargin", "ParaLineSpacing", "ParaTabStops", "ParaVertAlignment",
-    "ParaWidows", "ParaOrphans", "ParaIsHyphenation", "OutlineLevel",
-    "FillStyle", "FillColor",
-    "LeftBorder", "RightBorder", "TopBorder", "BottomBorder",
-    "LeftBorderDistance", "RightBorderDistance", "TopBorderDistance", "BottomBorderDistance",
-    "DropCapFormat", "ParaShadowFormat", "BreakType", "WritingMode", "ParaLineNumberCount",
-)
+# Direct names that need no report when not captured.
+_UNREPORTED_PARA_PROPERTIES = frozenset({
+    # Restored through NumberingRules / ParaStyleName, or kept by Reject (lcl_RstAttr, docfmt.cxx).
+    "ParaStyleName", "NumberingRules", "NumberingStyleName", "PageDescName", "PageNumberOffset",
+    # Second names for captured items.
+    "BorderDistance", "ParaBackTransparent", "ParaBackgroundComplexColor", "ParaBackGraphic",
+    "ParaBackGraphicFilter", "ParaBackGraphicLocation", "ParaBackGraphicURL",
+    "FillBitmapMode", "FillBitmapName", "FillBitmapURL", "FillGradientName", "FillHatchName",
+    "FillTransparenceGradientName",
+    # File metadata and legacy attributes without a visible effect.
+    "FillColor2", "ParRsid", "ParaInteropGrabBag", "OutlineContentVisible",
+    "ParaUserDefinedAttributes", "TextUserDefinedAttributes",
+})
+_MARGIN_UNIT_PROPERTIES = frozenset({"ParaLeftMarginUnit", "ParaRightMarginUnit", "ParaFirstLineIndentUnit"})
 
 # Must cover everything style_props clears so the report echoes every dropped slot.
 REPORTED_CHAR_PROPERTIES = STYLE_GOVERNED_CHAR_PROPERTIES + (
@@ -117,7 +132,6 @@ REPORTED_CHAR_PROPERTIES = STYLE_GOVERNED_CHAR_PROPERTIES + (
 _CAPTURE_PARA_LIMIT = 200000
 _CAPTURE_PORTION_LIMIT = 50000
 
-_READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY (udkapi/com/sun/star/beans/PropertyAttribute.idl)
 _READ_FAILED = object()
 _CHAR_PROPS_KEY = "__writable_char_props__"
 FONT_SLANT_TO_INT: dict[str, int] = {
@@ -125,47 +139,6 @@ FONT_SLANT_TO_INT: dict[str, int] = {
     "oblique": 1,
     "italic": 2,
 }
-
-
-def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
-    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
-    names = tuple(names)
-    if not names:
-        return []
-    try:
-        cursor.setPropertiesToDefault(names)
-        return list(names)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        pass  # no XMultiPropertyStates on this range — fall back to one at a time
-    cleared = []
-    for name in names:
-        try:
-            cursor.setPropertyToDefault(name)
-            cleared.append(name)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            continue
-    return cleared
-
-
-_LANGUAGE_PROPERTIES = ("CharLocale", "CharLocaleAsian", "CharLocaleComplex")
-
-
-def reset_direct_char_formatting(cursor: Any) -> None:
-    """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
-
-    Resetting any one Char* name on an empty paragraph drops its whole character
-    attribute set, language included, so the language is read first and put back.
-    """
-    names = _writable_char_names(cursor)
-    if not isinstance(names, list):
-        return
-    language = {name: cursor.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
-    reset_properties_to_default(cursor, names)
-    for name, value in language.items():
-        if cursor.getPropertyValue(name) != value:
-            cursor.setPropertyValue(name, value)
 
 
 def convert_direct_properties(updates: dict[str, Any]) -> dict[str, Any]:
@@ -184,8 +157,6 @@ def set_cursor_properties(cursor: Any, updates: dict[str, Any]) -> None:
     use_invoke = any(typed is not raw for typed, raw in zip(typed_values, raw_values))
     try:
         if use_invoke:
-            import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
             cast("Any", uno).invoke(cursor, "setPropertyValues", (names, typed_values))
         else:
             cursor.setPropertyValues(names, raw_values)
@@ -213,7 +184,7 @@ def _unsupported_property_error(
             unknown.append(name)
             continue
         prop = info.getPropertyByName(name)
-        if prop.Attributes & _READONLY:
+        if prop.Attributes & PROPERTY_READONLY:
             readonly.append(name)
     if unknown:
         all_names = [str(p.Name) for p in info.getProperties()]
@@ -267,17 +238,20 @@ class _ParagraphRevert(NamedTuple):
     properties: tuple[Any, ...]  # PropertyValues for RedlineRevertProperties
     recorded: bool               # already has a ParagraphFormat redline
     numbered: bool
+    unrestorable: tuple[str, ...]
 
 
 class _DirectFormatReport(NamedTuple):
     """Per-cursor result of StyleFormatText: cleared names, whether any ParagraphFormat redline
-    was recorded, and whether every recordable touched paragraph was recorded (empty paragraphs
-    do not clear ``para_complete`` while another paragraph was recorded).
+    was recorded, whether every recordable touched paragraph was recorded (empty paragraphs
+    do not clear ``para_complete`` while another paragraph was recorded), and any direct
+    paragraph property names that Reject will drop.
     """
 
     cleared: list[str]
     para_recorded: bool
     para_complete: bool
+    unrestorable: frozenset[str]
 
 
 def _expand_to_full_paragraphs(cur: Any) -> Any:
@@ -314,26 +288,16 @@ class _CountingReader:
         self.failures += 1
 
 
-def _writable_char_names(portion: Any) -> list[str] | object:
-    """Return writable Char* property names, or _READ_FAILED when property info cannot be read."""
-    info = portion.getPropertySetInfo()
-    if info is None:
-        return _READ_FAILED
-    return [
-        p.Name for p in info.getProperties()
-        if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & _READONLY)
-    ]
-
-
 def _style_comparable_char_names(portion: Any, style: Any) -> list[str] | object:
-    """``_writable_char_names`` that paragraph *style* also has.
+    """``writable_char_names`` that paragraph *style* also has.
 
     CharStyleName and the other run-only names have no style value to compare with, and a
-    paragraph style change leaves them alone.
+    paragraph style change leaves them alone. Returns ``_READ_FAILED`` when property info
+    cannot be read.
     """
-    names = _writable_char_names(portion)
-    if not isinstance(names, list):
-        return names
+    names = writable_char_names(portion)
+    if names is None:
+        return _READ_FAILED
     info = style.getPropertySetInfo()
     return [name for name in names if info.hasPropertyByName(name)]
 
@@ -507,6 +471,25 @@ def _flag_stacked_format_redlines(res: dict[str, Any], cursors: list[Any]) -> No
         log.exception("Failed to inspect redlines for stacked Format warning")
 
 
+def _paragraph_property_names(para: Any) -> tuple[str, ...]:
+    """Writable paragraph-level property names (all paragraphs share one property map)."""
+    return tuple(
+        p.Name for p in para.getPropertySetInfo().getProperties()
+        if not p.Attributes & PROPERTY_READONLY and not _is_text_property(p.Name)
+    )
+
+
+def _revert_value(name: str, value: Any) -> Any:
+    if name in _MARGIN_UNIT_PROPERTIES:
+        # SvxTextLeftMarginItem::PutValue (frmitems.cxx) accepts only the exact Pair type.
+        return cast("Any", uno).Any("com.sun.star.beans.Pair<double,short>", value)
+    return _typed_property_value(name, value)
+
+
+def _unrestorable_note(names: Iterable[str]) -> str:
+    return "Rejecting the paragraph change will not restore these hand-set properties: %s." % ", ".join(sorted(names))
+
+
 def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None) -> tuple[list[_ParagraphRevert], bool]:
     """Capture each touched paragraph's pre-change formatting for a ParagraphFormat redline.
 
@@ -517,18 +500,23 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None)
     notes: list[str] = []
     para_enum = capture_cursor.createEnumeration()
     states: list[_ParagraphRevert] = []
+    names: tuple[str, ...] = ()
     for para in _capture_paragraphs(read, para_enum, notes):
+        if not names:
+            names = _paragraph_property_names(para)
         old_style = para.getPropertyValue("ParaStyleName")
-        direct = [
-            name for name in _REVERT_PARA_PROPERTIES
-            if para.getPropertyState(name).value == "DIRECT_VALUE"
-        ]
-        if style_name is not None and old_style == style_name and not direct:
+        direct = {n for n, s in zip(names, para.getPropertyStates(names)) if s.value == "DIRECT_VALUE"}
+        # Void: e.g. a margin set in character units has a value only under its *Unit name.
+        captured = [(n, v) for n in _REVERT_PARA_PROPERTIES if n in direct and (v := para.getPropertyValue(n)) is not None]
+        unrestorable = tuple(
+            n for n in sorted(direct.difference(_REVERT_PARA_PROPERTIES, _UNREPORTED_PARA_PROPERTIES))
+            if para.getPropertyValue(n) not in (None, "")
+        )
+        if style_name is not None and old_style == style_name and not captured and not unrestorable:
             continue
         # ParaStyleName must stay first (unknown names stop makeRedline's loop; empty falls back to default).
         props: list[Any] = [create_property_value("ParaStyleName", old_style)]
-        for name in direct:
-            props.append(create_property_value(name, _typed_property_value(name, para.getPropertyValue(name))))
+        props.extend(create_property_value(n, _revert_value(n, v)) for n, v in captured)
         if para.getPropertyValue("NumberingStyleName"):
             # Reject runs DelNumRules (DocumentRedlineManager.cxx lcl_RejectRedline); without
             # NumberingRules, hand-numbered paragraphs lose their number.
@@ -537,28 +525,27 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None)
         # (the Outline list). Reject runs DelNumRules, which drops level, restart and the
         # numbered flag.
         numbered = bool(para.getPropertyValue("ListLabelString")) or (
-            para.getPropertyState("NumberingRules").value == "DIRECT_VALUE"
+            "NumberingRules" in direct
         )
         states.append(_ParagraphRevert(
             cursor=cursor_spanning_range(para),
             properties=tuple(props),
             recorded=_has_paragraph_format_redline(para),
             numbered=numbered,
+            unrestorable=unrestorable,
         ))
     return states, bool(read.failures or notes)
 
 
-def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tuple[int, int]:
-    """Record one ParagraphFormat redline per changed paragraph, returning ``(recorded, failed)``.
+def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tuple[int, int, set[str]]:
+    """Record one ParagraphFormat redline per changed paragraph, returning ``(recorded, failed, unrestorable)``.
 
     An existing ``ParagraphFormat`` redline is kept as the only one because it holds the state
     before both changes, and Reject All would end on the later redline's state.
     """
-    import uno  # local: tests swap sys.modules["uno"]
-
-    uno_any = getattr(uno, "Any")
     recorded = 0
     failed = 0
+    unrestorable: set[str] = set()
     for state in states:
         if state.recorded:
             recorded += 1
@@ -575,17 +562,18 @@ def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tu
                     create_property_value(
                         "RedlineRevertProperties",
                         # Inner sequence must be typed as []PropertyValue.
-                        uno_any("[]com.sun.star.beans.PropertyValue", state.properties),
+                        cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", state.properties),
                     ),
                 ),
             )
             recorded += 1
+            unrestorable.update(state.unrestorable)
         except Exception as exc:
             reraise_if_disposed(exc)
             # Do not fail the tool: the style is already applied.
             log.exception("Failed to record ParagraphFormat redline")
             failed += 1
-    return recorded, failed
+    return recorded, failed, unrestorable
 
 
 def apply_paragraph_style_preserving_direct_char(
@@ -676,7 +664,7 @@ def apply_paragraph_style_preserving_direct_char(
         report["cleared_paragraph_properties"] = reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
 
     if author is not None:
-        recorded, failed = _record_paragraph_formats(states, author)
+        recorded, failed, unrestorable = _record_paragraph_formats(states, author)
         report["tracked"] = recorded > 0
         unreviewed_notes: list[str] = []
         if report.get("removed_char_overrides") or (clear_direct == "all" and bool(overrides)):
@@ -685,6 +673,8 @@ def apply_paragraph_style_preserving_direct_char(
             )
         if any(state.numbered for state in states):
             unreviewed_notes.append("Rejecting the style change may not restore list levels or numbers.")
+        if unrestorable:
+            unreviewed_notes.append(_unrestorable_note(unrestorable))
         # Empty paragraphs are not flagged when at least one paragraph was recorded,
         # because LibreOffice records nothing for them either.
         if failed or revert_incomplete or (states and recorded == 0):
@@ -761,7 +751,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
 }
 
-# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (above) so the
+# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (in plugin.doc.text_helpers) so the
 # inspect set and the clear_direct wipe cannot drift.
 _PARA_PROPERTY_SCHEMA = {
     "ParaTopMargin": {"type": "integer", "description": "Top margin, 1/100 mm (1 inch = 2540)."},
@@ -1036,19 +1026,14 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
-    # Function-local import with getattr guards: tests swap sys.modules["uno"] (often for a
-    # mock without Enum/Char), so the module-level binding can be stale or lack these types.
-    import uno
-
     current: Any = getattr(struct, field, None)
-    enum_cls = getattr(uno, "Enum", None)
-    char_cls = getattr(uno, "Char", None)
     try:
-        if isinstance(enum_cls, type) and isinstance(current, enum_cls):
-            return enum_cls(cast("Any", current).typeName, value.strip().upper())
-        if isinstance(char_cls, type) and isinstance(current, char_cls):
-            return char_cls(value[:1] or " ")
+        if isinstance(current, uno.Enum):
+            return uno.Enum(cast("Any", current).typeName, value.strip().upper())
+        if isinstance(current, uno.Char):
+            return uno.Char(value[:1] or " ")
     except Exception:
+        # uno.Enum rejects an unknown member; the caller's setattr then reports the field and value.
         return value
     return value
 
@@ -1079,8 +1064,6 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
             "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
             % (prop_name, value)
         )
-    import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
     try:
         struct = cast("Any", uno.createUnoStruct(struct_name))
     except Exception as e:
@@ -1107,9 +1090,9 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
 _COLOR_PROPERTIES = ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor")
 # Properties of a text run; every other property of a text range belongs to its paragraph.
 _TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
-# Paragraph properties whose change Reject undoes. Reject keeps a direct page break or page
-# style (lcl_RstAttr in docfmt.cxx), so BreakType and PageDescName changes stay untracked.
-_RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType"})
+# Paragraph properties whose change Reject undoes. Reject keeps a direct page break, page
+# style, or writing direction (lcl_RstAttr in docfmt.cxx), so those changes stay untracked.
+_RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType", "WritingMode"})
 
 
 def _is_text_property(name: str) -> bool:
@@ -1157,9 +1140,7 @@ def _convert_value(prop_name: str, value: Any) -> Any:
 def _typed_property_value(prop_name: str, value: Any) -> Any:
     """Wrap sequence-of-struct values in uno.Any so PyUNO passes a typed sequence."""
     if prop_name == "ParaTabStops" and isinstance(value, tuple):
-        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
-        # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
+        # cast: the type stubs do not declare uno.Any or uno.invoke as callable this way (same for the other casts of uno here).
         return cast("Any", uno).Any("[]com.sun.star.style.TabStop", value)
     return value
 
@@ -1174,8 +1155,6 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """
     typed = _typed_property_value(prop_name, value)
     if typed is not value:
-        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-
         cast("Any", uno).invoke(style, "setPropertyValue", (prop_name, typed))
         return
     style.setPropertyValue(prop_name, value)
@@ -1286,7 +1265,7 @@ def copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], lis
             attrs = int(getattr(prop, "Attributes", 0) or 0)
         except (TypeError, ValueError):
             attrs = 0
-        if attrs & _READONLY:
+        if attrs & PROPERTY_READONLY:
             continue
         try:
             state = source.getPropertyState(name)
@@ -2091,16 +2070,16 @@ class StyleFormatText(ToolWriterStyleBase):
                     reraise_if_disposed(exc)
                 actually_cleared.append(name)
             if para_author is None:
-                return _DirectFormatReport(actually_cleared, False, False)
+                return _DirectFormatReport(actually_cleared, False, False, frozenset())
             # After the character write: Reject All works backwards, and rejecting a Format redline
             # over a whole paragraph also drops the paragraph's direct formatting (SwDoc::ResetAttrs),
             # so the ParagraphFormat redline must be rejected last. Rejecting it on a list item or a
             # heading drops the list level or numbering (DelNumRules in lcl_RejectRedline), so those
             # get none.
             recordable = [s for s in states if s.recorded or not s.numbered]
-            recorded, failed = _record_paragraph_formats(recordable, para_author)
+            recorded, failed, unrestorable = _record_paragraph_formats(recordable, para_author)
             complete = recorded > 0 and not failed and not incomplete and len(recordable) == len(states)
-            return _DirectFormatReport(actually_cleared, recorded > 0, complete)
+            return _DirectFormatReport(actually_cleared, recorded > 0, complete, frozenset(unrestorable))
 
         with (record_changes(ctx.doc, True) if review_recording_enabled() else nullcontext()):
             recording = is_recording_changes(ctx.doc)
@@ -2113,6 +2092,7 @@ class StyleFormatText(ToolWriterStyleBase):
 
         tracked = char_tracked or any(r.para_recorded for r in reports)
         para_complete = all(r.para_complete for r in reports)
+        unrestorable = frozenset().union(*(r.unrestorable for r in reports))
         cleared_set = {name for rep in reports for name in rep.cleared}
         reset_done = [name for name in reset_names if name in cleared_set]
         not_reset = [name for name in reset_names if name not in cleared_set]
@@ -2174,9 +2154,11 @@ class StyleFormatText(ToolWriterStyleBase):
         if recording and untracked:
             warnings.append(
                 "Not fully recorded as a tracked change (headings, list items and empty paragraphs "
-                "are not recorded, nor are page breaks, page styles and list levels): %s."
+                "are not recorded, nor are page breaks, page styles, writing direction and list levels): %s."
                 % ", ".join(untracked)
             )
+        if unrestorable:
+            warnings.append(_unrestorable_note(unrestorable))
         if not_reset:
             warnings.append(
                 "Could not reset as direct formatting: %s." % ", ".join(not_reset)
@@ -2187,7 +2169,7 @@ class StyleFormatText(ToolWriterStyleBase):
         if tracked:
             res = annotate_review_status(res)
             _flag_stacked_format_redlines(res, cursors)
-        if untracked or not tracked:
+        if untracked or not tracked or unrestorable:
             flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
@@ -2555,11 +2537,11 @@ class StyleImport(ToolWriterStyleBase):
         url = uno.systemPathToFileUrl(file_path)
 
         opts = (
-            PropertyValue(Name="OverwriteStyles", Value=overwrite),
-            PropertyValue(Name="LoadTextStyles", Value=load_text),
-            PropertyValue(Name="LoadPageStyles", Value=load_page),
-            PropertyValue(Name="LoadFrameStyles", Value=load_frame),
-            PropertyValue(Name="LoadNumberingStyles", Value=load_num),
+            create_property_value("OverwriteStyles", overwrite),
+            create_property_value("LoadTextStyles", load_text),
+            create_property_value("LoadPageStyles", load_page),
+            create_property_value("LoadFrameStyles", load_frame),
+            create_property_value("LoadNumberingStyles", load_num),
         )
 
         # The document object implements XStyleLoader

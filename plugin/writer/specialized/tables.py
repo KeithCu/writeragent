@@ -602,8 +602,9 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
 def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
     """Run a Writer delete with optional review inside an undo rollback guard."""
-    # UndoStepOrRollback must stay outside the review session because undo cannot run
-    # while the session's undo context is still open.
+    # The guard stays outside record_mutation, which keeps its own undo group open while apply
+    # runs: XUndoManager.undo refuses inside an open context (impl_doUndoRedo in
+    # framework/source/fwe/helper/undomanagerhelper.cxx).
     with UndoStepOrRollback(doc, title):
         return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
 
