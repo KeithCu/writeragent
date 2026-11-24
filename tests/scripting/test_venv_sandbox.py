@@ -813,6 +813,83 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
     assert err_frame.get("code") == "EXECUTION_TIMEOUT"
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import time\ntime.sleep(1.3)\n1/0",
+        "import time\ntime.sleep(1.3)\nwhile True:\n    pass",
+    ],
+)
+def test_harness_survives_worker_error_after_thread_pool_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+) -> None:
+    import io
+    import signal
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    exit_calls: list[int] = []
+    monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def refuse_sigalrm(signum: int, handler: object) -> object:
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    req_data = pack_pickle_frame(
+        {
+            "id": "req-tp-1",
+            "action": "execute",
+            "code": code,
+            "timeout_sec": 1,
+        }
+    ) + pack_pickle_frame(
+        {
+            "id": "req-tp-2",
+            "action": "execute",
+            "code": "result = 1",
+            "timeout_sec": 5,
+        }
+    )
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: stdin)
+    monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
+
+    try:
+        harness.main()
+    finally:
+        lpe.discard_thread_pool_timeout()
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
+
+    assert exit_calls == []
+    stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready is not None and ready.get("status") == "ready"
+    started_1 = read_pickle_frame(stdout, require_dict=True)
+    assert started_1 == {"type": "exec_started", "id": "req-tp-1"}
+    err_frame = read_pickle_frame(stdout, require_dict=True)
+    assert err_frame is not None
+    assert err_frame["status"] == "error"
+    assert err_frame.get("code") == "EXECUTION_TIMEOUT"
+    assert "time.sleep(1.3)" in err_frame.get("user_traceback", "")
+    started_2 = read_pickle_frame(stdout, require_dict=True)
+    assert started_2 == {"type": "exec_started", "id": "req-tp-2"}
+    ok_frame = read_pickle_frame(stdout, require_dict=True)
+    assert ok_frame is not None
+    assert ok_frame["status"] == "ok"
+    assert ok_frame["result"] == 1
+
+
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
@@ -2128,15 +2205,23 @@ def test_seaborn_grid_result_is_a_plot(fresh_sandbox_sessions, tail: str) -> Non
     assert b'id="axes_1"' in res["result"]["data"]
 
 
-def test_axes_array_result_captures_its_figure(fresh_sandbox_sessions) -> None:
+@pytest.mark.parametrize(
+    ("tail", "session_id"),
+    [
+        ("fig, axs = plt.subplots(1, 2)\naxs", "calc:axes-array-axs"),
+        ("fig, axs = plt.subplots(1, 2)", "calc:axes-array-assign"),
+        ("plt.subplots(1, 2)", "calc:axes-array-bare"),
+    ],
+)
+def test_axes_array_result_captures_its_figure(
+    fresh_sandbox_sessions,
+    tail: str,
+    session_id: str,
+) -> None:
     pytest.importorskip("matplotlib")
 
-    code = (
-        "import matplotlib.pyplot as plt\n"
-        "fig, axs = plt.subplots(1, 2)\n"
-        "axs"
-    )
-    res = sandbox_run(code, session_id="calc:axes-array", timeout_sec=15)
+    code = f"import matplotlib.pyplot as plt\n{tail}"
+    res = sandbox_run(code, session_id=session_id, timeout_sec=15)
     assert res["status"] == "ok", res
     assert is_image_payload(res["result"])
     assert b'id="axes_2"' in res["result"]["data"]

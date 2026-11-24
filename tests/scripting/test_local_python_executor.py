@@ -2962,22 +2962,63 @@ def test_process_callables_allowed_when_os_true():
             id="dictcomp",
             marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython 3.12+ inlines comprehensions (PEP 709)"),
         ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError:\n    raise ValueError('b')",
+            id="chain_implicit",
+        ),
+        pytest.param(
+            "def f():\n    try:\n        1/0\n    except ZeroDivisionError as e:\n        raise ValueError('b') from e\n\nf()",
+            id="chain_explicit",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError:\n    raise ValueError('b') from None",
+            id="chain_from_none",
+        ),
+        pytest.param(
+            "def f():\n    try:\n        1/0\n    except ZeroDivisionError as e:\n        try:\n            raise ValueError('b') from e\n        except ValueError:\n            raise KeyError('c')\n\nf()",
+            id="chain_three",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError:\n    nope",
+            id="chain_name_error",
+        ),
+        pytest.param(
+            "a = ValueError('a')\nb = KeyError('b')\ntry:\n    raise b\nexcept KeyError:\n    try:\n        raise a from b\n    except ValueError:\n        raise b from a",
+            id="chain_cycle",
+        ),
+        pytest.param(
+            "try:\n    1/0\nfinally:\n    int('x')",
+            id="chain_finally",
+        ),
+        pytest.param(
+            "def f():\n    try:\n        return 1\n    finally:\n        int('x')\n\nf()",
+            id="chain_return_then_finally",
+        ),
+        pytest.param(
+            "class CM:\n    def __enter__(self):\n        return self\n    def __exit__(self, *args):\n        raise RuntimeError('exit')\n\nwith CM():\n    1/0",
+            id="chain_with_exit",
+        ),
+        pytest.param(
+            "try:\n    1/0\nexcept ZeroDivisionError:\n    pass\nraise ValueError('after')",
+            id="handled_then_raise",
+        ),
     ],
 )
 def test_user_traceback_frames_match_cpython(code: str) -> None:
     import traceback as stdlib_tb
 
+    prefixes = ('  File "<sandbox>"', "During handling", "The above exception")
     with pytest.raises(Exception) as cp_exc:
         exec(compile(code, "<sandbox>", "exec"), {})
     cp_lines = "".join(stdlib_tb.format_exception(cp_exc.type, cp_exc.value, cp_exc.tb)).splitlines()
-    cp_frames = [line for line in cp_lines if line.startswith('  File "<sandbox>"')]
+    cp_frames = [line for line in cp_lines if line.startswith(prefixes)]
     cp_type = cp_lines[-1].split(":", 1)[0]
 
     executor = LocalPythonExecutor(additional_authorized_imports=[])
     with pytest.raises(InterpreterError) as sb_exc:
         executor(code)
     sb_lines = sb_exc.value.user_traceback.splitlines()
-    sb_frames = [line for line in sb_lines if line.startswith('  File "<sandbox>"')]
+    sb_frames = [line for line in sb_lines if line.startswith(prefixes)]
     sb_type = sb_lines[-1].split(":", 1)[0]
 
     assert sb_frames == cp_frames
@@ -3041,7 +3082,7 @@ def test_user_traceback_rerun_of_same_code_stays_sandbox() -> None:
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="SIGALRM timeout path is Unix-only; the thread-pool fallback may win the race and carry no frames",
+    reason="SIGALRM path; the thread-pool path has its own test",
 )
 def test_timeout_user_traceback_names_running_line() -> None:
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
@@ -3065,4 +3106,104 @@ def test_user_traceback_empty_for_parse_error() -> None:
     with pytest.raises(InterpreterError) as exc_info:
         executor("result = (1,")
     assert exc_info.value.user_traceback == ""
+
+
+def test_user_traceback_text_for_chained_exception() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "try:\n    1/0\nexcept ZeroDivisionError:\n    raise ValueError('b')"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    expected = (
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 2, in <module>\n'
+        "    1/0\n"
+        "ZeroDivisionError: division by zero\n"
+        "\n"
+        "During handling of the above exception, another exception occurred:\n"
+        "\n"
+        "Traceback (most recent call last):\n"
+        '  File "<sandbox>", line 4, in <module>\n'
+        "    raise ValueError('b')\n"
+        "ValueError: b"
+    )
+    assert exc_info.value.user_traceback == expected
+
+
+def test_user_traceback_survives_failing_str_in_chain() -> None:
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = (
+        "class E(Exception):\n"
+        "    def __str__(self):\n"
+        "        return str(1/0)\n"
+        "try:\n"
+        "    raise E()\n"
+        "except E:\n"
+        "    int('x')"
+    )
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    tb = exc_info.value.user_traceback
+    assert "E: <exception str() failed>" in tb
+    assert tb.splitlines()[-1].startswith("ValueError:")
+
+
+def test_thread_pool_timeout_traceback_names_blocked_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    import signal
+    import time
+    from typing import Any
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+
+    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    executor.send_tools({})
+    executor.send_variables({"slow_call": lambda: time.sleep(1.3)})
+    code = "def f():\n    return slow_call()\n\nx = f()"
+    try:
+        with pytest.raises(ExecutionTimeoutError) as exc_info:
+            executor(code)
+        lines = exc_info.value.user_traceback.splitlines()
+        file_lines = [line for line in lines if line.startswith("  File ")]
+        assert file_lines == [
+            '  File "<sandbox>", line 4, in <module>',
+            '  File "<sandbox>", line 2, in f',
+        ]
+        assert lines[-1].startswith("ExecutionTimeoutError:")
+    finally:
+        lpe.discard_thread_pool_timeout()
+
+
+def test_thread_pool_timeout_wins_over_later_worker_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import signal
+    import time
+    from typing import Any
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+
+    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
+    executor.send_tools({})
+    executor.send_variables({"slow_call": lambda: time.sleep(1.3)})
+    try:
+        with pytest.raises(ExecutionTimeoutError):
+            executor("slow_call()\n1/0")
+        assert lpe.abandoned_timeout is False
+    finally:
+        lpe.discard_thread_pool_timeout()
 

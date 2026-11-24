@@ -220,3 +220,15 @@ def test_editor_error_markers_skip_earlier_cell_frames():
     markers = editor_error_markers(str(exc_info.value), exc_info.value.user_traceback, cell_b)
     assert len(markers) == 1
     assert markers[0]["line"] == 2
+
+
+def test_editor_error_markers_use_final_exception_of_chain():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    code = "try:\n    1/0\nexcept ZeroDivisionError:\n    raise ValueError('b')"
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    markers = editor_error_markers(str(exc_info.value), exc_info.value.user_traceback, code)
+    assert len(markers) == 1
+    assert markers[0]["line"] == 4

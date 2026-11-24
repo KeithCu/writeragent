@@ -29,6 +29,7 @@ import os
 import re
 import string as _stdlib_string
 import _string
+import sys
 import threading
 import functools
 import time
@@ -42,7 +43,7 @@ from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
 from itertools import groupby
-from types import BuiltinFunctionType, FunctionType, ModuleType
+from types import BuiltinFunctionType, FrameType, FunctionType, ModuleType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -101,6 +102,9 @@ _FRAME_KEY = object()
 _USER_FRAMES_ATTR = "_writeragent_user_frames"
 USER_CODE_FILE = "<sandbox>"
 _EARLIER_CELL_FILE = "<earlier cell>"
+# WriterAgent local patch (2026-11): CPython's chained-exception connector lines.
+_CAUSE_SEPARATOR = "\n\nThe above exception was the direct cause of the following exception:\n\n"
+_CONTEXT_SEPARATOR = "\n\nDuring handling of the above exception, another exception occurred:\n\n"
 
 
 def _child_frame(parent: tuple[str, str, str] | None, name: str) -> tuple[str, str, str] | None:
@@ -127,17 +131,19 @@ def _note_user_frame(
         frames.append((frame, node))
 
 
-def _format_user_traceback(exc: BaseException, code: str) -> str:
+# WriterAgent local patch (2026-11): format one exception's user frames and walk chained exceptions.
+def _format_user_frames(
+    exc: BaseException,
+    frames: list[tuple[tuple[str, str, str], ast.stmt | ast.expr]],
+    code: str,
+) -> str:
     """CPython-style traceback of the user frames recorded on *exc*, outermost first.
 
     Consecutive entries at one line of one function (recursion) print three times,
     then "[Previous line repeated N more times]", as CPython prints them.
     """
-    raw = exc.__dict__.get(_USER_FRAMES_ATTR)
-    if not raw:
-        return ""
     lines = ["Traceback (most recent call last):"]
-    for ((name, source, filename), node), group in groupby(reversed(raw)):
+    for ((name, source, filename), node), group in groupby(reversed(frames)):
         count = sum(1 for _entry in group)
         display_file = _EARLIER_CELL_FILE if filename == USER_CODE_FILE and source != code else filename
         segment = ast.get_source_segment(source, node)
@@ -147,8 +153,41 @@ def _format_user_traceback(exc: BaseException, code: str) -> str:
         lines.extend([entry] * min(count, 3))
         if count > 3:
             lines.append(f"  [Previous line repeated {count - 3} more times]")
-    lines.append(f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
+    try:
+        message = str(exc)
+    except Exception:
+        # A user-defined __str__ can raise; CPython prints this text (traceback.py, _safe_string).
+        message = "<exception str() failed>"
+    lines.append(f"{type(exc).__name__}: {message}" if message else type(exc).__name__)
     return "\n".join(lines)
+
+
+def _format_user_traceback(exc: BaseException, code: str) -> str:
+    """CPython-style traceback of *exc* and the exceptions it chains from, oldest first.
+
+    Exceptions without user frames (raised and caught inside the executor or a
+    library) are walked through but not printed, so no host path can appear.
+    The walk stops at a Return/Break/Continue signal, because compiled Python
+    has already left the handler there. *seen* ends a cycle made with ``raise a from b``.
+    """
+    blocks: list[str] = []
+    seen: set[int] = set()
+    link: BaseException | None = exc
+    separator = ""
+    while link is not None and not isinstance(link, InterpreterSignal) and id(link) not in seen:
+        seen.add(id(link))
+        frames = link.__dict__.get(_USER_FRAMES_ATTR)
+        if frames:
+            blocks.append(_format_user_frames(link, frames, code) + separator)
+            separator = _CAUSE_SEPARATOR
+        elif not blocks:
+            return ""
+        if link.__cause__ is not None:
+            link = link.__cause__
+        else:
+            separator = _CONTEXT_SEPARATOR
+            link = None if link.__suppress_context__ else link.__context__
+    return "".join(reversed(blocks))
 
 # Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
 abandoned_timeout: bool = False
@@ -619,11 +658,8 @@ def discard_thread_pool_timeout() -> None:
     _pending_timeout_executor = None
     abandoned_timeout = False
     if future is not None:
+        # WriterAgent local patch (2026-11): do not call future.result(); a worker ExecutionTimeoutError is a BaseException.
         future.cancel()
-        try:
-            future.result(timeout=0)
-        except Exception:
-            pass
     if pool is not None:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -646,7 +682,8 @@ def finalize_thread_pool_timeout() -> None:
         return
     try:
         try:
-            future.result(timeout=grace)
+            # WriterAgent local patch (2026-11): exception(), not result(): the timeout is already the outcome, so the worker's own later error must not be raised here.
+            future.exception(timeout=grace)
         except FuturesTimeoutError:
             abandoned_timeout = True
     finally:
@@ -836,6 +873,20 @@ _TRACED_ERRORS = (Exception, ExecutionTimeoutError)
 
 
 
+# WriterAgent local patch (2026-11): record running user AST statements on a thread-pool timeout.
+def _note_running_frames(exc: BaseException, thread_ident: int) -> None:
+    """Record on *exc* the user statements thread *thread_ident* is running, innermost first.
+
+    The thread may be blocked in C and unable to raise its own error. evaluate_ast
+    never rebinds its parameters, so f_locals is readable while it runs.
+    """
+    frame: FrameType | None = sys._current_frames().get(thread_ident)
+    while frame is not None:
+        if frame.f_code is evaluate_ast.__code__ and isinstance(frame.f_locals["expression"], ast.stmt):
+            _note_user_frame(exc, frame.f_locals["state"].get(_FRAME_KEY), frame.f_locals["expression"])
+        frame = frame.f_back
+
+
 def timeout(timeout_seconds: Any):
     """Decorator to limit execution time via SIGALRM on main thread or ThreadPoolExecutor fallback.
 
@@ -882,7 +933,14 @@ def timeout(timeout_seconds: Any):
                 # The _Ops deadline stops pure-Python loops, but a blocked C call still
                 # runs until it returns; host IPC kill remains the stop for a hung worker.
                 executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(func, *args, **kwargs)
+                worker_ident = 0
+
+                def run_on_worker():
+                    nonlocal worker_ident
+                    worker_ident = threading.get_ident()
+                    return func(*args, **kwargs)
+
+                future = executor.submit(run_on_worker)
                 timed_out = False
                 try:
                     return future.result(timeout=timeout_seconds)
@@ -897,9 +955,12 @@ def timeout(timeout_seconds: Any):
                     # which makes worker_harness os._exit and drops shared sessions.
                     _pending_timeout_grace_sec = float(timeout_seconds) + 2.0
                     _pending_timeout_executor = executor
-                    raise ExecutionTimeoutError(
+                    # WriterAgent local patch (2026-11): sample the worker's running AST frames before raising.
+                    error = ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                     )
+                    _note_running_frames(error, worker_ident)
+                    raise error
                 finally:
                     if not timed_out:
                         executor.shutdown(wait=False, cancel_futures=True)
@@ -2023,17 +2084,15 @@ def evaluate_raise(
 
     if raise_node.cause is not None:
         cause = evaluate_ast(raise_node.cause, state, static_tools, custom_tools, authorized_imports)
-    else:
-        cause = None
     if exc is not None:
         # WriterAgent local patch (2026-11): explicit `raise X` records the raise line even in the same frame;
         # a bare class (`raise ValueError`) is skipped, since its instance is made by `raise` and noted by evaluate_ast.
         if raise_node.exc is not None and isinstance(exc, BaseException):
             _note_user_frame(exc, state.get(_FRAME_KEY), raise_node, explicit_raise=True)
-        if cause is not None:
+        # WriterAgent local patch (2026-11): `raise X from None` (cause evaluates to None) must also set __suppress_context__.
+        if raise_node.cause is not None:
             raise exc from cause
-        else:
-            raise exc
+        raise exc
     else:
         raise InterpreterError("Re-raise is not supported without an active exception")
 
@@ -2290,8 +2349,6 @@ def evaluate_import(
     authorized_imports: list[str],
     static_tools: dict[str, Callable] | None = None,
 ) -> None:
-    import sys
-
     tools = static_tools if static_tools is not None else {}
 
     if isinstance(expression, ast.Import):
