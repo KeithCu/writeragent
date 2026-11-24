@@ -1402,6 +1402,7 @@ def test_replace_header_footer_undo_leak_says_text_was_written():
     um.leaveUndoContext.side_effect = RuntimeError("leave failed")
     res = _replace(doc)
     assert res["status"] == "error"
+    assert res["code"] == "UNDO_CONTEXT_LEAK"
     assert "the replacement was written" in res["message"]
     assert "leave failed" in res["message"]
     assert [c.written for c in seen] == ["Appendix"]
@@ -1975,3 +1976,179 @@ def test_page_set_header_footer_text_flags_layout_change_only():
 
     assert first.get("style_unreviewed") is True
     assert "style_unreviewed" not in second
+
+
+def _redline_portion(redline_type: str, is_start: bool) -> MagicMock:
+    p = MagicMock()
+
+    def _get_prop(name: str):
+        if name == "TextPortionType":
+            return "Redline"
+        if name == "RedlineType":
+            return redline_type
+        if name == "IsStart":
+            return is_start
+        return None
+
+    p.getPropertyValue.side_effect = _get_prop
+    return p
+
+
+def _field_portion(presentation: str, content: str) -> MagicMock:
+    field = MagicMock()
+    field.getPresentation.side_effect = lambda show_cmd: content if show_cmd else presentation
+    return _portion("TextField", field=field)
+
+
+def _table_mock(cells: dict[str, MagicMock], *, row_flags: tuple[bool, ...] = (True,)) -> MagicMock:
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = tuple(cells.keys())
+    table.getCellByName.side_effect = lambda name: cells[name]
+    rows = MagicMock()
+    rows.getCount.return_value = len(row_flags)
+    row_objs = []
+    for flag in row_flags:
+        r = MagicMock()
+        r.getPropertyValue.side_effect = lambda prop, f=flag: f if prop == "HasTextChangesOnly" else None
+        row_objs.append(r)
+    rows.getByIndex.side_effect = lambda i: row_objs[i]
+    table.getRows.return_value = rows
+    return table
+
+
+def _para_mock(portions) -> MagicMock:
+    para = _paragraph(portions)
+    para.supportsService.return_value = False
+    return para
+
+
+def test_scan_region_lists_fields_in_table_cells():
+    inner_cell = MagicMock()
+    inner_cell.createEnumeration.side_effect = lambda: _enum_of([_para_mock([_field_portion("42", "Word count")])])
+    inner_table = _table_mock({"A1": inner_cell})
+
+    cell_a1 = MagicMock()
+    cell_a1.createEnumeration.side_effect = lambda: _enum_of([_para_mock([_field_portion("1", "Page number")])])
+    cell_b1 = MagicMock()
+    cell_b1.createEnumeration.side_effect = lambda: _enum_of([inner_table])
+    outer_table = _table_mock({"A1": cell_a1, "B1": cell_b1})
+
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([
+        _para_mock([_field_portion("Title", "Doc title")]),
+        outer_table,
+        _para_mock([_field_portion("5", "Page count")]),
+    ])
+    doc, _style = _page_style_doc(text_obj)
+    scan = _scan_region_content(doc, text_obj)
+    assert [f["content"] for f in scan["fields"]] == ["Doc title", "Page number", "Word count", "Page count"]
+    assert scan["paragraph_count"] == 3
+    assert scan["has_table"] is True
+
+
+def test_scan_region_leaves_out_struck_table_and_fields():
+    cell = MagicMock()
+    cell.createEnumeration.side_effect = lambda: _enum_of([_para_mock([_field_portion("1", "Page number")])])
+    table = _table_mock({"A1": cell})
+
+    p1 = _para_mock([_redline_portion("Delete", True)])
+    p2 = _para_mock([_field_portion("5", "Page count"), _redline_portion("Delete", False)])
+    text_obj = MagicMock()
+    text_obj.getString.return_value = ""
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([p1, table, p2])
+
+    logo = _logo_anchored_in(cell, name="CellLogo")
+    doc, _style = _page_style_doc(text_obj, shapes=(logo,))
+    scan = _scan_region_content(doc, text_obj)
+    assert scan["fields"] == []
+    assert scan["images"] == []
+    assert scan["has_table"] is False
+    assert scan["has_struck"] is True
+    assert scan["paragraph_count"] == 1
+    assert _region_holds_content(doc, text_obj) is True
+
+
+def test_scan_region_counts_first_paragraph_that_starts_struck():
+    from plugin.doc.text_helpers import DeletionState
+
+    p1 = _para_mock([_redline_portion("Delete", True), _redline_portion("Delete", False)])
+    p2 = _para_mock([_field_portion("1", "Page number")])
+    one_para = MagicMock()
+    one_para.createEnumeration.side_effect = lambda: _enum_of([p1])
+    two_paras = MagicMock()
+    two_paras.createEnumeration.side_effect = lambda: _enum_of([p1, p2])
+    doc, _style = _page_style_doc(one_para)
+
+    with patch("plugin.writer.page.TrackedDeletions") as td_cls:
+        td_cls.return_value.state_at.return_value = DeletionState(True)
+        assert _scan_region_content(doc, one_para)["paragraph_count"] == 1
+        assert _scan_region_content(doc, two_paras)["paragraph_count"] == 2
+
+
+def test_scan_region_portion_cap_closes_open_deletion(monkeypatch):
+    import plugin.writer.page as pg
+
+    monkeypatch.setattr(pg, "_SCAN_PORTION_LIMIT", 1)
+    p1 = _para_mock([_redline_portion("Delete", True), _redline_portion("Delete", False)])
+    p2 = _para_mock([_field_portion("1", "Page number")])
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([p1, p2])
+    doc, _style = _page_style_doc(text_obj)
+    scan = _scan_region_content(doc, text_obj)
+    assert [f["content"] for f in scan["fields"]] == ["Page number"]
+    assert "warning" in scan
+
+
+def test_set_header_footer_keeps_error_code():
+    from plugin.framework.errors import ToolExecutionError
+
+    doc, _style = _page_style_doc(MagicMock())
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    with patch(
+        "plugin.writer.page.replace_xtext_with_html",
+        side_effect=ToolExecutionError("bad table", code="TABLE_INSERT_FAILED"),
+    ):
+        res = PageSetHeaderFooterText().execute(ctx, style="Standard", region="header", content="<p>x</p>")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_INSERT_FAILED"
+
+
+def test_replace_header_footer_codes():
+    # Locked undo with two matches and all_matches -> UNDO_UNAVAILABLE, nothing written
+    doc, text_obj = _replace_doc([_text_portion("Annex and Annex")], hay="Annex and Annex")
+    seen = _cursors_for(text_obj, "Annex and Annex")
+    doc.getUndoManager.return_value.isLocked.return_value = True
+    res = _replace(doc, all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    assert seen and all(c.written is None for c in seen)
+
+    # Locked undo with one match and failing setString -> ROLLBACK_FAILED
+    doc2, text_obj2 = _replace_doc([_text_portion("Annex")], hay="Annex")
+    failing_cursor = MagicMock()
+    failing_cursor.getString.return_value = "Annex"
+    failing_cursor.setString.side_effect = RuntimeError("write boom")
+    text_obj2.createTextCursorByRange.side_effect = lambda _rng: failing_cursor
+    doc2.getUndoManager.return_value.isLocked.return_value = True
+    res2 = _replace(doc2)
+    assert res2["status"] == "error"
+    assert res2["code"] == "ROLLBACK_FAILED"
+
+    # setString fails and undo raises -> ROLLBACK_FAILED
+    doc3, text_obj3 = _replace_doc([_text_portion("Annex")], hay="Annex")
+    text_obj3.createTextCursorByRange.side_effect = lambda _rng: failing_cursor
+    um3 = doc3.getUndoManager.return_value
+    um3.isLocked.return_value = False
+    undo_title = None
+
+    def _enter(t):
+        nonlocal undo_title
+        undo_title = t
+
+    um3.enterUndoContext.side_effect = _enter
+    um3.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    um3.undo.side_effect = RuntimeError("undo boom")
+    res3 = _replace(doc3)
+    assert res3["status"] == "error"
+    assert res3["code"] == "ROLLBACK_FAILED"

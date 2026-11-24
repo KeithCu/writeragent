@@ -123,3 +123,67 @@ def test_copy_page_style_drops_multi_para_deletion_and_handles_wholly_struck_uno
     copy_page_style(doc, "Standard", "ClonedEmptyFooter")
     cloned_footer = page_styles.getByName("ClonedEmptyFooter").getPropertyValue("FooterText")
     assert cloned_footer.getString().strip() == ""
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.framework.uno_context import execute_dispatch
+
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    standard = page_styles.getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    header = standard.getPropertyValue("HeaderText")
+
+    # 1. Table holding only a Title field, cleared while recording -> clones empty without raising.
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    a1 = tbl.getCellByName("A1")
+    a1.insertTextContent(a1.createTextCursor(), doc.createInstance("com.sun.star.text.textfield.docinfo.Title"), False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        header.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    copy_page_style(doc, "Standard", "CloneStruckTitleTable")
+    cloned_header = page_styles.getByName("CloneStruckTitleTable").getPropertyValue("HeaderText")
+    enum = cloned_header.createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        assert not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"))
+
+    # 2. Struck logo table -> clone reports no skipped shapes.
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+    header.setString("")
+    logo_tbl = doc.createInstance("com.sun.star.text.TextTable")
+    logo_tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), logo_tbl, False)
+    logo_cell = logo_tbl.getCellByName("A1")
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(png_bytes)
+        gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        gfx.setPropertyValue("GraphicURL", "file://" + img_path)
+        gfx.setPropertyValue("AnchorType", AS_CHARACTER)
+        logo_cell.insertTextContent(logo_cell.createTextCursor(), gfx, False)
+    finally:
+        os.unlink(img_path)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        header.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = copy_page_style(doc, "Standard", "CloneStruckLogoTable")
+    assert res["skipped_shapes"] == [], res

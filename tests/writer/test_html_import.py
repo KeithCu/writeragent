@@ -224,10 +224,39 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     undo_mgr.isLocked.return_value = True
     model.getUndoManager.return_value = undo_mgr
 
-    with pytest.raises(ToolExecutionError, match="Could not enter undo context"):
+    with pytest.raises(ToolExecutionError, match="Could not enter undo context") as exc_info:
         replace_xtext_with_html(text, "<p>New</p>", model=model)
 
+    assert exc_info.value.code == "UNDO_UNAVAILABLE"
     text.setString.assert_not_called()
+
+
+def test_replace_xtext_with_html_rollback_failure_keeps_code():
+    from plugin.framework.errors import ToolExecutionError
+
+    text = MagicMock()
+    cursor = MagicMock()
+    cursor.insertDocumentFromURL.side_effect = RuntimeError("import boom")
+    text.createTextCursor.return_value = cursor
+
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    undo_mgr.undo.side_effect = RuntimeError("undo boom")
+    model.getUndoManager.return_value = undo_mgr
+
+    with pytest.raises(ToolExecutionError, match="could not be rolled back") as exc_info:
+        replace_xtext_with_html(text, "<p>New</p>", model=model)
+
+    assert exc_info.value.code == "ROLLBACK_FAILED"
 
 
 
