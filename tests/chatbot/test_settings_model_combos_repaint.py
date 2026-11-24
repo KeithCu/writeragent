@@ -12,6 +12,8 @@ to the Together default and moved Image model to the catalog's first id.
 from unittest.mock import MagicMock, patch
 import pytest
 
+from plugin.framework.url_utils import normalize_endpoint_url
+
 OR = "https://openrouter.ai/api/v1"
 TG = "https://api.together.xyz/v1"
 TG_TEXT = ["MiniMaxAI/MiniMax-M3", "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"]
@@ -49,7 +51,7 @@ class FakeCombo:
 
 
 def _setup():
-    from plugin.framework.config import set_api_key_for_endpoint, save
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     save({
@@ -57,7 +59,7 @@ def _setup():
         "text_model": "openai/gpt-oss-120b:nitro",
         "image_model": "google/gemini-3.1-flash-lite-image",
     })
-    set_api_key_for_endpoint(TG, "dummy-not-a-key")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(TG): "dummy-not-a-key"}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo(""),
@@ -110,7 +112,7 @@ def test_together_text_combo_lists_only_text_models():
         clear_settings_catalog_cache,
         fetch_available_models,
     )
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
     from tests.framework.client.test_model_fetcher import TOGETHER_MODELS_BODY
 
@@ -119,7 +121,7 @@ def test_together_text_combo_lists_only_text_models():
         "text_model": "openai/gpt-oss-120b:nitro",
         "image_model": "google/gemini-3.1-flash-lite-image",
     })
-    set_api_key_for_endpoint(TG, "dummy-not-a-key")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(TG): "dummy-not-a-key"}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo(""),
@@ -154,7 +156,7 @@ def test_together_text_combo_lists_only_text_models():
 
 
 def test_half_typed_model_stays_in_box_and_out_of_list():
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     save({
@@ -162,7 +164,7 @@ def test_half_typed_model_stays_in_box_and_out_of_list():
         "text_model": "openrouter/free",
         "image_model": "google/gemini-3.1-flash-lite-image",
     })
-    set_api_key_for_endpoint(OR, "sk-or-test")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(OR): "sk-or-test"}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo("sk-or-test"),
@@ -187,7 +189,7 @@ def test_half_typed_model_stays_in_box_and_out_of_list():
 
 
 def test_placeholder_after_switch_does_not_bring_back_saved_provider_model():
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     save({
@@ -195,7 +197,7 @@ def test_placeholder_after_switch_does_not_bring_back_saved_provider_model():
         "text_model": "inception/mercury-2.5",
         "image_model": "google/gemini-3.1-flash-lite-image",
     })
-    set_api_key_for_endpoint(TG, "")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(TG): ""}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo(""),
@@ -216,7 +218,7 @@ def test_placeholder_after_switch_does_not_bring_back_saved_provider_model():
 
 
 def test_reentering_key_restores_saved_model():
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     save({
@@ -224,7 +226,7 @@ def test_reentering_key_restores_saved_model():
         "text_model": "openai/gpt-oss-120b:nitro",
         "image_model": "google/gemini-3.1-flash-lite-image",
     })
-    set_api_key_for_endpoint(OR, "sk-or-test")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(OR): "sk-or-test"}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo("sk-or-test"),
@@ -246,14 +248,14 @@ def test_reentering_key_restores_saved_model():
 
 
 def test_untyped_tts_id_takes_catalog_casing():
-    from plugin.framework.config import save, set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     save({
         "endpoint": OR,
         "audio.tts_model": "hexgrad/Kokoro-82M",
     })
-    set_api_key_for_endpoint(OR, "sk-or-test")
+    save({"api_keys_by_endpoint": {normalize_endpoint_url(OR): "sk-or-test"}})
     ctrls = {
         "endpoint": FakeCombo(OR),
         "api_key": FakeCombo("sk-or-test"),

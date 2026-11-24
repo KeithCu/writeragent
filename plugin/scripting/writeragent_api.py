@@ -1324,7 +1324,7 @@ class _FormProxy:
             default_value (optional): Initial value for text or date fields.
             width (optional): Width, 1/100 mm (default varies by type).
             height (optional): Height, 1/100 mm (default varies by type).
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_create_control", control=control, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height, page=page))
 
@@ -1334,7 +1334,7 @@ class _FormProxy:
         Args:
             index (optional): Draw-page shape index (optional if name is set).
             name (optional): Control Name from form_list_controls.
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_delete_control", index=index, name=name, page=page))
 
@@ -1354,7 +1354,7 @@ class _FormProxy:
             y (optional):
             width (optional):
             height (optional):
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_edit_control", index=index, name=name, new_name=new_name, group_name=group_name, label=label, text=text, state=state, items=items, x=x, y=y, width=width, height=height, page=page))
 
@@ -1370,7 +1370,7 @@ class _FormProxy:
         """List live form widgets (ControlShapes) with name, type, current text/State, and draw-page index so you can edit or delete by name. Writer: document draw page. Calc: active sheet only. Draw/Impress: active page, or page= for a specific slide. Index is the draw-page shape index — it shifts when non-controls sit between widgets; prefer name.
 
         Args:
-            page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
+            page (optional): Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_list_controls", page=page))
 
@@ -1545,7 +1545,7 @@ class _ImageProxy:
         return _result(call_host_tool("image_insert", path=path, locator=locator, paragraph=paragraph, page=page, x_mm=x_mm, y_mm=y_mm, width_mm=width_mm, height_mm=height_mm, target=target, style=style, auto_height=auto_height))
 
     def list(self) -> _Item:
-        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based, first page = 0) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
+        """List all images/graphic objects in the document with name, dimensions, title, and description. On Writer, an entry includes page (0-based: the user's page 2 is page=1) when its page is known. shape_index is the object's draw-page index on Writer (what shape_delete takes); Writer also lists pictures that are draw shapes (rotated or effect pictures from Word files)."""
         return _result(call_host_tool("image_list"))
 
     def list_nearby_files(self, *, filter: str | None = None) -> _Item:
@@ -2049,7 +2049,7 @@ class _PageProxy:
         return _result(call_host_tool("page_set_style_properties", style=style, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, first_is_shared=first_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout))
 
     def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | int | None = None) -> _Item:
-        """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: LibreOffice turns on the header of every page style and clears the undo history.
+        """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: setting a watermark turns on the header of every page style. Setting or removing one clears the undo history.
 
         Args:
             text (required): Watermark text. Pass an empty string '' to remove the watermark.
@@ -2881,7 +2881,7 @@ class _TableProxy:
 
         Args:
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
@@ -2892,7 +2892,7 @@ class _TableProxy:
         Args:
             name (optional): Table name from table_list.
             cell (optional): Optional. One A1-style address; return that cell only.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
@@ -2906,7 +2906,7 @@ class _TableProxy:
             data (optional): 2D cell strings.
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
-            page (optional): Draw/Impress: 0-based page index (active if omitted).
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted).
             x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
             y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
             width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
@@ -2926,7 +2926,7 @@ class _TableProxy:
             axis (required): Whether to edit rows or columns. One of: row, column.
             index (required): 0-based row or column index (insert at count = append).
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
         return _result(call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index))
@@ -2947,7 +2947,7 @@ class _TableProxy:
             cell (required): A1-style cell address, e.g. 'B2'.
             text (required): New plain text for the cell.
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))
