@@ -195,6 +195,10 @@ def test_frame_and_series_fallback_grids():
         "data": [1.5, 2.5],
     }
 
+    s_unnamed = pd.Series([1.5, 2.5])
+    wire_unnamed = to_wire(s_unnamed)
+    assert wire_unnamed == [1.5, 2.5]
+
 
 def test_to_wire_nat_becomes_none():
     pd = pytest.importorskip("pandas")
@@ -203,11 +207,8 @@ def test_to_wire_nat_becomes_none():
     assert to_wire([pd.NA, pd.NaT]) == [None, None]
     assert to_wire(pd.Timedelta("NaT")) is None
     assert to_wire([[pd.NaT, 1]]) == [[None, 1]]
+    assert to_wire({"a": pd.NaT}) == {"a": None}
     assert to_wire(pd.Timestamp("2024-01-02")) == "2024-01-02T00:00:00"
-
-    s_unnamed = pd.Series([1.5, 2.5])
-    wire_unnamed = to_wire(s_unnamed)
-    assert wire_unnamed == [1.5, 2.5]
 
 
 def test_default_range_index_frame_has_no_header():

@@ -43,7 +43,10 @@ MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 # Slot 0 starts this far (1/100 mm) inside the far edge of the cell or spill row. Calc
 # anchors a moved shape to the cell under its top-left corner (ScDrawView adjustAnchoredPosition,
 # drawvie3.cxx); exactly on the edge that is the next column, and smaller insets round onto the
-# next column for some widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none).
+# next column for some widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none). For a single-column
+# result, anchoring on the cell lets the plot follow a cut and pasted formula and keeps its owner
+# in XLSX (which drops the wa-plot tag); for a multi-column spill, the inset keeps the anchor on
+# the last spilled cell, which the untagged XLSX match needs.
 _PLOT_EDGE_INSET = 10
 
 # Only shapes we created for a plot are replaced on the next insert. A user
@@ -382,12 +385,16 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any, spill_c
         if _shape_anchor_matches_cell(shape, target_cell):
             return True
         if spill_cols > 1 and uno_read(lambda: shape.getPropertyValue("Name"), "") == _PLOT_SHAPE_NAME_PREFIX:
-            # XLSX drops the tag; another formula cannot live in this formula's spill row.
-            # In RTL the reloaded anchor is one column nearer than the placed cell.
+            # XLSX drops the tag; a blocked spill can have another formula in the row, so that
+            # formula keeps its plot. In RTL the reloaded anchor is one column nearer.
             anchor = _anchor_cell(shape)
             addr_key = _cell_address_key(target_cell)
             if anchor is not None and addr_key is not None:
-                return anchor[1] == addr_key[2] and addr_key[1] <= anchor[0] < addr_key[1] + spill_cols
+                return (
+                    anchor[1] == addr_key[2]
+                    and addr_key[1] <= anchor[0] < addr_key[1] + spill_cols
+                    and not _holds_py_formula(sheet, anchor)
+                )
         return False
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:

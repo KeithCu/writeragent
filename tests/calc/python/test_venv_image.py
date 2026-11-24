@@ -1304,6 +1304,22 @@ def test_slot0_and_slot1_after_multi_column_spill_and_sheet_edge_clamp():
     assert edge_shapes[0].getPosition() == Point(6990, 2000)
 
 
+def test_untagged_spill_row_match_skips_other_formula_cell():
+    """An untagged slot 0 on a plain spilled cell matches, but one on another =PY() cell does not."""
+    from plugin.calc.python.image_egress import _anchored_plot_slots
+
+    formula_cell = CalcCellStub(col=1, row=2)
+    spilled_cell = CalcCellStub(col=2, row=2)
+    other_formula_cell = CalcCellStub(col=3, row=2)
+    on_spilled = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "WriterAgentPlot", spilled_cell)
+    on_other_formula = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "WriterAgentPlot", other_formula_cell)
+    page = _DrawPage([on_spilled, on_other_formula])
+    sheet = _SheetStub(page, formulas={(3, 2): '=PY("other()")'})
+
+    slots = _anchored_plot_slots(sheet, formula_cell, spill_cols=3)
+    assert slots == [(on_spilled, 0)]
+
+
 def test_zero_width_cell_keeps_slot0_at_cell_origin():
     """A zero-width (hidden) column clamps the inset so slot 0 starts at cell_pos.X."""
     cell = CalcCellStub(col=1, row=2)

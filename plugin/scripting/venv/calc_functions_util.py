@@ -426,6 +426,7 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
     else:
         x = np.asarray(known_x, dtype=float)
         x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
+    # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
     if x.ndim != 2 or x.shape[0] != n or np.any(np.isnan(x)) or np.any(np.isnan(y)):
         raise ValueError
     k = x.shape[1]
@@ -436,6 +437,7 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
     else:
         at = np.asarray(new_x, dtype=float)
         at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
+    # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
     if at.ndim != 2 or at.shape[1] != k or np.any(np.isnan(at)):
         raise ValueError
     # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the

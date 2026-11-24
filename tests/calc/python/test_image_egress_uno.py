@@ -674,26 +674,27 @@ def test_spill_plot_stands_past_spill_row_and_xlsx_uno(ctx, doc):
             _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1, spill_cols=3)
             assert draw_page.getCount() == 1
 
-        sheet.setPropertyValue("TableLayout", 0)
-        with tempfile.TemporaryDirectory(prefix="wa-spill-plot-xlsx-") as tmpdir:
-            xlsx_path = os.path.join(tmpdir, "spill_plot.xlsx")
-            xlsx_url = uno.systemPathToFileUrl(xlsx_path)
-            save_prop = PropertyValue()
-            save_prop.Name = "FilterName"
-            save_prop.Value = "Calc MS Excel 2007 XML"
-            doc.storeToURL(xlsx_url, (save_prop,))
+            with tempfile.TemporaryDirectory(prefix="wa-spill-plot-xlsx-") as tmpdir:
+                xlsx_path = os.path.join(tmpdir, "spill_plot.xlsx")
+                xlsx_url = uno.systemPathToFileUrl(xlsx_path)
+                save_prop = PropertyValue()
+                save_prop.Name = "FilterName"
+                save_prop.Value = "Calc MS Excel 2007 XML"
+                doc.storeToURL(xlsx_url, (save_prop,))
 
-            desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-            hidden_prop = PropertyValue()
-            hidden_prop.Name = "Hidden"
-            hidden_prop.Value = True
-            reloaded = desktop.loadComponentFromURL(xlsx_url, "_blank", 0, (hidden_prop,))
-            try:
-                reloaded_sheet = reloaded.getSheets().getByIndex(0)
-                reloaded_b3 = reloaded_sheet.getCellByPosition(1, 2)
-                assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3, 3)) == 1
-            finally:
-                reloaded.close(True)
+                desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+                hidden_prop = PropertyValue()
+                hidden_prop.Name = "Hidden"
+                hidden_prop.Value = True
+                reloaded = desktop.loadComponentFromURL(xlsx_url, "_blank", 0, (hidden_prop,))
+                try:
+                    reloaded_sheet = reloaded.getSheets().getByIndex(0)
+                    reloaded_b3 = reloaded_sheet.getCellByPosition(1, 2)
+                    assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3, 3)) == 1
+                    if not rtl:
+                        assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3)) == 0
+                finally:
+                    reloaded.close(True)
     finally:
         sheet.setPropertyValue("TableLayout", 0)
         b3.setFormula("")

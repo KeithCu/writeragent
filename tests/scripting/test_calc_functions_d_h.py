@@ -172,6 +172,9 @@ def test_growth_multivariate_and_edge_cases():
     expected = [3.21355929722245, 4.63419579784973, 18.7720997753485, 27.0707890689699, 89.1926991956556]
     assert np.allclose(calc.growth(y, x), expected, rtol=1e-9)
 
+    expected_no_const = [2.810252397287496, 4.285489818390781, 18.102529009635457, 27.60542214386022, 95.11224845211227]
+    assert np.allclose(calc.growth(y, x, None, False), expected_no_const, rtol=1e-9)
+
     pred_const = calc.growth(y, x, [[6, 8]])
     assert len(pred_const) == 1
     assert math.isclose(pred_const[0], 194.418475572597, rel_tol=1e-9)
