@@ -174,9 +174,10 @@ class FakeTextTableElement:
 
 
 class FakeParagraph:
-    def __init__(self, text="", portions=None):
+    def __init__(self, text="", portions=None, anchored=()):
         self._text = text
         self._portions = list(portions or [])
+        self._anchored = list(anchored)
 
     def supportsService(self, name):
         return name == "com.sun.star.text.Paragraph"
@@ -197,6 +198,9 @@ class FakeParagraph:
         if self._text:
             return FakeEnumeration([FakePortion(TextPortionType="Text", Text=self._text)])
         return FakeEnumeration([])
+
+    def createContentEnumeration(self, service):
+        return FakeEnumeration(list(self._anchored))
 
 
 class FakePortion:
@@ -1617,12 +1621,73 @@ def test_tracked_row_delete_refuses_tall_cell_without_dispatch(tall_cell):
 
 @pytest.mark.parametrize("tall_cell", ["A1", "B1", "C1"])
 def test_untracked_row_delete_refuses_tall_cell(tall_cell):
-    table = FakeTable(3, 3, name="T", row_spans={tall_cell: 2})
+    table = FakeTable(3, 3, cells={tall_cell: "x"}, name="T", row_spans={tall_cell: 2})
     ctx = _ctx({"T": table})
     res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
     assert res["status"] == "error"
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
     assert table._rows.removes == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "B1", "C1"])
+def test_untracked_row_delete_allows_empty_tall_cell(tall_cell):
+    table = FakeParentTable(3, 3, name="T", nested_by_cell={tall_cell: [FakeParagraph("")]})
+    table._row_spans = {tall_cell: 2}
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "ok", res
+    assert table._rows.removes == [(0, 1)]
+
+
+@pytest.mark.parametrize(
+    "para",
+    [
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Frame")]), id="frame_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="TextField")]), id="field_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Annotation")]), id="annotation_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Bookmark")]), id="bookmark_portion"),
+        pytest.param(FakeParagraph("", anchored=[object()]), id="anchored_content"),
+    ],
+)
+def test_row_delete_refuses_tall_cell_with_hosted_content(para):
+    table = FakeParentTable(3, 3, name="T", nested_by_cell={"B1": [para]})
+    table._row_spans = {"B1": 2}
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert table._rows.removes == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "C1"])
+def test_tracked_row_delete_refuses_empty_edge_tall_cell(tall_cell):
+    cells = {name: "x" for name in ("A1", "B1", "C1") if name != tall_cell}
+    table = _TrackingTable(3, 3, cells=cells, name="T", row_spans={tall_cell: 2})
+    doc = _TrackingDoc({"T": table})
+    res = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert tall_cell in res["message"]
+    assert doc.dispatched == []
+
+
+def test_tracked_row_delete_allows_empty_inner_tall_cell():
+    table = _TrackingTable(
+        3,
+        3,
+        cells={"A1": "a", "C1": "c"},
+        name="T",
+        row_spans={"B1": 2},
+    )
+    doc = _TrackingDoc({"T": table})
+    res = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res["status"] == "ok", res
+    assert res["tracked"] is True
+    assert doc.dispatched == [".uno:DeleteRows"]
 
 
 def test_untracked_row_delete_covered_row_still_removes():

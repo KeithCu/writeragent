@@ -1397,7 +1397,7 @@ def test_streamed_plain_mode_retargets_even_after_write_error():
     with (
         patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
         patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
-        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, {})) as mock_retarget,
     ):
         session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
         session.generated_text = "New"

@@ -681,6 +681,7 @@ def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
 
 def test_iter_nested_texts_walks_nested_tables():
     from unittest.mock import MagicMock
+    from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import iter_nested_texts
 
     class _Enum:
@@ -693,10 +694,19 @@ def test_iter_nested_texts_walks_nested_tables():
         def nextElement(self):
             return self._items.pop(0)
 
+    def _rows():
+        r = MagicMock()
+        r.getPropertyValue.return_value = True
+        rows = MagicMock()
+        rows.getCount.return_value = 1
+        rows.getByIndex.return_value = r
+        return rows
+
     inner_cell = MagicMock()
     inner_cell.createEnumeration.return_value = _Enum([])
     inner_tbl = MagicMock()
     inner_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    inner_tbl.getRows.return_value = _rows()
     inner_tbl.getCellNames.return_value = ["A1"]
     inner_tbl.getCellByName.return_value = inner_cell
 
@@ -704,12 +714,67 @@ def test_iter_nested_texts_walks_nested_tables():
     outer_cell.createEnumeration.return_value = _Enum([inner_tbl])
     outer_tbl = MagicMock()
     outer_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    outer_tbl.getRows.return_value = _rows()
     outer_tbl.getCellNames.return_value = ["A1"]
     outer_tbl.getCellByName.return_value = outer_cell
 
     root = MagicMock()
     root.createEnumeration.return_value = _Enum([outer_tbl])
-    assert list(iter_nested_texts(root)) == [root, outer_cell, inner_cell]
+    assert list(iter_nested_texts(MagicMock(), root, DeletionState())) == [root, outer_cell, inner_cell]
+
+
+def test_iter_nested_texts_skips_struck_table():
+    from unittest.mock import MagicMock, patch
+    from plugin.doc.text_helpers import DeletionState
+    from plugin.writer.range_copy import iter_nested_texts
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    cell = MagicMock()
+    tbl = MagicMock()
+    tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    tbl.getCellNames.return_value = ["A1"]
+    tbl.getCellByName.return_value = cell
+
+    root = MagicMock()
+    root.createEnumeration.return_value = _Enum([tbl])
+    with patch("plugin.writer.range_copy.table_is_struck", return_value=True):
+        assert list(iter_nested_texts(MagicMock(), root, DeletionState())) == [root]
+
+
+def test_table_is_struck():
+    from unittest.mock import MagicMock, patch
+    from plugin.doc.text_helpers import DeletionState
+    from plugin.writer.range_copy import table_is_struck
+
+    def _table(row_flags):
+        tbl = MagicMock()
+        rows = MagicMock()
+        rows.getCount.return_value = len(row_flags)
+        objs = []
+        for flag in row_flags:
+            r = MagicMock()
+            r.getPropertyValue.side_effect = lambda p, f=flag: f if p == "HasTextChangesOnly" else None
+            objs.append(r)
+        rows.getByIndex.side_effect = lambda i: objs[i]
+        tbl.getRows.return_value = rows
+        return tbl
+
+    doc = MagicMock()
+    assert table_is_struck(doc, _table([True]), DeletionState(True)) is True
+    with patch("plugin.writer.range_copy.table_is_all_deleted", return_value=True):
+        assert table_is_struck(doc, _table([False, False]), DeletionState(False)) is True
+        assert table_is_struck(doc, _table([False, True]), DeletionState(False)) is False
+    with patch("plugin.writer.range_copy.table_is_all_deleted", return_value=False):
+        assert table_is_struck(doc, _table([False, False]), DeletionState(False)) is False
 
 
 def test_clone_graphics_keeps_automatic_name_when_taken():

@@ -702,7 +702,7 @@ def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
     # Direct EditReviewSession.tag_side_effects check: tokens are stamped, no ChangeRecord is added,
     # and _pending_tokens does not wait for them.
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}))
+        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}, []))
         assert session.changes == []
         pending, reliable = session._pending_tokens()
         assert pending == set() and reliable is True
@@ -980,6 +980,182 @@ def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) ->
                         assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
                 finally:
                     doc.setPropertyValue("RecordChanges", False)
+
+
+def _set_header_outline_links(doc, titles: list[str]) -> Any:
+    """Turn the page header on, insert ``to-<title>`` outline links, and return the HeaderText."""
+    page_style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    page_style.setPropertyValue("HeaderIsOn", True)
+    header_text = page_style.getPropertyValue("HeaderText")
+    cur = header_text.createTextCursor()
+    cur.gotoEnd(False)
+    for idx, title in enumerate(titles):
+        if idx > 0:
+            header_text.insertString(cur, " ", False)
+        header_text.insertString(cur, f"to-{title}", True)
+        cur.setPropertyValue("HyperLinkURL", f"#{title}|outline")
+        cur.collapseToEnd()
+    return header_text
+
+
+def _read_text_portion_urls(text_obj) -> list[tuple[str, str]]:
+    """Collect (text, HyperLinkURL) for all visible portions in *text_obj*."""
+    urls = []
+    e = text_obj.createEnumeration()
+    while e.hasMoreElements():
+        para = e.nextElement()
+        if not para.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        portions = para.createEnumeration()
+        while portions.hasMoreElements():
+            portion = portions.nextElement()
+            url = str(portion.getPropertyValue("HyperLinkURL") or "")
+            text = str(portion.getString() or "")
+            if url:
+                urls.append((text, url))
+    return urls
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_swap_plus_rename_follows_titles_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Project scope</h1>',
+            "<p>Body A</p>",
+            '<h1 data-lo-style="Heading 1">Delivery costs</h1>',
+            "<p>Body B</p>",
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    header_text = _set_header_outline_links(doc, ["Project scope", "Delivery costs"])
+
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Total delivery costs</h1>',
+            "<p>Body B</p>",
+            '<h1 data-lo-style="Heading 1">Agreed project scope</h1>',
+            "<p>Body A</p>",
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_text_portion_urls(header_text) == [
+        ("to-Project scope", "#Agreed project scope|outline"),
+        ("to-Delivery costs", "#Total delivery costs|outline"),
+    ]
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    _jump_to_mark(ctx, doc, "Agreed project scope|outline")
+    assert _view_cursor_paragraph_text(doc) == "Agreed project scope"
+
+    vc.gotoEnd(False)
+    _jump_to_mark(ctx, doc, "Total delivery costs|outline")
+    assert _view_cursor_paragraph_text(doc) == "Total delivery costs"
+
+    doc.getUndoManager().undo()
+    assert _read_text_portion_urls(header_text) == [
+        ("to-Project scope", "#Project scope|outline"),
+        ("to-Delivery costs", "#Delivery costs|outline"),
+    ]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_rename_next_to_added_and_removed_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Project scope</h1>',
+            "<p>Body A</p>",
+            '<h1 data-lo-style="Heading 1">Old annex</h1>',
+            "<p>Body B</p>",
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    header_text = _set_header_outline_links(doc, ["Project scope", "Old annex"])
+
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Background</h1>',
+            "<p>Body B</p>",
+            '<h1 data-lo-style="Heading 1">Agreed project scope</h1>',
+            "<p>Body A</p>",
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_text_portion_urls(header_text) == [
+        ("to-Project scope", "#Agreed project scope|outline"),
+        ("to-Old annex", "#Old annex|outline"),
+    ]
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    _jump_to_mark(ctx, doc, "Agreed project scope|outline")
+    assert _view_cursor_paragraph_text(doc) == "Agreed project scope"
+
+    warnings = res.get("warnings") or []
+    assert any(
+        w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Old annex|outline"
+        for w in warnings
+    ), warnings
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_lost_heading_warns_only_for_live_link_while_recording_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Deleted Live</h1>',
+            '<h1 data-lo-style="Heading 1">Deleted Struck</h1>',
+            '<h1 data-lo-style="Heading 1">Kept Heading</h1>',
+            '<p>Live <a href="#Deleted Live|outline">link1</a> and Struck <a href="#Deleted Struck|outline">link2</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        search = doc.createSearchDescriptor()
+        search.SearchString = "link2"
+        found = doc.findFirst(search)
+        assert found is not None
+        found.setString("")
+
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoNextParagraph(True)
+        cur.gotoEndOfParagraph(True)
+        doc.getCurrentController().select(cur)
+        res = tool.execute(tool_ctx, target="selection", content="<p>Replacement</p>")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    stale_targets = [w.get("link_target") for w in warnings if w.get("code") == "LINK_TARGET_STALE"]
+    assert stale_targets == ["#Deleted Live|outline"], warnings
+    assert _read_portion_urls(doc) == [
+        ("link1", "#Deleted Live|outline"),
+        ("link2", "#Deleted Struck|outline"),
+    ]
 
 
 @native_test

@@ -514,24 +514,27 @@ def clone_window_graphics(
         clone_graphics(para, dest_doc, dest_text, cursor)
 
 
-def iter_nested_texts(text_obj: Any) -> Iterator[Any]:
-    """Yield *text_obj* and recursively every cell XText inside its tables.
+def iter_nested_texts(doc: Any, text_obj: Any, state: DeletionState) -> Iterator[Any]:
+    """Yield *text_obj* and recursively every cell XText inside its live tables.
 
-    Walks down from *text_obj* because a header/footer table's
-    ``getAnchor().getText()`` is None.
+    *state* is the tracked-deletion state at the start of *text_obj*; struck tables
+    (``table_is_struck``) are skipped. Walks down from *text_obj* because a header/footer
+    table's ``getAnchor().getText()`` is None.
     """
     yield text_obj
     enum = uno_read(lambda: text_obj.createEnumeration(), None)
-    if enum is None:
-        return
     for el in iter_elements(enum):
         if not supports_service(el, "com.sun.star.text.TextTable"):
+            for _unused in visible_portions(el, state=state):
+                pass  # advances state past this paragraph's markers
+            continue
+        if table_is_struck(doc, el, state):
             continue
         cell_names: tuple[str, ...] = uno_read(lambda: el.getCellNames(), ())
         for cell_name in cell_names:
             cell = uno_read(lambda: el.getCellByName(cell_name), None)
             if cell is not None:
-                yield from iter_nested_texts(cell)
+                yield from iter_nested_texts(doc, cell, DeletionState())
 
 
 def _copy_visible_portions(
@@ -594,7 +597,8 @@ def _copy_cell_xtext(
     state = DeletionState()
     fresh = True
     for para in iter_elements(para_enum):
-        # A table inside an open deletion is struck whole.
+        # A table inside an open deletion is struck whole. Covers spanning deletions only,
+        # so a nested table struck by its own rows is still copied.
         if state.in_delete and supports_service(para, "com.sun.star.text.TextTable"):
             continue
         if not fresh:
@@ -781,8 +785,8 @@ def _copy_xtext_by_portions(
     state = TrackedDeletions(src_doc).state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
-        # A table inside an open deletion is struck whole.
-        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+        # A table inside an open deletion or with all rows marked deleted is struck whole.
+        if supports_service(el, "com.sun.star.text.TextTable") and table_is_struck(src_doc, el, state):
             continue
         if not fresh:
             begin_next_paragraph(dest_text, dest_cursor)
@@ -835,8 +839,8 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
     state = TrackedDeletions(doc).state_at(src_text)
     fresh = True
     for el in iter_elements(enum):
-        # A table inside an open deletion is struck whole.
-        if state.in_delete and supports_service(el, "com.sun.star.text.TextTable"):
+        # A table inside an open deletion or with all rows marked deleted is struck whole.
+        if supports_service(el, "com.sun.star.text.TextTable") and table_is_struck(doc, el, state):
             continue
         if not fresh:
             begin_next_paragraph(dest_text, cursor)
@@ -918,6 +922,24 @@ def table_is_all_deleted(doc: Any, table: Any) -> bool:
     if not names:
         return False
     return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
+
+
+def table_is_struck(doc: Any, table: Any, state: DeletionState) -> bool:
+    """True when accepting the pending tracked changes removes *table*.
+
+    Either the deletion open at the table (*state*) spans it, or every row has
+    ``HasTextChangesOnly`` false and ``table_is_all_deleted`` holds
+    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). The text
+    check is on the whole table rather than row by row, which is enough for Delete Table
+    because ``SwDoc::SetRowNotTracked`` puts a struck dummy character in each empty row.
+    A table with only its cell texts struck keeps ``HasTextChangesOnly`` true and survives Accept.
+    """
+    if state.in_delete:
+        return True
+    rows = table.getRows()
+    if any(rows.getByIndex(i).getPropertyValue("HasTextChangesOnly") is not False for i in range(rows.getCount())):
+        return False
+    return table_is_all_deleted(doc, table)
 
 
 GRAPHIC_LAYOUT_PROPS = (
