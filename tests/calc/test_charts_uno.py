@@ -259,3 +259,57 @@ def test_chart_from_named_data_range(ctx, doc):
             _execute_calc_tool(doc, ctx, "chart_delete", {"name": chart_name})
         if named_ranges.hasByName("ChartData"):
             named_ranges.removeByName("ChartData")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_chart_delete_writer_anchors_uno(ctx, doc):
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PAGE
+
+    from plugin.calc.charts import CHART_CLSID_DRAW_OLE, ChartDelete
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Body text", False)
+
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(cur, table, False)
+    cell_text = table.getCellByName("A1")
+    cell_cur = cell_text.createTextCursor()
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setPropertyValue("Size", Size(6000, 4000))
+    text.insertTextContent(cur, frame, False)
+    frame_text = frame.getText()
+    frame_cur = frame_text.createTextCursor()
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    hosts = [
+        ("PageChart", text, cur, AT_PAGE, 1),
+        ("CellChart", cell_text, cell_cur, AS_CHARACTER, None),
+        ("FrameChart", frame_text, frame_cur, AS_CHARACTER, None),
+    ]
+    for name, host_text, host_cur, anchor_type, page_no in hosts:
+        embed = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        embed.CLSID = CHART_CLSID_DRAW_OLE.upper()
+        embed.setPropertyValue("Size", Size(4000, 3000))
+        embed.setPropertyValue("AnchorType", anchor_type)
+        if page_no is not None:
+            embed.setPropertyValue("AnchorPageNo", page_no)
+        host_text.insertTextContent(host_cur, embed, False)
+        embed.setName(name)
+        assert doc.getEmbeddedObjects().hasByName(name)
+
+        res = ChartDelete().execute_safe(tool_ctx, name=name)
+        assert res.get("status") == "ok", res
+        assert not doc.getEmbeddedObjects().hasByName(name)
+
+        if anchor_type == AT_PAGE:
+            doc.getUndoManager().undo()
+            assert doc.getEmbeddedObjects().hasByName(name)
+            assert doc.getEmbeddedObjects().getByName(name).getPropertyValue("AnchorType") == AT_PAGE
+            res2 = ChartDelete().execute_safe(tool_ctx, name=name)
+            assert res2.get("status") == "ok", res2
+            assert not doc.getEmbeddedObjects().hasByName(name)

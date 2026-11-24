@@ -147,3 +147,69 @@ def test_frame_delete_warns_when_recording_and_not_when_off_uno(ctx, doc):
         assert not doc.getTextFrames().hasByName("RecFrame2")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_frame_insert_page_anchor_uses_target_page_uno(ctx, doc):
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Page one text", False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    cur.setPropertyValue("BreakType", PAGE_BEFORE)
+    text.insertString(cur, "PAGE_TWO_MARKER", False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    cur.setPropertyValue("BreakType", PAGE_BEFORE)
+    text.insertString(cur, "Page three text", False)
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(text.getStart(), False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = FrameInsert().execute(
+        tool_ctx,
+        target="search",
+        old_content="PAGE_TWO_MARKER",
+        name="Page2Frame",
+        text="Frame on page 2",
+        width_mm=80.0,
+        height_mm=30.0,
+        anchor_type=2,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("anchor_type") == 2
+
+    frame = doc.getTextFrames().getByName("Page2Frame")
+    assert frame.getPropertyValue("AnchorType") == AT_PAGE
+    assert frame.getPropertyValue("AnchorPageNo") == 2
+    vc.gotoRange(frame.getText().getStart(), False)
+    assert vc.getPage() == 2
+
+    doc.getUndoManager().undo()
+    assert not doc.getTextFrames().hasByName("Page2Frame")
+    assert "PAGE_TWO_MARKER" in text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_insert_reports_real_anchor_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = FrameInsert().execute(
+        tool_ctx,
+        target="end",
+        name="FallbackFrame",
+        text="Body",
+        width_mm=80.0,
+        height_mm=30.0,
+        anchor_type=3,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("anchor_type") == 0
+    frame = doc.getTextFrames().getByName("FallbackFrame")
+    assert frame.getPropertyValue("AnchorType") == AT_PARAGRAPH

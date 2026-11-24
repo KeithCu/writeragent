@@ -39,6 +39,8 @@
   var dataBindingTitle = "Calc injects `data` and `ranges` from these range(s) at runtime.";
   var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PY() formula.";
   var followCodeRef = false;
+  var requestedSave = false;
+  var savePendingLoad = false;
 
   function t(key, fallback) {
     var value = ui[key];
@@ -218,7 +220,7 @@
       input.value = text || "";
     }
 
-    updateDataBindingEnabled();
+    setSavePendingLoad(false);
     var code = msg.code || "";
     pendingCode = code || "";
     if (editor) {
@@ -260,13 +262,26 @@
     }
   }
 
+  // The host answers a requested save with load, which replaces the text, so anything typed
+  // after the save was sent would be lost; lock in the same turn we send because a host ack leaves a gap.
+  function setSavePendingLoad(on) {
+    savePendingLoad = !!on;
+    if (editor) {
+      editor.setReadOnly(savePendingLoad);
+    }
+    updateDataBindingEnabled();
+  }
+
   function updateDataBindingEnabled() {
     var plainEl = getPlainTextCheckbox();
     var input = getDataBindingInput();
     var label = document.getElementById("data-binding-label");
     var disabled = !!plainEl && plainEl.checked && !followCodeRef;
+    if (plainEl) {
+      plainEl.disabled = savePendingLoad;
+    }
     if (input) {
-      input.disabled = disabled;
+      input.disabled = savePendingLoad || disabled;
       input.title = disabled ? dataBindingDisabledTitle : dataBindingTitle;
     }
     if (label) {
@@ -289,9 +304,16 @@
               } else if (msg.type === "request_save") {
                 var saveBtn = document.getElementById("btn-save");
                 if (saveBtn) {
+                  // Lock only in this shell's handler: a named Run Script save is taken by the capture
+                  // listener in scripts_manager.js and gets no saved reply, so locking here would stick.
+                  requestedSave = true;
                   saveBtn.click();
+                  requestedSave = false;
                 }
               } else if (msg.type === "saved") {
+                if (!msg.load_follows) {
+                  setSavePendingLoad(false);
+                }
                 var dataInput = getDataBindingInput();
                 var plainBox = getPlainTextCheckbox();
                 var codeKept = getEditorCode() === lastSaveCode;
@@ -321,6 +343,7 @@
                   editor.setMarkers(msg.markers);
                 }
               } else if (msg.type === "error") {
+                setSavePendingLoad(false);
                 setStatus(formatErrorMessage(msg), "error");
                 if (editor && Array.isArray(msg.markers)) {
                   editor.setMarkers(msg.markers);
@@ -383,6 +406,9 @@
     if (window.pywebview && window.pywebview.api) {
       if (currentMode === "run_script" && window.pywebview.api.notify_save_script) {
         window.pywebview.api.notify_save_script(code, sessionId, currentMode, sessionTarget);
+        if (requestedSave) {
+          setSavePendingLoad(true);
+        }
         setStatus(t("saving", "Saving…"), "");
         return;
       }
@@ -397,6 +423,9 @@
       var dataBinding = (followCodeRef || !saveAsPlain) ? (input ? input.value.trim() : "") : "";
       rememberSent(code);
       window.pywebview.api.notify_save(code, saveAsPlain, dataBinding, "cell_save", sessionId, currentMode, sessionTarget);
+      if (requestedSave) {
+        setSavePendingLoad(true);
+      }
       setStatus(pendingStatusText, "");
     }
   });

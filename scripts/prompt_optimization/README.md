@@ -76,7 +76,7 @@ python run_eval.py --backend lo --student scripted --no-bust-cache -v   # headle
 # or from repo root: make run_eval-lo-scripted
 ```
 
-Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`). The LO pack is skipped unless `soffice` and real `uno` are importable. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
+Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`); PR CI runs the scripted LO eval pack on Linux in the scripts integration step, and elsewhere it is skipped unless `soffice`, `python-uno`, and the manifest are present. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
 
 **Full optimization (MIPROv2, live student):**
 
@@ -262,7 +262,7 @@ python merge_benchmark_results.py \
 ### Eval framework (summary)
 
 - **Dataset** (`dataset.py`): 20 fixed tasks (12 Writer + Draw flowchart/org-chart/solar-sld + 2 Calc + 2 `=PY` dest + `python_shapes_flag` on LO) with assigned `category` (structural or creative). `--backend string` runs the 17 non-`backend=lo` rows.
-- **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
+- **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces. Oracles score only the first rendering of an LO Writer export.
 - **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking). `gold_standards.generated.json` and `gold_generation_details.json` are raw `--generate-golds` records; nothing loads them, and a teacher gold can fail its oracle (the `bulk_cleanup` teacher kept `"Quoted  text"`). Only `gold_standards.json` is loaded, and `test_golds_pass_oracles` gates it.
 - **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.

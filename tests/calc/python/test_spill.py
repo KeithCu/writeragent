@@ -253,7 +253,6 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
     st.spills[("Sheet1", 1, 1)] = SpillRecord(
         code="c",
         cells=[
-            SpillCell(2, 1, "n", float("nan")),
             SpillCell(3, 1, "n", float("inf")),
             SpillCell(4, 1, "n", float("-inf")),
             SpillCell(5, 1, "n", 1.5),
@@ -267,7 +266,6 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
         assert saved is not None
         data = json.loads(saved)
         assert data["Sheet1:1,1"]["cells"] == [
-            {"r": 2, "c": 1, "t": "n", "v": "nan"},
             {"r": 3, "c": 1, "t": "n", "v": "inf"},
             {"r": 4, "c": 1, "t": "n", "v": "-inf"},
             {"r": 5, "c": 1, "t": "n", "v": 1.5},
@@ -279,21 +277,27 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
         _spill.load_spill_registry_for_doc(doc, st2)
         rec = SPILL_REGISTRY[key]
         assert all(c.kind == "n" for c in rec.cells)
-        assert math.isnan(rec.cells[0].value)
-        assert rec.cells[1].value == math.inf
-        assert rec.cells[2].value == -math.inf
-        assert rec.cells[3].value == 1.5
+        assert rec.cells[0].value == math.inf
+        assert rec.cells[1].value == -math.inf
+        assert rec.cells[2].value == 1.5
     finally:
         reset_calc_workbook_states()
 
 
 def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.spill import SpillCell, SpillRecord
+    import json
     from plugin.tests.testing_utils import CalcSheetStub
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
-    stored: dict[str, Any] = {}
+    stored: dict[str, Any] = {
+        "WriterAgentSpillRegistry": json.dumps({
+            "Sheet1:0,0": {
+                "code": "result = [float('nan'), 1.0]",
+                "cells": [{"r": 1, "c": 0, "t": "n", "v": "nan"}],
+            }
+        })
+    }
 
     def mock_get_prop(model: Any, name: str, default: Any = None) -> Any:
         return stored.get(name, default)
@@ -312,20 +316,13 @@ def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    st.spills[("Sheet1", 0, 0)] = SpillRecord(
-        code="result = [float('nan'), 1.0]",
-        cells=[SpillCell(1, 0, "n", float("nan"))],
-    )
     key = (st.key, "Sheet1", 0, 0)
     try:
-        _spill.save_spill_registry_for_doc(doc, st)
-        reset_calc_workbook_states()
-        st = WorkbookState.for_doc(doc)
-        assert st is not None
         _spill.load_spill_registry_for_doc(doc, st)
 
         reloaded = SPILL_REGISTRY[key]
         assert reloaded.cells[0].kind == "n"
+        assert reloaded.cells[0].value == "nan"
 
         sheet.getCellByPosition(0, 0).setFormula("")
         sheet.getCellByPosition(0, 1).setValue(42.0)
@@ -1035,9 +1032,13 @@ def test_cell_matches_stored_value_type_gate() -> None:
 
 
 def test_cell_matches_stored_value_err() -> None:
-    fake_cell_519 = SimpleNamespace(getError=lambda: 519)
+    fake_cell_519 = SimpleNamespace(getError=lambda: 519, getFormula=lambda: "=#VALUE!")
+    fake_cell_na = SimpleNamespace(getError=lambda: 32767, getFormula=lambda: "#N/A")
+    fake_cell_user_formula = SimpleNamespace(getError=lambda: 532, getFormula=lambda: "=1/0")
     fake_cell_no_err = SimpleNamespace()
     rec_519 = _spill.SpillCell(row=0, col=0, kind="err", value=519)
+    rec_na = _spill.SpillCell(row=0, col=0, kind="err", value=32767)
+    rec_532 = _spill.SpillCell(row=0, col=0, kind="err", value=532)
 
     class FakeSheet:
         def __init__(self, cell):
@@ -1047,12 +1048,62 @@ def test_cell_matches_stored_value_err() -> None:
 
     sheet_519 = FakeSheet(fake_cell_519)
     assert _spill._cell_matches_stored_value(sheet_519, 0, 0, rec_519) is True
-
-    rec_532 = _spill.SpillCell(row=0, col=0, kind="err", value=532)
     assert _spill._cell_matches_stored_value(sheet_519, 0, 0, rec_532) is False
+
+    assert _spill._cell_matches_stored_value(FakeSheet(fake_cell_na), 0, 0, rec_na) is True
+    assert _spill._cell_matches_stored_value(FakeSheet(fake_cell_user_formula), 0, 0, rec_532) is False
 
     sheet_no_err = FakeSheet(fake_cell_no_err)
     assert _spill._cell_matches_stored_value(sheet_no_err, 0, 0, rec_519) is False
+
+
+def test_cell_matches_stored_value_empty_rejects_formula() -> None:
+    formula_cell = SimpleNamespace(
+        getType=lambda: 3,
+        getString=lambda: "",
+        getFormula=lambda: '=""',
+    )
+
+    class FakeSheet:
+        def getCellByPosition(self, col, row):
+            return formula_cell
+
+    assert _spill._cell_matches_stored_value(FakeSheet(), 0, 0, _spill.SpillCell(0, 0, "e", "")) is False
+
+
+def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.calc.python.spill.save_spill_registry_for_doc", lambda doc, state: None)
+
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///nan_block.ods")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("result = [[1, float(\'nan\')], [2, float(\'nan\')]]")')
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        perform_deferred_spill(
+            "Sheet1",
+            0,
+            0,
+            [[1.0, float("nan")], [2.0, float("nan")]],
+            doc=doc,
+            sheet=sheet,
+            code="result = [[1, float('nan')], [2, float('nan')]]",
+            key=st.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getFormula() == "=#ERR503!"
+        assert sheet.getCellByPosition(1, 1).getFormula() == "=#ERR503!"
+        assert sheet.getCellByPosition(0, 1).getValue() == 2.0
+        rec = SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)]
+        err_cells = [c for c in rec.cells if c.col == 1]
+        assert [(c.kind, c.value) for c in err_cells] == [("err", 503), ("err", 503)]
+    finally:
+        reset_calc_workbook_states()
 
 
 def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPatch) -> None:

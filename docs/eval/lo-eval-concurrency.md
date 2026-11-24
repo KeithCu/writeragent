@@ -110,7 +110,7 @@ While step 2 runs, `_lo_thread` can run another agent’s step 3. That is the sp
 
 These are the breakages to design the proof around. They are all single-process, single-soffice issues.
 
-**Current component.** `get_active_document` is `desktop.getCurrentComponent()` (`plugin/framework/uno_context.py`). The last `loadComponentFromURL` becomes current, including a `Hidden` factory doc. Plain eval tools do **not** use that. `_execute_lo_tool_impl` passes `LOBackend.acquire_document()` into `ToolContext`, and Writer tools such as `apply_document_content` / `get_document_content` use `ctx.doc`. Two agents whose tools only see `ctx.doc` can share a desktop **if** each `LOBackend.call` is tagged with the caller id, which `call` already does.
+**Current component.** `get_active_document` is `desktop.getCurrentComponent()` (`plugin/framework/uno_context.py`). The last `loadComponentFromURL` becomes current, including a `Hidden` factory doc. Plain eval tools do **not** use that. `_execute_lo_tool_impl` passes `LOBackend.acquire_document()` into `ToolContext`, and Writer tools such as `apply_content` / `get_content` use `ctx.doc`. Two agents whose tools only see `ctx.doc` can share a desktop **if** each `LOBackend.call` is tagged with the caller id, which `call` already does.
 
 **Flag / venv path.** Direct `execute_tool` with no session id still builds `ToolContext` from `get_active_document(get_ctx())`. Chat `RunVenvPythonScript.execute` (`plugin/calc/python/venv.py`) pins `ctx.doc` and passes that id into `run_code_in_user_venv`. The child’s `wa.shape` RPC comes back through `execute_tool`, which resolves the pin before the focused window. A script with no pin (Run Python Script in Isolated mode, or a direct `execute_tool`) still uses the current component.
 
@@ -143,7 +143,7 @@ The connector can do it, and v1 should not.
 
 `run_eval_multi.py -j 20` is model parallelism for the **string** board. Native LO rows share the agent pool (default 4, cap 5), not 20 soffice clients. Turning that 20 into 20 simultaneous LO agents on one soffice spends complexity on the part that is not the wait:
 
-- UNO edits stay serial on `_lo_thread` and on the office mutex. Twenty agents in HTTP is fine; twenty agents in `apply_document_content` or in a flag script is a queue.
+- UNO edits stay serial on `_lo_thread` and on the office mutex. Twenty agents in HTTP is fine; twenty agents in `apply_content` or in a flag script is a queue.
 - The flag script holds the only venv pipe for the whole script. Twenty flag tasks would mostly wait on that pipe, not on the model.
 - Twenty hidden Writer documents in one headless soffice is a memory and dispose-order problem the 2–5 proof does not need.
 - A cross-write is obvious with two documents and two known strings. It is not obvious with twenty.
@@ -188,7 +188,7 @@ Same script, four tokens, four threads (`--n 4`). Pass criteria are the same, wi
 
 ### N=2 with a real short model call
 
-Only after the text proof. Two threads, each calling `run_llm_chat_eval(..., backend="lo")` on a tiny Writer ask (one `apply_document_content`, not the flag) **without** wrapping those calls in `LoLane`. Watch the banners: `Calling model` for thread B should print before thread A’s export. Confirm the two exports differ. One `LlmClient` per `run_llm_chat_eval` is already how the function is written; do not share a client across the two threads.
+Only after the text proof. Two threads, each calling `run_llm_chat_eval(..., backend="lo")` on a tiny Writer ask (one `apply_content`, not the flag) **without** wrapping those calls in `LoLane`. Watch the banners: `Calling model` for thread B should print before thread A’s export. Confirm the two exports differ. One `LlmClient` per `run_llm_chat_eval` is already how the function is written; do not share a client across the two threads.
 
 ### N=2 flag sketch, still one soffice
 

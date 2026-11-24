@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import uno  # noqa: F401
 from com.sun.star.beans import PropertyValue
 
@@ -282,3 +284,527 @@ def test_heading_links_resolve_text_box_heading_uno(ctx, doc) -> None:
 
     _jump_to_mark(ctx, doc, "Box Heading|outline")
     assert _view_cursor_paragraph_text(doc) == "Box Heading"
+
+
+def _dispatch(ctx, doc, command: str) -> None:
+    smgr = ctx.getServiceManager()
+    helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), command, "", 0, ())
+
+
+def _snapshot_paragraphs(doc) -> list[tuple[str, list[tuple[str, str, str, str, Any, Any]]]]:
+    """Capture paragraph text and per-Text-portion link/formatting properties."""
+    out = []
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        p = e.nextElement()
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        runs = []
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getPropertyValue("TextPortionType") or "") != "Text":
+                continue
+            runs.append((
+                str(por.getString() or ""),
+                str(por.getPropertyValue("HyperLinkURL") or ""),
+                str(por.getPropertyValue("HyperLinkName") or ""),
+                str(por.getPropertyValue("HyperLinkTarget") or ""),
+                por.getPropertyValue("CharColor"),
+                por.getPropertyValue("CharWeight"),
+            ))
+        out.append((str(p.getString() or ""), runs))
+    return out
+
+
+def _office_author(ctx) -> tuple[str, str]:
+    from plugin.writer import review_authors
+
+    prior = review_authors.begin(ctx)
+    review_authors.end(ctx, prior)
+    return prior
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+
+    # Initial document with a styled/named/targeted split link (bold half) and a second heading.
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Old Alpha</h1>',
+            '<p>See <a href="#Old Alpha|outline" name="L1" target="_top">link <b>half</b></a>.</p>',
+            '<h2 data-lo-style="Heading 2">Old Beta</h2>',
+            '<p>Also <a href="#Old Beta|outline">beta link</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    # Color the link run to verify color/weight/name/target survive.
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        p = e.nextElement()
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getPropertyValue("HyperLinkURL") or "") == "#Old Alpha|outline":
+                por.setPropertyValue("CharColor", 0x112233)
+
+    start_snap = _snapshot_paragraphs(doc)
+
+    # 1. old_content plain rename of Old Alpha
+    res = tool.execute(tool_ctx, target="search", old_content="Old Alpha", content="New Alpha")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted", 0) >= 1, res
+    assert _read_portion_urls(doc) == [
+        ("link ", "#New Alpha|outline"),
+        ("half", "#New Alpha|outline"),
+        ("beta link", "#Old Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "New Alpha|outline")
+    assert _view_cursor_paragraph_text(doc) == "New Alpha"
+
+    # Verify bold half kept weight, color, name, target.
+    half_props = None
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        p = e.nextElement()
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getString() or "") == "half":
+                half_props = (
+                    por.getPropertyValue("CharWeight"),
+                    por.getPropertyValue("CharColor"),
+                    por.getPropertyValue("HyperLinkName"),
+                    por.getPropertyValue("HyperLinkTarget"),
+                )
+    assert half_props is not None
+    assert half_props[0] > 100.0
+    assert half_props[1] == 0x112233
+    assert half_props[2] == "L1"
+    assert half_props[3] == "_top"
+
+    # One undo restores Old Alpha and #Old Alpha|outline, matching start state.
+    doc.getUndoManager().undo()
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    # 2. anchor span rename
+    res = tool.execute(
+        tool_ctx,
+        target="search",
+        start_anchor="Old",
+        end_anchor="Alpha",
+        content="Anchor Alpha",
+    )
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#Old Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Anchor Alpha|outline")
+    assert _view_cursor_paragraph_text(doc) == "Anchor Alpha"
+
+    # 3. old_content HTML rename
+    res = tool.execute(
+        tool_ctx,
+        target="search",
+        old_content="Old Beta",
+        content='<h2 data-lo-style="Heading 2">Html Beta</h2>',
+    )
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#Html Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Html Beta|outline")
+    assert _view_cursor_paragraph_text(doc) == "Html Beta"
+
+    # 4. all_matches rename
+    res = tool.execute(
+        tool_ctx,
+        target="search",
+        old_content="Html Beta",
+        content="All Beta",
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [
+        ("link ", "#Anchor Alpha|outline"),
+        ("half", "#Anchor Alpha|outline"),
+        ("beta link", "#All Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "All Beta|outline")
+    assert _view_cursor_paragraph_text(doc) == "All Beta"
+
+    # 5. full_document rename
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Final Alpha</h1>',
+            '<p>See <a href="#Anchor Alpha|outline">link half</a>.</p>',
+            '<h2 data-lo-style="Heading 2">All Beta</h2>',
+            '<p>Also <a href="#All Beta|outline">beta link</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [
+        ("link half", "#Final Alpha|outline"),
+        ("beta link", "#All Beta|outline"),
+    ]
+    _jump_to_mark(ctx, doc, "Final Alpha|outline")
+    assert _view_cursor_paragraph_text(doc) == "Final Alpha"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_rename_reaches_cells_frames_notes_header_uno(ctx, doc) -> None:
+    from com.sun.star.awt import Size
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Target Heading", False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+
+    # Table cell link
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    cell_text = tbl.getCellByName("A1").getText()
+    cc = cell_text.createTextCursor()
+    cell_text.insertString(cc, "cell", False)
+    cc.gotoStart(False)
+    cc.gotoEnd(True)
+    cc.setPropertyValue("HyperLinkURL", "#Target Heading|outline")
+
+    # Text frame link
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setSize(Size(4000, 1500))
+    text.insertTextContent(cur, frame, False)
+    ft = frame.getText()
+    fc = ft.createTextCursor()
+    ft.insertString(fc, "frame", False)
+    fc.gotoStart(False)
+    fc.gotoEnd(True)
+    fc.setPropertyValue("HyperLinkURL", "#Target Heading|outline")
+
+    # Footnote link
+    fn = doc.createInstance("com.sun.star.text.Footnote")
+    text.insertTextContent(cur, fn, False)
+    fnt = fn.getText()
+    fnc = fnt.createTextCursor()
+    fnt.insertString(fnc, "note", False)
+    fnc.gotoStart(False)
+    fnc.gotoEnd(True)
+    fnc.setPropertyValue("HyperLinkURL", "#Target Heading|outline")
+
+    # Header link
+    pstyle = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    pstyle.setPropertyValue("HeaderIsOn", True)
+    ht = pstyle.getPropertyValue("HeaderText")
+    hc = ht.createTextCursor()
+    ht.insertString(hc, "hdr", False)
+    hc.gotoStart(False)
+    hc.gotoEnd(True)
+    hc.setPropertyValue("HyperLinkURL", "#Target Heading|outline")
+
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="Target Heading",
+        content="Renamed Target",
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 4, res
+
+    for container in (cell_text, ft, fnt, ht):
+        e = container.createEnumeration()
+        p = e.nextElement()
+        pe = p.createEnumeration()
+        found_new = False
+        while pe.hasMoreElements():
+            if str(pe.nextElement().getPropertyValue("HyperLinkURL") or "") == "#Renamed Target|outline":
+                found_new = True
+        assert found_new
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">One</h1>',
+            '<p><a href="#One|outline">whole para link</a></p>',
+            '<p>end link <a href="#Two part|outline" name="L2" target="_top">to <b>two</b></a></p>',
+            '<h2 data-lo-style="Heading 2">Two <b>part</b></h2>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    # Apply direct colour on the split link so Reject/Accept formatting preservation is pinned.
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        p = e.nextElement()
+        if not p.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        pe = p.createEnumeration()
+        while pe.hasMoreElements():
+            por = pe.nextElement()
+            if str(por.getPropertyValue("HyperLinkURL") or "") == "#Two part|outline":
+                por.setPropertyValue("CharColor", 0x224466)
+
+    start_snap = _snapshot_paragraphs(doc)
+    user_author = _office_author(ctx)
+
+    doc.setPropertyValue("RecordChanges", True)
+    doc.setPropertyValue("ShowChanges", False)
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted", 0) >= 1, res
+
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted", 0) >= 2, res
+
+    # Verify link redlines are authored WriterAgent, heading redlines keep the user's author,
+    # and the office author was restored afterwards.
+    assert _office_author(ctx) == user_author
+    redlines = doc.getRedlines()
+    link_authors = []
+    heading_authors = []
+    for i in range(redlines.getCount()):
+        rl = redlines.getByIndex(i)
+        author = str(rl.getPropertyValue("RedlineAuthor") or "")
+        cur = rl.getPropertyValue("RedlineStart").getText().createTextCursorByRange(rl.getPropertyValue("RedlineStart"))
+        cur.gotoRange(rl.getPropertyValue("RedlineEnd"), True)
+        rtext = str(cur.getString() or "")
+        if rtext in ("whole para link", "to ", "two"):
+            link_authors.append(author)
+        elif rtext in ("One", "One B", "Two part", "Two B"):
+            heading_authors.append(author)
+    assert link_authors and all(a == "WriterAgent" for a in link_authors), link_authors
+    assert heading_authors and all(a != "WriterAgent" for a in heading_authors), heading_authors
+
+    # Rename a second time while recording is still active.
+    res = tool.execute(tool_ctx, target="search", old_content="One B", content="One C")
+    assert res.get("status") == "ok", res
+
+    doc.setPropertyValue("ShowChanges", True)
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    # Also reject once with the renames made under ShowChanges=True, and verify one Undo.
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    doc.getUndoManager().undo()
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert _snapshot_paragraphs(doc) == start_snap
+
+    # Re-apply and Accept All: check paragraphs, URLs, and preserved link look.
+    res = tool.execute(tool_ctx, target="search", old_content="One", content="One B")
+    assert res.get("status") == "ok", res
+    res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accepted = _snapshot_paragraphs(doc)
+    assert len(accepted) == len(start_snap)
+    assert [u for _t, u in _read_portion_urls(doc)] == [
+        "#One B|outline",
+        "#Two B|outline",
+        "#Two B|outline",
+    ]
+    two_runs = [r for _pt, runs in accepted for r in runs if r[0] in ("to ", "two")]
+    assert len(two_runs) == 2
+    for text_val, url_val, name_val, target_val, color_val, weight_val in two_runs:
+        assert url_val == "#Two B|outline"
+        assert name_val == "L2"
+        assert target_val == "_top"
+        assert color_val == 0x224466
+        if text_val == "two":
+            assert weight_val > 100.0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
+    from unittest.mock import patch
+    from plugin.writer.edit_review import EditReviewSession
+    from plugin.writer.hyperlink_fixup import retarget_outline_links
+    from plugin.writer.inline_review import resolve_all_with_feedback
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Rev Old</h1>',
+            '<p>Go <a href="#Rev Old|outline">here</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    with patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=True):
+        res = tool.execute(tool_ctx, target="search", old_content="Rev Old", content="Rev New")
+        assert res.get("status") == "ok", res
+
+    # Every redline covering the link text ("here") carries a wa-review: token.
+    redlines = doc.getRedlines()
+    link_comments = []
+    for i in range(redlines.getCount()):
+        rl = redlines.getByIndex(i)
+        cur = rl.getPropertyValue("RedlineStart").getText().createTextCursorByRange(rl.getPropertyValue("RedlineStart"))
+        cur.gotoRange(rl.getPropertyValue("RedlineEnd"), True)
+        if str(cur.getString() or "") == "here":
+            link_comments.append(str(rl.getPropertyValue("RedlineComment") or ""))
+    assert len(link_comments) >= 2 and all(c.startswith("wa-review:") for c in link_comments), link_comments
+
+    count, msg = resolve_all_with_feedback(doc, ctx, True)
+    assert count > 0 and msg == "", (count, msg)
+    assert doc.getRedlines().getCount() == 0
+    assert [u for _t, u in _read_portion_urls(doc)] == ["#Rev New|outline"]
+
+    with patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=True):
+        res = tool.execute(tool_ctx, target="search", old_content="Rev New", content="Rev Third")
+        assert res.get("status") == "ok", res
+
+    count, msg = resolve_all_with_feedback(doc, ctx, False)
+    assert count > 0 and msg == "", (count, msg)
+    assert doc.getRedlines().getCount() == 0
+    assert [u for _t, u in _read_portion_urls(doc)] == ["#Rev New|outline"]
+
+    # Direct EditReviewSession.tag_side_effects check: tokens are stamped, no ChangeRecord is added,
+    # and _pending_tokens does not wait for them.
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}))
+        assert session.changes == []
+        pending, reliable = session._pending_tokens()
+        assert pending == set() and reliable is True
+    assert doc.getRedlines().getCount() >= 2
+    resolve_all_with_feedback(doc, ctx, True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_field_link_while_recording_warns_uno(ctx, doc) -> None:
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Field Heading", False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+
+    # Paragraph 1: link over a PageNumber field.
+    field = doc.createInstance("com.sun.star.text.TextField.PageNumber")
+    field.setPropertyValue("NumberingType", 4)
+    field.setPropertyValue("SubType", uno.Enum("com.sun.star.text.PageNumberType", "CURRENT"))
+    text.insertTextContent(cur, field, False)
+    doc.getTextFields().refresh()
+    fcur = text.createTextCursorByRange(cur.getStart())
+    fcur.gotoStartOfParagraph(False)
+    fcur.gotoEndOfParagraph(True)
+    fcur.setPropertyValue("HyperLinkURL", "#Field Heading|outline")
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+
+    # Paragraph 2: plain link with the same URL.
+    text.insertString(cur, "plain link", False)
+    pcur = text.createTextCursorByRange(cur.getStart())
+    pcur.gotoStartOfParagraph(False)
+    pcur.gotoEndOfParagraph(True)
+    pcur.setPropertyValue("HyperLinkURL", "#Field Heading|outline")
+
+    doc.setPropertyValue("RecordChanges", True)
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="Field Heading",
+        content="Field Renamed",
+    )
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    assert any(w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Field Heading|outline" for w in warnings), (warnings, _read_portion_urls(doc), res)
+
+    urls = _read_portion_urls(doc)
+    assert ("plain link", "#Field Renamed|outline") in urls, urls
+    assert any(u == "#Field Heading|outline" for _t, u in urls), urls
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_full_document_lists_no_deleted_headings_uno(ctx, doc) -> None:
+    from plugin.writer.apply_document_content import _document_headings
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Old One</h1>',
+            '<h2 data-lo-style="Heading 2">Old Two</h2>',
+            '<h2 data-lo-style="Heading 2">Old Three</h2>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    doc.setPropertyValue("RecordChanges", True)
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">New One</h1>',
+            '<h2 data-lo-style="Heading 2">Deux</h2>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _document_headings(doc) == [(1, "New One"), (2, "Deux")]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_body_edit_leaves_links_alone_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Keep Heading</h1>',
+            '<p>Body text with <a href="#Keep Heading|outline">link</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    res = tool.execute(tool_ctx, target="search", old_content="Body text", content="Updated body")
+    assert res.get("status") == "ok", res
+    assert "links_retargeted" not in res, res
+    assert _read_portion_urls(doc) == [("link", "#Keep Heading|outline")]

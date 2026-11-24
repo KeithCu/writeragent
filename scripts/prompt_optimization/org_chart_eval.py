@@ -14,7 +14,6 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
@@ -23,9 +22,10 @@ if str(_HERE) not in sys.path:
 from oracles import (  # noqa: E402
     _ORG_CHART_BOX_FLOOR,
     _ORG_CHART_CONN_FLOOR,
-    _org_chart_connectors,
     _org_chart_labeled_boxes,
     check_oracle,
+    draw_connector_count,
+    draw_nodes,
     parse_json_export,
 )
 
@@ -48,21 +48,6 @@ class OrgChartScore:
     connector_count: int = 0
 
 
-def _counts(doc: str) -> tuple[int, int]:
-    data = parse_json_export(doc) or {}
-    tree = data.get("tree")
-    nodes: list[dict[str, Any]] = (
-        [n for n in tree if isinstance(n, dict)] if isinstance(tree, list) else []
-    )
-    boxes = len(_org_chart_labeled_boxes(nodes))
-    connectors = len(_org_chart_connectors(nodes))
-    if connectors == 0:
-        raw = data.get("connections")
-        if isinstance(raw, list):
-            connectors = len(raw)
-    return boxes, connectors
-
-
 def score_org_chart_example(
     final_document: str,
     *,
@@ -75,7 +60,10 @@ def score_org_chart_example(
             summary=_STRING_FAILURE,
         )
     failures = check_oracle(ORG_CHART_TASK_ID, final_document or "")
-    boxes, connectors = _counts(final_document or "")
+    data = parse_json_export(final_document or "") or {}
+    nodes = draw_nodes(data)
+    boxes = len(_org_chart_labeled_boxes(nodes))
+    connectors = draw_connector_count(data, nodes)
     soft: list[str] = []
     if boxes != _WANT_BOXES and boxes >= _ORG_CHART_BOX_FLOOR:
         soft.append(

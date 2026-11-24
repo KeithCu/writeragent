@@ -77,7 +77,7 @@ The schema already accepts `["array", "string"]`. Array examples remain the defa
 In addition to `old_content`, `apply_content(target='search')` supports landmark-to-landmark replacement via `start_anchor` and `end_anchor`.
 - The replaced range starts at the beginning of the `start_anchor` match and extends through the end of the first `end_anchor` match that begins at or after the start match's end, including both anchors and all text between them.
 - Both anchors must resolve to the same `XText` container (same body, table cell, or text frame); crossing text boundaries produces an error. Spans containing a table between the anchors are refused with an error directing callers to `table_delete`.
-- Multiline plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting, while single-line plain anchor text remains on the inline path to avoid splitting the host paragraph; anchor replacements skip outline URL fixup.
+- Multiline plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting, while single-line plain anchor text remains on the inline path to avoid splitting the host paragraph; a renamed heading's links follow it.
 - Multi-paragraph replacement using suffix / whole-middle / prefix grammar remains on the `old_content` path.
 
 ### Math prompt policy (`WRITER_APPLY_DOCUMENT_HTML_RULES`)

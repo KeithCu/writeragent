@@ -139,12 +139,30 @@ class _FakeDispatchHelper:
         return 0
 
 
+class _FakeUndoManager:
+    def __init__(self, titles: list[str] | None = None, *, fail_clear: bool = False) -> None:
+        self.titles: list[str] = list(titles) if titles is not None else []
+        self.fail_clear = fail_clear
+
+    def lock(self) -> None:
+        pass
+
+    def unlock(self) -> None:
+        pass
+
+    def clear(self) -> None:
+        if self.fail_clear:
+            raise RuntimeError("UndoContextNotClosedException")
+        self.titles.clear()
+
+
 def _make_env(
     initial_state: dict[str, Any] | None = None,
     *,
     enabled: bool = True,
     apply_changes: bool = True,
     shapes: list[_FakeShape] | None = None,
+    undo_manager: _FakeUndoManager | None = None,
 ) -> tuple[Any, _FakeDispatchHelper, dict[str, Any], _FakeDrawPage, _FakeDispatch]:
     state: dict[str, Any] = dict(
         initial_state
@@ -160,6 +178,7 @@ def _make_env(
     transformer = _FakeURLTransformer()
     dispatch = _FakeDispatch(state, enabled=enabled)
     draw_page = _FakeDrawPage(shapes)
+    undo_mgr = undo_manager if undo_manager is not None else _FakeUndoManager()
 
     class _FakeServiceManager:
         def createInstanceWithContext(self, service: str, ctx: Any) -> Any:
@@ -175,7 +194,7 @@ def _make_env(
     doc = SimpleNamespace(
         getCurrentController=lambda: controller,
         getDrawPage=lambda: draw_page,
-        getUndoManager=lambda: SimpleNamespace(lock=lambda: None, unlock=lambda: None),
+        getUndoManager=lambda: undo_mgr,
     )
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=uno_ctx)
     return tool_ctx, helper, state, draw_page, dispatch
@@ -370,6 +389,7 @@ def test_remove_disposes_leftover_text_watermark_shapes() -> None:
     stale = _FakeShape("PowerPlusWaterMarkObject 1", container=shapes)
     logo = _FakeShape("Logo", container=shapes)
     shapes.extend([stale, logo])
+    undo_mgr = _FakeUndoManager(["Typing"])
     tool_ctx, _, _, _, _ = _make_env(
         {
             "Text": "DRAFT",
@@ -379,6 +399,7 @@ def test_remove_disposes_leftover_text_watermark_shapes() -> None:
             "Color": 0xC0C0C0,
         },
         shapes=shapes,
+        undo_manager=undo_mgr,
     )
 
     res = PageSetWatermark().execute(tool_ctx, text="")
@@ -388,6 +409,49 @@ def test_remove_disposes_leftover_text_watermark_shapes() -> None:
     assert stale not in shapes
     assert logo.disposed is False
     assert logo in shapes
+    assert undo_mgr.titles == []
+
+
+def test_remove_without_leftover_copies_keeps_undo_history() -> None:
+    undo_mgr = _FakeUndoManager(["Typing"])
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        undo_manager=undo_mgr,
+    )
+
+    res = PageSetWatermark().execute(tool_ctx, text="")
+    assert res["status"] == "ok", res
+    assert undo_mgr.titles == ["Typing"]
+
+
+def test_remove_succeeds_when_undo_clear_is_refused() -> None:
+    shapes: list[_FakeShape] = []
+    stale = _FakeShape("PowerPlusWaterMarkObject 1", container=shapes)
+    shapes.append(stale)
+    undo_mgr = _FakeUndoManager(["Typing"], fail_clear=True)
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        shapes=shapes,
+        undo_manager=undo_mgr,
+    )
+
+    res = PageSetWatermark().execute(tool_ctx, text="")
+    assert res["status"] == "ok", res
+    assert stale.disposed is True
+    assert stale not in shapes
+    assert undo_mgr.titles == ["Typing"]
 
 
 def test_set_text_keeps_text_watermark_shapes() -> None:
