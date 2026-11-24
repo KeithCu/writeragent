@@ -903,6 +903,10 @@ def test_recorded_bold_mixed_single_link_hint_uno(ctx, doc):
     def _setup_single_hint(trailing: str):
         text, cursor = _clear(doc)
         _append_linked(text, cursor, "LongBold xy", _OUTLINE)
+        whole = text.createTextCursorByRange(cursor.getStart())
+        whole.gotoStartOfParagraph(False)
+        whole.gotoEndOfParagraph(True)
+        whole.setPropertyValue("CharWeight", NORMAL)
         sel = text.createTextCursorByRange(cursor.getStart())
         sel.gotoStartOfParagraph(False)
         sel.goRight(len("LongBold"), True)
