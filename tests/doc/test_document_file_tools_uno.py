@@ -120,9 +120,8 @@ def test_document_open_html_is_writer_uno(ctx, doc):
         tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
         res_open = DocumentOpen().execute(tool_ctx, path=html_path)
         assert res_open["status"] == "ok", res_open
-        assert res_open["document"]["doc_type"] == "writer"
-
         model, _ = resolve_document_by_url(ctx, res_open["document"]["uid"])
+        assert res_open["document"]["doc_type"] == "writer"
         assert model is not None
         text = model.getText()
         cursor = text.createTextCursor()

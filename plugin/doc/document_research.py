@@ -119,7 +119,11 @@ def _normalize_path(path: str) -> str:
 
 
 def system_path_from_url(url: str) -> str | None:
-    """Accepts file:/ via normalize_file_url; returns None for non-file or unconvertible URLs."""
+    """Accepts file:/ via normalize_file_url; returns None for non-file or unconvertible URLs.
+
+    Uses ``uno.fileUrlToSystemPath`` because ``urlparse`` + ``url2pathname`` drops
+    the host of ``file://server/share/...`` UNC URLs.
+    """
     if not url or not str(url).startswith("file:"):
         return None
     url = normalize_file_url(str(url))
@@ -514,7 +518,9 @@ def resolve_path_or_name(
     if not raw:
         return None, "path_or_name is required"
 
-    # A path or file: URL names one file. Anything else is a listing filter.
+    # An existing path or file: URL names one file. The list tools return file: URLs;
+    # a missing one is an error because it can never match as a filter. Anything else
+    # is a listing filter.
     target = resolve_file_target(raw)
     if target is not None and os.path.isfile(target[0]):
         return target

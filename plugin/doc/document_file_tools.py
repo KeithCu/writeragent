@@ -211,9 +211,14 @@ class DocumentOpen(ToolBase):
 
         try:
             props: list[Any] = [create_property_value("AsTemplate", True)] if as_template else []
+            # Detect the target service before loading: _default can recycle the Start
+            # Center or an empty untitled window (LoadEnv::impl_searchRecycleTarget in
+            # framework/source/loadenv/loadenv.cxx), so loading then closing would close
+            # the user's window.
             filter_name, service = _detect_load_filter(ctx.ctx, url)
             if filter_name == _HTML_WEB_FILTER:
-                # HTML defaults to Writer/Web (HTML.xcu); use HTML__StarWriter_.xcu so it opens as Writer.
+                # HTML defaults to Writer/Web (HTML.xcu), which get_document_type reports
+                # as UNKNOWN so save-as and export fail; use HTML__StarWriter_.xcu instead.
                 props.append(create_property_value("FilterName", _HTML_WRITER_FILTER))
             elif service and service not in DOCUMENT_SERVICES:
                 return self._tool_error(
