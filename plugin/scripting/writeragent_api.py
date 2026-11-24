@@ -1409,7 +1409,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient))
 
     def __iter__(self) -> Iterator[_Item]:
-        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box).
+        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box, except one inside a group, whose shape_index is a dotted path).
 
         Collection form: ``for item in wa.frame`` (also ``len(wa.frame)``, ``name in wa.frame``, and ``wa.frame[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
@@ -1435,7 +1435,7 @@ class _FrameProxy:
         return _get_item(call_host_tool("frame_get_info", name=name), name, lambda: call_host_tool("frame_list"))
 
     def __delitem__(self, name: str) -> None:
-        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape.
+        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape. A text box inside a group cannot be deleted alone.
 
         Args:
             name (required): Name of the text frame (from frame_list).
