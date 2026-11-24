@@ -604,8 +604,6 @@ def test_mock_ocr_reports_image_kept_when_delete_cannot_be_tracked_uno(ctx, doc)
     finally:
         doc.RecordChanges = False
         _cleanup_temp_paths(fixture["temp_paths"])
-
-
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_named_image_on_closed_document_is_document_disposed_uno(ctx, doc):
@@ -622,4 +620,3 @@ def test_named_image_on_closed_document_is_document_disposed_uno(ctx, doc):
         mock_run_vision.assert_not_called()
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
-
