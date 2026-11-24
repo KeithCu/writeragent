@@ -1215,7 +1215,6 @@ def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
     assert (result.get("tracked") is False and "warning" in result) is expected
 
 
-<<<<<<< HEAD
 @pytest.mark.parametrize(
     "review_on,recording,foreign",
     [
