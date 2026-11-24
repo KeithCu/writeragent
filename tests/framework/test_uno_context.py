@@ -874,6 +874,16 @@ def test_no_match_returns_none():
     assert _resolve_by_url([a], "uid-does-not-exist") == (None, None)
 
 
+def test_match_by_url_normalizes_file_percent_encoding():
+    m = _resolve_model("file:///docs/Report%20(1).odt", "uid-rep")
+    doc, doc_type = _resolve_by_url([m], "file:///docs/Report%20%281%29.odt")
+    assert doc is m
+    assert doc_type == "writer"
+
+    spaced = _resolve_model("file:///docs/a%20b.odt", "uid-spaced")
+    assert _resolve_by_url([spaced], "file:///docs/ab.odt") == (None, None)
+
+
 def test_disposed_element_does_not_hide_a_later_match():
     class DisposedException(Exception):
         pass

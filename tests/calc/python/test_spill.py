@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -227,61 +226,6 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rec2.spills == [(2, 1), (3, 1)]
     assert rec2.code == "some_code"
     assert rec2.cells[0].kind == "n" and rec2.cells[0].value == 20.0
-
-
-def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-    from plugin.calc.python.spill import SpillCell, SpillRecord
-
-    stored: dict[str, Any] = {}
-
-    def mock_get_prop(model: Any, name: str, default: Any = None) -> Any:
-        return stored.get(name, default)
-
-    def mock_set_prop(model: Any, name: str, value: Any) -> None:
-        stored[name] = value
-
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
-
-    doc = CalcDocStub(url="file:///nonfinite.ods")
-    reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
-
-    st = WorkbookState.for_doc(doc)
-    assert st is not None
-    st.spills[("Sheet1", 1, 1)] = SpillRecord(
-        code="c",
-        cells=[
-            SpillCell(3, 1, "n", float("inf")),
-            SpillCell(4, 1, "n", float("-inf")),
-            SpillCell(5, 1, "n", 1.5),
-        ],
-    )
-    key = (st.key, "Sheet1", 1, 1)
-    try:
-        _spill.save_spill_registry_for_doc(doc, st)
-
-        saved = stored.get("WriterAgentSpillRegistry")
-        assert saved is not None
-        data = json.loads(saved)
-        assert data["Sheet1:1,1"]["cells"] == [
-            {"r": 3, "c": 1, "t": "n", "v": "inf"},
-            {"r": 4, "c": 1, "t": "n", "v": "-inf"},
-            {"r": 5, "c": 1, "t": "n", "v": 1.5},
-        ]
-
-        reset_calc_workbook_states()
-        st2 = WorkbookState.for_doc(doc)
-        assert st2 is not None
-        _spill.load_spill_registry_for_doc(doc, st2)
-        rec = SPILL_REGISTRY[key]
-        assert all(c.kind == "n" for c in rec.cells)
-        assert rec.cells[0].value == math.inf
-        assert rec.cells[1].value == -math.inf
-        assert rec.cells[2].value == 1.5
-    finally:
-        reset_calc_workbook_states()
 
 
 def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1080,7 +1024,7 @@ def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pyte
 
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///nan_block.ods")
-    sheet.getCellByPosition(0, 0).setFormula('=PY("result = [[1, float(\'nan\')], [2, float(\'nan\')]]")')
+    sheet.getCellByPosition(0, 0).setFormula('=PY("result = [[1, float(\'nan\'), float(\'inf\')], [2, float(\'nan\'), float(\'-inf\')]]")')
 
     reset_calc_workbook_states()
     st = WorkbookState.for_doc(doc)
@@ -1090,18 +1034,20 @@ def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pyte
             "Sheet1",
             0,
             0,
-            [[1.0, float("nan")], [2.0, float("nan")]],
+            [[1.0, float("nan"), float("inf")], [2.0, float("nan"), float("-inf")]],
             doc=doc,
             sheet=sheet,
-            code="result = [[1, float('nan')], [2, float('nan')]]",
+            code="result = [[1, float('nan'), float('inf')], [2, float('nan'), float('-inf')]]",
             key=st.key,
         )
         assert sheet.getCellByPosition(1, 0).getFormula() == "=#ERR503!"
         assert sheet.getCellByPosition(1, 1).getFormula() == "=#ERR503!"
+        assert sheet.getCellByPosition(2, 0).getFormula() == "=#ERR503!"
+        assert sheet.getCellByPosition(2, 1).getFormula() == "=#ERR503!"
         assert sheet.getCellByPosition(0, 1).getValue() == 2.0
         rec = SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)]
-        err_cells = [c for c in rec.cells if c.col == 1]
-        assert [(c.kind, c.value) for c in err_cells] == [("err", 503), ("err", 503)]
+        err_cells = [c for c in rec.cells if c.col in (1, 2)]
+        assert [(c.kind, c.value) for c in err_cells] == [("err", 503)] * 4
     finally:
         reset_calc_workbook_states()
 

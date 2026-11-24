@@ -258,4 +258,3 @@ def test_read_visible_body_offsets_uno(ctx):
         assert tbl_offsets == [None, 14]
 
     _run(ctx=ctx)
-

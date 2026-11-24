@@ -22,13 +22,28 @@ from plugin.framework.log_redaction import is_secret_key
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
-def is_credential_name(name: str) -> bool:
-    """True when an HTTP header or URL query parameter called *name* carries a credential.
+# UUIDs, hex keys, base64 and nanoid links are longer than this.
+_OPAQUE_SEGMENT_MIN_CHARS = 16
 
-    Broader than is_secret_key, which also judges tool arguments, where names such as
-    ``sort_key`` are data. ``max_tokens`` and ``output_modalities`` are not credentials.
+
+def is_credential_name(name: str) -> bool:
+    """True when an HTTP header called *name* carries a credential.
+
+    Also the base of ``_is_credential_query_name``. Broader than ``is_secret_key``, which also
+    judges tool arguments, where names such as ``sort_key`` are data. ``max_tokens`` and
+    ``output_modalities`` are not credentials.
     """
     return is_secret_key(name) or name.lower().endswith(("key", "token"))
+
+
+def _is_credential_query_name(name: str) -> bool:
+    """True when a URL query parameter called *name* carries a credential.
+
+    Azure Functions passes its key as ``code`` and signed URLs use ``sig``, ``signature`` or
+    ``X-Amz-Signature``. Headers with those names are ordinary data.
+    """
+    low = name.lower()
+    return is_credential_name(name) or low in ("code", "sig") or low.endswith("signature")
 
 
 def redact_secrets(text: str, secrets: list[str] | None) -> str:
@@ -69,11 +84,26 @@ def secrets_from_target(url_or_path: str) -> list[str]:
     secrets: list[str] = []
     for pair in parsed.query.split("&"):
         raw_key, _sep, raw_value = pair.partition("=")
-        if raw_value and is_credential_name(urllib.parse.unquote_plus(raw_key)):
+        if raw_value and _is_credential_query_name(urllib.parse.unquote_plus(raw_key)):
             secrets.extend((raw_value, urllib.parse.unquote_plus(raw_value)))
     password = parsed.password
     if password:
         secrets.extend((password, urllib.parse.unquote(password)))
+    return secrets
+
+
+def secrets_from_url_path(url: str) -> list[str]:
+    """Path segments of *url* that look like an opaque credential, as written and percent-decoded.
+
+    Hosted MCP links carry their secret this way (``/s/<secret>/mcp``). Not part of
+    ``secrets_from_target``, because LLM request paths hold model names an error must show.
+    """
+    secrets: list[str] = []
+    for segment in _parse_url(url).path.split("/"):
+        decoded = urllib.parse.unquote(segment)
+        # All-lowercase segments without digits are words ("model-context-protocol").
+        if len(decoded) >= _OPAQUE_SEGMENT_MIN_CHARS and any(ch.isdigit() or ch.isupper() for ch in decoded):
+            secrets.extend((segment, decoded))
     return secrets
 
 

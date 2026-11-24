@@ -641,6 +641,26 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 
 
 @main_thread_only
+def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
+    """For each element of a text enumeration: does it start inside a tracked deletion?
+
+    For readers that jump to one paragraph. The list is all False, without a portion
+    walk, when the document has no redlines.
+    """
+    # A portion walk costs 1.0–1.7 s per 1000 paragraphs over the bridge; hasElements() is under 1 ms.
+    if not uno_read(lambda: model.getRedlines().hasElements() is True, False):
+        return [False] * len(elements)
+    state = DeletionState()
+    flags: list[bool] = []
+    for element in elements:
+        flags.append(state.in_delete)
+        if uno_read(lambda: element.supportsService(_PARAGRAPH_SERVICE) is True, False):
+            for _unused in visible_portions(element, state=state):
+                pass
+    return flags
+
+
+@main_thread_only
 def get_document_path(model: Any) -> str | None:
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
     try:
@@ -727,7 +747,7 @@ def get_selection_text(model: Any) -> str | None:
         if doc_type == _doc_type.DocumentType.WRITER:
             rng = selected_text_range(controller)
             if not rng:
-                vc = uno_call(controller.getViewCursor, "Get view cursor")
+                vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
                 if vc:
                     return uno_call(vc.getString, "Get view cursor string")
             else:

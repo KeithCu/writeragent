@@ -587,8 +587,9 @@ class DocumentService(ServiceBase):
     def open_documents(self) -> list[Any]:
         """Every open real document, in desktop order. Main-thread only.
 
-        Start Center and WriterAgent's scratch documents are excluded (see
-        ``plugin.framework.scratch_writer``); user-hidden documents are included.
+        Start Center and WriterAgent's scratch documents (including files opened
+        hidden for research) are excluded (see ``plugin.framework.scratch_writer``);
+        user-hidden documents are included.
         """
         docs = []
         try:
@@ -678,7 +679,8 @@ class DocumentService(ServiceBase):
         anchor = get_anchor() if callable(get_anchor) else element
 
         controller = uno_call(model.getCurrentController, "Get current controller")
-        vc = uno_call(controller.getViewCursor, "Get view cursor")
+        # Print Preview controllers lack getViewCursor; read it inside uno_call so missing attributes become UnoObjectError.
+        vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
 
         def _resolve_page() -> int:
             uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
@@ -710,7 +712,7 @@ class DocumentService(ServiceBase):
             if model is None:
                 raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
             controller = uno_call(model.getCurrentController, "Get current controller")
-            vc = uno_call(controller.getViewCursor, "Get view cursor")
+            vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
 
             def _get_count() -> int:
                 uno_call(vc.jumpToLastPage, "Jump to last page")

@@ -36,8 +36,9 @@ What is implemented today (not every Writer mutation tool):
 | Vision / `python_runner` Writer insert | Yes | No | No |
 | `table_delete`, `table_manage_structure` (row/column delete) | Yes (`table_delete` is one agent change only for single-cell tables; multi-cell tables and row/column deletes stay untagged `WriterAgent` redlines) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `Char*` `reset` (`Char*` restore on reject, `Para*` do not; `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
+| `apply_style` (paragraphs) | Yes while the document is recording (`ParagraphFormat` redline via `makeRedline`); No when the document is not recording (`style_unreviewed: true` in Record/Wait) | No | No |
 | `image_insert`, `image_generate`, `image_delete`, OCR `delete_image_after_insert` | Yes (both while the document is recording and in Record/Wait via `run_writer_mutation_with_optional_review`; embedded `image_insert` wraps the picture in two recorded placeholders so Writer records an Insert redline; `image_insert target=header/footer` flags `style_unreviewed` when it turns the region on or changes `auto_height`) | No | No |
-| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text-only writes, which Writer records itself; turning a header/footer on or changing `auto_height` is flagged; `page_insert_break` is not in this set) | No | No |
+| Style tools and page layout (`apply_style` non-recording, `page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text-only writes, character `apply_style`, and recording-document paragraph `apply_style`; turning a header/footer on or changing `auto_height` is flagged; `page_insert_break` is not in this set) | No | No |
 | `frame_delete`, `chart_delete`, `shape_delete`, `form_delete_control` | No (`tracked: false` with a `warning` when recording or review is on) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, frames/charts/shapes insert, …) | No | No | No |
 
@@ -278,15 +279,23 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 
 * **Character resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`) before resetting it. `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
 * **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
-* **Known paths that still bypass recording:** `frame_delete`, chart/OLE insert/delete, `shape_delete`, `form_delete_control` (the four deletes return `tracked: false` with a `warning` when recording or review is on; `index_delete_toc_entry` is recorded), picture properties/replace, table formatting/merge/split, `index_update_all`, page break, hyperlink on existing text, paragraph `apply_style` (including `clear_direct`, which now sets `style_unreviewed`), and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
+* **Paragraph `apply_style` (`SwUnoCursorHelper::makeRedline`):** Applying a paragraph style while `RecordChanges` is on temporarily turns recording off so the `Char*` restore does not create `Format` redlines whose Reject drops the run's formatting, then records one `ParagraphFormat` redline per changed non-empty paragraph (authored as the current office user) carrying `ParaStyleName`, direct paragraph properties, and `NumberingRules`. If the paragraph already has a `ParagraphFormat` redline, no second one is added so Reject restores the state before both changes.
+* **Known paths that still bypass recording:** `frame_delete`, chart/OLE insert/delete, `shape_delete`, `form_delete_control` (the four deletes return `tracked: false` with a `warning` when recording or review is on; `index_delete_toc_entry` is recorded), picture properties/replace, table formatting/merge/split, `index_update_all`, page break, hyperlink on existing text, and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
 
 ### Limitations
 
-* **Style and page layout changes are not reviewable.** `apply_style`, `style_update`, `style_create`, `style_clone`,
+* **Most style and page layout changes are not reviewable.** `apply_style` on paragraphs when `RecordChanges` is off, `style_update`, `style_create`, `style_clone`,
   `style_import`, `section_*`, `page_set_style_properties`, `page_set_header_footer_text`,
   `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
-  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user it changed a style or page layout
-  (they don't produce redlines). `page_insert_break` is not in that set.
+  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user which change they cannot accept/reject like a text edit (they don't produce redlines). `page_insert_break` is not in that set.
+* **Paragraph `apply_style` tracking limits (while `RecordChanges` is on):**
+  * Cleared character formatting (`clear_direct="style_props"` or `"all"`) is not restored on Reject and sets `style_unreviewed: true`.
+  * List levels, and numbers under an outline-numbered heading style, are not restored on Reject and set `style_unreviewed: true`.
+  * Empty paragraphs get no `ParagraphFormat` redline (flagged only when no paragraph in the target was recorded).
+  * Undo leaves the `ParagraphFormat` redline in place (matching LibreOffice's UI).
+  * ODT save drops `ParagraphFormat` redlines while DOCX keeps them.
+  * Typing into a paragraph while recording accepts its `ParagraphFormat` redline.
+  * A second style change on the same paragraph reuses the first redline and its author, so Reject undoes both changes.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline
   at the end. Streamed collapse may show both marks under the INSERT author instead of split

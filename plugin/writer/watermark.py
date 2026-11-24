@@ -264,7 +264,7 @@ class PageSetWatermark(ToolWriterPageBase):
         "Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); "
         "Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove "
         "the watermark. Setting or removing also deletes any Word picture watermark. "
-        "Note: LibreOffice turns on the header of every page style and clears the undo history."
+        "Note: setting a watermark turns on the header of every page style. Setting or removing one clears the undo history."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

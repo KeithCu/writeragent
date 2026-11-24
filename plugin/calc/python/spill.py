@@ -25,7 +25,6 @@ from plugin.calc.python.addin_values import (
     ERR_NA,
     SpillValue,
     coerce_spill_value,
-    spill_value_from_json,
 )
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
@@ -216,8 +215,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                                     r = int(c["r"] or 0)
                                     col = int(c["c"] or 0)
                                     kind = str(c["t"])
-                                    v = spill_value_from_json(kind, c.get("v"))
-                                    cells.append(SpillCell(row=r, col=col, kind=kind, value=v))
+                                    cells.append(SpillCell(row=r, col=col, kind=kind, value=c.get("v")))
                             state.spills[(sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
@@ -236,9 +234,7 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
             cells_data = []
             for c in record.cells:
                 item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
-                if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
-                    item["v"] = "inf" if c.value > 0 else "-inf"
-                elif c.value is not None:
+                if c.value is not None:
                     item["v"] = c.value
                 cells_data.append(item)
             doc_spills[f"{sheet_name}:{frow},{fcol}"] = {

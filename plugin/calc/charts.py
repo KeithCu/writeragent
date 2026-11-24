@@ -1673,8 +1673,8 @@ class _ChartTool(ToolCalcChartBase):
 class _NamedChartTool(_ChartTool):
     """Tools that require a chart name (get_info, delete)."""
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "invalid parameters"
         if not _chart_name_from_kwargs(kwargs):
@@ -1756,8 +1756,8 @@ class ChartUpsert(_ChartTool):
     }
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-        ok, err = super().validate(doc_type=doc_type, **kwargs)
+    def validate(self, *, doc_type: str | None = None, caller: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, caller=caller, **kwargs)
         if not ok:
             return False, err or "invalid parameters"
         return _validate_chart_upsert(kwargs, doc_type)
