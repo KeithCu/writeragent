@@ -786,7 +786,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         autostyle_return=({"P1": "Standard"}, {"P1": "color:red"}, False),
         passthrough_semantic=False,
     )
-    autostyle_mock2.assert_called_once_with(temp_doc2)
+    autostyle_mock2.assert_called_once_with(temp_doc2, None)
     assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 
 
@@ -939,4 +939,79 @@ def test_put_outline_urls_skips_empty_split_anchors():
     content = '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#a_Live">Live</a></p>'
     out = _put_outline_urls(content, ["#Heading|outline"])
     assert out == '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#Heading|outline">Live</a></p>'
+
+
+def test_full_export_reads_flat_odf_once_when_no_break_is_split():
+    from plugin.writer import html_export as hx
+
+    fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:margin-left="1in"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    xhtml = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
+    flat_reads = 0
+
+    def fake_read(_doc, filter_name, **_kwargs):
+        nonlocal flat_reads
+        if filter_name == hx.FLAT_ODF_FILTER:
+            flat_reads += 1
+            return fodt
+        return xhtml
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.xhtml_style_postprocess.split_deleted_breaks", return_value=None), \
+         patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
+        html, _has_ruby = hx._export_full(MagicMock(), MagicMock())
+
+    assert flat_reads == 1
+    assert 'data-lo-para="margin-left:1in"' in html
+
+
+def test_full_export_of_split_copy_reads_its_own_flat_odf():
+    from plugin.writer import html_export as hx
+
+    source_fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:color="#111111"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    copy_fodt = (
+        '<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">'
+        '<office:automatic-styles>'
+        '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:font-weight="bold"/>'
+        '</style:style>'
+        '</office:automatic-styles></office:document>'
+    )
+    source_doc = MagicMock()
+    copy_doc = MagicMock()
+    xhtml = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
+
+    def fake_read(doc, filter_name, **_kwargs):
+        if filter_name == hx.FLAT_ODF_FILTER:
+            return source_fodt if doc is source_doc else copy_fodt
+        return xhtml
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.xhtml_style_postprocess.split_deleted_breaks", return_value="<split/>"), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
+        html, _has_ruby = hx._export_full(source_doc, MagicMock())
+
+    assert 'data-lo-para="font-weight:bold"' in html
+    assert "#111111" not in html
 

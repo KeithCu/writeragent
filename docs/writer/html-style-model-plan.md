@@ -199,7 +199,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 After probe C failed, v1 adds a second export on every read (full document and range-via-temp-doc):
 
-1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_maps()`](../../plugin/writer/html_export.py)).
+1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_maps()`](../../plugin/writer/html_export.py)). When tracked deletions are pending and no break needs splitting, the sidecar read for the split check is reused.
 2. **Parse map:** [`parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
 3. **Join to XHTML:** In `_paragraph_token()`, when the block class is `paragraph-Pn`, look up `Pn` in the map and emit `compact_lo_style_name(decode(parent))`. **No block-index walk** — the join is by autostyle name only, so tables and nested structure cannot desync it.
 4. **Fallback:** If FODT export fails, map is `{}` and CSS fingerprint matching applies (same as pre-1b). If still ambiguous, omit `data-lo-style`.

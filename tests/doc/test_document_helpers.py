@@ -584,12 +584,53 @@ def test_get_document_context_for_chat_writer_disposed():
     [
         pytest.param(2, 5, "[START]\nab[SELECTION_START]cde[SELECTION_END]fghij\n[END]", id="test_inject_markers_into_excerpt_selection_inside"),
         pytest.param(20, 25, "[START]\nabcdefghij\n[END]", id="test_inject_markers_no_overlap"),
+        pytest.param(2, None, "[START]\nab[SELECTION_START]cdefghij\n[END]", id="test_inject_markers_open_end"),
+        pytest.param(None, 5, "[START]\nabcde[SELECTION_END]fghij\n[END]", id="test_inject_markers_open_start"),
     ],
 )
 def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
     excerpt = "abcdefghij"
     out = _inject_selection_markers(excerpt, 0, value, value_2, "[START]\n", "\n[END]")
     assert out == expected
+
+
+@patch("plugin.doc.text_helpers.read_visible_body")
+@patch("plugin.framework.doc_type.get_document_type")
+def test_selection_across_omitted_middle_has_one_marker_pair(mock_doc_type, mock_read_body):
+    from plugin.framework.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "A" * 9000
+    pos_start, pos_end = MagicMock(), MagicMock()
+    mock_read_body.return_value = (body, [3500, 5200])
+
+    with patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), pos_start, pos_end)):
+        out = get_document_context_for_chat(MagicMock(), max_context=8000, include_end=True, include_selection=True)
+
+    assert out.count("[SELECTION_START]") == 1
+    assert out.count("[SELECTION_END]") == 1
+    start_idx = out.index("[SELECTION_START]")
+    omit_idx = out.index("middle of document omitted")
+    end_idx = out.index("[SELECTION_END]")
+    assert start_idx < omit_idx < end_idx
+
+
+@patch("plugin.doc.text_helpers.read_visible_body")
+@patch("plugin.framework.doc_type.get_document_type")
+def test_selection_ending_in_omitted_middle_keeps_pair_in_head(mock_doc_type, mock_read_body):
+    from plugin.framework.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "A" * 9000
+    pos_start, pos_end = MagicMock(), MagicMock()
+    mock_read_body.return_value = (body, [3500, 4500])
+
+    with patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), pos_start, pos_end)):
+        out = get_document_context_for_chat(MagicMock(), max_context=8000, include_end=True, include_selection=True)
+
+    assert out.count("[SELECTION_START]") == 1
+    assert out.count("[SELECTION_END]") == 1
+    assert out.index("[SELECTION_START]") < out.index("[SELECTION_END]") < out.index("middle of document omitted")
 
 
 @patch("plugin.doc.text_helpers.read_visible_body")
