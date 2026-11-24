@@ -281,7 +281,7 @@ class GetPageObjects(ToolBase):
                 shapes.append(shape_info)
                 # getTextFrames().getElementNames() omits the hidden frame of a Word text box, so it is
                 # listed here (including boxes inside groups), on the page of the shape that owns it.
-                # A failed read skips only this entry.
+                # A failed read skips the rest of this shape's boxes.
                 try:
                     for address, box_shape, box in shape_text_boxes(i, shape):
                         frames.append({**frame_entry(box.getName(), box), "shape_index": address, "shape_name": box_shape.getName()})

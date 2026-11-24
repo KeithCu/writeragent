@@ -156,7 +156,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
             return frame
 
         owner = _text_box_owner(ctx.doc, frame_name)
-        # LibreOffice gives an inline box's hidden frame AT_CHARACTER (sw/source/core/doc/textboxhelper.cxx:SwTextBoxHelper::mapAnchorType).
+        # LibreOffice gives an inline box's hidden frame AT_CHARACTER (sw/source/core/doc/textboxhelper.cxx:SwTextBoxHelper::changeAnchor).
         anchored = owner[1] if owner is not None else frame
         size = frame.getPropertyValue("Size")
         anchor_type = anchor_type_index(anchored.getPropertyValue("AnchorType"))

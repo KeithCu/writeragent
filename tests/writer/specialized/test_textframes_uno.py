@@ -410,6 +410,9 @@ def test_grouped_text_boxes_list_info_refuse_uno(ctx, doc):
 
         name0 = by_idx["0.0"]["name"]
         name1 = by_idx["0.1"]["name"]
+        info0 = FrameGetInfo().execute(tctx, name=name0)
+        assert info0["status"] == "ok", info0
+        assert info0["shape_index"] == "0.0", info0
         orig_w1 = reloaded.getTextFrames().getByName(name1).getPropertyValue("Size").Width
 
         set_res = FrameSetProperties().execute(tctx, name=name0, width_mm=60.0)
@@ -441,6 +444,31 @@ def test_grouped_text_boxes_list_info_refuse_uno(ctx, doc):
             pass
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    scratch = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+    as_char_doc, as_char_path = build_grouped_text_boxes(ctx, scratch, anchor_type=AS_CHARACTER)
+    try:
+        atctx = TestingFactory.create_context(doc=as_char_doc, ctx=ctx, env="native")
+        as_char_list = FrameList().execute(atctx)
+        assert as_char_list["status"] == "ok", as_char_list
+        as_char_name0 = next(f["name"] for f in as_char_list["frames"] if f.get("shape_index") == "0.0")
+        as_char_info = FrameGetInfo().execute(atctx, name=as_char_name0)
+        assert as_char_info["status"] == "ok", as_char_info
+        assert as_char_info["anchor_type"] == 1, as_char_info
+    finally:
+        try:
+            as_char_doc.close(True)
+        except Exception:
+            pass
+        try:
+            scratch.close(True)
+        except Exception:
+            pass
+        if os.path.exists(as_char_path):
+            os.unlink(as_char_path)
 
 
 @native_test

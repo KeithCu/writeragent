@@ -1171,6 +1171,9 @@ class GroupShapes(_AnyDocumentShapeTool):
         dup_err = _reject_duplicate_shapes(self, addresses)
         if dup_err is not None:
             return dup_err
+        # SwXFrame::getShapeType (sw/source/core/unocore/unoframe.cxx) reports Writer text frames,
+        # pictures and OLE objects as plain "FrameShape"; page.group silently drops them, and an
+        # exact match leaves out Draw's qualified com.sun.star.drawing.FrameShape.
         frames = [addr for addr, shape in zip(addresses, resolved_shapes) if shape.getShapeType() == "FrameShape"]
         if frames:
             return self._tool_error(
@@ -1503,6 +1506,7 @@ class DeleteShape(_AnyDocumentShapeTool):
             boxes = [frame for _a, _s, frame in shape_text_boxes(page_index, shape)]
             if boxes and isinstance(addr, str):
                 return grouped_text_box_error(self, addr)
+            # SwFmDrawPage::remove (sw/source/core/unocore/unodraw.cxx) already disposes a single top-level box's frame.
             if not is_group(shape):
                 boxes = []
         try:
@@ -1514,9 +1518,8 @@ class DeleteShape(_AnyDocumentShapeTool):
                 )
             else:
                 if boxes:
-                    # SwFmDrawPage::remove (sw/source/core/unocore/unodraw.cxx) disposes only a top-level
-                    # shape's own frame, and SwUndoFlyBase::DelFly clears the group's shared text-box node.
-                    # Collect and dispose every hidden frame before removing the group in one undo step.
+                    # SwUndoFlyBase::DelFly clears the group's shared text-box node; collect and
+                    # dispose every hidden frame before removing the group in one undo step.
                     with UndoStepOrRollback(ctx.doc, "WriterAgent: Delete shape"):
                         for frame in boxes:
                             frame.dispose()

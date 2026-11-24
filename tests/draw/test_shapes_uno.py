@@ -1482,6 +1482,11 @@ def test_writer_delete_grouped_text_boxes_uno(ctx, doc):
             assert child_del["status"] == "error", child_del
             assert child_del["code"] == "TEXT_BOX_IN_GROUP"
             assert page.getCount() == 1
+            assert group.getCount() == 2
+            assert group.getByIndex(0).getPropertyValue("TextBox") is True
+            assert group.getByIndex(1).getPropertyValue("TextBox") is True
+            assert "in box 0" in group.getByIndex(0).getString()
+            assert "in box 1" in group.getByIndex(1).getString()
             assert reloaded.getTextFrames().hasByName(frame0)
 
             before_titles = undo_titles(reloaded)
@@ -1497,6 +1502,10 @@ def test_writer_delete_grouped_text_boxes_uno(ctx, doc):
             reloaded.getUndoManager().undo()
             assert page.getCount() == 1
             restored = page.getByIndex(0)
+            assert restored.getByIndex(0).getPropertyValue("TextBox") is True
+            assert restored.getByIndex(1).getPropertyValue("TextBox") is True
+            assert reloaded.getTextFrames().hasByName(frame0)
+            assert reloaded.getTextFrames().hasByName(frame1)
             assert "in box 0" in restored.getByIndex(0).getString()
             assert "in box 1" in restored.getByIndex(1).getString()
         finally:
