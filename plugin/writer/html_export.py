@@ -599,6 +599,7 @@ def _copy_window_to_scratch(
         portions = list(_visible_portions(el, truncated_out=walk_warnings, state=state))
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
+        struck = state.strikes_paragraph(el, opened)
 
         inside, trim = window(el, para_text, tables, opened)
         if opened:
@@ -632,7 +633,7 @@ def _copy_window_to_scratch(
         applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
 
         if not has_formula:
-            temp_cursor.setString(para_text)
+            temp_cursor.setString(para_text + xhtml_post.DELETED_MARK if struck else para_text)
             src_style = range_copy.source_style(model, style, style_cache) if applied else None
             range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
             range_copy.clone_window_graphics(el, portions, temp_doc, temp_text, trim_start, trim_end)
@@ -716,7 +717,7 @@ def _range_to_content_via_temp_doc(
             # A closed document must not start a second export.
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
-            content = _export_starwriter_html(temp_doc)
+            content = _export_starwriter_html(temp_doc).replace(xhtml_post.DELETED_MARK, "")
         content = _restore_anchor_hrefs(content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE)
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
@@ -740,18 +741,19 @@ def _range_to_content_via_temp_doc(
 
 
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, splitting deleted paragraph breaks first.
+    """Export the full document via XHTML, expanding tracked deletions first.
 
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
-    multi-paragraph deletion; when tracked deletions cross a paragraph break,
-    split them in the flat-ODF sidecar and export a hidden copy instead.
+    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks; when
+    tracked deletions cross a paragraph break or empty a paragraph, expand them
+    in the flat-ODF sidecar and export a hidden copy instead.
     """
     fodt: str | None = None
     if TrackedDeletions(model):
         fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        split = xhtml_post.split_deleted_breaks(fodt)
-        if split is not None:
-            with with_temp_buffer(split, ext=FODT_EXTENSION) as (_path, url):
+        expanded = xhtml_post.expand_tracked_deletions(fodt)
+        if expanded is not None:
+            with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
                 copy = load_scratch_document(get_desktop(ctx), url)
                 if copy is None:
                     raise ToolExecutionError("Could not read the document (no scratch document).")

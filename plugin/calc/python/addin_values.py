@@ -119,11 +119,15 @@ def calc_formula_error_double(code: int) -> float:
 
 
 def nonfinite_error_code(val: float) -> int:
-    """FormulaError code LibreOffice reads from a NaN or infinity (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
+    """FormulaError code LibreOffice reads from a NaN or infinity (GetDoubleErrorValue, include/formula/errorcodes.hxx).
+
+    A code ``=#ERRn!`` cannot express becomes 503 (#NUM!), because Calc compiles an unpublished number to #NAME?.
+    ``low == 0`` and infinities still give 503; high bits still give 519.
+    """
     low = struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
     if low & 0xFFFF0000:
         return _ERR_VALUE
-    return low or _ERR_NUM
+    return low if low == ERR_NA or low in _PUBLISHED_ERROR_CODES else _ERR_NUM
 
 
 def published_err_code(text: str) -> int | None:

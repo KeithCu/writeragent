@@ -14,6 +14,7 @@ from plugin.contrib.smolagents.models import (
 )
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
+from tests.harness.smol_messages import flatten_messages
 
 
 def _assistant_msg(*calls: tuple[str, dict, str]) -> ChatMessage:
@@ -29,17 +30,6 @@ def _assistant_msg(*calls: tuple[str, dict, str]) -> ChatMessage:
             for name, args, call_id in calls
         ],
     )
-
-
-def _flatten(messages: list[ChatMessage]) -> str:
-    parts: list[str] = []
-    for msg in messages:
-        content = msg.content
-        if isinstance(content, list):
-            parts.extend(str(item.get("text", item)) if isinstance(item, dict) else str(item) for item in content)
-        elif content is not None:
-            parts.append(str(content))
-    return "\n".join(parts)
 
 
 class _EditTool(Tool):
@@ -87,7 +77,7 @@ def test_double_final_keeps_earlier_result_and_skips_trailing_call():
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(_flatten(messages))
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return _assistant_msg(
                 ("edit_doc", {"n": 1}, "c1"),
@@ -117,7 +107,7 @@ def test_raising_tool_records_ran_failed_and_did_not_run():
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(_flatten(messages))
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return _assistant_msg(
                 ("edit_doc", {"n": 1}, "c1"),
@@ -144,7 +134,7 @@ def test_bad_argument_type_keeps_earlier_result():
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(_flatten(messages))
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return _assistant_msg(
                 ("edit_doc", {"n": 7}, "c1"),
@@ -169,7 +159,7 @@ def test_finish_then_raising_edit_keeps_not_accepted_and_continues():
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(_flatten(messages))
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return _assistant_msg(
                 ("final_answer", {"answer": "early"}, "c1"),
@@ -240,7 +230,7 @@ def test_secondary_finish_tool_is_not_accepted_when_turn_fails():
 
     def _gen(messages, **kwargs):
         del kwargs
-        seen.append(_flatten(messages))
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return _assistant_msg(
                 ("secondary_finish", {}, "c1"),

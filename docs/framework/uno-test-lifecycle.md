@@ -15,7 +15,7 @@ Windows CI harness cleanup notes (if present under `docs/archive/`).
 | Path | Reuse? | Open | Close |
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
-| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners, with win32 factory target `_wa_notebook_host`) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
+| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
 | Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
@@ -61,8 +61,7 @@ doc_type=impress`) with leftover Writer reuse (`leftover_open=1`,
 family), drops the proxy, logs
 `native_doc: teardown skip impress/draw close leftover_open=N`,
 requests suite-end recycle, and still runs the office-health probe.
-Leftover `CREATE|GLOBAL` `_wa_simpress` / `_wa_sdraw` reuse replaces
-instead of stacking. Math OLE Draw still uses `close_doc` so the
+Math OLE Draw still uses `close_doc` so the
 existing Windows skip stays (34607010446). Not a product fix.
 
 **Peer Impress → next Writer factory (Windows):** GHA 34419828920 hung 30s
@@ -229,6 +228,15 @@ while leftover `_wa_calc_html` frames remain. `LoadEnv::impl_loadContent` in
 target miss, so `rich_html.py` now reuses its kept Writer via `_idle_writers`
 instead of a named frame.
 
+The harness target names recorded in this file (`_wa_factory`,
+`_wa_scalc`, `_wa_sdraw`, `_wa_simpress`, `_wa_notebook`,
+`_wa_notebook_host`) never matched a frame:
+`TargetHelper::isValidNameForFrame`
+(`framework/source/loadenv/targethelper.cxx`) rejects frame names that
+start with `_`, so each load made a new unnamed frame exactly like
+`_blank`. The harness loads everything with `_blank`, and the
+after-bitmap skip depends on `leftover_open == 0`.
+
 GHA 34599838644 (`afae5938`, swriter-only named target): Linux PR CI
 34599725706 green. Windows `workflow_dispatch` never reached
 text_helpers. Same leftovers + `keeper=1` + reactivate, then Calc
@@ -301,8 +309,7 @@ leftovers `['34','27','26']`). Leftover Math Draw is not that hang.
 `test_import_filter_uno_load_component` Hidden `_blank` + FilterName
 returned, then raw `close(True)`; the next Hidden `_blank` detect
 hung — consecutive leftover Hidden `_blank` (34597506651). Windows
-notebook loads now use `windows_notebook_load_args` (`_wa_notebook`,
-CREATE|GLOBAL) and `TestingFactory.close_doc` (skip Writer close
+notebook loads now use `TestingFactory.close_doc` (skip Writer close
 while leftovers remain). Trail start/end now writes both runner
 modules; `format_lifecycle_breadcrumb` adopts from the sibling if
 this copy is empty.
@@ -318,7 +325,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `peer_message_uno: close_doc start/done uid=…` (POSIX).
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
-`create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
+`create_native_doc: windows factory leftover_open=N url=…`,
 `windows leftover skip: leftover simpress leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
@@ -332,8 +339,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `get_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
 `insert_math_draw: math_insert start/done` and `body done`,
-`import_filter_uno: load start/done` (`target=_wa_notebook` on
-Windows), `html_paste_writer: noted leftover_open=`,
+`import_filter_uno: load start/done`, `html_paste_writer: noted leftover_open=`,
 `windows leftover skip:`. Do **not** fold Draw-family settle into
 `close_doc`. Not a product fix.
 
@@ -639,19 +645,15 @@ timeout leftover reuse`). Not a product change.
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
 `-`) and `keeper reactivated` before
-Windows `private:factory/` loads (Writer **and** Calc), leftover
-swriter loads using `target=_wa_factory` (not `_blank` / not
-`_wa_factory_N`) plus leftover Calc using `target=_wa_scalc` (not
-`_blank` / not `_wa_factory_N`) plus leftover Draw/Impress using
-`target=_wa_sdraw` / `target=_wa_simpress` (not `_wa_factory_N`),
+Windows `private:factory/` loads (Writer **and** Calc),
 `document_research_uno: store budget via active start/done` (no
-`create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
+`create budget calc` / no leftover `scalc` factory load),
 `copied budget for hidden open` then `open_document_for_read done err=-`
 or `windows hidden bitmap` / Hidden-open `TEST end … SKIP` after
 system bitmap (no 30s hang on the next sibling open) **or**
 text_helpers `TEST end … SKIP` with
 `windows hidden skip: create_native_doc Hidden _blank after system
-bitmap` (no 30s Timeout on leftover_open=0 `target=_blank`) **before**
+bitmap` (no 30s Timeout on `leftover_open=0`) **before**
 `html_paste_writer: noted leftover_open` (formulas / rich_html are
 deferred),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
@@ -668,14 +670,13 @@ second; no second Hidden `_blank` / no 30s Timeout in
 that close), `insert_math_draw: math_insert start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
-`import_filter_uno: load start target=_wa_notebook` (not `_blank`)
+`import_filter_uno: load start`
 for both notebook import-filter tests when leftovers are not yet
 open, `close_doc: skip writer close` or `close_doc: start` (not raw
 `doc.close(True)`), both `notebook.test_import_filter_uno` tests
 `TEST end … OK` or detect `TEST end … SKIP` if leftovers already
 exist (no 30s Timeout on `detect_without_filtername`), leftover
-`simpress` after notebook leftovers using `target=_wa_simpress`
-(not `_wa_factory_10`) then
+`simpress` after notebook leftovers then
 `TEST end uno.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
 or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
 when leftover_open>2 (no 30s Timeout in `create_native_doc` on leftover
@@ -802,7 +803,11 @@ terminal. `TEST end … OK` also prints `exit=` (`-` while the child lives).
 
 ### Patches reach only the test process
 
-`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, write the config file the way `_enable_geometric_flag` does, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
+`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, use `patch_profile_config` (then `settle_soffice_config`, because soffice caches config for 2 s) or `repo_venv_in_profile` from `tests/harness/uno_profile_config.py`, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
+
+### Use only the standard library and LibreOffice
+
+CI runs `*_uno.py` with LibreOffice's Python, which has no `pytest` and may lack `Pillow`. A missing module fails the test. Use `unittest.TestCase().assertRaises…` and `unittest.SkipTest`.
 
 ### Look a shape up once and keep the proxy
 
@@ -852,6 +857,13 @@ Harness `close_doc` now GC + 50 ms then close (still not an LO cure).
 Full write-up: [salabort-svxshape-close.md](../archive/salabort-svxshape-close.md).
 `#687`'s post-OK `getServiceManager` probe can miss the race: SalAbort can
 print while URP still answers, then the process exits before the next open.
+
+GHA 45358408836 (2026-11-24, `draw.test_comments_uno.test_page_comment_roundtrip`):
+`Unspecified Application Error` printed 70 ms after `TEST call`, and
+`page_comment_add` then failed at `leaveUndoContext` with a disposed bridge.
+The test and tool hold no shape proxies, so it is not the wrapper-detach race
+in "Look a shape up once and keep the proxy". 40 local repeats did not
+reproduce it.
 
 ### Ranked hypotheses
 

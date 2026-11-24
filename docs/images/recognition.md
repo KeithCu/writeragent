@@ -192,7 +192,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Area | Files |
 |------|--------|
 | **Vision trusted stack + host wiring** | [`vision.py`](../../plugin/vision/venv/vision.py) (dispatcher), [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (Docling default), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (fallback), [`vision_common.py`](../../plugin/vision/vision_common.py), [`client.run_vision`](../../plugin/scripting/client.py), [`vision_runner.py`](../../plugin/vision/vision_runner.py) (`resolve_vision_image`, `run_and_insert_vision_for_selection`, `supports_vision_manual`), [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`vision_egress.py`](../../plugin/vision/vision_egress.py) (Writer) |
-| Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) |
+| Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`find_image`](../../plugin/doc/visual_helpers.py) |
 | Run Python vision fast path | [`python_runner.py`](../../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
 | HTML export (Docling / Paddle) | [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (`export_docling_to_html`), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (`html_from_paddle_regions`, `html_from_paddle_structure`), [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (`prepare_html_for_lo_import`, **css-inline** required; heading/body/table/MathML augment) |
@@ -249,7 +249,7 @@ sequenceDiagram
 | [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py) | `HELPER_NAMES`, `run_vision`, `_extract_text` via PaddleOCR (lazy engine singleton per worker) |
 | [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | Host entry `run_vision`; fixed stub IPC like analysis |
 | [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | Calls `run_vision(...)`; Phase 1 template: **`extract_text` only** |
-| [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `resolve_vision_image(ctx, doc, image_name)`, `run_trusted_vision(...)` — host-side export + RPC |
+| [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `resolve_vision_image(ctx, doc, image_name, graphic=None)`, `run_trusted_vision(...)` — host-side export + RPC |
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 
 **Host RPC (`run_vision` in [`client.py`](../../plugin/scripting/client.py)) — match analysis pattern:**
@@ -348,7 +348,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | `insert_vision_html_into_calc` (rich HTML in cell below anchor) |
 | [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py) | `export_graphic_object_to_bytes` |
 
-**Image resolution:** `params.image_name` empty → selected graphic; non-empty → [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) by name (`IMAGE_NOT_FOUND` on miss).
+**Image resolution:** [`find_image`](../../plugin/doc/visual_helpers.py) resolves explicit kept `graphic` first (discovered for an unnamed Calc/Draw/Impress image), else `image_name` via [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) (`IMAGE_NOT_FOUND` on miss), else `selected_graphic_object` (`NO_IMAGE_SELECTED` when empty).
 
 **First PP-Structure run:** uses `VISION_WORKER_TIMEOUT_SEC` (same as OCR model download).
 
@@ -377,7 +377,7 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 
 | Capability | Entry point |
 |------------|-------------|
-| Export selection or named graphic to PNG | [`resolve_vision_image`](../../plugin/vision/vision_runner.py) + [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) |
+| Export selection or named graphic to PNG | [`resolve_vision_image`](../../plugin/vision/vision_runner.py) + [`find_image`](../../plugin/doc/visual_helpers.py) |
 | List in-document graphics | [`image_list`](../../plugin/writer/images/images.py) |
 | Metadata | [`image_get_info`](../../plugin/writer/images/images.py) |
 | Return a viewable image to the model | [`image_get`](../../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` (0-based) to render a whole page as PNG (Writer: `writer_png_Export`; Draw/Impress: `GraphicExportFilter` on the draw page) |
@@ -659,13 +659,13 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
-Host multi-image OCR (`run_and_insert_vision_for_selection`) records per-image/insert `ToolExecutionError` and OCR error results in `failures` and keeps going: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. A worker-level `ToolExecutionError` (`"worker" in exc.details`, such as `VENV_TIMEOUT` or `IPC` failure) or an unexpected per-image exception stops the loop (or raises if no image completed) so finished images stay reported; if `cancel` is set when a worker error arrives, it returns the stopped result without recording a failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. `deleted_images` and `kept_images_delete_not_trackable` (names) are on ok, error, and stopped results, only when at least one image was deleted or kept because the delete could not be tracked. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, `inserted`, `deleted_images`, and `kept_images_delete_not_trackable` (when present) into `details`. A document closed during selection discovery, while a named image is looked up, or while any image is exported ends the run with `DocumentDisposedError`, in the batch and in Preview, and returns no partial result. An unnamed image (Calc, Draw and Impress only; Writer discovery skips unnamed graphics) is looked up through the selection, and `selected_graphic_object` reads a closed document as no selection, so a close just before that lookup gives `NO_IMAGE_SELECTED`.
+Host multi-image OCR (`run_and_insert_vision_for_selection`) records per-image/insert `ToolExecutionError` and OCR error results in `failures` and keeps going: images after the failure are still OCR'd and inserted, and the run then returns `status: error` built from the first failure. A worker-level `ToolExecutionError` (`"worker" in exc.details`, such as `VENV_TIMEOUT` or `IPC` failure) or an unexpected per-image exception stops the loop (or raises if no image completed) so finished images stay reported; if `cancel` is set when a worker error arrives, it returns the stopped result without recording a failure. Earlier images stay inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), `failed_image`, `failed_images`, and `individual_results`. `deleted_images` and `kept_images_delete_not_trackable` (names) are on ok, error, and stopped results, only when at least one image was deleted or kept because the delete could not be tracked. The LLM tool copies `partial`, `images_processed`, `image_names`, `failed_image`, `inserted`, `deleted_images`, and `kept_images_delete_not_trackable` (when present) into `details`. A document closed during selection discovery, while a named image is looked up, or while any image is exported ends the run with `DocumentDisposedError`, in the batch and in Preview, and returns no partial result. An unnamed image (Calc, Draw and Impress only; Writer discovery skips unnamed graphics) keeps the shape found at discovery, and if the document closes after discovery the export returns no bytes, giving `NO_IMAGE_SELECTED`.
 
 `insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
 
 Host `run_trusted_vision` rejects a helper outside `HELPER_NAMES` with `VISION_ERROR` before export. Images larger than `VISION_IMAGE_MAX_BYTES` (15 MiB, under the 16 MiB pickle frame cap) return `IMAGE_TOO_LARGE` and are not sent. PDF bytes do not fall back to Paddle.
 
-Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, not a write under the current selection.
+Calc insert uses `image_name` when set, or the shape kept at discovery for an unnamed image. An unknown name is `IMAGE_NOT_FOUND`, not a write under the current selection.
 
 ```json
 {
@@ -678,7 +678,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 
 | `code` | When |
 |--------|------|
-| `NO_IMAGE_SELECTED` | Host: no image in the selection, the selected image has no image data, or the document closed just before an unnamed image was looked up |
+| `NO_IMAGE_SELECTED` | Host: no image in the selection, the selected image has no image data, or the document closed after an unnamed image was discovered and before its export |
 | `IMAGE_NOT_FOUND` | Host: `image_name` not found via `get_graphic_object_by_name`, or the named image has no image data |
 | `IMAGE_EXPORT_FAILED` | Host: LibreOffice could not write the image as PNG |
 | `IMAGE_TOO_LARGE` | PNG bytes exceed `VISION_IMAGE_MAX_BYTES` |
@@ -750,7 +750,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 | No graphic in selection / export fails | `NO_IMAGE_SELECTED` — *Select an embedded image (or a range containing images), then Run again.* |
 | Writer selection spans multiple images | OCR each graphic separately; insert HTML after **each**; intervening text ignored; selection collapsed before insert |
 | `image_name` set but not in document | `IMAGE_NOT_FOUND` — *Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.* |
-| Calc graphic not cell-anchored | `NO_OUTPUT_ANCHOR` — *Anchor the image to a cell, select it, then Run again.* |
+| Calc graphic not cell-anchored (or kept unnamed image deleted before insert) | `NO_OUTPUT_ANCHOR` — *Anchor the image to a cell, select it, then Run again.* |
 | Venv missing or old Docling / missing Paddle | `DOCLING_UNAVAILABLE`, `DOCLING_API_MISMATCH` (Docling too old), or `PADDLEOCR_UNAVAILABLE` — pip install + Settings → Python path |
 | OCR returns empty | `status: ok`, `full_text: ""`, `html: ""`, `warnings: ["No text detected."]` — nothing is inserted; dialog/tool report no text |
 | Success (Writer/Calc) | Insert **`html`** after each Writer graphic or cell below Calc anchor; status — *Inserted formatted HTML* |

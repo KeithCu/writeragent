@@ -112,22 +112,23 @@ def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
         reloaded.setPropertyValue("RecordChanges", False)
         del11 = ImageDelete().execute(tctx, name="Image 11")
         assert del11.get("status") == "ok", del11
-        assert "Image 11" not in [dp.getByIndex(i).getName() for i in range(dp.getCount())]
+        # Bind each shape once (docs/framework/uno-test-lifecycle.md): a late release of a dropped
+        # proxy can detach the next one, and a detached shape reports no GraphicObjectShape service.
+        shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
+        assert "Image 11" not in [s.getName() for s in shapes]
 
-        # Find the draw-page index of the GraphicObjectShape "Image 1" (not the FrameShape fly).
+        # Draw-page index of the GraphicObjectShape "Image 1" (not the FrameShape fly).
         draw_img1_idx = next(
             i
-            for i in range(dp.getCount())
-            if dp.getByIndex(i).getName() == "Image 1"
-            and dp.getByIndex(i).supportsService("com.sun.star.drawing.GraphicObjectShape")
+            for i, s in enumerate(shapes)
+            if s.getName() == "Image 1" and s.supportsService("com.sun.star.drawing.GraphicObjectShape")
         )
         del_shape = DeleteShape().execute(tctx, index=draw_img1_idx)
         assert del_shape.get("status") == "ok", del_shape
         assert reloaded.getGraphicObjects().hasByName("Image 1")
+        shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
         assert not any(
-            dp.getByIndex(i).getName() == "Image 1"
-            and dp.getByIndex(i).supportsService("com.sun.star.drawing.GraphicObjectShape")
-            for i in range(dp.getCount())
+            s.getName() == "Image 1" and s.supportsService("com.sun.star.drawing.GraphicObjectShape") for s in shapes
         )
     finally:
         try:
