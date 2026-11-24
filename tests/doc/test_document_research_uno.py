@@ -488,6 +488,14 @@ def test_research_close_keeps_user_python_session_uno(ctx):
         user_doc = get_desktop(ctx).loadComponentFromURL(url, "_default", 0, ())
         assert user_doc is not None
 
+        expected_sid = f"calc:{url}"
+        shared_listeners = [
+            listener
+            for listener in workbook_lifecycle._LISTENERS.values()
+            if listener._workbook_session_id == expected_sid
+        ]
+        assert len(shared_listeners) == 2
+
         with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}) as reset_mock:
             close_document_research_document(research_model, opened_for_document_research=opened)
             research_model = None

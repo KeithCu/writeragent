@@ -38,6 +38,7 @@ from plugin.calc.python.geometric_recalc import (
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import is_scratch_uid
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.uno_listeners import HAVE_UNO, BaseDocumentEventListener
 from plugin.framework.worker_pool import run_in_background
@@ -215,18 +216,23 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # set are written by note_calc_identity off the main thread, so copying
         # the set while it changes would raise, and a Save during unload must
         # not leave the new kernel out of the reset list.
+        is_scratch = is_scratch_uid(self._key)
         with _LOCK:
             if self._teardown_done:
                 return
             self._teardown_done = True
             _LISTENERS.pop(self._key, None)
-            # Another open document with the same file (a hidden research copy next
-            # to the user's window) still uses that session.
-            session_ids = tuple(
-                sid
-                for sid in (self._workbook_session_id, *tuple(self._extra_session_ids))
-                if sid and not self._session_has_new_listener(sid)
-            )
+            all_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
+            if is_scratch:
+                # A hidden research copy must not reset a session still held by another
+                # open document (e.g. the user's window), whereas a user close or
+                # File > Reload (which registers the new document before unloading the old
+                # one) must still reset.
+                session_ids = tuple(
+                    sid for sid in all_ids if sid and not self._session_has_new_listener(sid)
+                )
+            else:
+                session_ids = tuple(sid for sid in all_ids if sid)
         if self._state is not None:
             WorkbookState.forget_key(self._state.key)
         self._release_calc_state(session_ids)

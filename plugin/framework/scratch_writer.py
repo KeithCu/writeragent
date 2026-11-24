@@ -84,11 +84,17 @@ def close_scratch_document(doc: Any) -> None:
         _scratch_uids.discard(uid)
 
 
-def is_scratch_document(doc: Any) -> bool:
-    """Return True when *doc* is a currently registered WriterAgent scratch document."""
-    uid = get_runtime_uid(doc)
+def is_scratch_uid(uid: str) -> bool:
+    """Return True when *uid* is a currently registered WriterAgent scratch RuntimeUID."""
+    if not uid:
+        return False
     with _scratch_lock:
         return uid in _scratch_uids
+
+
+def is_scratch_document(doc: Any) -> bool:
+    """Return True when *doc* is a currently registered WriterAgent scratch document."""
+    return is_scratch_uid(get_runtime_uid(doc))
 
 
 def run_after_scratch_loads(report: Callable[[], object]) -> None:

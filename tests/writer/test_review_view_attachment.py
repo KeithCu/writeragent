@@ -429,3 +429,40 @@ def test_register_controller_skips_scratch_and_defers_during_scratch_load(monkey
     assert rva.attachment_key(scratch_model) not in review_registry
 
 
+def test_install_defers_view_registration_past_scratch_load(monkeypatch, review_registry) -> None:
+    from types import SimpleNamespace
+
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
+    )
+
+    broadcaster = MagicMock()
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+    with patch("plugin.writer.review_view_attachment.get_desktop", return_value=None):
+        rva.install(ctx)
+        listener = broadcaster.addDocumentEventListener.call_args.args[0]
+
+    scratch_model = FakeModel("scratch-install")
+    scratch_model.supportsService = lambda s: s == "com.sun.star.text.TextDocument"  # type: ignore[attr-defined]
+    scratch_ctrl = FakeController(model=scratch_model)
+
+    desktop = MagicMock()
+
+    def _load(*_args):
+        listener.on_document_event(
+            SimpleNamespace(EventName="OnViewCreated", ViewController=scratch_ctrl, Source=scratch_model)
+        )
+        return scratch_model
+
+    desktop.loadComponentFromURL.side_effect = _load
+    scratch_writer.load_scratch_document(desktop, "private:factory/swriter")
+    assert rva.attachment_key(scratch_model) not in review_registry
+
+
