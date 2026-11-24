@@ -51,8 +51,12 @@ else:
 
 from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import (
+    CLEARABLE_PARA_PROPERTIES,
+    PROPERTY_READONLY,
     iter_elements_limited,
     record_walk_cap,
+    reset_properties_to_default,
+    writable_char_names,
 )
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
@@ -87,13 +91,6 @@ FONT_NAME_PROPERTIES = ("CharFontName", "CharFontNameAsian", "CharFontNameComple
 
 STYLE_GOVERNED_CHAR_PROPERTIES = FONT_NAME_PROPERTIES + (
     "CharHeight", "CharHeightAsian", "CharHeightComplex",
-)
-
-# Deliberately narrower than setAllPropertiesToDefault: numbering, borders, and
-# language are not the caller's to lose.
-CLEARABLE_PARA_PROPERTIES = (
-    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
-    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
 )
 
 # Every name is one SwUnoCursorHelper::makeRedline accepts and lcl_RejectRedline restores.
@@ -151,7 +148,6 @@ REPORTED_CHAR_PROPERTIES = STYLE_GOVERNED_CHAR_PROPERTIES + (
 _CAPTURE_PARA_LIMIT = 200000
 _CAPTURE_PORTION_LIMIT = 50000
 
-_READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY (udkapi/com/sun/star/beans/PropertyAttribute.idl)
 _READ_FAILED = object()
 _CHAR_PROPS_KEY = "__writable_char_props__"
 FONT_SLANT_TO_INT: dict[str, int] = {
@@ -159,47 +155,6 @@ FONT_SLANT_TO_INT: dict[str, int] = {
     "oblique": 1,
     "italic": 2,
 }
-
-
-def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
-    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
-    names = tuple(names)
-    if not names:
-        return []
-    try:
-        cursor.setPropertiesToDefault(names)
-        return list(names)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        pass  # no XMultiPropertyStates on this range — fall back to one at a time
-    cleared = []
-    for name in names:
-        try:
-            cursor.setPropertyToDefault(name)
-            cleared.append(name)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            continue
-    return cleared
-
-
-_LANGUAGE_PROPERTIES = ("CharLocale", "CharLocaleAsian", "CharLocaleComplex")
-
-
-def reset_direct_char_formatting(cursor: Any) -> None:
-    """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
-
-    Resetting any one Char* name on an empty paragraph drops its whole character
-    attribute set, language included, so the language is read first and put back.
-    """
-    names = _writable_char_names(cursor)
-    if not isinstance(names, list):
-        return
-    language = {name: cursor.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
-    reset_properties_to_default(cursor, names)
-    for name, value in language.items():
-        if cursor.getPropertyValue(name) != value:
-            cursor.setPropertyValue(name, value)
 
 
 def convert_direct_properties(updates: dict[str, Any]) -> dict[str, Any]:
@@ -247,7 +202,7 @@ def _unsupported_property_error(
             unknown.append(name)
             continue
         prop = info.getPropertyByName(name)
-        if prop.Attributes & _READONLY:
+        if prop.Attributes & PROPERTY_READONLY:
             readonly.append(name)
     if unknown:
         all_names = [str(p.Name) for p in info.getProperties()]
@@ -351,26 +306,16 @@ class _CountingReader:
         self.failures += 1
 
 
-def _writable_char_names(portion: Any) -> list[str] | object:
-    """Return writable Char* property names, or _READ_FAILED when property info cannot be read."""
-    info = portion.getPropertySetInfo()
-    if info is None:
-        return _READ_FAILED
-    return [
-        p.Name for p in info.getProperties()
-        if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & _READONLY)
-    ]
-
-
 def _style_comparable_char_names(portion: Any, style: Any) -> list[str] | object:
-    """``_writable_char_names`` that paragraph *style* also has.
+    """``writable_char_names`` that paragraph *style* also has.
 
     CharStyleName and the other run-only names have no style value to compare with, and a
-    paragraph style change leaves them alone.
+    paragraph style change leaves them alone. Returns ``_READ_FAILED`` when property info
+    cannot be read.
     """
-    names = _writable_char_names(portion)
-    if not isinstance(names, list):
-        return names
+    names = writable_char_names(portion)
+    if names is None:
+        return _READ_FAILED
     info = style.getPropertySetInfo()
     return [name for name in names if info.hasPropertyByName(name)]
 
@@ -548,7 +493,7 @@ def _paragraph_property_names(para: Any) -> tuple[str, ...]:
     """Writable paragraph-level property names (all paragraphs share one property map)."""
     return tuple(
         p.Name for p in para.getPropertySetInfo().getProperties()
-        if not p.Attributes & _READONLY and not _is_text_property(p.Name)
+        if not p.Attributes & PROPERTY_READONLY and not _is_text_property(p.Name)
     )
 
 
@@ -828,7 +773,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
 }
 
-# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (above) so the
+# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (in plugin.doc.text_helpers) so the
 # inspect set and the clear_direct wipe cannot drift.
 _PARA_PROPERTY_SCHEMA = {
     "ParaTopMargin": {"type": "integer", "description": "Top margin, 1/100 mm (1 inch = 2540)."},
@@ -1353,7 +1298,7 @@ def copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], lis
             attrs = int(getattr(prop, "Attributes", 0) or 0)
         except (TypeError, ValueError):
             attrs = 0
-        if attrs & _READONLY:
+        if attrs & PROPERTY_READONLY:
             continue
         try:
             state = source.getPropertyState(name)

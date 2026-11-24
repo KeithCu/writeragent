@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator, Mapping, Sequence
+    from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 
 import uno
 
@@ -388,22 +388,84 @@ def apply_chapter_number(node: Any, para: Any) -> None:
         node["chapter_number"] = label
 
 
-def clear_direct_numbering(cursor: Any) -> None:
-    """Drop direct paragraph numbering so the cursor reverts to the style's list rules.
+PROPERTY_READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY (udkapi/com/sun/star/beans/PropertyAttribute.idl)
 
-    In LibreOffice Writer, ``setPropertyToDefault("NumberingStyleName")`` and
-    ``setPropertyToDefault("NumberingRules")`` leave direct numbering untouched
-    (see ``test_full_document_drops_old_first_paragraph_direct_margins_uno``).
-    Setting ``NumberingRules=None`` invokes Writer's ``DelNumRules`` path, which
-    clears direct numbering without leaving a hard empty ``NumberingStyleName=""``
-    override that would mask an underlying paragraph style's list formatting.
-    This also drops leftover numbering after ``insertDocumentFromURL`` in notebook
-    HTML imports before following blocks.
+# Deliberately narrower than setAllPropertiesToDefault: numbering, borders, and
+# language are not the caller's to lose.
+CLEARABLE_PARA_PROPERTIES = (
+    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+)
+
+_LANGUAGE_PROPERTIES = ("CharLocale", "CharLocaleAsian", "CharLocaleComplex")
+
+
+def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
+    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
+    names = tuple(names)
+    if not names:
+        return []
+    try:
+        cursor.setPropertiesToDefault(names)
+        return list(names)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        pass  # no XMultiPropertyStates on this range — fall back to one at a time
+    cleared = []
+    for name in names:
+        try:
+            cursor.setPropertyToDefault(name)
+            cleared.append(name)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue
+    return cleared
+
+
+def writable_char_names(rng: Any) -> list[str] | None:
+    """Return writable Char* property names on *rng*, or None when property info is missing."""
+    info = rng.getPropertySetInfo()
+    if info is None:
+        return None
+    return [
+        p.Name for p in info.getProperties()
+        if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & PROPERTY_READONLY)
+    ]
+
+
+def reset_direct_char_formatting(cursor: Any) -> None:
+    """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
+
+    Resetting any one Char* name on an empty paragraph drops its whole character
+    attribute set, language included, so the language is read first and put back.
+    The language is read at the range start because a mixed-language range reads as None.
     """
-    best_effort(
-        lambda: cursor.setPropertyValue("NumberingRules", None),
-        "clear direct NumberingRules failed",
-    )
+    names = writable_char_names(cursor)
+    if names is None:
+        return
+    at_start = cursor.getText().createTextCursorByRange(cursor.getStart())
+    language = {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+    reset_properties_to_default(cursor, names)
+    for name, value in language.items():
+        if cursor.getPropertyValue(name) != value:
+            cursor.setPropertyValue(name, value)
+
+
+def clear_direct_numbering(cursor: Any) -> None:
+    """Drop direct paragraph numbering so *cursor* reverts to the style's list rules.
+
+    ``setPropertyToDefault`` leaves numbering untouched. Setting ``NumberingRules=None``
+    runs ``SwDoc::DelNumRules`` (``sw/source/core/doc/docnum.cxx``), which resets a direct
+    list but puts an empty list over a style's list, so style numbering is left alone.
+    The state is read on the paragraph because the cursor reports the same state for
+    direct and style lists.
+    """
+    def clear() -> None:
+        para = next(iter_elements(cursor.createEnumeration()))
+        if para.getPropertyState("NumberingStyleName").value == "DIRECT_VALUE":
+            cursor.setPropertyValue("NumberingRules", None)
+
+    best_effort(clear, "clear direct NumberingRules failed")
 
 
 def iter_heading_nodes(node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
