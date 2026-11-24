@@ -20,6 +20,7 @@ from plugin.doc.python_domain_specialized import (
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSubagent
+from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
@@ -494,6 +495,8 @@ def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls,
         "status": "error",
         "code": "USER_STOPPED",
         "message": "Domain tool agent stopped by user.",
+        "edits": {},
+        "note": NO_EDIT_TOOL_NOTE,
     }
     assert "domains" not in result
 

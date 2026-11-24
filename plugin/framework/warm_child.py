@@ -221,7 +221,7 @@ class ChildSlot:
     ``_lifecycle_lock`` guards publish, drop, and each subclass's stop flags, so a
     publish either sees a stop or stores a child the stopper's ``kill`` still
     signals. The lock is never held across ``start()`` or the handshake read:
-    ``kill()`` takes it only to drop the pointer, and the handshake can block for
+    ``kill()`` takes it only to read or drop the pointer, and the handshake can block for
     the whole spawn budget.
     """
 
@@ -355,6 +355,10 @@ class ChildSlot:
                     self.kill()
             finally:
                 self._end_child_io(spawned)
+            # A kill after the last was_signaled() check in the handshake still kills this child.
+            if tag == "ready" and spawned.was_signaled():
+                self._drop_child(spawned)
+                tag, detail = "interrupted", None
             return SpawnOutcome(tag, detail, spawned, True)
         except Exception as exc:
             if spawned is not None:
@@ -489,14 +493,22 @@ class WarmChild(ChildSlot):
         self._supervisor._register(self)
 
     def kill(self) -> bool:
-        """Signal the child as ours. On an empty slot, cancel a spawn that has not published yet."""
-        self._killed_by_us = True
-        child = self.child
-        if child is None:
-            with self._lifecycle_lock:
+        """Signal the child as ours. On an empty slot, cancel a spawn that has not published yet.
+
+        The read and the cancel flag share one lock hold with ``_publish``, so a
+        publish either sees the cancel or stores a child this call signals.
+        """
+        with self._lifecycle_lock:
+            self._killed_by_us = True
+            child = self.child
+            if child is None:
                 self._cancel_pending = True
+        if child is None:
             return True
         return self._signal_and_drop(child)
+
+    def _killed_before_lease(self) -> dict[str, Any]:
+        return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} was killed before the request started.")
 
     def _publish_refusal(self) -> dict[str, Any] | None:
         if self._retired or self._supervisor.is_shutting_down():
@@ -602,19 +614,26 @@ class WarmChild(ChildSlot):
                 yield err
                 return
             child = self.child
-            assert child is not None
-            proc = child.managed.popen
-            assert proc is not None
-            stdin = proc.stdin
-            stdout = proc.stdout
-            if stdin is None or stdout is None:
-                yield error_dict(
-                    "WORKER_SPAWN_FAILED",
-                    f"{self.spec.name} has no stdio pipes.",
-                )
+            if child is None:
+                yield self._killed_before_lease()
                 return
+            # begin_io first: signal_from sets _signaled before it reads the io owner, so either
+            # this check sees the kill or the killer leaves the reap to our end_io.
             child.begin_io()
             try:
+                if child.was_signaled():
+                    yield self._killed_before_lease()
+                    return
+                proc = child.managed.popen
+                assert proc is not None
+                stdin = proc.stdin
+                stdout = proc.stdout
+                if stdin is None or stdout is None:
+                    yield error_dict(
+                        "WORKER_SPAWN_FAILED",
+                        f"{self.spec.name} has no stdio pipes.",
+                    )
+                    return
                 yield Lease(
                     stdin=stdin,
                     stdout=stdout,

@@ -1978,7 +1978,7 @@ def test_ensure_body_ready_ends_status_bar_indicator() -> None:
     client.is_alive.return_value = True
     try:
         with (
-            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
             patch.object(grammar_obs, "resolve_status_bar_frame", return_value=MagicMock()),
         ):
             _ready_runtime(client)

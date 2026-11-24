@@ -51,6 +51,7 @@ from plugin.doc.specialized_catalog import (
     format_domain_catalog,
     format_specialized_domains_description,
     loop_hint,
+    record_edits,
     start_inner_payload,
 )
 from plugin.framework.i18n import _
@@ -480,8 +481,12 @@ class DelegateToSpecializedBase(ToolBase):
             [domain],
             text_message=_("Specialized task ({domain}) completed.").format(domain=domain),
         )
-        # Discussion #2029: a user-stop or crash dict that is already status: "error" is left unchanged.
+        # A user-stop or crash dict keeps its status, code and message; only what already landed is added.
         if payload.get("status") == "error":
+            if expects_edits(domain):
+                record_edits(payload, cap.calls)
+            if domain == "shapes":
+                payload.update(summarize_shape_calls(cap.calls))
             return payload
         payload = self._annotate_payload(payload, ctx, domain, cap)
         return apply_inner_outcome(
