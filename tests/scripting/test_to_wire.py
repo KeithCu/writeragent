@@ -200,6 +200,17 @@ def test_frame_and_series_fallback_grids():
     assert wire_unnamed == [1.5, 2.5]
 
 
+def test_to_wire_nat_becomes_none():
+    pd = pytest.importorskip("pandas")
+
+    assert to_wire(pd.NaT) is None
+    assert to_wire([pd.NA, pd.NaT]) == [None, None]
+    assert to_wire(pd.Timedelta("NaT")) is None
+    assert to_wire([[pd.NaT, 1]]) == [[None, 1]]
+    assert to_wire({"a": pd.NaT}) == {"a": None}
+    assert to_wire(pd.Timestamp("2024-01-02")) == "2024-01-02T00:00:00"
+
+
 def test_default_range_index_frame_has_no_header():
     pd = pytest.importorskip("pandas")
     from plugin.scripting.payload_codec import is_dataframe_payload

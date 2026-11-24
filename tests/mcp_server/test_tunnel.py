@@ -1835,8 +1835,6 @@ def test_provider_uses_token():
     assert provider_uses_token(" Cloudflare ") is True
     assert provider_uses_token("Tailscale") is False
     assert provider_uses_token("unknown") is True
-
-
 def test_sync_tunnel_starts_after_keyring_unlocks(monkeypatch, fake_keystore):
     from plugin.framework import keystore
 

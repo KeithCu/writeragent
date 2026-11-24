@@ -18,11 +18,13 @@
 """OpenAI and MCP JSON Schema conversion for ToolBase instances.
 
 Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
-converts each top-level argument to its declared schema type and folds enum
-spellings; rules are listed on the function. ``call_properties`` /
-``without_unknown_kwargs`` are the one allow-list for a call: an empty
-``properties`` object is a no-arg schema. ``normalize_outbound_tool_calls``
-applies that allow-list once, before any provider shim builds a request.
+converts arguments (including nested ``properties``, ``items``, and
+``additionalProperties`` maps without ``patternProperties``) to their declared
+schema types and folds enum spellings; rules are listed on the function.
+``call_properties`` / ``without_unknown_kwargs`` are the one allow-list for a
+call: an empty ``properties`` object is a no-arg schema.
+``normalize_outbound_tool_calls`` applies that allow-list once, before any
+provider shim builds a request.
 """
 
 from __future__ import annotations
@@ -340,22 +342,41 @@ def _match_enum(value: str, enum: list[Any]) -> str:
     return value
 
 
-def _items_to_declared_type(prop: dict[str, Any], values: list[Any]) -> list[Any]:
-    """Convert elements toward a single scalar ``items.type``; union and nested item types stay for the tool."""
-    items = prop.get("items")
-    item_type = items.get("type") if isinstance(items, dict) else None
-    if not isinstance(item_type, str) or item_type not in _SCALAR_TYPES:
-        return values
-    return [v if value_matches_type(v, item_type) else _to_declared_type(item_type, v) for v in values]
+def _coerce_value(spec: dict[str, Any], value: Any, *, is_item: bool = False) -> Any:
+    """Coerce *value* toward one property, ``items``, or ``additionalProperties`` schema, then walk into it.
+
+    Map values follow property rules (``is_item=False``), so unions convert and
+    scalars wrap for an array type. List elements convert only when the item
+    type is one non-array type: a union is the tool's to parse, and wrapping a
+    bare row of an array of arrays would hide the tool's own check for a row
+    that is not a list.
+    """
+    schema_type = spec.get("type")
+    convertible = schema_type is not None and (not is_item or (isinstance(schema_type, str) and schema_type != "array"))
+    if convertible and not value_matches_type(value, schema_type):
+        value = _to_declared_type(schema_type, value)
+    items = spec.get("items")
+    if isinstance(value, list) and isinstance(items, dict):
+        value = [_coerce_value(items, v, is_item=True) for v in value]
+    elif isinstance(value, dict):
+        # A key that matches patternProperties is not "additional", and a remote server's regexes are never run on arguments.
+        extra = None if "patternProperties" in spec else spec.get("additionalProperties")
+        value = coerce_call_args(spec.get("properties"), value, extra)
+    enum = spec.get("enum")
+    if isinstance(value, str) and isinstance(enum, list) and enum and value not in enum:
+        value = _match_enum(value, enum)
+    return value
 
 
-def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Coerce top-level tool arguments toward their declared JSON Schema types and enums.
+def coerce_call_args(props: Any, kwargs: dict[str, Any], extra: Any = None) -> dict[str, Any]:
+    """Coerce tool arguments toward their declared JSON Schema types and enums.
 
-    Returns a new dict without mutating *kwargs*. Elements of any list (sent by
-    the caller or produced by coercion) convert when ``items.type`` is one
-    scalar type; union, object, and array items, and nested ``properties``, are
-    not walked. Rules applied per property in order:
+    Returns a new dict without mutating *kwargs*. Nested ``properties``,
+    ``items``, and ``additionalProperties`` maps (when ``patternProperties`` is
+    absent) are walked recursively; *extra* is the schema applied to keys not
+    declared in *props*. Union items and array items are not converted (a bare
+    row of an array-of-arrays stays unwrapped so the tool's row-type check
+    still runs). Rules applied per property in order:
     - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds; unions that include ``string`` keep strings so the tool owns string parsing (such as forms ``items``).
     - Numeric strings match ASCII digits and finite floats only (Python ``int()``/``float()`` accept ``1_0``, full-width digits, ``nan``, and ``inf``); ``integer`` accepts whole values only.
     - Boolean words (``true``/``yes``/``1`` and ``false``/``no``/``0``, case-insensitive) convert to ``bool``.
@@ -367,22 +388,11 @@ def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(kwargs, dict):
         return kwargs
-    if not isinstance(props, dict):
-        return dict(kwargs)
-    out = dict(kwargs)
-    for k, v in out.items():
-        prop = props.get(k)
-        if not isinstance(prop, dict):
-            continue
-        schema_type = prop.get("type")
-        if schema_type is not None and not value_matches_type(v, schema_type):
-            v = _to_declared_type(schema_type, v)
-        if isinstance(v, list):
-            v = _items_to_declared_type(prop, v)
-        enum = prop.get("enum")
-        if isinstance(v, str) and isinstance(enum, list) and enum and v not in enum:
-            v = _match_enum(v, enum)
-        out[k] = v
+    specs = props if isinstance(props, dict) else {}
+    out: dict[str, Any] = {}
+    for k, v in kwargs.items():
+        spec = specs.get(k, extra)
+        out[k] = _coerce_value(spec, v) if isinstance(spec, dict) else v
     return out
 
 
@@ -528,15 +538,19 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
 
     agent_label_for = getattr(tool, "agent_label_for", None)
     if agent_label_for is not None:
-        from plugin.framework.prompts import format_specialized_domains_description
+        from plugin.framework.prompts import format_specialized_domains_description, get_specialized_domain_catalog
 
         # For MCP schemas, use a compact description to avoid duplicating the long domain list
         # (the detailed domain guidance lives in the 'domain' property description instead).
         # The full verbose guidance with examples is still used in chat system prompts.
         desc = f"{desc} See the 'domain' property for available areas and the 'task' parameter rules.".strip()
-        props["domain"]["description"] = format_specialized_domains_description(
-            agent_label=agent_label_for(doc_type=doc_type)
-        )
+        label = agent_label_for(doc_type=doc_type)
+        props["domain"]["description"] = format_specialized_domains_description(agent_label=label)
+        # get_parameters keeps chat-tier domains so execute() can refuse them by name; MCP lists omit them.
+        # With no doc_type, agent_label_for answers "Writer" while the enum must merge all apps.
+        props["domain"]["enum"] = [
+            e["domain"] for e in get_specialized_domain_catalog(agent_label=label if doc_type else None, for_mcp=True)
+        ]
 
     input_schema = _normalize_schema_for_strict_providers(input_schema, for_mcp=True)
     props = input_schema["properties"]

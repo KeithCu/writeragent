@@ -1062,3 +1062,145 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
         adjusts.append(int(el.getPropertyValue("ParaAdjust")))
     assert adjusts == [5, 5], adjusts
 
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ruby_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+
+    # 1. Range read across all paragraphs: no gone.
+    full_len = len(get_string_without_tracked_deletions(text))
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=full_len)
+    assert "gone" not in range_html, range_html
+    assert "Keep" in range_html and "Tail" in range_html and "After" in range_html
+
+    # 2. Range from Tail's visible offset returns Tail.
+    visible_str = get_string_without_tracked_deletions(text)
+    tail_off = visible_str.index("Tail")
+    tail_html = document_to_content(
+        doc, ctx, scope="range", range_start=tail_off, range_end=tail_off + len("Tail")
+    )
+    assert "Tail" in tail_html and "gone" not in tail_html, tail_html
+
+    # 3. Selection from gone2 paragraph to the end: no gone.
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    sel_cur = text.createTextCursorByRange(paras[2].getStart())
+    sel_cur.gotoRange(text.getEnd(), True)
+    doc.getCurrentController().select(sel_cur)
+    sel_html = document_to_content(doc, ctx, scope="selection")
+    assert "gone" not in sel_html, sel_html
+    assert "Tail" in sel_html and "After" in sel_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_range_over_struck_table_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import strike_across_table
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    strike_across_table(doc, text)
+
+    vis_len = len(get_string_without_tracked_deletions(text))
+    html_tbl = document_to_content(doc, ctx, scope="range", range_start=0, range_end=vis_len)
+    assert "<table" not in html_tbl.lower(), html_tbl
+    assert "CellGone" not in html_tbl, html_tbl
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_full_read_skips_mid_deletion_outline_link_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    c = text.createTextCursor()
+    text.insertString(c, "KeepHeading", False)
+    c.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(c, 0, False)
+    c.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(c, "StartGone", False)
+    text.insertControlCharacter(c, 0, False)
+    text.insertString(c, "StruckLink", False)
+    c.gotoStartOfParagraph(True)
+    c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
+    c.gotoEndOfParagraph(False)
+    text.insertControlCharacter(c, 0, False)
+    text.insertString(c, "EndGone ", False)
+    text.insertString(c, "LiveLink", False)
+    c.goLeft(len("LiveLink"), True)
+    c.setPropertyValue("HyperLinkURL", "#KeepHeading|outline")
+
+    # Strike from StartGone (plain text) through EndGone; StruckLink sits in the middle para.
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    d = text.createTextCursorByRange(paras[1].getStart())
+    e = text.createTextCursorByRange(paras[3].getStart())
+    e.goRight(len("EndGone "), False)
+    d.gotoRange(e, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert doc.getRedlines().getCount() == 1
+    mid_enum = paras[2].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
+
+    full_html = document_to_content(doc, ctx, scope="full")
+    m = re.search(r'<a\b[^>]*\bhref="([^"]*)"[^>]*>LiveLink</a>', full_html)
+    assert m is not None, full_html
+    assert m.group(1) in ("#KeepHeading|outline", "#KeepHeading%7Coutline"), m.group(1)
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_export_full_read_skips_mid_deletion_ruby_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    rc = text.createTextCursor()
+    text.insertString(rc, "start", False)
+    text.insertControlCharacter(rc, 0, False)
+    text.insertString(rc, "漢", False)
+    rc.gotoStartOfParagraph(True)
+    rc.setPropertyValue("RubyText", "かん")
+    rc.gotoEndOfParagraph(False)
+    text.insertControlCharacter(rc, 0, False)
+    text.insertString(rc, "end 漢", False)
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+    d = text.createTextCursorByRange(paras[0].getStart())
+    e = text.createTextCursorByRange(paras[2].getStart())
+    e.goRight(len("end "), False)
+    d.gotoRange(e, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert doc.getRedlines().getCount() == 1
+    mid_enum = paras[1].createEnumeration()
+    while mid_enum.hasMoreElements():
+        assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
+
+    ruby_html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>" not in ruby_html, ruby_html
+

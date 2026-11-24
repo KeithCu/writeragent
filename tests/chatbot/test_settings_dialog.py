@@ -472,7 +472,7 @@ def test_ok_does_not_attach_previous_api_key_to_a_new_endpoint():
     stay. The batch is still one save.
     """
     from plugin.chatbot.settings_dialog import apply_settings_result
-    from plugin.framework.config import get_config, set_api_key_for_endpoint, save
+    from plugin.framework.config import get_config, save
     from plugin.framework.url_utils import normalize_endpoint_url
 
     old = "https://openrouter.ai/api"
@@ -482,8 +482,8 @@ def test_ok_does_not_attach_previous_api_key_to_a_new_endpoint():
     new_norm = normalize_endpoint_url(new)
     other_norm = normalize_endpoint_url(other)
     save({"endpoint": old})
-    set_api_key_for_endpoint(old, "sk-old")
-    set_api_key_for_endpoint(other, "sk-keep")
+    save({"api_keys_by_endpoint": {old: "sk-old"}})
+    save({"api_keys_by_endpoint": {other: "sk-keep"}})
 
     apply_settings_result(MagicMock(), {"endpoint": new, "api_key": "sk-old"})
 
@@ -774,11 +774,11 @@ def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
 def test_ok_after_unlock_keeps_key_the_locked_field_could_not_show(fake_keystore, monkeypatch):
     from plugin.chatbot.settings_dialog import _get_core_field_specs, apply_settings_result
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_slot_value, get_api_key_for_endpoint, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_slot_value, get_api_key_for_endpoint, save
 
     url = "https://openrouter.ai/api"
     save({"endpoint": url})
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     ref = api_key_slot_value(url)
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
@@ -798,13 +798,13 @@ def test_ok_after_unlock_keeps_key_the_locked_field_could_not_show(fake_keystore
 def test_ok_after_endpoint_switch_while_locked_keeps_target_key(fake_keystore, monkeypatch):
     from plugin.chatbot.settings_dialog import _get_core_field_specs, apply_settings_result
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_field_text, get_api_key_for_endpoint, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_field_text, get_api_key_for_endpoint, save
 
     url_a = "https://openrouter.ai/api"
     url_b = "https://api.openai.com"
     save({"endpoint": url_a})
-    set_api_key_for_endpoint(url_a, "sk-A")
-    set_api_key_for_endpoint(url_b, "sk-B")
+    save({"api_keys_by_endpoint": {url_a: "sk-A"}})
+    save({"api_keys_by_endpoint": {url_b: "sk-B"}})
     keystore.reset_for_tests(fake_keystore)
 
     # Open on A while unlocked, then lock before switching to B (as _sync_api_key does).
@@ -849,11 +849,11 @@ def test_clearing_missing_secret_in_settings_removes_ref(fake_keystore):
 
     from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_slot_value, get_config, get_config_file_path, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_slot_value, get_config, get_config_file_path, save
 
     url = "https://openrouter.ai/api"
     save({"endpoint": url, "mcp.tunnel_provider_token": "tok-secret"})
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     api_ref = api_key_slot_value(url)
     tunnel_ref = get_config("mcp.tunnel_provider_token")
 
@@ -873,11 +873,11 @@ def test_clearing_missing_secret_in_settings_removes_ref(fake_keystore):
 def test_ok_with_unrelated_change_keeps_missing_ref(fake_keystore):
     from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_slot_value, get_config, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_slot_value, get_config, save
 
     url = "https://openrouter.ai/api"
     save({"endpoint": url, "mcp.tunnel_provider_token": "tok-secret"})
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
     api_ref = api_key_slot_value(url)
     tunnel_ref = get_config("mcp.tunnel_provider_token")
 
@@ -898,12 +898,12 @@ def test_ok_with_unrelated_change_keeps_missing_ref(fake_keystore):
 def test_ref_of_previous_endpoint_is_not_saved_under_new_endpoint(fake_keystore):
     from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_slot_value, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_slot_value, save
 
     url_a = "https://openrouter.ai/api"
     url_b = "https://api.openai.com"
     save({"endpoint": url_a})
-    set_api_key_for_endpoint(url_a, "sk-A")
+    save({"api_keys_by_endpoint": {url_a: "sk-A"}})
     ref_a = api_key_slot_value(url_a)
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True

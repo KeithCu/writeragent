@@ -36,7 +36,7 @@ from plugin.doc.peer_message import filter_peer_tools_for_specialized
 from plugin.doc.specialized_catalog import (
     FINISH_TOOL_NAME,
     InnerToolCall,
-    get_specialized_domain_catalog,
+    catalog_entries_from_base,
     loop_hint,
     normalize_inner_result,
 )
@@ -65,13 +65,13 @@ _SCRIPT_PLACEMENT_DOMAINS = frozenset({"shapes"})
 _SCRIPT_PLACEMENT_LLM_KEEP = frozenset({"shape_get_summary"})
 
 
-def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozenset[str]:
+def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None, *, caller: str = "") -> frozenset[str]:
     """Specialized domains this app's python agent may hand to an inner agent.
 
     ``python`` is omitted: the outer agent already has that toolset, and nesting
     it would expose ``python_delegate_domains`` again.
     """
-    catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
+    catalog = catalog_entries_from_base(agent_label=agent_label, ctx=uno_ctx, for_mcp=caller == "mcp")
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)
 
 
@@ -93,9 +93,9 @@ def normalize_domain_list(raw: Any) -> tuple[list[str] | None, str | None]:
     return names, None
 
 
-def validate_requested_domains(names: list[str], agent_label: str, uno_ctx: Any = None) -> tuple[str | None, str | None]:
+def validate_requested_domains(names: list[str], agent_label: str, uno_ctx: Any = None, *, caller: str = "") -> tuple[str | None, str | None]:
     """Return ``(message, code)`` when *names* are not valid for *agent_label*."""
-    allowed = allowed_specialized_domains(agent_label, uno_ctx)
+    allowed = allowed_specialized_domains(agent_label, uno_ctx, caller=caller)
     rejected_python = [name for name in names if name == _PYTHON_DOMAIN]
     unknown = [name for name in names if name not in allowed and name != _PYTHON_DOMAIN]
     known = ", ".join(sorted(allowed))
@@ -376,7 +376,7 @@ class DelegateToolDomains(ToolBase):
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 
         label = agent_label_for_context(ctx)
-        message, code = validate_requested_domains(names, label, ctx.ctx)
+        message, code = validate_requested_domains(names, label, ctx.ctx, caller=ctx.caller)
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 

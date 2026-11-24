@@ -125,8 +125,6 @@ def secrets_from_url_path(url: str) -> list[str]:
     stops at model ids.
     """
     return _opaque_segments(_parse_url(url).path.split("/"))
-
-
 def collect_secrets(*groups: list[str] | None) -> list[str]:
     """Merge secret lists, dropping empties."""
     return [s for g in groups if g for s in g if s]

@@ -28,24 +28,46 @@ from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_
 from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import (
     clear_writer_body,
-    close_scratch_document,
-    load_scratch_document,
+    is_scratch_document,
+    new_blank_writer,
 )
-from plugin.framework.uno_context import get_desktop, get_service_manager
+from plugin.framework.uno_context import get_service_manager
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import FORMULA, query_interface
 import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
 
-# Not "_blank" or "_default": a shared target collides with testing_runner's
-# hidden Writer keeper on Windows and the load can hang. CREATE|GLOBAL =
-# FrameSearchFlag 8|55; flags 0 can search instead of creating.
-_HTML_WRITER_TARGET = "_wa_calc_html"
-_HTML_WRITER_SEARCH_FLAGS = 8 | 55
-# Only this module loads _wa_calc_html. Do not enumerate the desktop:
-# getComponents can hang on Windows after a paste.
-_keeper_loaded = False
+# Kept Writers are never closed, because closing after a paste can hang on Windows:
+# close() can return and desktop.getComponents() then blocks while Calc holds the paste,
+# so deferred close is not an option.
+# They are reused via this list because a named frame target cannot find them:
+# LoadEnv::impl_loadContent (framework/source/loadenv/loadenv.cxx) creates an unnamed frame.
+# A list is used because SwHTMLParser::Show (sw/source/filter/html/swhtml.cxx) can
+# dispatch events and start a nested paste. Main thread only.
+# _GUARD_TEXT holds one character in the first paragraph that is never pasted; everything
+# after it is deleted on reuse and joins into that clean guard paragraph, whereas
+# setString("") keeps the first pasted paragraph's attributes.
+_GUARD_TEXT = "x"
+_PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+_idle_writers: list[Any] = []
+
+
+def _take_hidden_writer(uno_ctx: Any) -> Any:
+    while _idle_writers:
+        doc = _idle_writers.pop()
+        if (
+            is_scratch_document(doc)
+            and clear_writer_body(doc, keep_chars=len(_GUARD_TEXT))
+            and doc.getText().getString() == _GUARD_TEXT
+        ):
+            return doc
+        log.debug("insert_cell_html_rich: dropping an unusable hidden Writer")
+    doc = new_blank_writer(uno_ctx)
+    if doc is None:
+        raise ToolExecutionError("Could not create temporary Writer document")
+    doc.getText().setString(_GUARD_TEXT)
+    return doc
 
 
 def _step(name: str) -> str:
@@ -72,12 +94,13 @@ def _controller_get_transferable(controller: Any) -> Any:
 
 
 def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
-    """If SystemClipboard still owns *transferable*, replace it before closing the Writer.
+    """If SystemClipboard still owns *transferable*, replace it after the paste.
 
     SwXTextView.getTransferable() builds a SwTransferable bound to that Writer
-    shell (PrepareForCopy). On Windows the OLE clipboard can keep that owner
-    after insertTransferable, and closing the Writer then hangs. Touch the
-    clipboard only when it holds this object so a user copy is left alone.
+    shell (PrepareForCopy). The clipboard must not keep this Writer's
+    SwTransferable as owner after the paste (on Windows the OLE clipboard can
+    retain that owner after insertTransferable). Touch the clipboard only when
+    it holds this object so a user copy is left alone.
     """
     try:
         # Do not import chatbot for the clipboard; LibrePy ships this module.
@@ -105,7 +128,6 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     Returns the cell's prior content (formula text when it held a formula,
     otherwise its display string; ``""`` when empty).
     """
-    global _keeper_loaded
     if not (html or "").strip():
         raise ToolExecutionError("HTML content is empty")
 
@@ -117,50 +139,26 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     prepared = html_import.ensure_html_linebreaks(content)
 
     step = "start"
-    reused = _keeper_loaded
     temp_doc = None
     transferable: Any = None
-    pasted = False
     try:
-        desktop = get_desktop(uno_ctx)
-        # Do not import chatbot.create_hidden_html_writer — this module ships
-        # in LibrePy without chatbot.
         step = _step("load hidden Writer")
-        temp_doc = load_scratch_document(
-            desktop,
-            "private:factory/swriter",
-            _HTML_WRITER_TARGET,
-            _HTML_WRITER_SEARCH_FLAGS,
-        )
-        _keeper_loaded = temp_doc is not None
-        # Never close the Windows keeper. After a successful paste we also
-        # keep this Writer (see finally) — CREATE|GLOBAL reuses _wa_calc_html.
-        if temp_doc is None or not hasattr(temp_doc, "getText"):
-            raise ToolExecutionError("Could not create temporary Writer document")
+        temp_doc = _take_hidden_writer(uno_ctx)
 
         text = temp_doc.getText()
-        # clear_writer_body disposes the template objects and then clears
-        # the text, on a fresh load and on the reused keeper, before the
-        # HTML is inserted. setString("") leaves a default-template
-        # letterhead that is only a table, text frame, or drawing (the body
-        # string is already empty). private:factory/swriter honours that
-        # template, and a successful paste keeps this Writer (CREATE|GLOBAL
-        # reuses _wa_calc_html), so the first rich-HTML paste copies the
-        # letterhead into the cell and later pastes append onto it.
-        step = _step("clear hidden Writer")
-        if not clear_writer_body(temp_doc):
-            raise ToolExecutionError("Could not clear the hidden Writer before pasting HTML into the cell.")
         cursor = text.createTextCursor()
-        cursor.gotoStart(False)
+        cursor.gotoEnd(False)
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         step = _step("insert HTML into hidden Writer")
         html_import.insert_html_fragment_at_cursor(cursor, prepared, wrap=False, advance=True)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
-        # process (no real view). Select the whole body with a text cursor and
-        # XSelectionSupplier.select, then getTransferable().
+        # process (no real view). Select after the guard paragraph with a text
+        # cursor and XSelectionSupplier.select, then getTransferable().
         w_ctrl = temp_doc.getCurrentController()
         sel = text.createTextCursor()
         sel.gotoStart(False)
+        sel.goRight(len(_GUARD_TEXT) + 1, False)
         sel.gotoEnd(True)
         w_ctrl.select(sel)
         step = _step("get transferable")
@@ -182,11 +180,10 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             if not callable(ins):
                 raise ToolExecutionError("Calc controller does not support insertTransferable.")
             ins(transferable)
-        # Drop SystemClipboard's owner before any close when it still holds
-        # this Writer's SwTransferable. Do not gc.collect() here: a forced
-        # collection after that release can abort LibreOffice in the SdrObject destructor.
+        # The clipboard must not keep this Writer's SwTransferable as owner after the paste.
+        # Do not gc.collect() here: a forced collection after that release can abort
+        # LibreOffice in the SdrObject destructor.
         step = _step("release clipboard")
-        pasted = True
     except ToolExecutionError:
         raise
     except Exception as e:
@@ -196,11 +193,6 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     finally:
         if transferable is not None:
             _release_clipboard_if_holds(uno_ctx, transferable)
-        # Do not close after a successful paste. close() can return and then
-        # desktop.getComponents() blocks while Calc holds the paste. Reuse
-        # _wa_calc_html and clear the body on the next call.
-        if temp_doc is not None and not reused and not pasted:
-            step = _step("close hidden Writer")
-            best_effort(lambda: close_scratch_document(temp_doc), "temp Writer close failed")
-            _keeper_loaded = False
+        if temp_doc is not None:
+            _idle_writers.append(temp_doc)
     return replaced

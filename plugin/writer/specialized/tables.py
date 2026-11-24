@@ -12,10 +12,17 @@ import logging
 from typing import Any, Callable
 
 from plugin.doc.compound_undo import UndoStepOrRollback
-from plugin.doc.text_helpers import FAILED, KeepViewSelection, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import (
+    FAILED,
+    DeletionState,
+    KeepViewSelection,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    visible_portions,
+)
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
-from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
+from plugin.framework.uno_context import execute_dispatch, resolve_uno_context, uno_same
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
@@ -33,6 +40,7 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
+_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1)."}
 
 
 def _tables(doc: Any) -> Any:
@@ -233,35 +241,22 @@ def _delete_redline_count(doc: Any) -> int | None:
 
 
 def _cell_has_visible_text(cell: Any) -> bool:
-    """True when *cell* has any non-deleted text, carrying open Delete redlines across paragraphs.
+    """True when *cell* has any non-deleted text in its own paragraphs.
 
-    ``visible_portions`` resets ``in_delete`` per paragraph, whereas ``lcl_FillRedlineArray``
-    (``sw/source/core/unocore/unoportenum.cxx:1130-1135``) emits start/end markers only in
-    the boundary paragraphs, so later paragraphs of a multi-paragraph Delete would otherwise
-    read as visible.
+    Shares one ``DeletionState`` across the cell's paragraphs so tracked
+    deletions spanning multiple paragraphs stay hidden. Nested tables are
+    skipped.
     """
     para_enum = uno_read(cell.createEnumeration, None)
     if para_enum is None:
         return bool(uno_read(cell.getString, ""))
-    in_delete = False
-    while enum_has_more(para_enum):
-        para = para_enum.nextElement()
+    state = DeletionState()
+    for para in iter_elements(para_enum):
         if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
-            if uno_read(lambda: get_string_without_tracked_deletions(para), "").strip("\n"):
-                return True
+            # A nested table that opens a deleted cell can leave the start marker unexposed, which would make the recorded-delete check fail.
             continue
-        portion_enum = uno_read(para.createEnumeration, None)
-        if portion_enum is None:
-            continue
-        while enum_has_more(portion_enum):
-            portion = portion_enum.nextElement()
-            ptype = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
-            if ptype == "Redline":
-                if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), None) == "Delete":
-                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
-                continue
-            if not in_delete and uno_read(portion.getString, ""):
-                return True
+        if any(chunk for _portion, chunk in visible_portions(para, state=state)):
+            return True
     return False
 
 
@@ -582,7 +577,7 @@ class TableGetCells(ToolWriterTableBase):
                 "type": "string",
                 "description": "Optional. One A1-style address; return that cell only.",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],
@@ -675,7 +670,7 @@ class TableSetCell(ToolWriterTableBase):
             "name": {"type": "string", "description": "Table name from table_list."},
             "cell": {"type": "string", "description": "A1-style cell address, e.g. 'B2'."},
             "text": {"type": "string", "description": "New plain text for the cell."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": ["cell", "text"],
@@ -750,7 +745,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 "type": "integer",
                 "description": "0-based row or column index (insert at count = append).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "shape_index": {
                 "type": "integer",
                 "description": "Draw/Impress: table shape index (not the row/column index).",
@@ -957,7 +952,7 @@ class TableInsert(ToolWriterTableBase):
                 "type": "string",
                 "description": "Writer: A1-style host cell (requires parent).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (active if omitted)"},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted)"},
             "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
             "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
             "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},
@@ -1076,7 +1071,7 @@ class TableDelete(ToolWriterTableBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
+            "page": _PAGE_PROPERTY,
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
         "required": [],

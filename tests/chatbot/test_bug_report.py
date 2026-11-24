@@ -224,7 +224,7 @@ def test_issue_url_does_not_read_uncached_key(fake_keystore):
 
     endpoint = "https://openrouter.ai/api"
     fw_config.save({"endpoint": endpoint})
-    fw_config.set_api_key_for_endpoint(endpoint, "sk-secret-999")
+    fw_config.save({"api_keys_by_endpoint": {endpoint: "sk-secret-999"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 

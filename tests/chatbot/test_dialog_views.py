@@ -1902,15 +1902,13 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                  patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
                  patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
                  patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
-                 patch("plugin.framework.config.save") as save, \
-                 patch("plugin.framework.config.set_api_key_for_endpoint") as set_api:
+                 patch("plugin.framework.config.save") as save:
                 listener._schedule_debounced_models_fetch()
                 ApiKeyTextListener(listener).textChanged(MagicMock())
                 listener.textChanged(MagicMock())
                 assert fetches == []
                 mock_sync.assert_not_called()
                 save.assert_not_called()
-                set_api.assert_not_called()
                 mock_set.assert_not_called()
 
                 with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
@@ -2351,11 +2349,11 @@ def test_test_connection_uses_endpoint_listener_key():
 def test_key_storage_label_follows_endpoint(fake_keystore):
     from plugin.chatbot.dialog_views import EndpointCombinedListener
     from plugin.framework import keystore
-    from plugin.framework.config import set_api_key_for_endpoint
+    from plugin.framework.config import save
     from plugin.framework.i18n import _
 
     url = "https://api.test"
-    set_api_key_for_endpoint(url, "sk-1")
+    save({"api_keys_by_endpoint": {url: "sk-1"}})
 
     lbl_ctrl = MagicMock()
     combo_ctrl = MagicMock()
