@@ -889,6 +889,118 @@ def test_plain_two_para_track_changes_reject_and_undo_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_recorded_replace_keeps_bold_uno(ctx, doc):
+    """Recorded replace keeps bold on bold targets and plain between bold runs, in user-recording and review mode."""
+    text = doc.getText()
+    prev = get_config(_FLAG)
+
+    def _seed_bold_mid():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "aaa ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "Replace", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " bbb", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _seed_surgical():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "The ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "quick", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " fox ran far away", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _seed_plain_between_bold():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "aaa ", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "Replace", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, " bbb", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _runs():
+        para = text.createEnumeration().nextElement()
+        pe = para.createEnumeration()
+        out = []
+        while pe.hasMoreElements():
+            p = pe.nextElement()
+            if p.getPropertyValue("TextPortionType") == "Text" and p.getString():
+                out.append((p.getString(), float(p.getPropertyValue("CharWeight"))))
+        return out
+
+    tool = ApplyDocumentContent()
+    try:
+        for mode_label in ("user_recording", "review_record"):
+            if mode_label == "user_recording":
+                save({_FLAG: "off"})
+                def mode_ctx():
+                    return _recording(doc)
+            else:
+                save({_FLAG: "record"})
+                mode_ctx = contextlib.nullcontext
+
+            # aaa **Replace** bbb -> Swap (Accept)
+            _seed_bold_mid()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+                assert sorted(_redline_types(doc)) == ["Delete", "Insert"], _redline_types(doc)
+            _accept_all(doc, ctx)
+            assert _runs() == [("aaa ", 100.0), ("Swap", 150.0), (" bbb", 100.0)], (mode_label, _runs())
+
+            # aaa **Replace** bbb -> Swap (Reject)
+            _seed_bold_mid()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+            _reject_all(doc, ctx)
+            assert _runs() == [("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)], (mode_label, _runs())
+
+            # Surgical The **quick** fox ran far away -> slow (review mode enables surgical split)
+            if mode_label == "review_record":
+                _seed_surgical()
+                with mode_ctx():
+                    res = tool.execute(
+                        _tool_ctx(doc, ctx),
+                        target="search",
+                        old_content="The quick fox ran far away",
+                        content="The slow fox ran far away",
+                    )
+                    assert res.get("status") == "ok", res
+                _accept_all(doc, ctx)
+                assert _runs() == [("The ", 100.0), ("slow", 150.0), (" fox ran far away", 100.0)], (mode_label, _runs())
+
+            # Plain word between bold runs stays plain after Accept
+            _seed_plain_between_bold()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+            _accept_all(doc, ctx)
+            assert _runs() == [("aaa ", 150.0), ("Swap", 100.0), (" bbb", 150.0)], (mode_label, _runs())
+    finally:
+        save({_FLAG: prev})
+        doc.setPropertyValue("RecordChanges", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header_uno(ctx, doc):
     from plugin.writer.page import PageSetHeaderFooterText

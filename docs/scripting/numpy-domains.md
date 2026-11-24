@@ -196,7 +196,7 @@ python_run_script(code="… plt.plot(…) …")
 **Which figures become pictures:**
 
 - Every open figure becomes its own image (SVG; a 150-dpi PNG when the SVG is over 1 MiB).
-- Use `plt.subplots` for one picture with several plots; the cell may end on `fig, axs = plt.subplots(1, 2)`.
+- Use `plt.subplots` for one picture with several plots. The cell may end on any pyplot call, such as `fig, axs = plt.subplots(1, 2)` or `plt.hist(...)`.
 - End the cell on a figure, a seaborn grid (e.g. `pairplot = sns.pairplot(df)`) or a list of figures to show exactly those, in that order; the others are discarded.
 - A blank figure is skipped when another has a drawing.
 - A non-plot last value is replaced by any open figure, so call `plt.close()` first to return a value.

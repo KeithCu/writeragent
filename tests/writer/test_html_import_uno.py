@@ -1956,7 +1956,7 @@ def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> Non
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
 
-    def _seed_bold() -> Any:
+    def _seed_bold(word: str = "Replace", *, line_break: bool = False) -> Any:
         doc.setPropertyValue("RecordChanges", False)
         text.setString("")
         cur = text.createTextCursor()
@@ -1964,7 +1964,12 @@ def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> Non
         text.insertString(cur, "aaa ", False)
         start = cur.getEnd()
         cur.setPropertyValue("CharWeight", 150.0)
-        text.insertString(cur, "Replace", False)
+        if line_break:
+            text.insertString(cur, "Re", False)
+            text.insertControlCharacter(cur, 1, False)  # LINE_BREAK (Shift+Enter)
+            text.insertString(cur, "place", False)
+        else:
+            text.insertString(cur, word, False)
         end = cur.getEnd()
         cur.setPropertyValue("CharWeight", 100.0)
         text.insertString(cur, " bbb", False)
@@ -1985,19 +1990,21 @@ def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> Non
 
     try:
         save({flag: "record"})
-        _seed_bold()
-        res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
-        assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-        assert text.getString() == "aaa Swap bbb"
-        assert _weight_of("Swap") == 150.0
+        for line_break in (False, True):
+            _seed_bold(line_break=line_break)
+            res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
+            assert res.get("status") == "ok", res
+            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            assert text.getString() == "aaa Swap bbb"
+            assert _weight_of("Swap") == 150.0
 
-        _seed_bold()
-        res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
-        assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert text.getString() == "aaa Replace bbb"
-        assert _weight_of("Replace") == 150.0
+            _seed_bold(line_break=line_break)
+            res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
+            assert res.get("status") == "ok", res
+            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            expected_old = "aaa Re\nplace bbb" if line_break else "aaa Replace bbb"
+            assert text.getString() == expected_old
+            assert _weight_of("Re" if line_break else "Replace") == 150.0
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -2035,3 +2042,231 @@ def test_paragraph_after_recorded_replace_stays_readable_uno(ctx: Any, doc: Any)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+def _body_element_kinds(doc: Any) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        el = e.nextElement()
+        if el.supportsService("com.sun.star.text.TextTable"):
+            out.append(("TABLE", ""))
+        else:
+            out.append(("P", el.getString()))
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """Mixed math content opening with a table leaves no blank paragraph before the table."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    html = "<table><tr><td>A</td></tr></table><p>x \\(a\\) y</p>"
+
+    def _seed(body_paras: list[str]) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        for i, p in enumerate(body_paras):
+            if i:
+                text.insertControlCharacter(cur, 0, False)
+            text.insertString(cur, p, False)
+
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            # beginning
+            _seed(["Tail"])
+            res = ApplyDocumentContent().execute(tctx, target="beginning", content=[html])
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "record":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            kinds = _body_element_kinds(doc)
+            assert kinds[0] == ("TABLE", ""), (mode, "beginning", kinds)
+
+            # end
+            _seed(["Head"])
+            res = ApplyDocumentContent().execute(tctx, target="end", content=[html])
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "record":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            kinds = _body_element_kinds(doc)
+            assert kinds[:2] == [("P", "Head"), ("TABLE", "")], (mode, "end", kinds)
+
+            # search replace (middle paragraph)
+            _seed(["Head", "Replace me", "Tail"])
+            res = ApplyDocumentContent().execute(
+                tctx, target="search", old_content="Replace me", content=[html]
+            )
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "record":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            kinds = _body_element_kinds(doc)
+            assert [k for k, _ in kinds] == ["P", "TABLE", "P", "P"], (mode, "search", kinds)
+
+            # full_document
+            _seed(["Head", "Tail"])
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content=[html])
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "record":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            kinds = _body_element_kinds(doc)
+            assert kinds[0] == ("TABLE", ""), (mode, "full_document", kinds)
+
+            if mode == "record":
+                for target, seed_paras in (
+                    ("beginning", ["Tail"]),
+                    ("end", ["Head"]),
+                    ("search", ["Head", "Replace me", "Tail"]),
+                    ("full_document", ["Head", "Tail"]),
+                ):
+                    _seed(seed_paras)
+                    kwargs: dict[str, Any] = {"target": target, "content": [html]}
+                    if target == "search":
+                        kwargs["old_content"] = "Replace me"
+                    res = ApplyDocumentContent().execute(tctx, **kwargs)
+                    assert res.get("status") == "ok", (target, res)
+                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                    assert _body_element_kinds(doc) == [("P", p) for p in seed_paras], target
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any) -> None:
+    """Recorded whole-paragraph replaces apply data-lo-style identically to untracked on Accept and restore on Reject."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed(paras: list[str]) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        for i, p in enumerate(paras):
+            if i:
+                text.insertControlCharacter(cur, 0, False)
+            cur.setPropertyValue("ParaStyleName", "Standard")
+            text.insertString(cur, p, False)
+
+    def _styled_kinds() -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        e = text.createEnumeration()
+        while e.hasMoreElements():
+            el = e.nextElement()
+            if el.supportsService("com.sun.star.text.TextTable"):
+                out.append(("TABLE", ""))
+            else:
+                out.append((str(el.getPropertyValue("ParaStyleName")), el.getString()))
+        return out
+
+    def _select_para(needle: str) -> None:
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = needle
+        found = doc.findFirst(sd)
+        assert found is not None
+        doc.getCurrentController().select(found)
+
+    cases = [
+        ("h2_p", '<h2 data-lo-style="Heading2">Title</h2><p data-lo-style="Quotations">Quote</p>'),
+        ("tbl_p", '<table><tr><td>T</td></tr></table><p data-lo-style="Quotations">After</p>'),
+    ]
+
+    try:
+        for _name, html in cases:
+            for target in ("search", "selection"):
+                # Untracked baseline
+                save({flag: "off"})
+                _seed(["Before", "Middle", "After"])
+                if target == "selection":
+                    _select_para("Middle")
+                    res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                else:
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="search", old_content="Middle", content=[html]
+                    )
+                assert res.get("status") == "ok", (_name, target, res)
+                expected = _styled_kinds()
+
+                # Recorded + Accept
+                save({flag: "record"})
+                _seed(["Before", "Middle", "After"])
+                if target == "selection":
+                    _select_para("Middle")
+                    res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                else:
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="search", old_content="Middle", content=[html]
+                    )
+                assert res.get("status") == "ok", (_name, target, res)
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                assert _styled_kinds() == expected, (_name, target)
+
+                # Recorded + Reject
+                _seed(["Before", "Middle", "After"])
+                if target == "selection":
+                    _select_para("Middle")
+                    res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
+                else:
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="search", old_content="Middle", content=[html]
+                    )
+                assert res.get("status") == "ok", (_name, target, res)
+                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                assert _styled_kinds() == [
+                    ("Standard", "Before"),
+                    ("Standard", "Middle"),
+                    ("Standard", "After"),
+                ], (_name, target)
+
+        # all_matches over two adjacent paragraphs
+        html_adj = '<p data-lo-style="Quotations">Quoted</p>'
+        save({flag: "off"})
+        _seed(["Before", "Dup", "Dup", "After"])
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
+        )
+        assert res.get("status") == "ok", res
+        expected_adj = _styled_kinds()
+
+        save({flag: "record"})
+        _seed(["Before", "Dup", "Dup", "After"])
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert _styled_kinds() == expected_adj
+
+        _seed(["Before", "Dup", "Dup", "After"])
+        res = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _styled_kinds() == [
+            ("Standard", "Before"),
+            ("Standard", "Dup"),
+            ("Standard", "Dup"),
+            ("Standard", "After"),
+        ]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+

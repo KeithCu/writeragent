@@ -558,3 +558,33 @@ def test_native_save_shows_rewritten_code_and_binding():
     assert dlg.controls["CodeEdit"].getText() == "result = data"
     assert dlg.controls["DataEdit"].getText() == "C1"
     assert inst._dirty is False
+
+
+def test_native_follow_save_change_then_revert_updates_formula():
+    from plugin.calc.python.formula_edit import PyFormula
+    from plugin.tests.testing_utils import CalcDocStub
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    code_cell.setString("result = data")
+    formula_cell = sheet.getCellByPosition(1, 0)
+    formula_cell.setFormula("=PY($A$1; C1:C2)")
+    parsed = PyFormula.parse(formula_cell.getFormula())
+
+    dlg, inst = _open_native(
+        doc=doc,
+        cell=formula_cell,
+        initial_code="result = data",
+        parsed_parts=parsed,
+        code_cell=code_cell,
+        code_ref="$A$1",
+    )
+    assert inst is not None
+    dlg.controls["DataEdit"].setText("D1:D2")
+    inst._save()
+    assert formula_cell.getFormula() == "=PY($A$1;D1:D2)"
+
+    dlg.controls["DataEdit"].setText("C1:C2")
+    inst._save()
+    assert formula_cell.getFormula() == "=PY($A$1;C1:C2)"

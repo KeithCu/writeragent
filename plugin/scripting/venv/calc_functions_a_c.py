@@ -272,13 +272,13 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         # np.var([]) warns. One value is 0.
         return float(np.var(arr, ddof=0)) if arr.size else float("nan")
     if fn == 12:
-        # GetMedian sets NoValue (#N/A) on an empty vector. np.median([])
+        # GetMedian sets NoValue (#VALUE!) on an empty vector. np.median([])
         # is NaN plus a RuntimeWarning. Keep the NaN, skip the call.
         return float(np.median(arr)) if arr.size else float("nan")
     if fn == 13:
         # ScModalValue on the numbers already kept above. mode() would
         # count True as 1 if given the raw args. Tie-break is the lowest
-        # value. No repeat is #N/A (NaN).
+        # value. No repeat is #VALUE! in Calc (ScModalValue); mode() returns a plain NaN.
         return float(mode(arr.tolist()))
     return float("nan")
 

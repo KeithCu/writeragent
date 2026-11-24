@@ -23,7 +23,7 @@ import uuid
 from typing import Any
 
 
-from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     clear_direct_numbering,
@@ -35,6 +35,7 @@ from plugin.doc.text_helpers import (
 from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .html_export import HTML_FILTER, strip_html_boilerplate
@@ -293,10 +294,9 @@ def _insert_mixed_or_plain_html(
 
     data-lo-style and data-lo-para paragraph styling is applied via UNO after import when *apply_styles*
     is True (``full_document``, ``beginning``/``end`` after absorb prep, before/after block inserts,
-    and whole-paragraph ``selection``/``search`` replacements when Track Changes is off). Partial
-    matches or replaces during tracked change recording pass False so pre-existing content is not
-    restyled. We still strip attributes for a clean StarWriter import either way. Returns the
-    WriteReport for this import.
+    and whole-paragraph ``selection``/``search`` replacements). Partial matches pass False so
+    pre-existing content is not restyled. We still strip attributes for a clean StarWriter import
+    either way. Returns the WriteReport for this import.
     """
     nonce = uuid.uuid4().hex[:8]
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
@@ -337,7 +337,7 @@ def _insert_mixed_or_plain_html(
     tail = imported_end if imported_end is not None else cursor
     added_content = True if first is cursor else text_obj.compareRegionStarts(first, tail.getStart()) != 0
 
-    if has_table and not has_math and added_content:
+    if has_table and added_content:
         if imported_end is not None:
             # Move cursor off the leading empty paragraph before disposing it.
             cursor.gotoRange(imported_end.getStart(), False)
@@ -681,6 +681,16 @@ def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
 
 
+def _within_one_paragraph(rng: Any) -> bool:
+    """Return True when *rng* starts and ends in the same paragraph (a line break does not end one)."""
+    text = rng.getText()
+    start = text.createTextCursorByRange(rng.getStart())
+    end = text.createTextCursorByRange(rng.getEnd())
+    start.gotoStartOfParagraph(False)
+    end.gotoStartOfParagraph(False)
+    return bool(text.compareRegionStarts(start, end) == 0)
+
+
 def _without_trailing_break(rng: Any) -> Any:
     """Trim a lone trailing ``\\n`` from a non-collapsed paragraph selection.
 
@@ -778,14 +788,13 @@ def _replace_whole_paragraphs(
 
 
 def _lo_style_for_replaced_range(
-    model: Any, content: str, text_range: Any
+    content: str, text_range: Any
 ) -> tuple[bool, html_import_styles.StyleSkipCode | None]:
     """Determine whether to apply block data-lo-style or data-lo-para on a replaced range.
 
-    Both attributes require the replaced range to cover whole paragraphs and Track Changes
-    to be off, so neighbor text is not restyled and tracked deletions are not converted
-    into formatting changes. A skip code is returned when whole-paragraph or recording checks
-    fail so callers can report specific warnings for data-lo-style and data-lo-para.
+    Both attributes require the replaced range to cover whole paragraphs so neighbor text is
+    not restyled. Returns ``"STYLE_IGNORED_PARTIAL_MATCH"`` when that check fails so callers
+    can report specific warnings for data-lo-style and data-lo-para.
     """
     if not content or ("data-lo-style" not in content and "data-lo-para" not in content):
         return False, None
@@ -795,8 +804,6 @@ def _lo_style_for_replaced_range(
         return False, None
     if not _range_covers_whole_paragraphs(text_range):
         return False, "STYLE_IGNORED_PARTIAL_MATCH"
-    if record_changes.is_recording_changes(model):
-        return False, "STYLE_IGNORED_RECORDING"
     return True, None
 
 
@@ -874,7 +881,7 @@ def insert_content_at_position(
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
-    partial match or tracked change recording.
+    partial match.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
         content = html_import_styles.decode_complete_character_references(swapped)
@@ -941,11 +948,11 @@ def insert_content_at_position(
                         # deletes the paragraph break and Accept joins the next paragraph.
                         if not caret:
                             rng = _without_trailing_break(rng)
-                        styled, note = _lo_style_for_replaced_range(model, content, rng)
+                        styled, note = _lo_style_for_replaced_range(content, rng)
                         if not caret and not inline and _range_covers_whole_paragraphs(rng):
                             whole_paragraphs = rng
                         else:
-                            if inline and recording and "\n" not in rng.getString():
+                            if inline and recording and _within_one_paragraph(rng):
                                 # Insert after the struck text so plain text inherits its character
                                 # formatting. Multi-paragraph ranges keep inserting at the start so
                                 # Accept keeps the first paragraph's style rather than the last's
@@ -971,7 +978,7 @@ def insert_content_at_position(
 
         # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
         # Whole-paragraph block selections go through _replace_whole_paragraphs, which handles both
-        # recording on and off (data-lo-style is still skipped while recording).
+        # recording on and off.
         # Non-collapsed inline selections go through _insert_inline in place, keeping the host paragraph
         # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
@@ -1116,7 +1123,7 @@ def replace_single_range_with_content(
         whole_paragraphs = False
         note = None
         if not inline_preserve:
-            apply_styles, note = _lo_style_for_replaced_range(model, prepared, text_range)
+            apply_styles, note = _lo_style_for_replaced_range(prepared, text_range)
             whole_paragraphs = _range_covers_whole_paragraphs(text_range)
 
         cursor = text_obj.createTextCursorByRange(text_range)
@@ -1159,9 +1166,9 @@ def replace_single_range_with_content(
             )
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
-            # and data-lo-para can safely be applied when Track Changes is off. A partial range leaves
-            # neighbor text that would be restyled by the block style; recorded whole-paragraph replaces
-            # still skip data-lo-style / data-lo-para and warn.
+            # and data-lo-para apply whether Track Changes is recording or not (the import sits in
+            # its own paragraphs). A partial range leaves neighbor text that would be restyled by
+            # the block style.
             try:
                 if whole_paragraphs:
                     report = _replace_whole_paragraphs(
@@ -1346,42 +1353,23 @@ def content_is_block(content: str | None) -> bool:
 
 
 
-def _portion_kind_len(elem: Any) -> tuple[str, int] | None:
-    kind = getattr(elem, "TextPortionType", None)
-    if kind is None and hasattr(elem, "getPropertyValue"):
-        kind = elem.getPropertyValue("TextPortionType")
-    if kind and kind not in ("Text", "SoftPageBreak"):
-        return None
-    text_str = elem.getString() if hasattr(elem, "getString") else ""
-    return (kind or "Text", len(text_str))
+def _text_run_lengths(target_range: Any) -> list[int]:
+    """Length of each formatting run in *target_range*, or [] when it holds anything but text.
 
-
-def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, int]] | None]:
-    """Return (has_special, portions_list_or_None)."""
+    A break between paragraphs is in no run, so a range over several paragraphs adds up to
+    less than its string.
+    """
+    lengths: list[int] = []
     try:
-        if not hasattr(target_range, "createEnumeration"):
-            return False, None
-        enum = target_range.createEnumeration()
-        if enum is None:
-            return False, None
-        portions: list[tuple[str, int]] = []
-        for elem in iter_elements(enum):
-            if hasattr(elem, "createEnumeration"):
-                penum = elem.createEnumeration()
-                for p_elem in iter_elements(penum):
-                    p = _portion_kind_len(p_elem)
-                    if p is None:
-                        return True, None
-                    portions.append(p)
-            else:
-                p = _portion_kind_len(elem)
-                if p is None:
-                    return True, None
-                portions.append(p)
-        return False, portions
+        for para in iter_elements(target_range.createEnumeration()):
+            for portion in iter_elements(para.createEnumeration()):
+                if portion.getPropertyValue("TextPortionType") not in ("Text", "SoftPageBreak"):
+                    return []
+                lengths.append(len(portion.getString()))
     except Exception as exc:
         reraise_if_disposed(exc)
-        return False, None
+        return []
+    return [n for n in lengths if n]
 
 
 _ADVANCE_FAILED_MSG = "Could not replace that text in place (the selection did not advance)."
@@ -1392,15 +1380,160 @@ def _advance(cur: Any, n: int, expand: bool = False) -> None:
         raise ToolExecutionError(_ADVANCE_FAILED_MSG)
 
 
-def _step_replace_characters(
-    text: Any, main_cursor: Any, old_text: str, new_text: str, start: int, stop: int
+def _replace_run_text(text: Any, main_cursor: Any, old: str, new: str, *, inside_run: bool) -> None:
+    """Replace *old* with *new* inside one run of equal formatting.
+
+    *inside_run* means *main_cursor* is past that run's first character. New text goes in
+    before the old text is deleted, at a point with run characters on both sides, so it
+    takes all the run's formatting (``SwTextNode::InsertText`` in
+    ``sw/source/core/txtnode/ndtxt.cxx`` extends attributes that end at the insert point
+    unless DontExpand, and attributes that start there only at paragraph start). A lone
+    break is replaced in one step, because the point after it may be the next paragraph.
+    """
+    doomed = text.createTextCursorByRange(main_cursor)
+    _advance(doomed, len(old), True)  # fails before anything is written
+    if not new or old == "\n":
+        doomed.setString(new)
+        main_cursor.gotoRange(doomed.getEnd(), False)
+        return
+    added = text.createTextCursorByRange(main_cursor)
+    kept_first = 0 if inside_run else 1
+    if kept_first:
+        _advance(added, 1)
+    text.insertString(added, new, True)  # absorb: added now spans the new text
+    tail = text.createTextCursorByRange(added.getEnd())
+    if len(old) > kept_first:
+        _advance(tail, len(old) - kept_first, True)
+        tail.setString("")
+    if kept_first:
+        head = text.createTextCursorByRange(main_cursor)
+        head.gotoRange(added.getStart(), True)
+        head.setString("")
+    main_cursor.gotoRange(tail.getEnd(), False)
+
+
+def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_text: str) -> None:
+    for old, new in zip(old_text, new_text):
+        if new == old:
+            _advance(main_cursor, 1)
+        else:
+            _replace_run_text(text, main_cursor, old, new, inside_run=False)
+
+
+def _replace_recorded(
+    text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
-    for i in range(start, stop):
-        sel = text.createTextCursorByRange(main_cursor)
-        _advance(sel, 1, True)
-        if new_text[i] != old_text[i]:
-            sel.setString(new_text[i])
-        main_cursor.gotoRange(sel.getEnd(), False)
+    # Track Changes: the run-by-run diff records separate redlines or scrambles edits, so replace
+    # the whole range in one shot as a single Delete + Insert the user can accept or reject cleanly.
+    cursor = text.createTextCursorByRange(target_range)
+    # After the struck text the insertion inherits its formatting. A mixed range keeps
+    # inserting before, because its last run's formatting is not the range's. A linked run
+    # keeps inserting before, because the link would not extend and hyperlink_fixup measures
+    # the new text from the paragraph start.
+    one_run = _text_run_lengths(target_range) == [len(old_text)] and not cursor.getPropertyValue("HyperLinkURL")
+    if new_text and one_run:
+        added = text.createTextCursorByRange(target_range.getEnd())
+        # Insert comes first so a failure never leaves a bare deletion.
+        text.insertString(added, new_text, True)
+        cursor = text.createTextCursorByRange(target_range.getStart())
+        cursor.gotoRange(added.getStart(), True)  # target_range itself grew over the new text
+        try:
+            with _deletion_author() if author_deletion else contextlib.nullcontext():
+                cursor.setString("")
+        except Exception:
+            best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
+            raise
+        return
+    if not author_deletion:
+        # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
+        # opened an undo context around this edit -- in which case a delete-then-insert could NOT be
+        # rolled back if the insert failed. Use the SINGLE atomic setString (one UNO action: it
+        # records the whole tracked replace -- Delete+Insert, or Delete-only when new_text is "" --
+        # or changes nothing; never a partial deletion). Whether an undo manager merely EXISTS is
+        # irrelevant -- only an actually-open rollback context makes the two-step safe.
+        # Trade-off on this path: the deletion and insertion share one author (one color).
+        cursor.setString(new_text)
+        return
+    # split_author AND in_undo_context: the caller GUARANTEES this runs inside an open undo context
+    # that will roll back a failed delete+insert, so use the two-step that preserves split-author
+    # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
+    # context rollback also cleans up).
+    original = cursor.getString()
+    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+        cursor.setString("")
+    if new_text:
+        try:
+            text.insertString(cursor, new_text, False)
+        except Exception:
+            try:
+                text.insertString(cursor, original, False)
+            except Exception:
+                log.warning(
+                    "replace_preserving_format: insert failed AND restore failed; range may be left partial",
+                    exc_info=True,
+                )
+            raise
+
+
+def _replace_untracked(text: Any, target_range: Any, old_text: str, new_text: str) -> None:
+    old_len = len(old_text)
+    new_len = len(new_text)
+
+    if old_len == 0:
+        cursor = text.createTextCursorByRange(target_range.getStart())
+        text.insertString(cursor, new_text, False)
+        return
+
+    # Do not pump processEvents inside this edit. A queued tool or a keystroke
+    # would run on the main thread, inside the caller's undo context.
+    main_cursor = text.createTextCursorByRange(target_range.getStart())
+
+    lengths = _text_run_lengths(target_range)
+    if sum(lengths) == old_len:
+        start = 0
+        for i, plen in enumerate(lengths):
+            stop = start + plen
+            old = old_text[start:stop]
+            # The last run takes all remaining new text, so a longer replacement keeps its formatting.
+            new = new_text[start:stop] if i + 1 < len(lengths) else new_text[start:]
+            start = stop
+            if old == new:
+                _advance(main_cursor, plen)
+                continue
+            limit = min(plen, len(new))
+            p = 0
+            while p < limit and old[p] == new[p]:
+                p += 1
+            s = 0
+            while s < limit - p and old[plen - 1 - s] == new[len(new) - 1 - s]:
+                s += 1
+            if p + s == plen:  # pure insertion: rewrite one neighbour so the insert point is inside the run
+                if p:
+                    p -= 1
+                else:
+                    s -= 1
+            if p:
+                _advance(main_cursor, p)
+            _replace_run_text(text, main_cursor, old[p : plen - s], new[p : len(new) - s], inside_run=p > 0)
+            if s:
+                _advance(main_cursor, s)
+        return
+
+    # Fields and markers are crossed per portion, and paragraph breaks are in no run, so a
+    # range whose run lengths do not sum to old_len is stepped character by character.
+    overlap = min(old_len, new_len)
+    _step_replace_characters(text, main_cursor, old_text[:overlap], new_text[:overlap])
+
+    # Handle length changes.
+    if new_len > old_len:
+        # Extra chars inherit formatting from the predecessor.
+        text.insertString(main_cursor, new_text[old_len:], False)
+    elif old_len > new_len:
+        # Delete remaining original characters. go_right chunks and reports a short range,
+        # so a stop must fail loudly instead of silently under-deleting.
+        del_cursor = text.createTextCursorByRange(main_cursor)
+        _advance(del_cursor, old_len - new_len, True)
+        del_cursor.setString("")
 
 
 def replace_preserving_format(
@@ -1411,9 +1544,11 @@ def replace_preserving_format(
     in_undo_context: bool = False,
     split_author: bool = True,
 ) -> None:
-    """Replace text in *target_range* with *new_text* character by
-    character, preserving per-character formatting (bold, italic,
-    font, color, etc.).
+    """Replace text in *target_range* with *new_text* run by run, preserving formatting.
+
+    Untracked new text takes the run's formatting (bold, italic, font, color, link, etc.).
+    Recorded one-run unlinked replaces insert after the struck text so the new text also
+    inherits the run's formatting.
 
     Cursors are created on ``target_range.getText()`` (the cell, frame, or body
     ``XText`` that owns the range), not ``model.getText()``. The range must lie
@@ -1444,131 +1579,12 @@ def replace_preserving_format(
     if new_text == old_text:
         return
 
-    # Track Changes: the char-by-char diff below records a separate redline for EACH changed
-    # character, which renders as a scrambled, un-reviewable mess (old and new text interleaved).
-    # When recording, replace the whole range in one shot so the edit is a single tracked
-    # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
-    if record_changes.is_recording_changes(model):
-        cursor = text.createTextCursorByRange(target_range)
-        if not (split_author and in_undo_context):
-            # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
-            # opened an undo context around this edit -- in which case a delete-then-insert could NOT be
-            # rolled back if the insert failed. Use the SINGLE atomic setString (one UNO action: it
-            # records the whole tracked replace -- Delete+Insert, or Delete-only when new_text is "" --
-            # or changes nothing; never a partial deletion). Whether an undo manager merely EXISTS is
-            # irrelevant -- only an actually-open rollback context makes the two-step safe.
-            # Trade-off on this path: the deletion and insertion share one author (one color).
-            cursor.setString(new_text)
-            return
-        # split_author AND in_undo_context: the caller GUARANTEES this runs inside an open undo context
-        # that will roll back a failed delete+insert, so use the two-step that preserves split-author
-        # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's
-        # context rollback also cleans up).
-        original = cursor.getString()
-        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-            cursor.setString("")
-        if new_text:
-            try:
-                text.insertString(cursor, new_text, False)
-            except Exception:
-                try:
-                    text.insertString(cursor, original, False)
-                except Exception:
-                    log.warning("replace_preserving_format: insert failed AND restore failed; "
-                                "range may be left partial", exc_info=True)
-                raise
-        return
-
-    old_len = len(old_text)
-    new_len = len(new_text)
-
-    if old_len == 0:
-        cursor = text.createTextCursorByRange(target_range.getStart())
-        text.insertString(cursor, new_text, False)
-        return
-
-    overlap = min(old_len, new_len)
-
-    # Do not pump processEvents inside this edit. A queued tool or a keystroke
-    # would run on the main thread, inside the caller's undo context.
-    main_cursor = text.createTextCursorByRange(target_range.getStart())
-
-    has_special, portions = _collect_range_portions(target_range)
-
-    if has_special:
-        # Non-text portions (fields, ruby) advance by portion instead of char, so step 1-by-1.
-        _step_replace_characters(text, main_cursor, old_text, new_text, 0, overlap)
-    elif portions is not None and sum(plen for _, plen in portions) == old_len:
-        # Coalesce changes inside each Text portion to avoid per-character setString calls.
-        offset = 0
-        for _kind, plen in portions:
-            if plen == 0:
-                continue
-            portion_start = offset
-            portion_end = offset + plen
-            offset = portion_end
-
-            if portion_start >= overlap:
-                break
-
-            slice_end = min(portion_end, overlap)
-            old_slice = old_text[portion_start:slice_end]
-            new_slice = new_text[portion_start:slice_end]
-            slice_len = len(old_slice)
-
-            if old_slice == new_slice:
-                _advance(main_cursor, slice_len, False)
-                continue
-
-            p = 0
-            while p < slice_len and old_slice[p] == new_slice[p]:
-                p += 1
-            if p > 0:
-                _advance(main_cursor, p, False)
-
-            s = 0
-            max_s = slice_len - p
-            while s < max_s and old_slice[slice_len - 1 - s] == new_slice[slice_len - 1 - s]:
-                s += 1
-
-            diff_len = slice_len - p - s
-            if diff_len > 0:
-                sel = text.createTextCursorByRange(main_cursor)
-                _advance(sel, diff_len, True)
-                sel.setString(new_slice[p : slice_len - s])
-                main_cursor.gotoRange(sel.getEnd(), False)
-
-            if s > 0:
-                _advance(main_cursor, s, False)
-
-        if offset < overlap:
-            _step_replace_characters(text, main_cursor, old_text, new_text, offset, overlap)
-    else:
-        i = 0
-        while i < overlap:
-            if new_text[i] == old_text[i]:
-                run_start = i
-                while i < overlap and new_text[i] == old_text[i]:
-                    i += 1
-                k = i - run_start
-                _advance(main_cursor, k, False)
-            else:
-                sel = text.createTextCursorByRange(main_cursor)
-                _advance(sel, 1, True)
-                sel.setString(new_text[i])
-                main_cursor.gotoRange(sel.getEnd(), False)
-                i += 1
-
-    # Handle length changes.
-    if new_len > old_len:
-        # Extra chars inherit formatting from the predecessor.
-        text.insertString(main_cursor, new_text[old_len:], False)
-    elif old_len > new_len:
-        # Delete remaining original characters. go_right chunks and reports a short range,
-        # so a stop must fail loudly instead of silently under-deleting.
-        del_cursor = text.createTextCursorByRange(main_cursor)
-        _advance(del_cursor, old_len - new_len, True)
-        del_cursor.setString("")
+    # One replace is several UNO actions; group them so one Ctrl+Z reverts it.
+    with WriterCompoundUndo(model, _("WriterAgent: Replace text")):
+        if record_changes.is_recording_changes(model):
+            _replace_recorded(text, target_range, old_text, new_text, split_author and in_undo_context)
+        else:
+            _replace_untracked(text, target_range, old_text, new_text)
 
 
 def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:

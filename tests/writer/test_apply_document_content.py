@@ -1462,7 +1462,7 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot), \
          patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
          patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
-        ctx.doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+        ctx.doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = [(), (), ("Agent Edit",)]
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old", all_matches=True
         )
