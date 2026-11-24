@@ -2098,3 +2098,297 @@ def test_apply_char_style_records_in_review_mode_on_non_recording_doc_uno(ctx, d
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
+
+
+def _create_test_png(width: int = 8, height: int = 8) -> bytes:
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + b"\x33\x66\x99" * width for _ in range(height))
+    compressed = zlib.compress(raw)
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", compressed) + _chunk(b"IEND", b"")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
+    import uno
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+
+    fill_solid = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    para_block = uno.Enum("com.sun.star.style.ParagraphAdjust", "BLOCK")
+
+    def _configure_para(para):
+        para.setPropertyValue("ParaIsHyphenation", True)
+        para.setPropertyValue("ParaHyphenationMaxLeadingChars", 4)
+        para.setPropertyValue("ParaHyphenationMaxHyphens", 3)
+        para.setPropertyValue("ParaRegisterModeActive", True)
+        para.setPropertyValue("ParaLineNumberStartValue", 7)
+        para.setPropertyValue("ParaIsHangingPunctuation", False)
+        para.setPropertyValue("SnapToGrid", False)
+        para.setPropertyValue("ParaAdjust", para_block)
+        para.setPropertyValue("ParaLastLineAdjust", 2)
+        para.setPropertyValue("ParaExpandSingleWord", True)
+        dc = para.getPropertyValue("DropCapFormat")
+        dc.Lines = 3
+        dc.Count = 1
+        para.setPropertyValue("DropCapFormat", dc)
+        para.setPropertyValue("DropCapWholeWord", True)
+        para.setPropertyValue("FillStyle", fill_solid)
+        para.setPropertyValue("FillColor", 0x112233)
+        para.setPropertyValue("FillTransparence", 40)
+
+    def _snapshot(para):
+        return {
+            "ParaIsHyphenation": para.getPropertyValue("ParaIsHyphenation"),
+            "ParaHyphenationMaxLeadingChars": para.getPropertyValue("ParaHyphenationMaxLeadingChars"),
+            "ParaHyphenationMaxHyphens": para.getPropertyValue("ParaHyphenationMaxHyphens"),
+            "ParaRegisterModeActive": para.getPropertyValue("ParaRegisterModeActive"),
+            "ParaLineNumberStartValue": para.getPropertyValue("ParaLineNumberStartValue"),
+            "ParaIsHangingPunctuation": para.getPropertyValue("ParaIsHangingPunctuation"),
+            "SnapToGrid": para.getPropertyValue("SnapToGrid"),
+            "ParaAdjust": para.getPropertyValue("ParaAdjust"),
+            "ParaLastLineAdjust": para.getPropertyValue("ParaLastLineAdjust"),
+            "ParaExpandSingleWord": para.getPropertyValue("ParaExpandSingleWord"),
+            "DropCapWholeWord": para.getPropertyValue("DropCapWholeWord"),
+            "DropCapLines": para.getPropertyValue("DropCapFormat").Lines,
+            "FillStyle": para.getPropertyValue("FillStyle"),
+            "FillColor": para.getPropertyValue("FillColor"),
+            "FillTransparence": para.getPropertyValue("FillTransparence"),
+        }
+
+    _reset(doc, ctx, "Wide direct formatting paragraph.")
+    _configure_para(_paragraphs(doc)[0])
+    before = _snapshot(_paragraphs(doc)[0])
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res_style = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res_style["status"] == "ok", res_style
+        assert res_style["tracked"] is True
+        assert "style_unreviewed" not in res_style
+        _reject_all(doc, ctx)
+        assert _snapshot(_paragraphs(doc)[0]) == before
+
+        res_fmt = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBottomMargin": 500}, target="full_document"
+        )
+        assert res_fmt["status"] == "ok", res_fmt
+        assert res_fmt["tracked"] is True
+        assert "style_unreviewed" not in res_fmt
+        _reject_all(doc, ctx)
+        assert _snapshot(_paragraphs(doc)[0]) == before
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_para_format_reject_restores_bitmap_fill_uno(ctx, doc):
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Bitmap fill paragraph.")
+    fill_bitmap = uno.Enum("com.sun.star.drawing.FillStyle", "BITMAP")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        png_path = os.path.join(tmpdir, "fill.png")
+        with open(png_path, "wb") as f:
+            f.write(_create_test_png())
+        gp = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        pv = PropertyValue()
+        pv.Name = "URL"
+        pv.Value = uno.systemPathToFileUrl(png_path)
+        graphic = gp.queryGraphic((pv,))
+
+    p0 = _paragraphs(doc)[0]
+    # Do not set FillBitmapMode: setting it or passing it to makeRedline crashes LibreOffice
+    # (out-of-pool OWN_ATTR_FILLBMP_MODE id).
+    p0.setPropertyValue("FillStyle", fill_bitmap)
+    p0.setPropertyValue("FillBitmap", graphic)
+    p0.setPropertyValue("FillBitmapStretch", False)
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        _reject_all(doc, ctx)
+        p0 = _paragraphs(doc)[0]
+        assert p0.getPropertyValue("FillStyle") == fill_bitmap
+        assert p0.getPropertyValue("FillBitmap") is not None
+        assert p0.getPropertyValue("FillBitmapStretch") is False
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_para_format_names_unrestorable_property_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+
+    _reset(doc, ctx, "Unrestorable property paragraph.")
+    p0 = _paragraphs(doc)[0]
+    dc = p0.getPropertyValue("DropCapFormat")
+    dc.Lines = 3
+    dc.Count = 1
+    p0.setPropertyValue("DropCapFormat", dc)
+    p0.setPropertyValue("DropCapCharStyleName", "Emphasis")
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res_style = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res_style.get("style_unreviewed") is True
+        assert "DropCapCharStyleName" in res_style.get("warning", "")
+        _reject_all(doc, ctx)
+
+        p0 = _paragraphs(doc)[0]
+        dc = p0.getPropertyValue("DropCapFormat")
+        dc.Lines = 3
+        dc.Count = 1
+        p0.setPropertyValue("DropCapFormat", dc)
+        p0.setPropertyValue("DropCapCharStyleName", "Emphasis")
+
+        res_fmt = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBottomMargin": 400}, target="full_document"
+        )
+        assert res_fmt.get("style_unreviewed") is True
+        assert "DropCapCharStyleName" in res_fmt.get("warning", "")
+        _reject_all(doc, ctx)
+
+        _reset(doc, ctx, "Restorable only paragraph.")
+        _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+        res_clean = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert "style_unreviewed" not in res_clean
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
+    import os
+    import tempfile
+    import zipfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.writer.styles import ApplyStyle
+
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '</Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        '</Relationships>'
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:body><w:p><w:pPr>'
+        '<w:ind w:leftChars="200" w:left="480" w:firstLineChars="100" w:firstLine="240"/>'
+        '</w:pPr><w:r><w:t>Char unit indent.</w:t></w:r></w:p></w:body></w:document>'
+    )
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    reloaded = None
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "char_indent.docx")
+            with zipfile.ZipFile(docx_path, "w") as zf:
+                zf.writestr("[Content_Types].xml", content_types)
+                zf.writestr("_rels/.rels", rels)
+                zf.writestr("word/document.xml", document_xml)
+            desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            hv = PropertyValue()
+            hv.Name = "Hidden"
+            hv.Value = True
+            reloaded = desktop.loadComponentFromURL(uno.systemPathToFileUrl(docx_path), "_blank", 0, (hv,))
+            p0 = _paragraphs(reloaded)[0]
+            info = p0.getPropertySetInfo()
+            orig_left = p0.getPropertyValue("ParaLeftMargin")
+            has_left_unit = info.hasPropertyByName("ParaLeftMarginUnit")
+            has_first_unit = info.hasPropertyByName("ParaFirstLineIndentUnit")
+            orig_left_unit = p0.getPropertyValue("ParaLeftMarginUnit") if has_left_unit else None
+            orig_first_unit = p0.getPropertyValue("ParaFirstLineIndentUnit") if has_first_unit else None
+
+            res = ApplyStyle().execute(
+                _tool_ctx(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            )
+            assert res["status"] == "ok", res
+            assert res["tracked"] is True
+
+            _reject_all(reloaded, ctx)
+            p0 = _paragraphs(reloaded)[0]
+            assert p0.getPropertyValue("ParaLeftMargin") == orig_left
+            if has_left_unit:
+                assert p0.getPropertyValue("ParaLeftMarginUnit") == orig_left_unit
+            if has_first_unit:
+                assert p0.getPropertyValue("ParaFirstLineIndentUnit") == orig_first_unit
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, doc):
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "Register mode and writing mode.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res_reg = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaRegisterModeActive": True}, target="full_document"
+        )
+        assert res_reg["status"] == "ok", res_reg
+        assert res_reg["tracked"] is True
+        assert "style_unreviewed" not in res_reg
+        _reject_all(doc, ctx)
+        assert _paragraphs(doc)[0].getPropertyValue("ParaRegisterModeActive") is False
+
+        res_wm = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"WritingMode": 1}, target="full_document"
+        )
+        assert res_wm["status"] == "ok", res_wm
+        assert res_wm["tracked"] is False
+        assert res_wm.get("style_unreviewed") is True
+        assert "WritingMode" in res_wm.get("warning", "")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
