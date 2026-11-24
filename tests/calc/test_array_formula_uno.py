@@ -6,7 +6,7 @@
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, libreoffice_version, with_native_doc
-from tests.harness.uno_profile_config import repo_venv_in_profile
+from tests.harness.uno_profile_config import repo_venv_in_profile, venv_in_profile
 
 
 @native_test
@@ -173,3 +173,97 @@ def test_array_true_py_list(ctx, doc):
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_array_own_data_refused_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    for row, val in enumerate((1, 2, 3)):
+        sheet.getCellByPosition(0, row).setValue(val)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1"], "values": '=PY("result = data"; A1:A3)', "array": True},
+    )
+    assert res.get("status") == "error", f"expected PY_CIRCULAR refusal: {res}"
+    assert res.get("code") == "PY_CIRCULAR", res
+    assert res.get("suggested_call", {}).get("arguments", {}).get("range") == [f"{sheet.getName()}.B1"], res
+    assert sheet.getCellByPosition(0, 0).getValue() == 1
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_py_setup_failure_refused_for_array_and_warned_for_scalar_uno(ctx, doc):
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    try:
+        with venv_in_profile("/nonexistent/venv"):
+            res_arr = _execute_calc_tool(
+                doc,
+                ctx,
+                "write_range",
+                {"range": ["A1:A3"], "values": '=PY("result = 1")', "array": True},
+            )
+            assert res_arr.get("status") == "error", f"expected refusal: {res_arr}"
+            if libreoffice_version(ctx) >= (26, 8):
+                msg = res_arr.get("message") or res_arr.get("error") or ""
+                assert "Python venv not found" in msg, res_arr
+            else:
+                assert res_arr.get("code") == "INVALID_PARAM", res_arr
+            assert [sheet.getCellByPosition(0, r).getString() for r in range(3)] == ["", "", ""]
+
+            res_scalar = _execute_calc_tool(
+                doc,
+                ctx,
+                "write_range",
+                {"range": ["D1"], "values": '=PY("result = 1")'},
+            )
+            assert res_scalar.get("status") == "ok", res_scalar
+            assert "shows an error message" in (res_scalar.get("message") or ""), res_scalar
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_array_error_hints_and_commit_code_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    for row, val in enumerate((1, 2, 3)):
+        sheet.getCellByPosition(0, row).setValue(val)
+
+    res_filter = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["C1"], "values": "=FILTER(A1:A3;A1:A3>9)"},
+    )
+    assert res_filter.get("status") == "error", res_filter
+    msg_filter = res_filter.get("message") or res_filter.get("error") or ""
+    assert "533" in msg_filter and "FILTER" in msg_filter, res_filter
+
+    res_div0 = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["D1"], "values": "=1/0", "array": True},
+    )
+    assert res_div0.get("status") == "error", res_div0
+    msg_div0 = res_div0.get("message") or res_div0.get("error") or ""
+    assert "532" in msg_div0 and "FILTER" not in msg_div0, res_div0
+
+    res_circ = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1"], "values": "=SUM(A1:A3)", "array": True},
+    )
+    assert res_circ.get("status") == "error", res_circ
+    msg_circ = res_circ.get("message") or res_circ.get("error") or ""
+    assert "522" in msg_circ and "code 0" not in msg_circ, res_circ
+    assert sheet.getCellByPosition(0, 0).getValue() == 1

@@ -18,6 +18,7 @@ from plugin.contrib.smolagents.models import (
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.harness.smol_messages import flatten_messages
 
 def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
     def side_effect(key: str):
@@ -1266,6 +1267,19 @@ def test_get_research_completion_instruction():
     assert get_research_completion_instruction(None) == RESEARCH_COMPLETION_INSTRUCTION_WRITER
 
 
+@pytest.mark.parametrize("doc_type", ["writer", "calc"])
+def test_research_completion_instruction_names_registered_tools(doc_type):
+    import re
+    import plugin.app
+    from plugin.framework.prompts import get_research_completion_instruction
+
+    names = re.findall(r"\bcall ([a-z_]+)", get_research_completion_instruction(doc_type))
+    assert names
+    tools = plugin.app.get_tools()
+    for name in names:
+        assert tools.get(name) is not None, f"Unregistered tool {name!r} in {doc_type} instruction"
+
+
 def test_web_research_tool_includes_instruction_in_result(tmp_path):
     """WebResearchTool.execute must include an instruction field tailored to doc_type."""
     from plugin.chatbot.web_research import WebResearchTool
@@ -1831,13 +1845,7 @@ def test_web_research_agent_keeps_partial_observations_and_step_budget():
 
     def _gen(messages, **kwargs):
         del kwargs
-        text = "\n".join(
-            "\n".join(str(p.get("text", p)) if isinstance(p, dict) else str(p) for p in m.content)
-            if isinstance(m.content, list)
-            else str(m.content or "")
-            for m in messages
-        )
-        seen.append(text)
+        seen.append(flatten_messages(messages))
         if len(seen) == 1:
             return ChatMessage(
                 role=MessageRole.ASSISTANT,

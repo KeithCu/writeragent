@@ -68,6 +68,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `open_document_for_read` | `document_research` | Hidden+read-only `load_scratch_document` (`_blank`, HTML files forced to `HTML (StarWriter)`, URL dropped with `attachResource("", ())` so every read loads its own copy and File > Open / `document_open` cannot adopt it), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close via `close_scratch_document` only if this call loaded a hidden sibling (not a user-visible doc). |
 | `load_pptx_as_impress_doc` | `uno_pptx_import` | Hidden+read-only `load_scratch_document` (`ReadOnly=True`) with URL dropped (`attachResource("", ())`) so the import copy takes no lock file and cannot be adopted. |
+| `import_pptx_slide_to_odp` | `uno_pptx_import` | Opens a `load_scratch_document` Impress deck, imports one slide, saves ODP, and returns `(doc, page)`; closes the target on any failure and expects the caller to close it with `close_scratch_document` on success. |
 | `only_open_calc_document` | `session_manager` | Return the only open Calc document (excluding registered scratch documents), or `None` when zero or several are open. |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
@@ -93,11 +94,11 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `live_paragraph_text` | Visible text of a paragraph, or `None` when a tracked deletion strikes all of it. Uses `para.getString()` when no deletion touches the paragraph (portions cannot see inline content controls or metadata fields); returns `None` when it starts inside a deletion or has raw text and a `Delete` marker. |
 | `get_selection_text` | Selected string for Writer (tracked deletions hidden; `None` when selection is not text) / Calc / Draw; `None` if empty. |
 | `build_heading_tree` | Outline tree (`HeadingTreeNode`) skipping tracked-deleted heading text (uses `paragraph_deletion_flags` and `live_paragraph_text`). A heading whose text is wholly struck is dropped from the tree and counted in `body_paragraphs` so `para_index` and block sizes stay intact (an empty live heading stays, and a live heading inside an inline content control keeps its raw text when no deletion touches it, or blank text if a `Delete` marker is also present). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
-| `visible_point_in_paragraph` | Collapsed position of a visible offset in a paragraph (walks portions rather than `goRight` from start; moves offsets inside non-`Text` portions such as fields or footnote numbers to the portion edge). |
-| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_content` `document_length` and `scope='range'`. |
-| `get_text_cursor_at_range_reached` | Cursor covering `[start, end)` and `fully_reached` flag (chunked `goRight`). `set_selection` offsets use this cursor-step space, not `get_content`'s `document_length` space; step offsets are not additive across tables. |
+| `visible_point_in_paragraph` | Collapsed position of a visible offset in a paragraph and its paragraph-relative offset (walks portions rather than `goRight` from start; moves offsets inside non-`Text` portions such as fields or footnote numbers to the portion edge). |
+| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text and leading/trailing tables; returns 0 for non-Writer or on error) = the space of `get_content` `document_length`, `scope='range'`, `set_selection`, and `search(return_offsets)`. |
+| `visible_body_range` | Cursor over visible offsets `[start, end)` in `get_content`'s `document_length` space (expanding out of a field or footnote number, raising `ToolExecutionError` for an offset in a table, returning `None` when `start` is at or past the text end). |
 | `jump_view_cursor_to_page` | Move a Writer view cursor to 0-based *page*; returns `None` on hit or the page count on miss (guards `0 <= page < 0x7FFF` and compares `vc.getPage()` because `jumpToPage` clamps to the last page). |
-| `read_visible_body` | Single-walk visible body text (`get_content` `document_length` space), visible offsets of given UNO positions (`None` outside the body), and visible offsets of wholly struck body paragraphs. |
+| `read_visible_body` | Single-walk visible body text (`get_content` `document_length` space, enumerating the body directly so leading tables and trailing empty paragraphs are included), visible offsets of given UNO positions in document order (`None` outside the body or not reached), and visible offsets of wholly struck body paragraphs. |
 
 Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot. `find_paragraph_for_range` returns `None` when the point cannot be placed (empty body, before the first or after the last paragraph, or a compare failure); only a real hit returns `0`.
 
@@ -217,7 +218,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `mm_to_unit` / `mm_to_units` / `px_to_units` / `units_to_px` / `graphic_pixel_size` | 1/100 mm ↔ 96-DPI px (`UNITS_PER_INCH` / `PX_PER_INCH`, rounded both ways). |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
-| `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |
+| `list_graphic_objects` / `get_graphic_object_by_name` / `find_image` / `no_image_selected_error` / `graphic_from_object` | Name lookup across Writer text + Draw pages, and shared vision image resolution. |
 | `get_active_draw_page` / `draw_page_for_insert` / `position_on_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page and position helpers. |
 | `SHAPE_TOOL_UNO_SERVICES` | Union of Writer/Calc/Draw/Impress services for shared tool names. |
 
@@ -383,7 +384,7 @@ LibrePy and WriterAgent both use those helpers (`main_core.py` and `main.py`). W
 | `org.extension.librepy:` / `org.extension.writeragent:` | Menu dispatch | Product protocol handlers. |
 | `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank`, `Hidden=True`, `clear_writer_body`); Calc rich HTML uses `load_scratch_document` directly so a non-emptiable template is left open rather than closed. |
 | `private:factory/scalc` | Excel auto-open comment (OnNew vs OnLoadFinished) | Domain. |
-| `private:factory/simpress` | PPT-Master import | Domain. |
+| `private:factory/simpress` | PPT-Master import | Domain (loaded via `load_scratch_document`). |
 | `private:factory/smath` | Math embed (`math_mml_export._MATH_FACTORY_URL`) | Domain. |
 | `private:resource/toolbar/addon_org.extension.writeragent.toolbar` | Review toolbar | Domain. |
 | `https:` / `http:` | LLM endpoints; notebook remote images | `url_utils` vs importer fetch — not document URLs. |

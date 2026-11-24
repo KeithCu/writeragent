@@ -296,15 +296,11 @@ def _first_remaining_field_token(text_obj: Any, nonce: str) -> Any:
     return None
 
 
-def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
-    """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
-
-    Selects tokens from portion ranges per XText, descending into table cells
-    and frames so unused-style headers or nested structures are fully restored.
-    """
-    prefix = f"[[WA-FIELD:{nonce}:"
-    hits = []
-
+def find_tokens(
+    text_obj: Any, prefix: str, token_re: re.Pattern[str]
+) -> list[tuple[Any, re.Match[str]]]:
+    """Find ``token_re`` placeholder cursors inside *text_obj*, descending into tables and frames."""
+    hits: list[tuple[Any, re.Match[str]]] = []
     for xtext in _iter_field_texts(text_obj):
         plain = uno_read(lambda: xtext.getString() or "", "")
         if prefix not in plain:
@@ -316,6 +312,9 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
         # keeps the hits already found when a cursor step fails.
         try:
             for para in iter_elements(enum):
+                para_text = uno_read(lambda: para.getString(), None)
+                if isinstance(para_text, str) and prefix not in para_text:
+                    continue
                 portions = uno_read(lambda: para.createEnumeration(), None)
                 for portion in iter_elements(portions):
                     kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), FAILED)
@@ -326,24 +325,35 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
                     chunk = uno_read(lambda: portion.getString() or "", "")
                     if not isinstance(chunk, str):
                         chunk = str(chunk)
-                    for m in _FIELD_TOKEN_RE.finditer(chunk):
-                        if m.group(1) == nonce:
-                            tok = m.group(0)
-                            title = m.group(2).lower()
-                            props = _parse_field_token_props(m.group(3))
-                            cur = xtext.createTextCursorByRange(portion.getStart())
-                            if cur.goRight(m.start(), False) is False:
-                                continue
-                            if cur.goRight(len(tok), True) is False:
-                                continue
-                            if cur.getString() != tok:
-                                continue
-                            hits.append((cur, title, props))
+                    for m in token_re.finditer(chunk):
+                        tok = m.group(0)
+                        if not tok.startswith(prefix):
+                            continue
+                        cur = xtext.createTextCursorByRange(portion.getStart())
+                        if cur.goRight(m.start(), False) is False:
+                            continue
+                        if cur.goRight(len(tok), True) is False:
+                            continue
+                        if cur.getString() != tok:
+                            continue
+                        hits.append((cur, m))
         except Exception as exc:
             reraise_if_disposed(exc)
-            log.debug("_restore_fields_by_cursor enumeration failed: %s", exc)
+            log.debug("find_tokens enumeration failed: %s", exc)
+    return hits
 
-    for cursor, title, props in reversed(hits):
+
+def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
+    """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
+
+    Selects tokens from portion ranges per XText, descending into table cells
+    and frames so unused-style headers or nested structures are fully restored.
+    """
+    prefix = f"[[WA-FIELD:{nonce}:"
+    hits = find_tokens(text_obj, prefix, _FIELD_TOKEN_RE)
+    for cursor, m in reversed(hits):
+        title = m.group(2).lower()
+        props = _parse_field_token_props(m.group(3))
         _insert_restored_field(model, cursor, title, props)
 
     return len(hits)

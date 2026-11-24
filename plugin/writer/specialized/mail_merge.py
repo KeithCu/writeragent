@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from ..record_changes import insert_recorded_content
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import insert_at_target
 from plugin.doc.text_helpers import iter_elements
@@ -365,7 +366,7 @@ class InsertField(ToolWriterMailMergeBase):
             self,
             ctx,
             kwargs,
-            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
             what="the merge field",
         )
         if err is not None:

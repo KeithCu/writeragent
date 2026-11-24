@@ -476,19 +476,11 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         res_cs = ManageTableStructure().execute(
             tool_ctx, action="delete", axis="column", name="ColspanTbl", index=0
         )
-        assert res_cs["status"] == "ok", res_cs
-        assert res_cs["tracked"] is True
-        _reject_all_tables(doc, ctx)
+        assert res_cs["status"] == "error", res_cs
+        assert res_cs["code"] == "COLUMN_HAS_SPANNING_CELL", res_cs
         assert colspan_tbl.getColumns().getCount() == 2
         assert len(colspan_tbl.getCellNames()) == 5
         assert colspan_tbl.getCellByName("A1").getString() == "A1\nB1"
-
-        res_cs2 = ManageTableStructure().execute(
-            tool_ctx, action="delete", axis="column", name="ColspanTbl", index=0
-        )
-        assert res_cs2["status"] == "ok", res_cs2
-        _accept_all_tables(doc, ctx)
-        assert colspan_tbl.getColumns().getCount() == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -780,10 +772,53 @@ def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
     assert predicted_texts == {"a1\nb1", "a2", "b2"}
 
     before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
-    res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t_name, index=0)
-    assert res["status"] == "ok", res
+    table.getColumns().removeByIndex(0, 1)
     after_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
     assert before_texts - after_texts == predicted_texts
+
+
+@native_test
+@with_native_doc("writer")
+def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    # 1. Header merge A1:B1 in 3-col table -> col 0 refused, cells unchanged
+    t1 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t1, cell_range="A1:B1")
+    tbl1 = doc.getTextTables().getByName(t1)
+    before1 = {n: tbl1.getCellByName(n).getString() for n in tbl1.getCellNames()}
+    res1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
+    assert res1["status"] == "error"
+    assert res1["code"] == "COLUMN_HAS_SPANNING_CELL"
+    assert {n: tbl1.getCellByName(n).getString() for n in tbl1.getCellNames()} == before1
+
+    # 2. Full-width row A3:C3 in 3-col table, col 1 -> refused tracked and untracked; table survives
+    t2 = TableInsert().execute(
+        tool_ctx, rows=3, columns=3,
+        data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]],
+    )["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t2, cell_range="A3:C3")
+    for rec in (False, True):
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            res2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t2, index=1)
+            assert res2["status"] == "error"
+            assert res2["code"] == "COLUMN_HAS_SPANNING_CELL"
+            assert doc.getTextTables().hasByName(t2)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    # 3. Split A1:B1 -> 2 columns, then delete col 0 keeps b and c
+    t3 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a", "b", "c"], ["a2", "b2", "c2"]])["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B1")
+    from plugin.writer.specialized.tables import TableSplitCell
+    split_res = TableSplitCell().execute_safe(tool_ctx, name=t3, cell="A1", direction="columns", parts=2)
+    assert split_res["status"] == "ok", split_res
+    del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert del_res["status"] == "ok", del_res
+    tbl3 = doc.getTextTables().getByName(t3)
+    assert tbl3.getColumns().getCount() == 2
+    texts3 = {n: tbl3.getCellByName(n).getString() for n in tbl3.getCellNames()}
+    assert texts3 == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}, texts3
 
 
 @native_test

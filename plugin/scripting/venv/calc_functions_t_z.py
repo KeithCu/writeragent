@@ -19,7 +19,9 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    ILLEGAL_PARAMETER_NAN,
     NA_NAN,
+    RegressionError,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -31,6 +33,7 @@ from .calc_functions_util import (
     is_calc_error,
     number_text,
     parse_weekend,
+    propagate_errors,
     round_half_up,
     scipy_stats,
     serial_to_date,
@@ -206,12 +209,11 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         delim = str(delimiter)
         inst = int(float(instance_num))
         if inst == 0:
-            raise ValueError("instance_num cannot be 0")
-        # "".split("") raises. re.finditer("") matches at every position, so a
-        # blank delimiter would look like a hit. TEXTBEFORE / TEXTAFTER turn
-        # this ValueError into NaN.
+            return NA_NAN
+        # ScTextBeforeOrAfter (interpr1.cxx) skips an empty delimiter and returns if_not_found (default #N/A);
+        # re.finditer("") would otherwise match at every position.
         if not delim:
-            raise ValueError("empty separator")
+            return if_not_found
         # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
         # past each delimiter. lower() of İ is i + combining dot, so an index
         # into the lowered string no longer lines up with s: textbefore of
@@ -239,17 +241,16 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
     except (ValueError, TypeError, OverflowError):
-        # int(float(instance_num)) of an infinite instance raises OverflowError,
-        # which this handler did not catch, so TEXTAFTER and TEXTBEFORE raised
-        # instead of the NaN used for any other invalid instance.
+        # int(float(instance_num)) of an infinite instance raises OverflowError;
+        # return plain NaN (#NUM!), as for a text instance.
         return float("nan")
 
 
-def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=True)
 
 
-def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
+def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=False)
 
 
@@ -283,7 +284,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
             if is_calc_error(val):
                 if isinstance(val, str):
                     return val.strip()
-                return float("nan")
+                return float(val)
             if is_blank_value(val):
                 if not skip_empty:
                     parts.append("")
@@ -339,6 +340,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         return float("nan")
 
 
+@propagate_errors
 def time(hour: Any, minute: Any, second: Any) -> float:
     # ScInterpreter::ScGetTime (sc/source/core/tool/interpr2.cxx) does
     # fmod(hour*3600 + minute*60 + second, 86400) / 86400. Truncating each
@@ -357,6 +359,7 @@ def time(hour: Any, minute: Any, second: Any) -> float:
     return wrapped / 86400.0
 
 
+@propagate_errors
 def timevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     # ``fmt`` is the TEXT alias. A loop variable with that name would hide it.
@@ -401,12 +404,15 @@ def trend(*args: Any) -> Any:
             args[2] if len(args) > 2 else None,
             args[3] if len(args) > 3 else True,
         ).tolist()
+    except RegressionError as exc:
+        return str(exc)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
 
+@propagate_errors
 def trimmean(r: Any, percent: Any) -> float:
-    # Skip blanks, text, and bools. A formula error (NaN) still propagates.
+    # Skip blanks, text, and bools. Coded errors and tokens propagate via @propagate_errors; a plain NaN propagates via propagate_nan=True.
     arr = extract_numeric_array(r, propagate_nan=True)
     if len(arr) == 0 or np.any(np.isnan(arr)):
         return float("nan")
@@ -425,6 +431,7 @@ def trimmean(r: Any, percent: Any) -> float:
     return float(np.mean(arr[k:-k]))
 
 
+@propagate_errors
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     # ``t`` is the public T() function. A local with that name would hide it.
     tail_count = int(float(tails))
@@ -559,12 +566,14 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
     return [list(row) for row in zip(*kept)]
 
 
+@propagate_errors
 def vara(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=1))
 
 
+@propagate_errors
 def varpa(*args: Any) -> float:
     vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
@@ -581,6 +590,7 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 }
 
 
+@propagate_errors
 def weekday(serial: Any, return_type: int | float = 1) -> float:
     # serial_to_date returns None for a bad serial. A non-numeric return_type
     # raises ValueError, which the worker returns as #VALUE!.
@@ -628,6 +638,7 @@ def _system1_week_number(day: dt.date, week_start: int) -> int:
     return week
 
 
+@propagate_errors
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
@@ -748,11 +759,13 @@ def _workday_serial(
     return date_to_serial(end)
 
 
+@propagate_errors
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
     # Excel WORKDAY weekend is Saturday and Sunday (weekday() 5 and 6).
     return _workday_serial(start_date, days, {5, 6}, holidays)
 
 
+@propagate_errors
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     wk_days = parse_weekend(weekend)
     if not isinstance(wk_days, set):
@@ -802,13 +815,14 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
 
 
-# ScXLookup / ScXMatch (interpr1.cxx) modes supported here; Calc also has 3 (regex).
+# ScXLookup / ScXMatch (interpr1.cxx) modes supported here.
 _MATCH_MODES = (-1, 0, 1, 2)
 _SEARCH_MODES = (-2, -1, 1, 2)
 
 
 def _modes_supported(match_mode: int | float, search_mode: int | float) -> bool:
-    # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (IllegalParameter).
+    # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (callers return Err:504);
+    # mode 3 (regex) is valid in Calc but gets Err:504 here because it is not supported.
     return int(float(match_mode)) in _MATCH_MODES and int(float(search_mode)) in _SEARCH_MODES
 
 
@@ -820,7 +834,7 @@ def _find_match_index(
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
     # dtype=object keeps numbers as numbers. Text matches case-insensitively.
-    # bad match_mode or search_mode is left to the worker exception path, which returns #VALUE!
+    # A text match_mode or search_mode is left to the worker exception path, which returns #VALUE!.
     l_flat = np.asarray(lookup_arr, dtype=object).ravel()
     indices = list(range(len(l_flat)))
     if int(float(search_mode)) == -1:
@@ -871,7 +885,7 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
-        return "#VALUE!"
+        return "Err:504"
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         # ScXLookup pushes #N/A when the 4th argument is omitted. None
@@ -911,7 +925,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
     if not _modes_supported(match_mode, search_mode):
-        return float("nan")
+        return ILLEGAL_PARAMETER_NAN
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
         return float(best_idx + 1)
@@ -1002,6 +1016,7 @@ def xor(*args: Any) -> bool | float | str:
     return trues % 2 == 1
 
 
+@propagate_errors
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     """Annual yield of a discounted security (e.g. Treasury bill)."""
     p = float(pr)
@@ -1018,6 +1033,7 @@ def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: A
     return float(((red - p) / p) / yf)
 
 
+@propagate_errors
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
     """Annual yield of a security that pays interest at maturity."""
     r = float(rate)
@@ -1041,11 +1057,11 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
     return float(num / dsm_b)
 
 
+@propagate_errors
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
-    # ScZTest counts numeric cells, including TRUE as 1, and skips text
-    # and blanks. dtype=float raised on None, so one blank made the call
-    # NaN. isfinite then dropped error cells instead of propagating them.
-    # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
+    # ScZTest counts numeric cells, including TRUE as 1, and skips text and blanks.
+    # A plain NaN propagates via propagate_nan=True; coded errors and tokens propagate
+    # via @propagate_errors. Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
     d = extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
     if len(d) < 2 or np.any(np.isnan(d)):
         return float("nan")

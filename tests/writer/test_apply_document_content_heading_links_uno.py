@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import unittest
 from typing import Any
 
 import uno  # noqa: F401
@@ -1163,7 +1164,6 @@ def test_lost_heading_warns_only_for_live_link_while_recording_uno(ctx, doc) -> 
 def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
     from unittest.mock import patch
 
-    import pytest
     from plugin.writer import apply_document_content as adc
     from plugin.writer.review_authors import office_author
 
@@ -1220,11 +1220,11 @@ def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
         ):
             _select_heading()
             with patch.object(adc, "retarget_renamed_links", side_effect=_fail_retarget):
-                with pytest.raises(RuntimeError, match="boom"):
+                with unittest.TestCase().assertRaisesRegex(RuntimeError, "boom"):
                     tool.execute(tool_ctx, **kwargs)
             assert _snapshot() == before
 
         with patch.object(adc, "record_table_deletions", side_effect=_fail_after_table_delete):
-            with pytest.raises(RuntimeError, match="boom"):
+            with unittest.TestCase().assertRaisesRegex(RuntimeError, "boom"):
                 tool.execute(tool_ctx, target="search", old_content="only", content="")
         assert _snapshot() == before

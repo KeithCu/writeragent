@@ -294,7 +294,7 @@ def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
     strike_all_after_leading_table(doc, ctx)
     text = doc.getText()
     assert visible_range_text(doc, text) == "\n\n"
-    assert get_document_length(doc) == 1
+    assert get_document_length(doc) == 2
 
     enum = text.createEnumeration()
     els = []
@@ -332,8 +332,143 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
         doc.setPropertyValue("RecordChanges", False)
 
     assert visible_range_text(doc, text) == "cellA1\n\nthree"
-    # get_document_length uses a cursor from body.getStart(), which skips the leading table.
-    assert get_document_length(doc) == len("\nthree")
+    assert get_document_length(doc) == len("cellA1\n\nthree")
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_range_text
+
+    body = doc.getText()
+    for cell_val, add_para in (("cA1", "Fin"), ("zA1", "")):
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_val)
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        if add_para:
+            body.insertString(cur, add_para, False)
+
+    text, offsets, _ = read_visible_body(doc, [body.getEnd()])
+    assert text == visible_range_text(doc, body)
+    assert text == "cA1\nFin\nzA1\n"
+    assert offsets == [len(text)]
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_range_round_trips_uno(ctx, doc):
+    from plugin.doc.text_helpers import (
+        DeletionState,
+        TrackedDeletions,
+        is_text_table,
+        iter_elements,
+        normalize_linebreaks,
+        read_visible_body,
+        table_visible_text,
+        visible_body_range,
+        visible_range_text,
+    )
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.tests.testing_utils import (
+        strike_across_paragraphs,
+        strike_across_table,
+        strike_all_after_leading_table,
+    )
+
+    def _clear():
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        doc.getText().setString("")
+
+    def _build_rich_layout():
+        _clear()
+        body = doc.getText()
+        lead = doc.createInstance("com.sun.star.text.TextTable")
+        lead.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), lead, False)
+        lead.getCellByName("A1").setString("cA1")
+
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        body.insertString(cur, "ab😀", False)
+        field = doc.createInstance("com.sun.star.text.TextField.DateTime")
+        body.insertTextContent(cur, field, False)
+        fn = doc.createInstance("com.sun.star.text.Footnote")
+        fn.setLabel("1")
+        body.insertTextContent(cur, fn, False)
+        body.insertControlCharacter(cur, 1, False)  # LINE_BREAK
+        body.insertString(cur, "漢字", False)
+        cur.goLeft(2, True)
+        cur.setPropertyValue("RubyText", "かんじ")
+        cur.collapseToEnd()
+        body.insertString(cur, "STRUCK", False)
+        cur.goLeft(len("STRUCK"), True)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        assert doc.getRedlines().getCount() == 1
+        cur.gotoEnd(False)
+        body.insertString(cur, "ef", False)
+
+        tail = doc.createInstance("com.sun.star.text.TextTable")
+        tail.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tail, False)
+        tail.getCellByName("A1").setString("zA1")
+
+    layouts = [
+        _build_rich_layout,
+        lambda: (_clear(), strike_across_paragraphs(doc, doc.getText())),
+        lambda: (_clear(), strike_across_table(doc, doc.getText())),
+        lambda: (_clear(), strike_all_after_leading_table(doc, ctx)),
+    ]
+
+    for setup in layouts:
+        setup()
+        body = doc.getText()
+        text, _, _ = read_visible_body(doc)
+        assert text == visible_range_text(doc, body)
+        state = DeletionState(TrackedDeletions(doc).state_at(body).in_delete)
+        table_ranges = []
+        pos = 0
+        for el in iter_elements(body.createEnumeration()):
+            if is_text_table(el):
+                chunk = normalize_linebreaks(table_visible_text(el, state.in_delete))
+                table_ranges.append((pos, pos + len(chunk)))
+            else:
+                chunk = normalize_linebreaks(visible_range_text(doc, el))
+                # Update state across paragraphs by scanning el's portions
+                from plugin.doc.text_helpers import visible_portions
+                for _p in visible_portions(el, state=state):
+                    pass
+            pos += len(chunk) + 1
+
+        def _in_table(off: int) -> bool:
+            return any(ts <= off <= te for ts, te in table_ranges)
+
+        pairs = [(i, i + 1) for i in range(len(text))]
+        non_table = [i for i in range(len(text) + 1) if not _in_table(i)]
+        if len(non_table) >= 2:
+            pairs.append((non_table[0], non_table[-1]))
+            pairs.append((non_table[0], non_table[len(non_table) // 2]))
+            pairs.append((non_table[len(non_table) // 2], non_table[-1]))
+
+        for start, end in pairs:
+            if _in_table(start) or _in_table(end):
+                try:
+                    visible_body_range(doc, start, end)
+                except ToolExecutionError:
+                    continue
+                raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
+            found = visible_body_range(doc, start, end)
+            assert found is not None
+            _, got_offsets, _ = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+            assert got_offsets == [found.start, found.end]
+            assert text[found.start:found.end] == found.text
 
 
 @native_test

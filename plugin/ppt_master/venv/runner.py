@@ -18,12 +18,8 @@ from plugin.ppt_master.venv.ipc import UserStopped, emit_worker_event, rpc_tool
 from plugin.ppt_master.venv.model import HostRpcModel
 from plugin.ppt_master.venv.path_ops import resolve_project_file, resolve_under_root, run_script
 from plugin.ppt_master.venv.skill_context import load_skill_context, resolve_data_root_from_env
-from plugin.scripting.session_key import SessionKey, SessionKind
 
 log = logging.getLogger(__name__)
-
-_SKILL_CACHE: dict[str, str] = {}
-_EXPORTED_FLAG: dict[str, bool] = {}
 
 
 class _RpcHostTool(Tool):
@@ -139,14 +135,13 @@ class PptMasterFinishedTool(Tool):
     description: str = "End the PPT-Master session. message must be HTML."
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {
         "message": {"type": "string", "description": "HTML handoff."},
-        "exported": {"type": "boolean", "description": "True if export succeeded this session.", "nullable": True},
     }
     output_type: str = "object"
     is_final_answer_tool: bool = True
     skip_forward_signature_validation: bool = True
 
-    def forward(self, message: str, exported: bool = False) -> dict[str, Any]:
-        return {"status": "finished", "result": message, "exported": bool(exported)}
+    def forward(self, message: str) -> dict[str, Any]:
+        return {"status": "finished", "result": message}
 
 
 def _build_tools() -> list[Tool]:
@@ -183,7 +178,7 @@ def _build_tools() -> list[Tool]:
     ]
 
 
-def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: str) -> str:
+def _build_instructions(*, topic: str | None, ctx_block: str) -> str:
     from plugin.framework.prompts import get_chat_response_format_instructions
 
     parts = [
@@ -194,8 +189,7 @@ def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: 
     ]
     if topic and topic.strip():
         parts.append(f"\n[PPT-MASTER TOPIC]\n{topic.strip()}\n")
-    _SKILL_CACHE[session_id] = "\n\n".join(parts)
-    return _SKILL_CACHE[session_id]
+    return "\n\n".join(parts)
 
 
 def _parse_finished(observations: str) -> dict[str, Any] | None:
@@ -208,11 +202,7 @@ def _parse_finished(observations: str) -> dict[str, Any] | None:
         return parsed
     match = re.search(r"'result': '([^']*)'", observations) or re.search(r'"result": "([^"]*)"', observations)
     handoff = match.group(1) if match else None
-    exp_match = re.search(r"'exported': (True|False)", observations) or re.search(
-        r'"exported": (true|false)', observations, re.I
-    )
-    exported = exp_match.group(1).lower() == "true" if exp_match else False
-    return {"status": "finished", "result": handoff or "PPT-Master complete.", "exported": exported}
+    return {"status": "finished", "result": handoff or "PPT-Master complete."}
 
 
 def _finished_from_literal(observations: str) -> dict[str, Any] | None:
@@ -237,7 +227,7 @@ def _finished_from_literal(observations: str) -> dict[str, Any] | None:
     handoff = value.get("result")
     if not isinstance(handoff, str) or not handoff:
         handoff = "PPT-Master complete."
-    return {"status": "finished", "result": handoff, "exported": bool(value.get("exported"))}
+    return {"status": "finished", "result": handoff}
 
 
 def _is_user_stopped(exc: BaseException | None) -> bool:
@@ -263,7 +253,6 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     history_text = payload.get("history_text")
     topic = payload.get("topic")
     model = payload.get("model")
-    session_id = str(payload.get("session_id") or SessionKey.of(SessionKind.PPT_MASTER, "default").wire())
     max_steps = int(payload.get("max_steps") or 12)
     max_tokens = int(payload.get("max_tokens") or 16384)
 
@@ -273,7 +262,7 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
 
     from plugin.chatbot.smol_examples import get_examples_block
 
-    instructions = _instructions_for_session(session_id, topic=topic, ctx_block=str(skill.get("block", "")))
+    instructions = _build_instructions(topic=topic, ctx_block=str(skill.get("block", "")))
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
@@ -303,8 +292,6 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
         for step in run_stream:
             if isinstance(step, ToolCall):
                 emit_worker_event({"kind": "tool", "name": step.name, "arguments": str(step.arguments)[:500]})
-                if step.name == "export_presentation_project":
-                    _EXPORTED_FLAG[session_id] = True
             elif isinstance(step, ActionStep):
                 # Smol wraps a host Stop inside the step error and would take
                 # another step. Return the same payload as the pre-turn check.
@@ -321,8 +308,6 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
                     if step.error is None:
                         finished = _parse_finished(obs_str)
                         if finished is not None:
-                            if _EXPORTED_FLAG.get(session_id):
-                                finished["exported"] = True
                             emit_worker_event({"kind": "thinking", "text": "".join(parts)})
                             return finished
                 parts.append("\n")
@@ -335,8 +320,3 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
         raise
 
     return {"status": "ok", "result": str(final_ans) if final_ans is not None else ""}
-
-
-def clear_session(session_id: str) -> None:
-    _SKILL_CACHE.pop(session_id, None)
-    _EXPORTED_FLAG.pop(session_id, None)

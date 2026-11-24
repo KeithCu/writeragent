@@ -102,7 +102,7 @@ def test_insert_vision_result_calc(mock_calc):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
-    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name=None)
+    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name=None, graphic=None)
 
 
 @patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
@@ -122,7 +122,7 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured"})
 
-    mock_structured.assert_called_once_with(doc, result, image_name=None)
+    mock_structured.assert_called_once_with(doc, result, image_name=None, graphic=None)
     mock_html.assert_not_called()
 
 
@@ -267,7 +267,7 @@ def test_insert_vision_result_calc_passes_image_name(mock_calc):
         "plugin.framework.doc_type.is_calc", return_value=True
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result, params={"image_name": "Photo1"})
-    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name="Photo1")
+    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name="Photo1", graphic=None)
 
 
 @patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
@@ -290,7 +290,7 @@ def test_calc_structured_fallback_uses_html_docling(mock_structured, mock_html):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured", "image_name": "Photo1"})
     mock_structured.assert_called_once()
-    mock_html.assert_called_once_with(doc, ctx, "<p>original docling</p>", image_name="Photo1")
+    mock_html.assert_called_once_with(doc, ctx, "<p>original docling</p>", image_name="Photo1", graphic=None)
 
 
 
@@ -744,7 +744,7 @@ def test_calc_structured_delete_image_after_insert_on_and_off(mock_calc_struct):
             insert_vision_result(ctx, doc, result, params={"image_name": "Img1", "delete_image_after_insert": True})
             == "image_deleted"
         )
-        mock_calc_struct.assert_called_once_with(doc, result, image_name="Img1")
+        mock_calc_struct.assert_called_once_with(doc, result, image_name="Img1", graphic=None)
         mock_delete.assert_called_once_with(ctx, doc, graphic)
 
         mock_delete.reset_mock()

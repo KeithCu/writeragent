@@ -25,7 +25,7 @@ from plugin.scripting.venv.calc_functions_util import (
     build_holiday_set,
     calc_function,
     collect_a_values,
-    criteria_numbers,
+    criteria_reduce,
     extract_numeric_array,
     format_quantized,
     match_criteria,
@@ -237,19 +237,25 @@ def test_int_shift():
     assert math.isnan(_int_shift(1, -54, left=True))
 
 
-def test_criteria_numbers():
+def test_criteria_reduce():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
+
     # Same range for criteria and values
-    assert criteria_numbers([10, 20, 30, 40], [([10, 20, 30, 40], ">20")]) == [30.0, 40.0]
+    assert criteria_reduce([10, 20, 30, 40], [([10, 20, 30, 40], ">20")], sum) == 70.0
 
     # Separate value range with text and NaN filtering
     cond = ["yes", "no", "yes", "yes"]
     vals = [10.0, 20.0, "bad", 30.0]
-    assert criteria_numbers(vals, [(cond, "yes")]) == [10.0, 30.0]
+    assert criteria_reduce(vals, [(cond, "yes")], sum) == 40.0
 
-    # No matches returns empty list
-    assert criteria_numbers([1, 2, 3], [([1, 2, 3], ">10")]) == []
-    # Numeric text and bools are not numbers in the value range.
-    assert criteria_numbers(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")]) == [4.0]
+    # No matches returns 0 for sum
+    assert criteria_reduce([1, 2, 3], [([1, 2, 3], ">10")], sum) == 0.0
+    # Numeric text is skipped; booleans count as 1 or 0.
+    assert criteria_reduce(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")], sum) == 5.0
+    assert criteria_reduce([1, "#N/A"], [([1, 1], 1)], sum) == "#N/A"
+    res = criteria_reduce([1, DIV0_NAN], [([1, 1], 1)], sum)
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+    assert criteria_reduce([1, 2], [([1, 2, 3], 1)], sum) is None
 
 
 def test_dollar_fraction_terms():
@@ -349,7 +355,7 @@ def test_criteria_text_compares_numbers_and_booleans():
     assert calc_functions.countif(cells, "<>1*") == 5
     assert calc_functions.countif(cells, "T*") == 1
     assert calc_functions.countif(cells, ">a") == 1
-    assert math.isclose(calc_functions.sumif([5.0, True, 1.5, None], "*"), 6.5)
+    assert math.isclose(calc_functions.sumif([5.0, True, 1.5, None], "*"), 7.5)
     assert calc_functions.countif([0.1 + 0.2], "?.?") == 1
 
 
@@ -685,6 +691,8 @@ def test_approx_equal(a: float, b: float, expected: bool):
         ("=", 2),
         ("", 2),
         ("<>", 13),
+        (1, 2),
+        (0, 2),
     ],
 )
 def test_criteria_numbers_follow_calc(crit: object, expected: int):
@@ -701,4 +709,25 @@ def test_criteria_approx_and_booleans():
     assert calc.countif([1, True, "TRUE"], True) == 2
     assert calc.countif([1, True], 1) == 2
     assert calc.sumifs([10, 20, 40], [1, True, 2], 1) == 30
+
+
+def test_propagate_errors():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code, propagate_errors
+
+    @propagate_errors
+    def _echo(*args: object, **kwargs: object) -> tuple[tuple[object, ...], dict[str, object]]:
+        return args, kwargs
+
+    assert _echo(" #DIV/0! ") == "#DIV/0!"
+    coded = _echo(DIV0_NAN)
+    assert isinstance(coded, float) and math.isnan(coded) and nan_error_code(coded) == 532
+    plain = _echo(float("nan"))
+    assert isinstance(plain, float) and math.isnan(plain) and nan_error_code(plain) == 0
+    # Plain NaN in a range reaches the function; coded NaN in a range is returned.
+    args, _ = _echo([1, float("nan"), 3])
+    assert math.isnan(args[0][1])
+    coded_range = _echo([1, DIV0_NAN, 3])
+    assert isinstance(coded_range, float) and math.isnan(coded_range) and nan_error_code(coded_range) == 532
+    assert _echo("#DIV/0!", "#N/A") == "#N/A"
+    assert _echo("#DIV/0!", kw="#REF!") == "#REF!"
 

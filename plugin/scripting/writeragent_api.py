@@ -1904,7 +1904,7 @@ class _NavProxy:
         return _result(call_host_tool("nav_get_surroundings", locator=locator, radius=radius, include=include))
 
     def goto_page(self, page: int) -> _Item:
-        """Navigate the view cursor to the start of a page. page is 0-based (first page = 0).
+        """Navigate the view cursor to the start of a page.
 
         Args:
             page (required): 0-based page index: the user's page 2 is page=1.
@@ -1948,7 +1948,7 @@ class _PageProxy:
         return _result(call_host_tool("page_get_header_footer_text", style=style, region=region, include_images=include_images))
 
     def get_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> _Item:
-        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
+        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
 
         Args:
             page (optional): 0-based page index: the user's page 2 is page=1.
@@ -2919,7 +2919,7 @@ class _TableProxy:
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); refuses to delete a column that a wider (merged) cell covers together with other columns; when Track Changes or review mode is on, delete is recorded as a tracked change.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.
@@ -3107,7 +3107,7 @@ class _WriterProxy:
             regex (optional): Use regular expression (ICU syntax).
             case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return. Must be a positive integer.
-            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments).
+            return_offsets (optional): If true, returns {start, end, text} offsets in get_content's document_length space, for body paragraphs only (no tables, regex, shapes or comments).
         """
         return _result(call_host_tool("search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets))
 
@@ -3118,8 +3118,8 @@ class _WriterProxy:
             search_text (optional): Text to select (first match unless occurrence is set).
             occurrence (optional): 0-based match to select when search_text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            char_start (optional): Alternative to search_text: 0-based start offset in body cursor steps, which is not quite get_content's document_length space: a field or footnote anchor is one step whatever it shows, text deleted by pending tracked changes still counts, and an offset inside a table moves to the paragraph after it.
-            char_end (optional): End offset (exclusive, same cursor steps), required with char_start.
+            char_start (optional): Alternative to search_text: 0-based start offset in get_content's document_length space (same as search return_offsets). Must be in a paragraph, not in a table; an offset inside a field or footnote number covers all of it.
+            char_end (optional): End offset (exclusive, same space), required with char_start.
         """
         return _result(call_host_tool("set_selection", search_text=search_text, occurrence=occurrence, case_sensitive=case_sensitive, char_start=char_start, char_end=char_end))
 

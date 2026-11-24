@@ -18,7 +18,7 @@ This module also owns the product's one ``GlobalEventBroadcaster`` document-even
 listener, installed once from ``menu_handlers.register_common_handlers``:
 
 * On open events (``OnNew`` / ``OnLoad`` / ``OnCreate`` / ``OnLoadFinished``):
-  geometric-recalc open and the ``WorkbookState`` unload-listener install.
+  geometric-recalc open, spill registry load and sheet dispatcher arm, and the ``WorkbookState`` unload-listener install.
 * On ``OnLoadFinished``: Excel-PY convert and the Collabora ``GETPY`` prefix rewrite.
 * On ``OnSave*Done``: Excel-PY export.
 """
@@ -35,6 +35,7 @@ from plugin.calc.python.geometric_recalc import (
     clear_in_memory_geometric_state,
     maybe_geometric_on_document_open,
 )
+from plugin.calc.python.spill import arm_spill_registry
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
@@ -313,7 +314,9 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
     # Wire OnUnload here so closing the workbook resets its kernel and
     # geometric state; client-side clear cannot reach soffice.
     if is_calc_document(doc):
-        best_effort(lambda: WorkbookState.for_doc(doc), "python_workbook_lifecycle: unload listener install")
+        state = best_effort(lambda: WorkbookState.for_doc(doc), "python_workbook_lifecycle: unload listener install")
+        if state is not None:
+            best_effort(lambda: arm_spill_registry(ctx, doc, state), "python_workbook_lifecycle: spill registry arm")
 
 
 def _doc_from_event(event: Any) -> Any | None:

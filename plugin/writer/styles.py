@@ -788,10 +788,11 @@ _STRUCT_SCHEMA = {
 _UPDATE_SCHEMA_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_PROPERTIES, **_STRUCT_SCHEMA}
 
 
-# ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center). Schema
-# is the words; these maps are the UNO integers (ParagraphAdjust). START/END exist
-# since LO 26.2, and older SvxAdjustItem::PutValue ignores 5/6, so the tool schema
-# does not offer them.
+# ParaAdjust 0/1/2/3 is hostile (1 is right, 2 is justify, 3 is center), so the
+# schema uses the words and these maps hold the UNO integers (ParagraphAdjust).
+# START and END exist since LO 26.2; older SvxAdjustItem::PutValue
+# (editeng/source/items/paraitem.cxx) silently ignores 5 and 6, so the schema
+# does not offer them and para_adjust_to_uno falls back to left/right there.
 _PARA_ADJUST_TO_UNO = {"left": 0, "right": 1, "justify": 2, "center": 3, "start": 5, "end": 6}
 _PARA_ADJUST_FROM_INT = {
     0: "left", 1: "right", 2: "justify", 3: "center", 4: "justify", 5: "start", 6: "end",
@@ -869,11 +870,32 @@ def _missing_style_error(
     )
 
 
+def _has_paragraph_adjust(name: str) -> bool:
+    """Whether this LibreOffice's ParagraphAdjust enum has *name* (START and END exist since 26.2).
+
+    Asks the type system rather than the version number because Collabora Office
+    numbers its releases differently. An unknown member makes pyuno's checkEnum
+    (pyuno/source/module/pyuno_module.cxx) raise RuntimeException.
+    """
+    # local: see _coerce_uno_field (tests swap sys.modules["uno"])
+    import uno
+    from com.sun.star.uno import RuntimeException
+
+    try:
+        uno.Enum("com.sun.star.style.ParagraphAdjust", name)
+    except RuntimeException:
+        return False
+    return True
+
+
 def para_adjust_to_uno(value: Any) -> int:
     """Schema word → UNO integer. Integers are refused: UNO's order (1 right, 2 justify, 3 center) is easy to get wrong."""
     if isinstance(value, str):
         key = value.strip().lower()
         if key in _PARA_ADJUST_TO_UNO:
+            if key in ("start", "end") and not _has_paragraph_adjust(key.upper()):
+                # Matches pre-26.2 ODF import (xmloff adjushdl.cxx); RTL paragraphs still get left, as old LO did.
+                return _PARA_ADJUST_TO_UNO["left" if key == "start" else "right"]
             return _PARA_ADJUST_TO_UNO[key]
     raise ValueError(
         "ParaAdjust must be one of left, center, right, justify "
@@ -1699,7 +1721,7 @@ def apply_to_cursors(
                     "Applied %s to %d match(es), but the undo step could not be closed (%s). "
                     "The changes are in the document and the undo context is still open."
                     % (label, len(reports), err.get("message")),
-                    code="TOOL_EXECUTION_ERROR",
+                    code="UNDO_CONTEXT_LEAK",
                 )
             if err.get("code") == "ROLLBACK_FAILED":
                 return [], tool._tool_error(

@@ -337,7 +337,7 @@ class SectionRead(ToolWriterSectionBase):
                     paragraphs.append("")
                 else:
                     # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
-                    # same walk as text_helpers._table_visible_text).
+                    # same walk as text_helpers.table_visible_text).
                     paragraphs.append("\n".join(
                         get_string_without_tracked_deletions(para.getCellByName(cell_name))
                         for cell_name in para.getCellNames()

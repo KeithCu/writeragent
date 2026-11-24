@@ -8,6 +8,8 @@
 # semantics; completion keyed to THIS session's tokens (user redlines don't block);
 # per-change outcomes accepted/rejected/modified/pending; timeout; stop_checker;
 # bookmark cleanup; ShowChanges forced on.
+import unittest
+
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
@@ -384,7 +386,6 @@ def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, 
 @native_test
 @with_native_doc("writer")
 def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc):
-    import pytest
     from plugin.writer.edit_review import TrackedChangesInSelection, refuse_tracked_insert_or_delete
 
     text = doc.getText()
@@ -403,7 +404,7 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     inner_del.gotoStart(False)
     inner_del.goRight(2, False)
     inner_del.goRight(1, True)
-    with pytest.raises(TrackedChangesInSelection):
+    with unittest.TestCase().assertRaises(TrackedChangesInSelection):
         refuse_tracked_insert_or_delete(doc, inner_del)
     assert text.getString() == "ABCDE"
 
@@ -422,7 +423,7 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     inner_ins.gotoStart(False)
     inner_ins.goRight(6, False)
     inner_ins.goRight(1, True)
-    with pytest.raises(TrackedChangesInSelection):
+    with unittest.TestCase().assertRaises(TrackedChangesInSelection):
         refuse_tracked_insert_or_delete(doc, inner_ins)
     assert text.getString() == "StartINSEnd"
 

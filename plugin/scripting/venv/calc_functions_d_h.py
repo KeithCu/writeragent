@@ -20,17 +20,22 @@ import numpy as np
 from .calc_functions_util import (
     DIV0_NAN,
     NESTED_ARRAY_NAN,
+    RegressionError,
     approx_floor,
     as_nonzero,
     coupon_schedule,
+    criterion_text,
     date_to_serial,
     days360_dates,
     extract_numeric_array,
     finite_or_nan,
+    first_coded_error,
     format_quantized,
+    is_calc_error,
     is_criteria_blank,
     match_criteria,
     npf_result,
+    propagate_errors,
     round_half_up,
     round_sig,
     scipy_stats,
@@ -147,6 +152,7 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
     return dt.date(year, month, day)
 
 
+@propagate_errors
 def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     sd = serial_to_date(start_date)
     ed = serial_to_date(end_date)
@@ -191,6 +197,7 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     return 0.0 if sd == ed else float("nan")
 
 
+@propagate_errors
 def datevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y"):
@@ -248,7 +255,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         row = db_arr[r_idx]
         if not any(
             all(
-                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], c)
+                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
                 for j, c in enumerate(crit_arr[i])
             )
             for i in range(1, crit_arr.shape[0])
@@ -266,7 +273,7 @@ def _dagg(
     *,
     min_n: int = 0,
     empty: float = float("nan"),
-) -> float:
+) -> float | str:
     """Shared body of the numeric D* functions.
 
     ``None`` from ``_eval_d_criteria`` is an illegal database, field, or
@@ -278,6 +285,10 @@ def _dagg(
     matched = _eval_d_criteria(database, field, criteria)
     if matched is None:
         return float("nan")
+    # A matched error cell is the result (DSUM); a plain NaN is missing.
+    err = first_coded_error(matched)
+    if err is not None:
+        return err
     # Strings are not numbers. ScDBQueryParamBase starts with
     # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
     # DCOUNTA and DGET do not come through here, so text still counts
@@ -300,16 +311,18 @@ def _dagg(
     return float(reduce(vals))
 
 
-def daverage(db: Any, field: Any, criteria: Any) -> float:
+def daverage(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, np.mean, min_n=1)
 
 
+@propagate_errors
 def days(end_date: Any, start_date: Any) -> float:
     # DAYS truncates both serials to integers before subtracting. A fractional
     # serial is still that calendar day.
     return float(int(float(end_date)) - int(float(start_date)))
 
 
+@propagate_errors
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     sd = serial_to_date(start_date)
     ed = serial_to_date(end_date)
@@ -323,6 +336,7 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     return days360_dates(sd, ed, european=european)
 
 
+@propagate_errors
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
     # 1 <= period <= life + 1, and cost, salvage, life, and month must be valid.
     # Period 0 is #NUM!, not 0.
@@ -352,15 +366,21 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
     return float(dep)
 
 
-def dcount(db: Any, field: Any, criteria: Any) -> float:
+def dcount(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, len)
 
 
-def dcounta(db: Any, field: Any, criteria: Any) -> float:
+def dcounta(db: Any, field: Any, criteria: Any) -> float | str:
     vals = _eval_d_criteria(db, field, criteria)
-    return float(sum(1 for v in vals if v is not None and v != "")) if vals is not None else float("nan")
+    if vals is None:
+        return float("nan")
+    err = first_coded_error(vals)
+    if err is not None:
+        return err
+    return float(sum(1 for v in vals if v is not None and v != ""))
 
 
+@propagate_errors
 def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> float:
     # Excel and Calc: 1 <= period <= life, cost >= 0, salvage >= 0, life > 0,
     # factor > 0.
@@ -405,6 +425,7 @@ def delta(n1: Any, n2: Any = 0) -> float:
     return 1.0 if float(n1) == float(n2) else 0.0
 
 
+@propagate_errors
 def devsq(*args: Any) -> float:
     arr = extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
@@ -423,6 +444,7 @@ def dget(db: Any, field: Any, criteria: Any) -> Any:
     return "#NUM!" if len(vals) > 1 else "#VALUE!"
 
 
+@propagate_errors
 def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     p = float(pr)
     red = float(redemption)
@@ -442,16 +464,17 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
     return finite_or_nan(float(result))
 
 
-def dmax(db: Any, field: Any, criteria: Any) -> float:
+def dmax(db: Any, field: Any, criteria: Any) -> float | str:
     # No matching record is 0, not #NUM!. Excel and Calc DMAX do the same.
     return _dagg(db, field, criteria, np.max, min_n=1, empty=0.0)
 
 
-def dmin(db: Any, field: Any, criteria: Any) -> float:
+def dmin(db: Any, field: Any, criteria: Any) -> float | str:
     # No matching record is 0, not #NUM!. Excel and Calc DMIN do the same.
     return _dagg(db, field, criteria, np.min, min_n=1, empty=0.0)
 
 
+@propagate_errors
 def dollar(number: Any, decimals: Any = 2) -> str | float:
     # The minus sits before the dollar sign (-$1,234.57), after half-up rounding.
     val = float(number)
@@ -490,30 +513,33 @@ def _dollar_frac(amount: Any, fraction: Any, *, to_decimal: bool) -> float:
     return sign * (i_part + part)
 
 
+@propagate_errors
 def dollarde(fractional_dollar: Any, fraction: Any) -> float:
     return _dollar_frac(fractional_dollar, fraction, to_decimal=True)
 
 
+@propagate_errors
 def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
     return _dollar_frac(decimal_dollar, fraction, to_decimal=False)
 
 
-def dproduct(db: Any, field: Any, criteria: Any) -> float:
+def dproduct(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, np.prod, min_n=1, empty=0.0)
 
 
-def dstdev(db: Any, field: Any, criteria: Any) -> float:
+def dstdev(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, lambda vals: np.std(vals, ddof=1), min_n=2)
 
 
-def dstdevp(db: Any, field: Any, criteria: Any) -> float:
+def dstdevp(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, lambda vals: np.std(vals, ddof=0), min_n=1)
 
 
-def dsum(db: Any, field: Any, criteria: Any) -> float:
+def dsum(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, np.sum)
 
 
+@propagate_errors
 def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     s = float(settlement)
     m = float(maturity)
@@ -560,11 +586,11 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
     return finite_or_nan(float(res))
 
 
-def dvar(db: Any, field: Any, criteria: Any) -> float:
+def dvar(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=1), min_n=2)
 
 
-def dvarp(db: Any, field: Any, criteria: Any) -> float:
+def dvarp(db: Any, field: Any, criteria: Any) -> float | str:
     return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=0), min_n=1)
 
 
@@ -584,11 +610,13 @@ def _month_shift_serial(start_date: Any, months: Any, *, end_of_month: bool) -> 
         return float("nan")
 
 
+@propagate_errors
 def edate(start_date: Any, months: Any) -> float:
     # Month length comes from calendar.monthrange, including February in a leap year.
     return _month_shift_serial(start_date, months, end_of_month=False)
 
 
+@propagate_errors
 def effect(nominal_rate: Any, npery: Any) -> float:
     nr = float(nominal_rate)
     n_per = int(float(npery))
@@ -606,6 +634,7 @@ def encodeurl(text: Any) -> str:
     return urllib.parse.quote(str(text), safe="")
 
 
+@propagate_errors
 def eomonth(start_date: Any, months: Any) -> float:
     # Last day of the month via serial_to_date and calendar.monthrange.
     return _month_shift_serial(start_date, months, end_of_month=True)
@@ -622,6 +651,7 @@ def erfc(x: Any) -> float:
     return float(math.erfc(float(x)))
 
 
+@propagate_errors
 def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision: Any = False, triangulation_precision: Any = None) -> float:
     val = float(value)
     from_curr = str(from_currency).upper().strip()
@@ -667,6 +697,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     return res
 
 
+@propagate_errors
 def even(n: Any) -> float:
     # EVEN rounds away from zero to the next even integer. Truncating toward
     # zero first returned the truncated value whenever it was already even,
@@ -756,16 +787,16 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         # an empty mask would otherwise select nothing and return if_empty.
         if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
             return "#VALUE!"
-        # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric
-        # text too, is an error there; an empty cell is 0; an error element is the result.
+        # ScFilter (interpr1.cxx) reads include in order: an error element is the result,
+        # other non-empty text is an error (Calc's internal 536, shown here as #VALUE!),
+        # and an empty cell is 0.
         include: list[bool] = []
         for x in crit.ravel():
+            if is_calc_error(x):
+                return x.strip() if isinstance(x, str) else float(x)
             if isinstance(x, str) and x != "":
                 return "#VALUE!"
-            number = 0.0 if x is None or x == "" else float(x)
-            if math.isnan(number):
-                return number
-            include.append(number > 0)
+            include.append(x is not None and x != "" and float(x) > 0)
         mask = np.asarray(include, dtype=bool)
         out = arr[mask] if row else arr[:, mask]
     except (ValueError, TypeError, IndexError, OverflowError):
@@ -804,6 +835,7 @@ def fisherinv(y: Any) -> float:
     return float(math.tanh(float(y)))
 
 
+@propagate_errors
 def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float:
     val = float(number)
     dec = int(float(decimals))
@@ -819,6 +851,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     return format_quantized(round_half_up(val, dec), dec, commas=not nc)
 
 
+@propagate_errors
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
     xv = float(x)
     y = np.asarray(data_y, dtype=float).ravel()
@@ -835,22 +868,19 @@ def forecast(x: Any, data_y: Any, data_x: Any) -> float:
     return float(a + b * xv)
 
 
+@propagate_errors
 def frequency(data: Any, bins: Any) -> Any:
     # Numeric cells only, bins sorted, counts from searchsorted, plus the
     # overflow bin. A text cell is skipped, not an empty result.
-    try:
-        data_arr = extract_numeric_array(data, propagate_nan=False)
-        bins_arr = extract_numeric_array(bins, propagate_nan=False)
-        sorted_bins = np.sort(bins_arr)
-        indices = np.searchsorted(sorted_bins, data_arr, side="left")
-        counts = np.bincount(indices, minlength=len(sorted_bins) + 1)
-        return counts.tolist()
-    # Broad except Exception returned [] on conversion failures instead of #VALUE!.
-    # Catch conversion errors and return "#VALUE!" while letting runtime errors propagate.
-    except (ValueError, TypeError, OverflowError):
-        return "#VALUE!"
+    data_arr = extract_numeric_array(data, propagate_nan=False)
+    bins_arr = extract_numeric_array(bins, propagate_nan=False)
+    sorted_bins = np.sort(bins_arr)
+    indices = np.searchsorted(sorted_bins, data_arr, side="left")
+    counts = np.bincount(indices, minlength=len(sorted_bins) + 1)
+    return counts.tolist()
 
 
+@propagate_errors
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
     r = float(rate)
     n = float(nper)
@@ -934,6 +964,7 @@ def gauss(x: Any) -> float:
     return float(st.norm.cdf(float(x)) - 0.5)
 
 
+@propagate_errors
 def geomean(*args: Any) -> float:
     # exp(mean(log(arr))). Same result as scipy.stats.gmean, without the import.
     arr = extract_numeric_array(*args, propagate_nan=False)
@@ -949,14 +980,19 @@ def gestep(number: Any, step: Any = 0) -> float:
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
         y = np.asarray(known_y, dtype=float)
-        # Excel/Calc GROWTH returns #NUM! when any known y is <= 0 or non-finite.
-        if y.size and (not np.all(np.isfinite(y)) or np.any(y <= 0)):
+        # A blank or non-finite y is #NUM! here; y <= 0 is Err:502 (CheckMatrix with _bLOG, interpr5.cxx).
+        if not np.all(np.isfinite(y)):
             return "#NUM!"
+        if np.any(y <= 0):
+            return "Err:502"
         return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
+    except RegressionError as exc:
+        return str(exc)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
 
+@propagate_errors
 def harmean(*args: Any) -> float:
     # len(arr) / sum(1/arr). Same result as scipy.stats.hmean, without the import.
     arr = extract_numeric_array(*args, propagate_nan=False)

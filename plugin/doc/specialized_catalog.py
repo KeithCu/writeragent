@@ -339,10 +339,9 @@ def apply_inner_outcome(
         payload["tool_errors"] = [_tool_error_entry(c) for c in unrecovered]
         return payload
 
-    finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
-    finished = finish_seen or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
-
-    if not finished:
+    # The accepted workflow_finished result is the run's final answer. A finish call in
+    # *calls* is not proof: a later failure in its turn rejects it and the run goes on.
+    if not (isinstance(final_ans, dict) and final_ans.get("finished") is True):
         # A plain-text return without finish is not a silent ok; move it from result to message
         # so the main agent sees it once.
         if isinstance(final_ans, dict):
@@ -362,16 +361,13 @@ def apply_inner_outcome(
 def start_inner_payload(
     final_ans: Any,
     domains: Sequence[str],
-    *,
-    text_message: str | None = None,
 ) -> dict[str, Any]:
     """Shape the inner loop's final answer into the payload apply_inner_outcome then grades.
 
     An error dict (user stop, crash) is returned as the same object; apply_inner_outcome
     keeps its status, code and message and adds only edit counts. A dict with a
     status is copied. Anything else is the loop's plain text:
-    {"status": "ok", "result": text} (None -> ""), plus "message": text_message
-    when given. Every non-error payload gets "domains".
+    {"status": "ok", "result": text} (None -> ""). Every non-error payload gets "domains".
     """
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
@@ -380,8 +376,6 @@ def start_inner_payload(
         payload = dict(final_ans)
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
-        if text_message is not None:
-            payload["message"] = text_message
     payload["domains"] = list(domains)
     return payload
 

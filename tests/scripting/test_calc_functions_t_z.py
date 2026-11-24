@@ -70,11 +70,11 @@ _BAD_INPUTS: list[tuple[str, str, tuple[Any, ...], Any]] = [
     ("tinv", "zero-df", (0.05, 0), "nan"),
     ("tinv", "out-of-range-prob", (1.5, 10), "nan"),
     ("tinv", "out-of-range-df", (0.05, 0.5), "nan"),
-    # trend: an empty known_y is already #VALUE!. A flat zero series fits.
+    # trend: an empty known_y is Err:504. A flat zero series fits.
     ("trend", "text", (["a", "b"],), "#VALUE!"),
     ("trend", "blank", ([None, None],), "#VALUE!"),
     ("trend", "blank-none", (None,), "#VALUE!"),
-    ("trend", "out-of-range-shape", ([1.0, 2.0, 3.0], [1.0, 2.0]), "#VALUE!"),
+    ("trend", "out-of-range-shape", ([1.0, 2.0, 3.0], [1.0, 2.0]), "Err:502"),
     # trimmean: text cells, a blank cell, and a text percent are already NaN.
     # Percent 0 is the untrimmed mean.
     ("trimmean", "blank-empty", ([], 0.2), "nan"),
@@ -402,7 +402,7 @@ def test_ztest_skips_blanks_and_propagates_errors():
     assert math.isclose(calc.ztest([1, "x", 3], 2), pair)
     assert not math.isclose(calc.ztest([1, True, 3], 2), pair)
     assert math.isnan(calc.ztest([1, float("nan"), 3], 2))
-    assert math.isnan(calc.ztest([1, "#VALUE!", 3], 2))
+    assert calc.ztest([1, "#VALUE!", 3], 2) == "#VALUE!"
     assert math.isnan(calc.ztest([1], 0, 1))
     assert math.isnan(calc.ztest([1, 2, 3], 2, float("inf")))
 
@@ -420,7 +420,7 @@ def test_trend_false_string_drops_intercept():
     forced = calc.trend(y, x, [4], False)
     assert np.allclose(calc.trend(y, x, [4], "FALSE"), forced)
     assert not np.allclose(calc.trend(y, x, [4]), forced)
-    assert calc.trend([]) == "#VALUE!"
+    assert calc.trend([]) == "Err:504"
 
 
 def test_xnpv_bad_value_is_nan():
@@ -511,7 +511,7 @@ def test_trend_scalar_is_one_by_one():
     pred = calc.trend(y, x, 11)
     assert np.allclose(pred, [22.0], atol=1e-6)
     assert np.allclose(pred, calc.trend(y, x, [11]), atol=1e-6)
-    assert calc.trend(y, 11, [4, 5]) == "#VALUE!"
+    assert calc.trend(y, 11, [4, 5]) == "Err:502"
     assert np.allclose(calc.trend(6, 2, 4, False), [12.0], atol=1e-6)
 
 
@@ -524,6 +524,7 @@ def test_match_end_zero_string_is_false():
     assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="0"))
     assert calc.textafter("a-b-c", "-", -3, match_end="1") == "a-b-c"
     assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="FALSE"))
+    assert calc.textafter("a-b", "", if_not_found="NF") == "NF"
 
 
 def test_xirr_and_xnpv_truncate_dates():
@@ -553,11 +554,14 @@ def test_text_unknown_format_is_nan():
 
 
 def test_textjoin_propagates_errors_and_flattens_ranges():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN
+
     assert calc.textjoin(",", True, ["a", "#VALUE!", "b"]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "#VALUE!"]) == "#VALUE!"
     assert calc.textjoin(",", True, ["a", "#DIV/0!", "b"]) == "#DIV/0!"
     assert calc.textjoin(",", True, ["a", "Err:502", "b"]) == "Err:502"
     assert math.isnan(calc.textjoin(",", True, ["a", float("nan"), "b"]))
+    assert _nan_low32(calc.textjoin(",", True, ["a", DIV0_NAN, "b"])) == 532
     assert calc.textjoin(",", True, ["a", None, "b"]) == "a,b"
     assert calc.textjoin(",", False, ["a", None, "b"]) == "a,,b"
     assert calc.textjoin(",", True, ["a", "  ", "b"]) == "a,b"
@@ -608,9 +612,9 @@ def test_text_and_trend_shared_helpers_unchanged():
     assert calc.text(float("inf"), "0.00") == "inf"
     assert np.allclose(calc.trend([1, 2, 3], [[1, 2, 3]], [[4], [5]]), [4.0, 5.0])
     assert np.allclose(calc.trend([1, 2, 3, 4], [[1, 2, 3, 4], [2, 1, 5, 4]], [[5], [6]]), [5.0])
-    assert calc.trend(5, 3) == "#VALUE!"
-    assert calc.trend(5) == "#VALUE!"
-    assert calc.trend([1, 2], [[1, 2], [3, 5]]) == "#VALUE!"
+    assert calc.trend(5, 3) == "Err:504"
+    assert calc.trend(5) == "Err:504"
+    assert calc.trend([1, 2], [[1, 2], [3, 5]]) == "Err:504"
     assert math.isclose(calc.trend(5, 3, 4, False)[0], 20.0 / 3.0, rel_tol=1e-9)
 
 
@@ -623,11 +627,11 @@ def test_xmatch_miss_and_bad_mode_nan_payload():
 
     bad_mode = calc.xmatch(9, [1, 2], match_mode=9)
     assert math.isnan(bad_mode)
-    assert _nan_low32(bad_mode) == 0
+    assert _nan_low32(bad_mode) == 504
 
     bad_mode_na_lookup = calc.xmatch(NA_NAN, [1, 2], match_mode=9)
     assert math.isnan(bad_mode_na_lookup)
-    assert _nan_low32(bad_mode_na_lookup) == 0
+    assert _nan_low32(bad_mode_na_lookup) == 504
 
     plain_nan_lookup = calc.xmatch(float("nan"), [1, 2])
     assert math.isnan(plain_nan_lookup)
@@ -636,20 +640,20 @@ def test_xmatch_miss_and_bad_mode_nan_payload():
     for smode in (0, 3, -3):
         hit = calc.xmatch(1, [1, 2], search_mode=smode)
         miss_sm = calc.xmatch(9, [1, 2], search_mode=smode)
-        assert math.isnan(hit) and _nan_low32(hit) == 0
-        assert math.isnan(miss_sm) and _nan_low32(miss_sm) == 0
+        assert math.isnan(hit) and _nan_low32(hit) == 504
+        assert math.isnan(miss_sm) and _nan_low32(miss_sm) == 504
     assert calc.xmatch(2, [1, 2], search_mode=2) == 2.0
     assert calc.xmatch(2, [1, 2], search_mode=-2) == 2.0
     assert calc.xmatch(2, [1, 2], search_mode=2.6) == 2.0
 
 
-def test_xlookup_invalid_match_mode_returns_value_error():
+def test_xlookup_invalid_mode_is_err_504():
     for mode in (9, -2, 3):
-        assert calc.xlookup(1, [1, 2], [10, 20], match_mode=mode) == "#VALUE!"
-        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", match_mode=mode) == "#VALUE!"
+        assert calc.xlookup(1, [1, 2], [10, 20], match_mode=mode) == "Err:504"
+        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", match_mode=mode) == "Err:504"
     for smode in (0, 3, -3):
-        assert calc.xlookup(1, [1, 2], [10, 20], search_mode=smode) == "#VALUE!"
-        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", search_mode=smode) == "#VALUE!"
+        assert calc.xlookup(1, [1, 2], [10, 20], search_mode=smode) == "Err:504"
+        assert calc.xlookup(9, [1, 2], [10, 20], if_not_found="miss", search_mode=smode) == "Err:504"
     assert calc.xlookup(2, [1, 2], [10, 20], search_mode=2) == 20
     assert calc.xlookup(2, [1, 2], [10, 20], search_mode=-2) == 20
     assert calc.xlookup(2, [1, 2], [10, 20], search_mode=2.6) == 20

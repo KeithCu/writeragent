@@ -206,7 +206,7 @@ def test_outline_url_write_keeps_black_and_no_underline_uno(ctx, doc):
     assert all(color == 0 and underline == 0 for _chunk, _url, color, underline in before), before
     res = _apply(doc, ctx, old_content="Old title", content=_LONG)
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_LONG, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_LONG, res
     rows = _portion_looks(doc)
     body = "".join(chunk for chunk, _url, _color, _underline in rows)
     assert "2.3.4. " + _LONG in body, rows
@@ -224,9 +224,9 @@ def test_search_replace_rewrites_outline_url_and_keeps_bookmark_uno(ctx, doc):
     _append_linked(text, cursor, " tail", _BOOKMARK)
     res = _apply(doc, ctx, old_content="Old title", content="New title")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url") == _OUTLINE, res
-    assert res.get("hyperlink_url_after") == _OUTLINE_NEW, res
-    assert res.get("hyperlink_updated") is True, res
+    assert res["hyperlinks"][0]["hyperlink_url"] == _OUTLINE, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW, res
+    assert res["hyperlinks"][0]["hyperlink_updated"] is True, res
     rows = _portion_urls(doc)
     body = "".join(chunk for chunk, _url in rows)
     assert "New title" in body, rows
@@ -260,7 +260,7 @@ def test_html_replace_reapplies_outline_url_uno(ctx, doc):
     _append_linked(text, cursor, "Old title", _OUTLINE)
     res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_NEW, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW, res
     rows = _portion_urls(doc)
     assert _OUTLINE not in [url for _chunk, url in rows], rows
     assert set(_urls_over(rows, "New title")) == {_OUTLINE_NEW}, rows
@@ -275,8 +275,8 @@ def test_dry_run_reports_outline_url_without_editing_uno(ctx, doc):
     assert res.get("status") == "ok", res
     assert res.get("dry_run") is True, res
     match = res["replaceable"][0]
-    assert match.get("hyperlink_url") == _OUTLINE, res
-    assert match.get("hyperlink_url_after") == _OUTLINE_NEW, res
+    assert match["hyperlinks"][0]["hyperlink_url"] == _OUTLINE, res
+    assert match["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW, res
     rows = _portion_urls(doc)
     assert any(chunk == "Old title" and url == _OUTLINE for chunk, url in rows), rows
 
@@ -290,7 +290,7 @@ def test_hyperlink_url_override_uno(ctx, doc):
         doc, ctx, old_content="Old title", content="New title",
         hyperlink_url="#9.Custom|outline")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == "#9.Custom|outline", res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == "#9.Custom|outline", res
     rows = _portion_urls(doc)
     assert set(_urls_over(rows, "New title")) == {"#9.Custom|outline"}, rows
     assert _OUTLINE_NEW not in [url for _chunk, url in rows], rows
@@ -303,7 +303,7 @@ def test_bookmark_only_replace_does_not_rewrite_the_target_uno(ctx, doc):
     _append_linked(text, cursor, "Old title", _BOOKMARK)
     res = _apply(doc, ctx, old_content="Old title", content="New title")
     assert res.get("status") == "ok", res
-    assert "hyperlink_url" not in res, res
+    assert "hyperlinks" not in res, res
     rows = _portion_urls(doc)
     assert set(_urls_over(rows, "New title")) == {_BOOKMARK}, rows
 
@@ -321,7 +321,7 @@ def test_shorter_title_does_not_paint_the_following_bookmark_uno(ctx, doc):
     _append_linked(text, cursor, " tail", _BOOKMARK)
     res = _apply(doc, ctx, old_content="Old title", content=_SHORT)
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_SHORT, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_SHORT, res
     rows = _portion_urls(doc)
     body = "".join(chunk for chunk, _url in rows)
     assert _SHORT in body, rows
@@ -342,7 +342,7 @@ def test_longer_title_rewrites_the_whole_toc_span_uno(ctx, doc):
         text, cursor, "2.3.4. Old title\t42", _OUTLINE, name="Old title", target="Old title")
     res = _apply(doc, ctx, old_content="Old title", content=_LONG)
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_LONG, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_LONG, res
     rows = _body_paragraphs(doc)[0]
     body = "".join(chunk for chunk, _url, _name, _target in rows)
     assert "2.3.4. " + _LONG in body, rows
@@ -363,7 +363,7 @@ def test_html_shorter_title_does_not_paint_the_following_bookmark_uno(ctx, doc):
     _append_linked(text, cursor, " tail", _BOOKMARK)
     res = _apply(doc, ctx, old_content="Old title", content="<b>" + _SHORT + "</b>")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_SHORT, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_SHORT, res
     rows = _portion_urls(doc)
     assert set(_urls_over(rows, _SHORT)) == {_OUTLINE_SHORT}, rows
     assert set(_urls_over(rows, "tail")) == {_BOOKMARK}, rows
@@ -402,8 +402,8 @@ def test_unrelated_outline_url_is_put_back_unchanged_uno(ctx, doc):
     _append_linked(text, cursor, "Old title", _OTHER)
     res = _apply(doc, ctx, old_content="Old title", content=_SHORT)
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_updated") is False, res
-    assert res.get("hyperlink_url_after") == _OTHER, res
+    assert res["hyperlinks"][0]["hyperlink_updated"] is False, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OTHER, res
     rows = _portion_urls(doc)
     assert set(_urls_over(rows, _SHORT)) == {_OTHER}, rows
 
@@ -436,7 +436,7 @@ def test_title_word_does_not_rewrite_the_outline_suffix_uno(ctx, doc):
     _append_linked(text, cursor, "The line.", "#1.The line.|outline")
     res = _apply(doc, ctx, old_content="line", content="row")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == "#1.The row.|outline", res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == "#1.The row.|outline", res
     rows = _portion_urls(doc)
     assert set(_urls_over(rows, "row")) == {"#1.The row.|outline"}, rows
     assert all(not url or url.endswith("|outline") for _chunk, url in rows), rows
@@ -507,8 +507,8 @@ def test_deleting_the_whole_outline_link_succeeds_uno(ctx, doc):
     _append_linked(text, cursor, "Old title", _OUTLINE)
     res = _apply(doc, ctx, old_content="Old title", content="")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_updated") is False, res
-    assert res.get("hyperlink_url_after") == "", res
+    assert res["hyperlinks"][0]["hyperlink_updated"] is False, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == "", res
     body = doc.getText().getString()
     assert "Old title" not in body, body
 
@@ -521,7 +521,7 @@ def test_dry_run_before_does_not_preview_an_outline_rewrite_uno(ctx, doc):
     res = _apply(
         doc, ctx, old_content="Old title", content="Hi", dry_run=True, position="before")
     assert res.get("status") == "ok", res
-    assert "hyperlink_url" not in res["replaceable"][0], res
+    assert "hyperlinks" not in res["replaceable"][0], res
     rows = _portion_urls(doc)
     assert any(chunk == "Old title" and url == _OUTLINE for chunk, url in rows), rows
     rejected = _apply(
@@ -581,14 +581,14 @@ def test_identical_replace_sets_outline_url_uno(ctx, doc):
     assert preview.get("status") == "ok", preview
     assert preview.get("dry_run") is True, preview
     match = preview["replaceable"][0]
-    assert match.get("hyperlink_url") == _OUTLINE, preview
-    assert match.get("hyperlink_url_after") == _OUTLINE_NEW, preview
+    assert match["hyperlinks"][0]["hyperlink_url"] == _OUTLINE, preview
+    assert match["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW, preview
     assert set(_urls_over(_portion_urls(doc), "New title")) == {_OUTLINE}
     res = _apply(
         doc, ctx, old_content="New title", content="New title",
         hyperlink_url=_OUTLINE_NEW)
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_url_after") == _OUTLINE_NEW, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW, res
     rows = _portion_urls(doc)
     body = "".join(chunk for chunk, _url in rows)
     assert body == "New title tail", rows
@@ -1222,8 +1222,8 @@ def test_multiparagraph_html_replace_keeps_unmeasured_links_in_report_uno(ctx, d
     text.insertString(cursor, "Body", False)
     res = _apply(doc, ctx, old_content="Old title\nBody", content="<p>One</p><p>Two</p>")
     assert res.get("status") == "ok", res
-    assert res.get("hyperlink_updated") is False, res
-    assert res.get("hyperlink_url_after") == _OUTLINE, res
+    assert res["hyperlinks"][0]["hyperlink_updated"] is False, res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE, res
     assert ("1. ", _OUTLINE, "", "") in _paragraph_rows(doc)[0], _paragraph_rows(doc)
 
     # Finding 5: two links in one paragraph with text left on both sides, split by block HTML.
@@ -1247,4 +1247,40 @@ def test_dry_run_stringified_list_outline_preview_uno(ctx, doc):
 
     res = _apply(doc, ctx, old_content="Old title", content='["<p>New title</p>"]', dry_run=True)
     assert res.get("status") == "ok", res
-    assert res["replaceable"][0]["hyperlink_url_after"] == _OUTLINE_NEW
+    assert res["replaceable"][0]["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_replace_over_two_links_reports_empty_and_partial_keeps_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    # 1. Recorded replace over two links -> hyperlink_url_after == "" and no hyperlink_note, matching Accept
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Alpha", "#1.Alpha|outline")
+    _append_linked(text, cursor, "Beta", "#2.Beta|outline")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = _apply(doc, ctx, old_content="AlphaBeta", content="New")
+        assert res.get("status") == "ok", res
+        links = res.get("hyperlinks") or []
+        assert len(links) == 2, res
+        assert all(r["hyperlink_url_after"] == "" and "hyperlink_note" not in r for r in links), links
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert all(url == "" for _chunk, url in _portion_urls(doc))
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 2. Partial match leaving a linked prefix keeps the URL and note
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "1. Alpha", "#1.Alpha|outline")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res2 = _apply(doc, ctx, old_content="Alpha", content="Gamma")
+        assert res2.get("status") == "ok", res2
+        links2 = res2.get("hyperlinks") or []
+        assert [(r["hyperlink_url_after"], "hyperlink_note" in r) for r in links2] == [
+            ("#1.Alpha|outline", True),
+        ], links2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

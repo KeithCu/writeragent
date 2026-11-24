@@ -1374,19 +1374,6 @@ def run_module_suite(
                     "TEST end detail %s soffice=%s exit=%s"
                     % (qual, _office.lc.last_end_pids, "-" if exit_code is None else exit_code)
                 )
-            except ModuleNotFoundError as e:
-                # Some "native" tests attempt to use pytest.skip, but LibreOffice's
-                # Python may not have pytest installed.
-                if getattr(e, "name", None) == "pytest":
-                    suite_log.append(f"{test_line} — SKIP (pytest not available)")
-                    record_test_end(qual, "SKIP")
-                    _progress(f"TEST end {qual} SKIP")
-                    continue
-                total_failed += 1
-                suite_log.append(f"{test_line} — FAIL (ModuleNotFoundError: {e})")
-                suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {qual} FAIL {_fail_reason_with_lifecycle(e)}")
-                record_test_end(qual, "FAIL")
             except unittest.SkipTest as e:
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK (skipped) ({e})")

@@ -849,9 +849,9 @@ class PythonWorkerManager:
                 "WORKER_IPC_ERROR",
                 "PPT-Master is not available in this extension build.",
             )
-        # The child reads session_id from payload (skill cache). The request
-        # field is host-only: tool frames resolve the frame document from it.
-        # ppt_master_turn does not use it as a Python namespace.
+        # payload's session_id is the sidebar frame's document. It goes on the
+        # request, which is host-only: tool frames resolve the frame document
+        # from it. ppt_master_turn does not use it as a Python namespace.
         raw_session = payload.get("session_id")
         session_id = raw_session.strip() if isinstance(raw_session, str) else ""
         request = ExecRequest(

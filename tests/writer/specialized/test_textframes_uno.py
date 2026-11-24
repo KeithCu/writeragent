@@ -178,6 +178,7 @@ def test_frame_insert_as_char_and_paragraph_while_recording_uno(ctx, doc):
         )
         assert res_para["status"] == "ok"
         assert res_para["tracked"] is False and "warning" in res_para
+        assert "pending_review" not in res_para
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert doc.getTextFrames().hasByName("ParaFrame")
         assert doc.getTextFrames().getByName("ParaFrame").getText().getString() == "KeepMe"
@@ -293,10 +294,47 @@ def test_frame_insert_record_mode_inline_and_anchored_search_uno(ctx, doc):
         )
         assert res_para["status"] == "ok", res_para
         assert res_para["tracked"] is False and "warning" in res_para
+        assert res_para["pending_review"] is True
+        redlines = doc.getRedlines()
+        assert redlines.getCount() == 1
+        assert redlines.getByIndex(0).getPropertyValue("RedlineType") == "Delete"
+        assert "PARA" in text.getString()
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert text.getString() == "hello PARA world"
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_insert_replacing_own_insertion_has_nothing_pending_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("hello  world")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(6, False)
+        text.insertString(cur, "PARA", False)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res = FrameInsert().execute(
+            tool_ctx,
+            target="search",
+            old_content="PARA",
+            name="OwnInsertFrame",
+            text="Inside",
+            width_mm=40.0,
+            height_mm=20.0,
+            anchor_type=0,
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is False
+        assert "pending_review" not in res
+        assert doc.getRedlines().getCount() == 0
+        assert text.getString() == "hello  world"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test

@@ -677,6 +677,21 @@ class CalcSheetStub:
         except ValueError:
             pass
 
+    def createCursor(self):
+        sheet = self
+
+        class _UsedCursor:
+            def gotoEndOfUsedArea(self, _expand=False):
+                pass
+
+            def getRangeAddress(self):
+                non_empty = [(c, r) for (c, r), cell in sheet._cells.items() if cell.getType() != 0]
+                if not non_empty:
+                    return _RangeAddress(0, 0, 0, 0)
+                return _RangeAddress(0, 0, max(c for c, _r in non_empty), max(r for _c, r in non_empty))
+
+        return _UsedCursor()
+
     def queryContentCells(self, _flags=0):
         """Return formula cells as a UNO-like enum (CellFlags.FORMULA = 16 in production).
 

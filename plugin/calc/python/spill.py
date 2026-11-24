@@ -3,7 +3,11 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc spill array tracking, collision detection, and orphan cleanup."""
+"""Calc spill array tracking, collision detection, and orphan cleanup.
+
+Each spill is stored as a single rectangle (rows, cols) from the formula cell,
+and moved formulas are confirmed by the sheet's used-area end delta.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,6 @@ from dataclasses import dataclass
 import datetime
 import json
 import logging
-import math
 import re
 from typing import Any
 
@@ -29,10 +32,12 @@ from plugin.calc.python.addin_values import (
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_locator_cache import (
+    CELL_FLAG_FORMULA,
     FormulaOrigin,
+    collect_matching_formula_origins,
     is_matching_py_formula,
+    iter_range_formula_texts,
     locate_formula_cell_in_doc,
-    search_sheet_for_formula,
 )
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
 from plugin.calc.python.undo import undo_lock
@@ -48,78 +53,130 @@ log = logging.getLogger(__name__)
 # annotations, styles, or draw objects.
 SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 
-
-@dataclass(frozen=True)
-class SpillCell:
-    row: int
-    col: int
-    kind: str  # "n" float, "s" str, "e" empty, "err" formula error code
-    value: float | str | int | None
-
-
-@dataclass
-class SpillRecord:
-    code: str
-    cells: list[SpillCell]
-
-    @property
-    def spills(self) -> list[tuple[int, int]]:
-        return [(cell.row, cell.col) for cell in self.cells]
-
-
 # A spilled error cell reads back as =#ERR504!, =#NUM! and so on, a void cell as #N/A, and any error
 # as =NA() after .xls. Any bare error literal counts as ours: it holds no user data, and XLSX turns
 # =#NULL! into =#ERR511!. A user formula such as =1/0 does not match.
 _ERROR_LITERAL_RE = re.compile(r"=#[A-Z0-9/]+[!?]?|#N/A|=NA\(\)")
 
-# How getFormulaArray writes a VALUE cell (always English General, lcl_GetInputString in
-# sc/source/ui/unoobj/cellsuno.cxx). Text that looks like a number gets a leading apostrophe there.
-_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?(?:E[+-]\d+)?", re.ASCII)
 
-
-def _matches_stored_value(formula: str, rec: SpillCell) -> bool:
-    """True when a cell whose input text is *formula* still holds the value *rec* wrote."""
-    if rec.kind == "e":
-        return formula == ""
-    if rec.kind == "n":
-        # Input text and saved files keep 15 significant digits (at most 5e-15 relative error).
-        return (
-            isinstance(rec.value, (int, float))
-            and _NUMBER_RE.fullmatch(formula) is not None
-            and math.isclose(float(formula), float(rec.value), rel_tol=1e-14)
-        )
-    if rec.kind == "s":
-        # Calc stores every line break as \n, and quotes number-like text of up to 308 characters
-        # (ImpSvNumberInputScan::IsNumberFormat, svl/source/numbers/zforfind.cxx:3848), so a shorter
-        # unquoted number is one the user typed.
-        text = str(rec.value or "").replace("\r\n", "\n").replace("\r", "\n")
-        return formula == f"'{text}" or (
-            formula == text and (len(text) > 308 or _NUMBER_RE.fullmatch(text) is None)
-        )
-    return rec.kind == "err" and _ERROR_LITERAL_RE.fullmatch(formula) is not None
-
-
-def _unchanged_cells(sheet: Any, cells: list[SpillCell]) -> set[tuple[int, int]]:
-    """(row, col) of every cell in *cells* that still holds the value the spill wrote there.
-
-    Reads the input text in one call: a =PY() recalculation is running, and reading values would
-    calculate a user formula typed over the spill, which may depend on the running cell.
+@dataclass
+class SpillRecord:
+    """One =PY() spill: the code it was located by and the rectangle it wrote, measured from
+    the formula cell. rows and cols count the formula cell, so 1 x 1 means nothing beside it.
+    seen is True once this session has matched or written the formula at its origin; loaded
+    records start with seen=False so stale pre-open entries never clear foreign data.
     """
-    if not cells:
-        return set()
-    top = min(c.row for c in cells)
-    left = min(c.col for c in cells)
+
+    code: str
+    rows: int
+    cols: int
+    seen: bool = True
+
+
+def _used_end(sheet: Any) -> tuple[int, int]:
+    """Return the sheet's used-area end (EndRow, EndColumn).
+
+    Insert/delete of rows or columns before a block shifts both the formula and the
+    used-area end by the same delta, whereas a one-cell cut/paste or sort does not.
+    """
+    cursor = sheet.createCursor()
+    cursor.gotoEndOfUsedArea(False)
+    addr = cursor.getRangeAddress()
+    return (int(addr.EndRow), int(addr.EndColumn))
+
+
+def _arm_sheet(ctx: Any, doc: Any, state: WorkbookState, sheet: Any, sheet_name: str) -> None:
+    ensure_sheet_modify_listener(ctx, doc, sheet)
+    if sheet_name not in state.used_ends:
+        state.used_ends[sheet_name] = _used_end(sheet)
+
+
+def _advance_used_end(
+    state: WorkbookState, sheet: Any, sheet_name: str, before: tuple[int, int]
+) -> None:
+    """Shift state.used_ends[sheet_name] by what our own write changed, preserving any pending structural delta."""
+    after = _used_end(sheet)
+    prev = state.used_ends.get(sheet_name)
+    if prev is None:
+        state.used_ends[sheet_name] = after
+    else:
+        state.used_ends[sheet_name] = (prev[0] + after[0] - before[0], prev[1] + after[1] - before[1])
+
+
+def _user_formula_in_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> tuple[int, int] | None:
+    """Return (col, row) of the first user formula cell in the rectangle other than the origin.
+
+    Read formula text, never values or queryFormulaCells: prepare_auto_spill runs while
+    =PY() is being interpreted, so interpreting a user formula in the rectangle that depends
+    on the origin would hit CircularReference (yielding an error result) or trigger iteration.
+    """
+    if rows * cols <= 1:
+        return None
     try:
-        formulas = sheet.getCellRangeByPosition(
-            left, top, max(c.col for c in cells), max(c.row for c in cells)
-        ).getFormulaArray()
+        rect = sheet.getCellRangeByPosition(col, row, col + cols - 1, row + rows - 1)
     except Exception:
         # The record can name cells past the edge of a file saved with a smaller sheet.
-        log.debug("_unchanged_cells: could not read the spilled range", exc_info=True)
-        return set()
-    return {
-        (c.row, c.col) for c in cells if _matches_stored_value(str(formulas[c.row - top][c.col - left]), c)
-    }
+        log.debug("_user_formula_in_rect: could not read the spilled range", exc_info=True)
+        return None
+    for addr in rect.queryContentCells(CELL_FLAG_FORMULA).getRangeAddresses() or ():
+        sub_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        for r, c, formula in iter_range_formula_texts(sheet, sub_range):
+            if (r, c) == (row, col):
+                continue
+            if _ERROR_LITERAL_RE.fullmatch(formula) is None:
+                return (c, r)
+    return None
+
+
+def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> None:
+    """Clear spilled cells in the rectangle, leaving the origin formula cell untouched."""
+    try:
+        if cols > 1:
+            sheet.getCellRangeByPosition(col + 1, row, col + cols - 1, row).clearContents(SPILL_CLEAR_FLAGS)
+        if rows > 1:
+            sheet.getCellRangeByPosition(col, row + 1, col + cols - 1, row + rows - 1).clearContents(SPILL_CLEAR_FLAGS)
+    except Exception:
+        # The record can name cells past the edge of a file saved with a smaller sheet.
+        log.debug("_clear_rect: failed to clear spilled range", exc_info=True)
+
+
+def _classify_orphan_record(
+    record: SpillRecord,
+    origin_empty: bool,
+    formula_str: str,
+    matches: list[tuple[Any, int, int]],
+    frow: int,
+    fcol: int,
+    delta: tuple[int, int] | None,
+) -> tuple[str, tuple[int, int] | None]:
+    """Decide how cleanup_orphans handles a record whose origin formula no longer matches.
+
+    Returns (action, new_coords) where action is one of:
+    - "remap": exactly one match on the sheet and the used-area end shifted by the same delta
+      (insert/delete of rows or columns before the block).
+    - "keep": origin still holds a =PY formula, old code is absent elsewhere, and the used-area
+      end grew without shrinking (delta[0] >= 0, delta[1] >= 0, delta != (0, 0)), which covers an
+      in-place code edit in the same debounce window as added cells; row/column deletes give a
+      negative component and drop so a shifted-in =PY formula never inherits the old rectangle.
+    - "drop_and_clear": zero matches on the sheet, formula was seen this session (not stale at
+      open), used-area end is unchanged (delta == (0, 0)), and the origin is now empty or a
+      different =PY formula (not overwritten with a constant or non-PY formula).
+    - "drop": everything else (cut/paste, sort, duplicate formula, stale at open, constant over
+      origin, or row deleted through the formula); drop the record and clear nothing.
+    """
+    if len(matches) == 1:
+        _cell, new_row, new_col = matches[0]
+        if delta == (new_row - frow, new_col - fcol):
+            return ("remap", (new_row, new_col))
+        return ("drop", None)
+    if len(matches) > 1:
+        return ("drop", None)
+    origin_is_py = is_py_formula_text(formula_str)
+    if origin_is_py and delta is not None and delta[0] >= 0 and delta[1] >= 0 and delta != (0, 0):
+        return ("keep", None)
+    if record.seen and delta == (0, 0) and (origin_empty or origin_is_py):
+        return ("drop_and_clear", None)
+    return ("drop", None)
 
 
 def cleanup_orphans(
@@ -129,66 +186,61 @@ def cleanup_orphans(
     doc: Any,
     sheet_name: str,
 ) -> None:
-    """Orphaned-spill cleanup: remap moved formula cells or clear deleted spill cells."""
+    """Orphaned-spill cleanup: remap moved formula cells or clear deleted spill rectangles."""
     try:
         if not main.is_current():
             return
 
         with sheet_modify_scope():
-            to_remove: list[tuple[str, int, int]] = []
-            to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int], SpillRecord]] = []
+            cur = _used_end(sheet)
+            prev = state.used_ends.get(sheet_name)
+            delta = (cur[0] - prev[0], cur[1] - prev[1]) if prev is not None else None
+            to_remove: list[tuple[tuple[str, int, int], bool]] = []
+            to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int]]] = []
             for (s_name, frow, fcol), record in list(state.spills.items()):
-                if s_name == sheet_name:
-                    try:
-                        cell = sheet.getCellByPosition(fcol, frow)
-                        formula = cell.getFormula()
-                        formula_str = str(formula) if formula else ""
-                        formula_matches = (
-                            is_matching_py_formula(formula_str, record.code)
-                            if record.code
-                            else is_py_formula_text(formula_str)
-                        )
-                        if formula_matches:
-                            continue
+                if s_name != sheet_name:
+                    continue
+                try:
+                    cell = sheet.getCellByPosition(fcol, frow)
+                    formula = cell.getFormula()
+                    formula_str = str(formula) if formula else ""
+                    formula_matches = (
+                        is_matching_py_formula(formula_str, record.code)
+                        if record.code
+                        else is_py_formula_text(formula_str)
+                    )
+                    if formula_matches:
+                        record.seen = True
+                        continue
 
-                        remapped = False
-                        if record.code:
-                            loc = search_sheet_for_formula(sheet, record.code, doc=doc)
-                            if loc is not None:
-                                _loc_cell, new_row, new_col = loc
-                                d_row = new_row - frow
-                                d_col = new_col - fcol
-                                if d_row != 0 or d_col != 0:
-                                    new_cells = [
-                                        SpillCell(c.row + d_row, c.col + d_col, c.kind, c.value)
-                                        for c in record.cells
-                                    ]
-                                    if len(_unchanged_cells(sheet, new_cells)) == len(new_cells):
-                                        new_key = (sheet_name, new_row, new_col)
-                                        to_remap.append(((sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
-                                        remapped = True
-
-                        if not remapped:
-                            to_remove.append((sheet_name, frow, fcol))
-                    except Exception:
-                        log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
+                    matches = collect_matching_formula_origins(sheet, record.code, doc=doc) if record.code else []
+                    action, new_coords = _classify_orphan_record(
+                        record, cell.getType() == EMPTY, formula_str, matches, frow, fcol, delta
+                    )
+                    if action == "remap" and new_coords is not None:
+                        to_remap.append(((sheet_name, frow, fcol), (sheet_name, new_coords[0], new_coords[1])))
+                    elif action in ("drop", "drop_and_clear"):
+                        to_remove.append(((sheet_name, frow, fcol), action == "drop_and_clear"))
+                except Exception:
+                    log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
             if to_remove or to_remap:
                 with undo_lock(doc):
-                    for key in to_remove:
+                    for key, clear in to_remove:
                         removed_rec = state.spills.pop(key, None)
-                        if removed_rec is not None:
-                            frow, fcol = key[1], key[2]
-                            for row, col in _unchanged_cells(sheet, removed_rec.cells):
-                                if (row, col) != (frow, fcol):
-                                    try:
-                                        sheet.getCellByPosition(col, row).clearContents(SPILL_CLEAR_FLAGS)
-                                    except Exception:
-                                        log.debug("cleanup_orphans: failed to clear cell (%d, %d)", row, col, exc_info=True)
-                    for old_k, new_k, new_rec in to_remap:
-                        state.spills.pop(old_k, None)
-                        state.spills[new_k] = new_rec
+                        if removed_rec is not None and clear:
+                            if _user_formula_in_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols) is None:
+                                _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
+                    moved = [
+                        (new_k, state.spills.pop(old_k))
+                        for old_k, new_k in to_remap
+                        if old_k in state.spills
+                    ]
+                    for new_k, rec in moved:
+                        state.spills[new_k] = rec
                     save_spill_registry_for_doc(doc, state)
+
+            state.used_ends[sheet_name] = _used_end(sheet)
     except Exception:
         log.exception("Error in cleanup_orphans")
 
@@ -212,15 +264,21 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                         frow, fcol = int(row_col[0]), int(row_col[1])
                         if isinstance(value, dict):
                             code = str(value.get("code") or "")
-                            raw_cells = value.get("cells") or []
-                            cells = []
-                            for c in raw_cells:
-                                if isinstance(c, dict) and "r" in c and "c" in c and "t" in c:
-                                    r = int(c["r"] or 0)
-                                    col = int(c["c"] or 0)
-                                    kind = str(c["t"])
-                                    cells.append(SpillCell(row=r, col=col, kind=kind, value=c.get("v")))
-                            state.spills[(sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
+                            cells = value.get("cells")
+                            if cells:
+                                # Registries written before rectangles listed every spilled cell;
+                                # the rectangle is their bounding box with the formula cell.
+                                rows = max(int(c["r"]) for c in cells) - frow + 1
+                                cols = max(int(c["c"]) for c in cells) - fcol + 1
+                            else:
+                                rows = int(value.get("rows") or 1)
+                                cols = int(value.get("cols") or 1)
+                            state.spills[(sheet_name, frow, fcol)] = SpillRecord(
+                                code=code,
+                                rows=max(rows, 1),
+                                cols=max(cols, 1),
+                                seen=False,
+                            )
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
                 continue
@@ -235,15 +293,10 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
             return
         doc_spills: dict[str, Any] = {}
         for (sheet_name, frow, fcol), record in state.spills.items():
-            cells_data = []
-            for c in record.cells:
-                item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
-                if c.value is not None:
-                    item["v"] = c.value
-                cells_data.append(item)
             doc_spills[f"{sheet_name}:{frow},{fcol}"] = {
                 "code": record.code,
-                "cells": cells_data,
+                "rows": record.rows,
+                "cols": record.cols,
             }
         new_val = json.dumps(doc_spills)
         set_document_property(doc, "WriterAgentSpillRegistry", new_val)
@@ -392,26 +445,20 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
+                before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
                 num_rows = len(grid)
                 num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
-                owned = _unchanged_cells(sheet, previous_record.cells) if previous_record is not None else set()
+                owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
                 if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
                     return
                 if previous_record is not None:
-                    for r, c in previous_record.spills:
-                        if (r, c) != (formula_row, formula_col):
-                            try:
-                                cell = sheet.getCellByPosition(c, r)
-                                # A cell the user changed is theirs; one they emptied only keeps our number format.
-                                if (r, c) in owned or cell.getType() == EMPTY:
-                                    cell.clearContents(SPILL_CLEAR_FLAGS)
-                            except Exception:
-                                log.debug("perform_deferred_spill: failed to clear cell (%d, %d)", r, c, exc_info=True)
+                    _clear_rect(sheet, formula_row, formula_col, previous_record.rows, previous_record.cols)
 
                 if num_rows == 0 or num_cols == 0:
-                    state.spills[reg_key] = SpillRecord(code=code, cells=[])
+                    state.spills[reg_key] = SpillRecord(code=code, rows=1, cols=1)
                     save_spill_registry_for_doc(doc, state)
+                    _advance_used_end(state, sheet, sheet_name, before)
                     return
 
                 settings = doc.getNumberFormatSettings()
@@ -419,16 +466,11 @@ def perform_deferred_spill(
                 null_dt = datetime.date(nd.Year, nd.Month, nd.Day)
 
                 values = _classify_spill_grid(grid, num_cols, null_dt)
-                new_cells = [
-                    SpillCell(row=formula_row + r, col=formula_col + c, kind=v.kind, value=v.registry_value)
-                    for r, row in enumerate(values)
-                    for c, v in enumerate(row)
-                    if (r, c) != (0, 0)
-                ]
                 _write_spill_values(sheet, formula_row, formula_col, values)
-                state.spills[reg_key] = SpillRecord(code=code, cells=new_cells)
+                state.spills[reg_key] = SpillRecord(code=code, rows=num_rows, cols=num_cols)
                 save_spill_registry_for_doc(doc, state)
                 _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
+                _advance_used_end(state, sheet, sheet_name, before)
 
     except Exception:
         log.exception("Error in perform_deferred_spill")
@@ -473,9 +515,16 @@ def _record_spill_blocked(
     num_rows: int,
     num_cols: int,
     blocker: tuple[int, int] | None,
+    *,
+    in_previous_rect: bool = False,
 ) -> None:
     """Record why a =PY spill was blocked in the diagnostics store."""
-    if blocker is not None:
+    if blocker is not None and in_previous_rect:
+        msg = (
+            f"#SPILL!: {format_address(blocker[0], blocker[1])} inside the previous spill "
+            "contains a formula; clear or move it so the spill can overwrite the range."
+        )
+    elif blocker is not None:
         needed = qualify_a1(
             sheet_name,
             format_range(col, row, col + num_cols - 1, row + num_rows - 1, collapse_single=True),
@@ -511,9 +560,26 @@ def _spill_is_blocked(
     col: int,
     num_rows: int,
     num_cols: int,
-    owned: set[tuple[int, int]],
+    owned: tuple[int, int],
 ) -> bool:
-    """Return True and record diagnostics if any target cell is out of bounds or occupied outside ``owned``."""
+    """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``owned``, or holds a user formula."""
+    owned_rows, owned_cols = owned
+    if owned_rows * owned_cols > 1:
+        blocker = _user_formula_in_rect(sheet, row, col, owned_rows, owned_cols)
+        if blocker is not None:
+            _record_spill_blocked(
+                doc=doc,
+                code=code,
+                sheet_name=sheet_name,
+                row=row,
+                col=col,
+                num_rows=num_rows,
+                num_cols=num_cols,
+                blocker=blocker,
+                in_previous_rect=True,
+            )
+            return True
+
     max_cols = int(sheet.getColumns().getCount())
     max_rows = int(sheet.getRows().getCount())
 
@@ -536,7 +602,7 @@ def _spill_is_blocked(
                     blocker=None,
                 )
                 return True
-            if (target_r, target_c) in owned:
+            if r_idx < owned_rows and c_idx < owned_cols:
                 continue
             cell = sheet.getCellByPosition(target_c, target_r)
             cell_type = cell.getType()
@@ -554,6 +620,33 @@ def _spill_is_blocked(
                 )
                 return True
     return False
+
+
+def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord) -> bool:
+    formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
+    return is_matching_py_formula(formula, record.code) if record.code else is_py_formula_text(formula)
+
+
+def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
+    """Load the document's spill registry and arm modify listeners on sheets with records (UI thread)."""
+    if not state.loaded:
+        load_spill_registry_for_doc(doc, state)
+        state.loaded = True
+    if not state.spills:
+        return
+    sheets = doc.getSheets()
+    armed: dict[str, Any] = {}
+    for (sheet_name, frow, fcol), record in state.spills.items():
+        if sheet_name not in armed:
+            sheet = uno_read(lambda: sheets.getByName(sheet_name), None)
+            armed[sheet_name] = sheet
+            if sheet is not None:
+                _arm_sheet(ctx, doc, state, sheet, sheet_name)
+        else:
+            sheet = armed[sheet_name]
+        if sheet is not None and not record.seen:
+            if uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record), False):
+                record.seen = True
 
 
 def prepare_auto_spill(
@@ -586,7 +679,7 @@ def prepare_auto_spill(
         state.loaded = True
 
     try:
-        ensure_sheet_modify_listener(ctx, doc, sheet)
+        _arm_sheet(ctx, doc, state, sheet, sheet_name)
     except Exception:
         log.exception("Failed to register modify listener on sheet")
 
@@ -594,9 +687,11 @@ def prepare_auto_spill(
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
     previous_record = state.spills.get(reg_key)
-    owned = _unchanged_cells(sheet, previous_record.cells) if previous_record is not None else set()
+    if previous_record is not None:
+        previous_record.seen = True
+    owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
 
-    log.debug("Spill: owned cells for cell %r: %r", reg_key, owned)
+    log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
 
     if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
         return "#SPILL!"

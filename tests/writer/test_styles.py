@@ -1353,7 +1353,7 @@ def test_apply_style_all_matches_leave_failure_is_not_ok():
          patch("plugin.writer.styles.next_agent_edit_undo_title", return_value="Agent Edit"):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
     assert res["status"] == "error"
-    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["code"] == "UNDO_CONTEXT_LEAK"
     assert "could not be closed" in res["message"]
     assert "leave failed" in res["message"]
 
@@ -2118,6 +2118,56 @@ def test_style_format_text_invalid_color_and_para_adjust_int_are_invalid_param()
     assert res_color["status"] == "error" and res_color["code"] == "INVALID_PARAM"
     assert res_adjust["status"] == "error" and res_adjust["code"] == "INVALID_PARAM"
     resolve.assert_not_called()
+
+
+@pytest.mark.parametrize(("word", "expected_word", "expected_int"), [("start", "left", 0), ("end", "right", 1)])
+def test_style_format_text_maps_para_adjust_start_end_to_left_right_when_enum_missing(
+    word, expected_word, expected_int
+):
+    import sys
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    cursor = _noncollapsed_cursor()
+    written = {}
+
+    def _set_values(names, values):
+        for n, v in zip(names, values):
+            written[n] = v
+
+    cursor.setPropertyValues.side_effect = _set_values
+    cursor.getPropertyValue.side_effect = lambda n: written.get(n)
+    with (
+        patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")),
+        patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+    ):
+        res = StyleFormatText().execute(_font_ctx(), properties={"ParaAdjust": word})
+    assert res["status"] == "ok"
+    assert res["after"] == {"ParaAdjust": expected_word}
+    cursor.setPropertyValues.assert_called_once_with(("ParaAdjust",), (expected_int,))
+
+
+def test_style_update_maps_para_adjust_start_to_left_when_enum_missing():
+    import sys
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    props = {"ParaAdjust": 3}
+    style = MagicMock()
+    style.getPropertyValue.side_effect = lambda n: props.get(n)
+    style.getParentStyle.return_value = "Standard"
+    style.setPropertyValue.side_effect = lambda n, v: props.__setitem__(n, v)
+    family = _style_family({"MyStyle": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+        res = StyleUpdate().execute(
+            mock_ctx,
+            style="MyStyle",
+            family="ParagraphStyles",
+            property_updates={"ParaAdjust": "start"},
+        )
+    assert res["status"] == "ok"
+    style.setPropertyValue.assert_called_once_with("ParaAdjust", 0)
+    assert res["after"]["ParaAdjust"] == "left"
 
 
 def test_style_format_text_reset_uses_default_and_one_undo_bracket():

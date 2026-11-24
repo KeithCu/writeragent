@@ -954,3 +954,18 @@ def test_parse_data_lo_para_start_maps_to_para_adjust_5():
     props, unsupported = parse_data_lo_para("text-align:start")
     assert props == {"text-align": ("ParaAdjust", 5)}
     assert unsupported == []
+
+
+def test_parse_data_lo_para_start_and_end_fallback_when_enum_missing():
+    import sys
+    from unittest.mock import patch
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+        props_start, unsupported_start = parse_data_lo_para("text-align:start")
+        props_end, unsupported_end = parse_data_lo_para("text-align:end")
+    assert props_start == {"text-align": ("ParaAdjust", 0)}
+    assert unsupported_start == []
+    assert props_end == {"text-align": ("ParaAdjust", 1)}
+    assert unsupported_end == []
