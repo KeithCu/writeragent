@@ -23,7 +23,7 @@ sheets, cells, and ranges.
 
 from typing import Any, NamedTuple
 
-from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
+from plugin.framework.errors import CalcError, UnoObjectError, name_miss_details, uno_read
 from plugin.calc.address_utils import (
     format_range_address,
     parse_address,
@@ -204,8 +204,9 @@ class CalcBridge:
             if cells is not None:
                 addr = cells.getRangeAddress()
                 if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
-                    raise UnoObjectError(
-                        f"Named range '{ref}' covers {format_range_address(addr)}; this tool needs one cell."
+                    raise CalcError(
+                        f"Named range '{ref}' covers {format_range_address(addr)}; this tool needs one cell.",
+                        code="INVALID_PARAM",
                     )
                 return cells.getSpreadsheet(), addr.StartColumn, addr.StartRow
 

@@ -226,3 +226,175 @@ def test_pasted_plot_copy_survives_recalc_uno(ctx, doc):
     finally:
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_plot_joins_formula_undo_step_uno(ctx, doc):
+    """=PY() plot placement adds no undo entry and is removed when its formula is undone."""
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    um = doc.getUndoManager()
+    assert um is not None
+    um.clear()
+
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = controller.getFrame()
+    code = "result = 4107"
+    formula = f'=PY("{code}")'
+
+    def enter_string(cell, text: str) -> None:
+        controller.select(cell)
+        prop = PropertyValue()
+        prop.Name = "StringName"
+        prop.Value = text
+        dispatcher.executeDispatch(frame, ".uno:EnterString", "", 0, (prop,))
+
+    payloads = [
+        {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20 + i, 10)} for i in range(3)
+    ]
+
+    def place(count: int) -> None:
+        for i in range(count):
+            _insert_image_result_on_sheet_impl(payloads[i], code=code, doc=doc, image_index=i, image_count=count)
+
+    b3 = sheet.getCellByPosition(1, 2)
+    d1 = sheet.getCellByPosition(3, 0)
+    try:
+        enter_string(b3, formula)
+        entered_formula = b3.getFormula()
+        assert entered_formula != ""
+        undo_titles = list(um.getAllUndoActionTitles())
+        assert len(undo_titles) == 1
+
+        # Step 1: Place 2 slots. Undo titles unchanged, names are WriterAgentPlot, WriterAgentPlot_2.
+        place(2)
+        assert list(um.getAllUndoActionTitles()) == undo_titles
+        assert draw_page.getCount() == 2
+        assert [draw_page.getByIndex(i).getPropertyValue("Name") for i in range(2)] == [
+            "WriterAgentPlot",
+            "WriterAgentPlot_2",
+        ]
+
+        # Step 2: Undo removes formula and plots.
+        um.undo()
+        pump_main_thread_work_queue(max_items=20)
+        assert draw_page.getCount() == 0
+        assert b3.getFormula() == ""
+
+        # Step 3: Redo and place 2 slots again -> both plots are back.
+        um.redo()
+        assert b3.getFormula() == entered_formula
+        place(2)
+        assert draw_page.getCount() == 2
+        assert list(um.getAllUndoActionTitles()) == undo_titles
+
+        # Step 4: Type "a" then "b" in D1, undo once so redo is pending. Place 3 slots, then 1.
+        enter_string(d1, "a")
+        enter_string(d1, "b")
+        um.undo()
+        undo_before = list(um.getAllUndoActionTitles())
+        redo_before = list(um.getAllRedoActionTitles())
+        assert len(redo_before) > 0
+        place(3)
+        assert draw_page.getCount() == 3
+        place(1)
+        assert draw_page.getCount() == 1
+        assert list(um.getAllUndoActionTitles()) == undo_before
+        assert list(um.getAllRedoActionTitles()) == redo_before
+
+        # Step 5: Undo the unrelated entry "a": WriterAgentPlot remains.
+        um.undo()
+        pump_main_thread_work_queue(max_items=20)
+        assert draw_page.getCount() == 1
+        assert draw_page.getByIndex(0).getPropertyValue("Name") == "WriterAgentPlot"
+
+        # Step 6: Undo the formula: no shapes.
+        um.undo()
+        pump_main_thread_work_queue(max_items=20)
+        assert draw_page.getCount() == 0
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        b3.setFormula("")
+        d1.setFormula("")
+        um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_undone_formula_on_deleted_sheet_preserves_neighbour_plot_uno(ctx, doc):
+    """Undoing both a =PY formula and its sheet keeps Sheet1's plot; single undo still cleans up."""
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    sheets = doc.getSheets()
+    sheet1 = sheets.getByIndex(0)
+    dp1 = sheet1.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet1)
+    um = doc.getUndoManager()
+    assert um is not None
+    um.clear()
+
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = controller.getFrame()
+    code = "result = 4108"
+    formula = f'=PY("{code}")'
+    payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+
+    def enter_string(cell, text: str) -> None:
+        controller.select(cell)
+        prop = PropertyValue()
+        prop.Name = "StringName"
+        prop.Value = text
+        dispatcher.executeDispatch(frame, ".uno:EnterString", "", 0, (prop,))
+
+    try:
+        initial_sheets = sheets.getCount()
+        # Place a plot on Sheet1.A1 (tool-style, no formula).
+        a1 = sheet1.getCellByPosition(0, 0)
+        controller.select(a1)
+        _insert_image_result_on_sheet_impl(payload, doc=doc, image_index=0, image_count=1)
+        assert dp1.getCount() == 1
+        um.clear()
+
+        # Insert Sheet2 and place a =PY() plot on Sheet2.A1.
+        sheets.insertNewByName("Sheet2", 1)
+        assert sheets.getCount() == initial_sheets + 1
+        sheet2 = sheets.getByIndex(1)
+        dp2 = sheet2.getDrawPage()
+        controller.setActiveSheet(sheet2)
+        enter_string(sheet2.getCellByPosition(0, 0), formula)
+        _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1)
+        assert dp2.getCount() == 1
+
+        # Ordinary single undo still passes the DrawPage identity check and removes Sheet2's plot.
+        um.undo()
+        pump_main_thread_work_queue(max_items=20)
+        assert dp2.getCount() == 0
+
+        # Redo and re-place on Sheet2, then undo the formula and delete Sheet2 before pumping:
+        # Sheet2's proxy shifts to Sheet1, and the DrawPage identity guard preserves Sheet1's plot.
+        um.redo()
+        _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1)
+        assert dp2.getCount() == 1
+
+        um.undo()
+        sheets.removeByName("Sheet2")
+        pump_main_thread_work_queue(max_items=20)
+        assert sheets.getCount() == initial_sheets
+        assert dp1.getCount() == 1
+    finally:
+        while sheets.getCount() > 1:
+            sheets.removeByName(sheets.getByIndex(sheets.getCount() - 1).Name)
+        while dp1.getCount():
+            dp1.remove(dp1.getByIndex(0))
+        um.clear()

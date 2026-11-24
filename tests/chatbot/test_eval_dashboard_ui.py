@@ -69,7 +69,6 @@ def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
          patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=["llama3"]) as mock_fetch:
         dash._populate()
         mock_fetch.assert_not_called()
-        assert mock_pop.call_args.kwargs.get("skip_remote_fetch") is True
         assert len(started) == 1
         started[0]()
         mock_fetch.assert_called_once_with("http://localhost:11434")
@@ -104,7 +103,6 @@ def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
             dash._populate()
         mock_fetch.assert_not_called()
         mock_sync.assert_not_called()
-        assert mock_pop.call_args_list[0].kwargs.get("skip_remote_fetch") is True
         assert mock_pop.call_args.kwargs.get("remote_models") == ["llama3"]
     finally:
         cfg.clear_settings_catalog_cache(endpoint)

@@ -6,7 +6,8 @@
 
 """Collect unfinished-work bullets from ``## Open`` sections under ``docs/``.
 
-Writes ``docs/OPEN.md`` (tables per kind) and ``docs/OPEN.csv``. A section is
+Writes ``docs/OPEN.md`` (tables per kind) and ``docs/OPEN.csv``. Only ``OPEN.md``
+is tracked in git; the CSV is a local copy for spreadsheets. A section is
 any heading whose text is exactly ``Open``; it ends at the next heading of the
 same or higher level, so bullets under a deeper sub-heading are still
 collected. Headings inside fenced code blocks are ignored. Each top-level
@@ -14,7 +15,7 @@ bullet is one item; wrapped lines are joined, nested bullets dropped and
 ticked ``[x]`` bullets skipped. A
 leading backtick block such as ``[feature M many post-v1]`` carries tags
 (``few`` or ``many`` is a rough guess of how many users want the item).
-``--check`` writes nothing and exits 1 when an output file is missing or stale.
+``--check`` writes nothing and exits 1 when ``OPEN.md`` is missing or stale.
 """
 
 from __future__ import annotations
@@ -177,18 +178,19 @@ def render_csv(items: list[Item]) -> str:
 
 def main(argv: list[str] | None = None, docs: Path | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="exit 1 if the output files are missing or stale")
+    parser.add_argument("--check", action="store_true", help="exit 1 if docs/OPEN.md is missing or stale")
     args = parser.parse_args(argv)
     docs = docs or Path(__file__).resolve().parents[1] / "docs"
     md_path, csv_path = docs / "OPEN.md", docs / "OPEN.csv"
     items, scanned, with_open, problems = collect(docs, {md_path.name})
-    outputs = {md_path: render_md(items), csv_path: render_csv(items)}
+    md_text = render_md(items)
     if args.check:
-        stale = [p for p, text in outputs.items() if not p.exists() or p.read_text(encoding="utf-8") != text]
-        for path in stale:
-            print(f"{path.name} is missing or stale; run `make open-index`", file=sys.stderr)
-        return 1 if stale else 0
-    for path, text in outputs.items():
+        # Only OPEN.md is tracked; a clean checkout has no OPEN.csv.
+        if md_path.exists() and md_path.read_text(encoding="utf-8") == md_text:
+            return 0
+        print(f"{md_path.name} is missing or stale; run `make open-index`", file=sys.stderr)
+        return 1
+    for path, text in ((md_path, md_text), (csv_path, render_csv(items))):
         path.write_text(text, encoding="utf-8", newline="")
     print(f"Scanned {scanned} files, {with_open} with an Open section, {len(items)} items")
     for kind in (*KINDS, ""):

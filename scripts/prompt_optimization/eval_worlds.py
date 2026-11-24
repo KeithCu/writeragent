@@ -960,7 +960,7 @@ class CalcWorld:
                 except (TypeError, ValueError):
                     col_idx = 0
             keys: list[SortKey] = [(col_idx, ascending), *then_by]
-            width_error = _sort_keys_width_error(keys, width)
+            width_error = _sort_keys_width_error(range_str, keys, width)
             if width_error is not None:
                 return {"status": "error", "message": width_error}
             parsed_ranges.append((range_str, c0, r0, c1, r1, keys))

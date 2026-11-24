@@ -117,6 +117,26 @@ def test_resolve_grep_candidates_unc_file_url_rejected():
     assert f"No file matching {unc_url!r}" in err
 
 
+def test_resolve_grep_candidates_expands_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    budget = tmp_path / "Budget.ods"
+    budget.write_bytes(b"")
+
+    with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_scan:
+        candidates, truncated, err = resolve_grep_candidates(
+            MagicMock(), MagicMock(), file_subset="~/Budget.ods"
+        )
+
+    mock_scan.assert_not_called()
+    assert err is None
+    assert truncated is False
+    expected = os.path.normpath(os.path.abspath(str(budget)))
+    assert len(candidates) == 1
+    assert candidates[0]["path"] == expected
+    assert candidates[0]["url"] == path_to_file_url(expected)
+
+
 def test_resolve_grep_candidates_listing_truncated_flag():
     with tempfile.TemporaryDirectory() as tmp:
         files = []

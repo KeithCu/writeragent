@@ -770,6 +770,8 @@ def test_stopped_post_logs_debug_not_warning(caplog):
         ("https://api.together.xyz", "cartesia/sonic-3", 0.25, None, 0.5),
         ("http://localhost:8880/v1", "kokoro", 1.5, 1.5, 1.0),
         ("https://api.openai.com/v1", "tts-1", 1.5, 1.5, 1.0),
+        ("https://api.openai.com/v1", "tts-1", 5.0, 4.0, 1.0),
+        ("http://localhost:8880/v1", "kokoro", 5.0, 4.0, 1.0),
     ],
 )
 def test_download_endpoint_speech_speed_native_or_local(

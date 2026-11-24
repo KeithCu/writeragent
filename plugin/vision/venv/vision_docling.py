@@ -7,22 +7,25 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-import importlib.util
 import logging
 import re
 import shutil
 import sys
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from plugin.framework.constants import TESSERACT_PROGRAMS
 from plugin.vision.venv.vision_html_export import prepare_html_for_lo_import
 from plugin.vision.vision_common import (
+    DOCLING_MIN_VERSION,
+    DOCLING_REQUIREMENT,
     LOAD_MODELS_HELPER,
     bbox_to_xywh,
     css_inline_unavailable_result,
     detect_vision_input_format,
+    docling_too_old,
     error_result,
     is_css_inline_import_error,
     ok_result,
@@ -34,11 +37,8 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-# Floor 2.145: iso: language tags arrived in 2.127, RapidOCR model_size in 2.133, and detect_orientation in 2.145.
-_DOCLING_MIN_VERSION: tuple[int, int] = (2, 145)
-_DOCLING_REQUIREMENT = "docling>=%d.%d" % _DOCLING_MIN_VERSION
 # Double quotes stop the shell reading ">" as a redirect (cmd.exe and POSIX shells alike).
-_DOCLING_INSTALL_CMD = f'pip install "{_DOCLING_REQUIREMENT}" onnxruntime css-inline'
+_DOCLING_INSTALL_CMD = f'pip install "{DOCLING_REQUIREMENT}" onnxruntime css-inline'
 
 # A token that looks like a BCP-47 tag (en, en-US, en_US, zh-Hant-TW, chi_sim) gets Docling's
 # "iso:" prefix; Docling maps iso: tags per engine (docling/utils/ocr_language.py
@@ -74,7 +74,7 @@ class OcrBackend:
     """One ocr_backend id: the Docling OcrOptions class it builds and what must be installed for it."""
 
     options_class: str  # attribute of docling.datamodel.pipeline_options
-    modules: tuple[str, ...] = ()  # top-level modules that must be importable in the venv
+    modules: tuple[str, ...] = ()  # imports that must succeed in the venv: `module`, or `module:attribute` when the module loads the attribute lazily
     programs: tuple[str, ...] = ()  # Tesseract CLI: names/paths tried in order with shutil.which
     install_hint: str = ""
     rapidocr_engine: str = ""  # RapidOcrOptions.backend; "" for non-RapidOCR rows
@@ -92,15 +92,15 @@ class OcrBackend:
 def _rapidocr(engine: str, module: str, pip_name: str) -> OcrBackend:
     return OcrBackend(
         "RapidOcrOptions",
-        ("rapidocr", module),
+        # rapidocr/__init__.py loads RapidOCR lazily via __getattr__, so importing rapidocr alone misses broken cv2.
+        ("rapidocr:RapidOCR", module),
         install_hint=f"pip install rapidocr {pip_name}",
         rapidocr_engine=engine,
         threshold_field="text_score",
     )
 
 
-# Kept in sync with _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py
-# (host diagnostics cannot import this venv-side module because LibrePy builds may omit plugin.vision).
+# Kept in sync with _VISION_PROBE_SCRIPT and _OCR_ENGINE_PROBE_BODY in plugin/scripting/venv_diagnostics.py.
 OCR_BACKENDS: dict[str, OcrBackend] = {
     "rapidocr": _rapidocr("onnxruntime", "onnxruntime", "onnxruntime"),
     "rapidocr_openvino": _rapidocr("openvino", "openvino", "openvino"),
@@ -111,7 +111,6 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
         ("easyocr",),
         install_hint="pip install easyocr",
         threshold_field="confidence_threshold",
-        startup_errors=("EasyOCR is not installed",),
     ),
     "tesseract": OcrBackend(
         "TesseractCliOcrOptions",
@@ -125,6 +124,7 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
     ),
     "nemotron": OcrBackend(
         "NemotronOcrOptions",
+        # Namespace package, so its real import failure arrives through startup_errors.
         ("nemotron_ocr",),
         install_hint=(
             "Nemotron OCR runs in a Python venv set up for it: Linux x86_64 with an NVIDIA GPU, a CUDA build "
@@ -138,16 +138,24 @@ OCR_BACKENDS: dict[str, OcrBackend] = {
     ),
     "ocrmac": OcrBackend(
         "OcrMacOptions",
-        ("ocrmac",),
+        ("ocrmac.ocrmac",),
         sys_platform="darwin",
         install_hint="Apple Vision OCR runs only on macOS; there, run pip install ocrmac in the Python venv.",
-        startup_errors=("ocrmac is not correctly installed", "Apple Vision did not report any recognition language"),
+        startup_errors=("Apple Vision did not report any recognition language",),
     ),
 }
 
 
+def _import_engine_module(entry: str) -> None:
+    """Import one OcrBackend.modules entry ("module" or "module:attribute")."""
+    module, _sep, attr = entry.partition(":")
+    imported = importlib.import_module(module)
+    if attr:
+        getattr(imported, attr)
+
+
 def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
-    """Return (row, program) for *name*; raise OcrBackendError when unknown or when its modules/program are missing."""
+    """Return (row, program) for *name*; raise OcrBackendError when unknown, on the wrong platform, or when its modules/program are missing or broken."""
     row = OCR_BACKENDS.get(name)
     if row is None:
         raise OcrBackendError(
@@ -157,7 +165,17 @@ def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
         raise OcrBackendError(
             f"OCR backend {name!r} does not run on this system (the Python venv reports {sys.platform!r}). {row.install_hint}"
         )
-    missing = [m for m in row.modules if importlib.util.find_spec(m) is None]
+    missing: list[str] = []
+    broken: list[str] = []
+    for entry in row.modules:
+        top = entry.partition(":")[0].partition(".")[0]
+        try:
+            _import_engine_module(entry)
+        except Exception as exc:
+            if isinstance(exc, ModuleNotFoundError) and exc.name == top:
+                missing.append(top)
+            else:
+                broken.append(f"{top} cannot be imported ({exc})")
     program = next((found for found in map(shutil.which, row.programs) if found), "")
     if row.programs and not program:
         missing.append(row.programs[0])
@@ -165,15 +183,19 @@ def _installed_ocr_backend(name: str) -> tuple[OcrBackend, str]:
         raise OcrBackendError(
             f"OCR backend {name!r} needs {', '.join(missing)}, which is not installed for the Python venv. {row.install_hint}"
         )
+    if broken:
+        raise OcrBackendError(
+            f"OCR backend {name!r} was found but cannot start: {'; '.join(broken)}. {row.install_hint}"
+        )
     return row, program
 
 
 class DoclingApiMismatchError(RuntimeError):
-    """Installed Docling is older than _DOCLING_MIN_VERSION; reported as DOCLING_API_MISMATCH."""
+    """Installed Docling is older than DOCLING_MIN_VERSION; reported as DOCLING_API_MISMATCH."""
 
 
 def _check_docling_version() -> None:
-    """Raise DoclingApiMismatchError when installed Docling is older than _DOCLING_MIN_VERSION.
+    """Raise DoclingApiMismatchError when installed Docling is older than DOCLING_MIN_VERSION.
 
     Reads the docling distribution, then docling-slim (slim installs ship the code without the
     docling meta-package): the same order as docling/__init__.py _resolve_version. No metadata
@@ -185,12 +207,11 @@ def _check_docling_version() -> None:
             installed = importlib.metadata.version(dist)
         except importlib.metadata.PackageNotFoundError:
             continue
-        match = re.match(r"(\d+)\.(\d+)", installed)
-        if match and (int(match[1]), int(match[2])) < _DOCLING_MIN_VERSION:
+        if docling_too_old(installed):
             raise DoclingApiMismatchError(
                 f"Docling {installed} is installed, but WriterAgent Vision needs Docling "
-                "%d.%d or newer. Upgrade it in the Settings → Python venv: " % _DOCLING_MIN_VERSION
-                + f'pip install -U "{_DOCLING_REQUIREMENT}"'
+                "%d.%d or newer. Upgrade it in the Settings → Python venv: " % DOCLING_MIN_VERSION
+                + f'pip install -U "{DOCLING_REQUIREMENT}"'
             )
         return
 
@@ -306,6 +327,8 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
     pipeline_options.document_timeout = norm.document_timeout if norm.document_timeout > 0 else None
 
     if norm.artifacts_path:
+        if not Path(norm.artifacts_path).expanduser().is_dir():
+            raise FileNotFoundError(f"artifacts_path {norm.artifacts_path!r} is not a folder.")
         pipeline_options.artifacts_path = norm.artifacts_path
 
     pipeline_options.do_formula_enrichment = norm.do_formula_enrichment
@@ -548,8 +571,8 @@ def export_docling_to_html(document: Any) -> str:
 
 def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
     # Docling's engine models raise these from __init__ when pre-flight found the engine but it cannot start:
-    # EasyOcrModel / OcrMacModel / NemotronOcrModel re-raise a failed engine import as a new ImportError inside
-    # the except block (the real cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`,
+    # NemotronOcrModel re-raises a failed engine import as a new ImportError inside the except block (the real
+    # cause is __context__), TesseractOcrCliModel wraps a failing `tesseract --version`,
     # ocr_mac_model._get_vision_languages raises RuntimeError from the pyobjc error, and
     # NemotronOcrModel.validate_runtime raises RuntimeError when the venv's platform, Python, CUDA or device
     # does not suit Nemotron. Reporting them as OCR_BACKEND_UNAVAILABLE keeps them out of the
@@ -590,6 +613,14 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
             ),
             helper=helper,
             details={"import_error": root_msg},
+        )
+    # Docling, RapidOCR, EasyOCR and huggingface_hub (LocalEntryNotFoundError) all raise
+    # FileNotFoundError for absent model files, so no message text is matched.
+    if isinstance(exc, FileNotFoundError):
+        return error_result(
+            "OCR_MODELS_MISSING",
+            f"Model files for OCR are missing: {exc}\nDownload them with docling-tools models download -o <folder>, or clear vision.artifacts_path and go online so they download on first use.",
+            helper=helper,
         )
     # OcrBackendError subclasses ValueError, so it is matched before the INVALID_PARAM arm.
     if isinstance(exc, OcrBackendError):

@@ -240,7 +240,7 @@ class TestResolveCellAddress:
 
         doc = MagicMock()
         with patch("plugin.calc.analysis.CalcBridge") as bridge_cls:
-            bridge_cls.return_value.resolve_cell.side_effect = UnoObjectError("Named range covers multiple cells.")
+            bridge_cls.return_value.resolve_cell.side_effect = UnoObjectError("No sheet named 'X'.")
             with pytest.raises(UnoObjectError) as exc_info:
                 resolve_cell_address(doc, "MultiRange")
         assert exc_info.value.code == "UNO_OBJECT_ERROR"

@@ -11,7 +11,15 @@ Used by ``make test-bot``, ``make test-uno``, and ``make test`` to scope pytest 
   mode; selecting only ``test_*_uno.py`` in ``--uno`` mode) run directly.
 - Changed non-test ``.py`` modules (e.g. ``plugin/a/b/foo.py``) map by filename
   to ``tests/**/test_foo.py`` and ``tests/**/test_foo_*.py`` (or
-  ``test_foo_uno.py`` and ``test_foo_*_uno.py`` in ``--uno`` mode).
+  ``test_foo_uno.py`` and ``test_foo_*_uno.py`` in ``--uno`` mode), and also to
+  every test file that names the module: ``import plugin.a.b.foo``,
+  ``from plugin.a.b.foo import x``, ``from plugin.a.b import foo``, or a dotted
+  string such as ``patch("plugin.a.b.foo.bar")``. A package ``__init__.py``
+  counts as the package (``plugin.a.b``). Tests that reach the module only
+  through another module are not selected.
+- Changed non-Python files (fixtures, prompts, YAML) select the test files whose
+  text contains the file's name, unless the name is one many files share
+  (``module.yaml``, ``README.md``...).
 - Exits with ``EXIT_FALLBACK_FULL`` (10) when ``pyproject.toml``, ``Makefile``,
   any ``conftest.py``, or any shared test helper under ``tests/`` changed so
   the ``Makefile`` can fall back to the full target.
@@ -20,6 +28,8 @@ Used by ``make test-bot``, ``make test-uno``, and ``make test`` to scope pytest 
 from __future__ import annotations
 
 import argparse
+import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -133,6 +143,91 @@ def _module_stem(rel: str) -> str | None:
     return parent_name
 
 
+# Non-Python file names too common to say which tests read them.
+_GENERIC_DATA_NAMES = frozenset(
+    {
+        "README.md",
+        "AGENTS.md",
+        "module.yaml",
+        "plugin.yaml",
+        "__init__.py",
+        "uv.lock",
+        ".gitignore",
+    }
+)
+
+
+def _dotted_module(rel: str) -> str | None:
+    """Return the import name of the repo-relative ``.py`` file ``rel``."""
+    path = Path(rel)
+    if path.suffix != ".py":
+        return None
+    parts = list(path.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    if not parts or not all(part.isidentifier() for part in parts):
+        return None
+    return ".".join(parts)
+
+
+class _TestFileIndex:
+    """Lazily read test files and answer which ones name a module or file."""
+
+    def __init__(self, repo_root: Path, test_files: list[str]) -> None:
+        self._repo_root = repo_root
+        self._test_files = test_files
+        self._text: dict[str, str] = {}
+        self._imports: dict[str, frozenset[str]] = {}
+
+    def text(self, test_rel: str) -> str:
+        cached = self._text.get(test_rel)
+        if cached is None:
+            try:
+                cached = (self._repo_root / test_rel).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                cached = ""
+            self._text[test_rel] = cached
+        return cached
+
+    def imported_names(self, test_rel: str) -> frozenset[str]:
+        """Return dotted names ``test_rel`` imports, including ``pkg.name`` for ``from pkg import name``."""
+        cached = self._imports.get(test_rel)
+        if cached is not None:
+            return cached
+        names: set[str] = set()
+        try:
+            tree = ast.parse(self.text(test_rel), filename=test_rel)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    names.add(node.module)
+                    names.update(f"{node.module}.{alias.name}" for alias in node.names)
+        result = frozenset(names)
+        self._imports[test_rel] = result
+        return result
+
+    def naming_module(self, dotted: str) -> list[str]:
+        """Return test files that import ``dotted`` or name it in a dotted string."""
+        leaf = dotted.rsplit(".", 1)[-1]
+        pattern = re.compile(r"(?<![\w.])" + re.escape(dotted) + r"(?!\w)")
+        hits: list[str] = []
+        for test_rel in self._test_files:
+            text = self.text(test_rel)
+            if leaf not in text:
+                continue
+            if pattern.search(text) or dotted in self.imported_names(test_rel):
+                hits.append(test_rel)
+        return hits
+
+    def naming_file(self, name: str) -> list[str]:
+        """Return test files whose text contains the file name ``name``."""
+        return [test_rel for test_rel in self._test_files if name in self.text(test_rel)]
+
+
 def _select_test_files(
     changed: Iterable[str],
     repo_root: Path,
@@ -140,17 +235,21 @@ def _select_test_files(
     is_eligible: Callable[[str], bool],
     matches_stem: Callable[[str, str], bool],
 ) -> list[str]:
-    """Map changed ``.py`` files to sorted, existing test files."""
+    """Map changed files to sorted, existing test files."""
     by_name: dict[str, list[str]] = {}
     for test_rel in all_test_files:
         by_name.setdefault(Path(test_rel).name, []).append(test_rel)
+    index = _TestFileIndex(repo_root, all_test_files)
 
     selected: set[str] = set()
     for raw in changed:
         rel = _normalize_rel_path(raw)
-        if not rel or not rel.endswith(".py"):
+        if not rel or not (repo_root / rel).is_file():
             continue
-        if not (repo_root / rel).is_file():
+        if not rel.endswith(".py"):
+            name = Path(rel).name
+            if name not in _GENERIC_DATA_NAMES:
+                selected.update(index.naming_file(name))
             continue
         if rel.startswith("tests/"):
             if is_eligible(rel):
@@ -158,11 +257,13 @@ def _select_test_files(
             continue
 
         stem = _module_stem(rel)
-        if not stem:
-            continue
-        for test_name, test_rels in by_name.items():
-            if matches_stem(test_name, stem):
-                selected.update(test_rels)
+        if stem:
+            for test_name, test_rels in by_name.items():
+                if matches_stem(test_name, stem):
+                    selected.update(test_rels)
+        dotted = _dotted_module(rel)
+        if dotted:
+            selected.update(index.naming_module(dotted))
 
     return sorted(selected)
 

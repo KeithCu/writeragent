@@ -66,3 +66,6 @@ scripts/prompt_optimization/transcripts/
 
 # CM6 bundle build inputs (scripts/build_cm6_bundle.sh)
 node_modules/
+
+# Spreadsheet copy of docs/OPEN.md, written by `make open-index` (only OPEN.md is tracked)
+docs/OPEN.csv

@@ -85,7 +85,7 @@ Smaller, same area: `_parse_finished` in `plugin/ppt_master/venv/runner.py` keep
 
 ### 8. Settings open and endpoint presets
 
-**Shipped (`plugin/chatbot/dialog_views.py`):** `_populate_fields` passes `skip_remote_fetch=True` on the first model combo fill (LRU plus defaults) instead of fetching synchronously on the UI thread.
+**Shipped (`plugin/chatbot/dialog_views.py`):** `_populate_fields` fills the first model combo from LRU plus provider defaults instead of fetching synchronously on the UI thread.
 
 The endpoint dropdown's background fetch omits the Together TTS model id (`plugin/chatbot/dialog_views.py` `itemStateChanged`, the `run_in_background` lambda). `_bg_fetch` only calls `fetch_together_tts_voices(..., model_id=...)` when that string is non-empty. The comment there says list-all does not fill the `?model=` entry the Voice combo reads. The lambda also reads `self._debounce_gen` when the worker starts, so the generation check does not see the generation that was current at click time. `force_catalog_refresh` already snapshots `gen` and `tts_model_id`. Use that same call.
 

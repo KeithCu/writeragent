@@ -380,6 +380,7 @@ def test_frame_delete_unknown_hints_frame_list():
     frames.hasByName.return_value = False
     doc = MagicMock()
     doc.getTextFrames.return_value = frames
+    doc.getDrawPage.return_value.getCount.return_value = 0
     ctx = MagicMock(doc=doc)
     res = FrameDelete().execute(ctx, name="Missing")
     assert res["status"] == "error"
@@ -457,3 +458,17 @@ def test_frame_delete_text_box_removes_owning_shape():
     assert res["status"] == "ok"
     draw_page.remove.assert_called_once_with(box_shape)
     host.removeTextContent.assert_not_called()
+
+
+def test_frame_miss_lists_word_text_boxes():
+    from plugin.writer.specialized.textframes import FrameDelete
+
+    doc, _plain, _box_frame, _box_shape, draw_page = _make_text_box_doc()
+    ctx = MagicMock(doc=doc)
+
+    for tool in (FrameGetInfo(), FrameDelete()):
+        res = tool.execute(ctx, name="Frame9")
+        assert res["status"] == "error"
+        assert res["details"]["available"] == ["Plain", "Frame1"]
+        assert "Frame1" in res["details"]["similar"]
+    draw_page.remove.assert_not_called()

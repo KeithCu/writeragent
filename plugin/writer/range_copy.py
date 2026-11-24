@@ -56,21 +56,21 @@ def _portion_field(portion: Any) -> Any:
         return None
 
 
-def copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str, style: Any = None) -> None:
+def copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str) -> None:
     start = cursor.getStart()
     dest_text.insertString(cursor, chunk, False)
     run = dest_text.createTextCursorByRange(start)
     run.gotoRange(cursor.getEnd(), True)
-    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES, style)
+    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
     cursor.gotoRange(run.getEnd(), False)
 
 
-def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any, style: Any = None) -> None:
+def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any) -> None:
     para_cursor = dest_text.createTextCursor()
     para_cursor.gotoEnd(False)
     para_cursor.gotoStartOfParagraph(False)
     para_cursor.gotoEndOfParagraph(True)
-    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES, style)
+    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
     cursor.gotoRange(para_cursor.getEnd(), False)
 
 
@@ -80,7 +80,7 @@ def _copy_math_or_text(
     dest_text: Any,
     dest_cursor: Any,
     math_records: list[Any] | None,
-) -> None:
+) -> str:
     if math_records is not None:
         emb = portion_math_embed(portion)
         if emb is not None:
@@ -88,10 +88,11 @@ def _copy_math_or_text(
             stripped = raw.replace(OBJECT_REPLACEMENT, "").strip()
             ph = record_math_placeholder(math_records, emb, display_block=stripped == "")
             dest_text.insertString(dest_cursor, ph, False)
-            return
+            return ph
     chunk = uno_read(lambda: portion.getString(), "")
     if chunk:
         dest_text.insertString(dest_cursor, chunk, False)
+    return chunk
 
 
 
@@ -474,21 +475,32 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
-    style: Any = None,
-) -> None:
+    *,
+    paint_runs: bool,
+) -> list[tuple[Any, str]]:
+    copied: list[tuple[Any, str]] = []
     for portion, kind in iter_portions(portions):
         if kind == "TextField":
             field = _portion_field(portion)
             if field is None:
                 continue
-            _copy_field_into(dest_doc, dest_text, cursor, field)
+            # A field is one cursor step in the destination text regardless of its rendered text.
+            if _copy_field_into(dest_doc, dest_text, cursor, field):
+                copied.append((portion, OBJECT_REPLACEMENT))
         elif kind == "Text":
             chunk = uno_read(lambda: portion.getString(), "")
             if not chunk:
                 continue
-            copy_text_run(portion, dest_text, cursor, chunk, style)
+            if paint_runs:
+                copy_text_run(portion, dest_text, cursor, chunk)
+            else:
+                dest_text.insertString(cursor, chunk, False)
+            copied.append((portion, chunk))
         else:
-            _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
+            text = _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
+            if text:
+                copied.append((portion, text))
+    return copied
 
 
 def _copy_cell_xtext(
@@ -522,7 +534,7 @@ def _copy_cell_xtext(
         except Exception:
             _fallback_insert_para_text(dest_cell, dest_cursor, para)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records, paint_runs=True)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -722,8 +734,14 @@ def _copy_xtext_by_portions(
             style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
             if apply_temp_para_style(dest_doc, dest_cursor, style_name, src_doc):
                 style = source_style(src_doc, style_name, style_cache)
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, style)
-        _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
+        # Insert unformatted, then paint: a run painted while it is the paragraph's only text
+        # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
+        # takes its formatting (SwTextNode::Update).
+        copied = _copy_visible_portions(
+            portions, dest_doc, dest_text, dest_cursor, el, math_records, paint_runs=False
+        )
+        paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
+        dest_cursor.gotoEnd(False)
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:

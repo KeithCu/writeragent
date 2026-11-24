@@ -159,16 +159,21 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
 
 
 @pytest.mark.parametrize(
-    ("backend", "docling_msg", "missing_mod"),
+    ("backend", "err_msg", "missing_mod"),
     [
         (
             "easyocr",
-            "EasyOCR is not installed. Please install it via `pip install easyocr` to use this OCR engine.",
+            "OCR backend 'easyocr' was found but cannot start: easyocr cannot be imported (No module named 'skimage'). pip install easyocr",
             "skimage",
         ),
         (
+            "rapidocr",
+            "OCR backend 'rapidocr' was found but cannot start: rapidocr cannot be imported (libGL.so.1). pip install rapidocr onnxruntime",
+            "libGL.so.1",
+        ),
+        (
             "ocrmac",
-            "ocrmac is not correctly installed. Please install it via `pip install ocrmac` to use this OCR engine.",
+            "OCR backend 'ocrmac' was found but cannot start: ocrmac cannot be imported (No module named 'Vision'). pip install ocrmac",
             "Vision",
         ),
     ],
@@ -177,15 +182,11 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_engine_broken_dependency_does_not_fall_back_to_paddle(
-    mock_convert, mock_get_paddle, mock_decode, backend, docling_msg, missing_mod
+    mock_convert, mock_get_paddle, mock_decode, backend, err_msg, missing_mod
 ):
-    try:
-        try:
-            raise ModuleNotFoundError(f"No module named {missing_mod!r}")
-        except ImportError:
-            raise ImportError(docling_msg)
-    except ImportError as exc:
-        mock_convert.side_effect = exc
+    from plugin.vision.venv.vision_docling import OcrBackendError
+
+    mock_convert.side_effect = OcrBackendError(err_msg)
 
     engine = MagicMock(spec=["ocr"])
     engine.ocr.return_value = [_sample_ocr_page()]
@@ -199,6 +200,29 @@ def test_extract_text_engine_broken_dependency_does_not_fall_back_to_paddle(
     assert missing_mod in result["message"]
     assert f"pip install {backend}" in result["message"]
     assert "fallback_from" not in (result.get("metrics") or {})
+    mock_get_paddle.assert_not_called()
+
+
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_extract_text_models_missing_does_not_fall_back_to_paddle(
+    mock_convert, mock_get_paddle, mock_decode
+):
+    mock_convert.side_effect = FileNotFoundError("tm_config.json not found")
+
+    engine = MagicMock(spec=["ocr"])
+    engine.ocr.return_value = [_sample_ocr_page()]
+    mock_get_paddle.return_value = engine
+    mock_decode.return_value = MagicMock()
+
+    result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "OCR_MODELS_MISSING"
+    assert "tm_config.json" in result["message"]
+    assert "fallback_from" not in (result.get("metrics") or {})
+    mock_get_paddle.assert_not_called()
 
 
 @patch("plugin.vision.venv.vision._run_backend")
