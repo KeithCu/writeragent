@@ -28,7 +28,9 @@ def _reset_host_pacing(monkeypatch):
     reset_local_unverified_hosts_for_tests()
     monkeypatch.setattr(default_tools, "_SEARCH_MIN_GAP_SEC", 0.0)
     monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (0.0, 0.0, 0.0))
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_COOLDOWN_SEC", 0.0)
     monkeypatch.setattr(default_tools, "_search_next_allowed", 0.0)
+    monkeypatch.setattr(default_tools, "_search_connection_challenged", False)
     yield
     close_sync_transports()
     reset_host_pacing_for_tests()
@@ -499,10 +501,15 @@ def test_web_search_gate_blocks_other_threads_during_challenge_backoff(monkeypat
     assert "B Result" in results["b"]
 
 
-def test_web_search_challenge_pushes_next_allowed_cooldown(monkeypatch):
-    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (1.0,))
+def test_web_search_challenge_cools_down_next_query(monkeypatch):
+    monkeypatch.setattr(default_tools, "_SEARCH_MIN_GAP_SEC", 1.5)
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (3.0,))
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_COOLDOWN_SEC", 3.0)
     conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
-    conn2 = _keepalive_conn([_response(200, _ddg_html("Recovered"), "OK")])
+    conn2 = _keepalive_conn([
+        _response(200, _ddg_html("Recovered"), "OK"),
+        _response(200, _ddg_html("Next"), "OK"),
+    ])
     patcher, _created = _patch_https([conn1, conn2])
     delays: list[float] = []
 
@@ -511,11 +518,62 @@ def test_web_search_challenge_pushes_next_allowed_cooldown(monkeypatch):
         return True
 
     with patcher, patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_fake_wait):
-        result = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
+        first = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
+        second = DuckDuckGoSearchTool(cache_max_age_days=30).forward("more news")
 
-    assert "Recovered" in result
+    assert "Recovered" in first
+    assert "Next" in second
     assert len(delays) == 3
-    assert delays[2] >= delays[1] + default_tools._SEARCH_CHALLENGE_COOLDOWN_SEC - 0.1
+    assert delays[0] <= 0.0
+    assert 2.4 <= delays[1] <= 3.6
+    assert 1.5 < delays[2] <= 3.0
+
+
+def test_web_search_gave_up_cools_down_and_resets_connection(monkeypatch):
+    monkeypatch.setattr(default_tools, "_SEARCH_MIN_GAP_SEC", 1.5)
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (0.0,))
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_COOLDOWN_SEC", 3.0)
+    conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn2 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn3 = _keepalive_conn([_response(200, _ddg_html("Fresh"), "OK")])
+    patcher, created = _patch_https([conn1, conn2, conn3])
+    delays: list[float] = []
+
+    def _fake_wait(delay: float, _cancel) -> bool:
+        delays.append(delay)
+        return True
+
+    with patcher, patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_fake_wait):
+        first = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
+        second = DuckDuckGoSearchTool(cache_max_age_days=30).forward("more news")
+
+    assert first == default_tools._SEARCH_UNAVAILABLE
+    assert "Fresh" in second
+    assert len(created) == 3
+    conn2.close.assert_called()
+    assert conn3.request.call_args.args == ("POST", "/lite/")
+    assert 1.5 < delays[-1] <= 3.0
+
+
+def test_web_search_stop_in_backoff_resets_connection_for_next_query(monkeypatch):
+    monkeypatch.setattr(default_tools, "_SEARCH_CHALLENGE_DELAYS_SEC", (30.0,))
+    conn1 = _keepalive_conn([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    conn2 = _keepalive_conn([_response(200, _ddg_html("Fresh"), "OK")])
+    patcher, created = _patch_https([conn1, conn2])
+
+    def _abort_on_backoff(delay: float, _cancel) -> bool:
+        return delay <= 0.0
+
+    with patcher:
+        with patch("plugin.contrib.smolagents.default_tools.wait_abortable", side_effect=_abort_on_backoff):
+            stopped = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
+        recovered = DuckDuckGoSearchTool(cache_max_age_days=30).forward("more news")
+
+    assert stopped == default_tools._SEARCH_STOPPED
+    assert "Fresh" in recovered
+    assert len(created) == 2
+    conn1.close.assert_called()
+    assert conn2.request.call_args.args == ("POST", "/lite/")
 
 
 def test_web_search_stop_while_waiting_for_gate_returns_stopped():

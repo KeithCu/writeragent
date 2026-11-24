@@ -288,8 +288,9 @@ _SEARCH_UNAVAILABLE = (
 _SEARCH_STOPPED = f"{SEARCH_ERROR_PREFIX} stopped by user."
 
 # DDG Lite answers a bot challenge (HTTP 202 captcha page, occasionally 403)
-# to a few percent of requests from one IP and the same query a few seconds
-# later usually succeeds; parallel bursts (7 q/s) raise that to 30 percent.
+# to a few percent of requests from one IP; retrying on a fresh connection a
+# few seconds later usually succeeds (the IP stays hot for a few seconds after
+# a challenge), while parallel bursts (7 q/s) raise challenges to 30 percent.
 # Every query in the process goes through one gate that keeps searches serial
 # and at least _SEARCH_MIN_GAP_SEC apart, and challenge retries wait inside
 # that gate so other workers do not fire into the same window.
@@ -297,11 +298,12 @@ _SEARCH_MIN_GAP_SEC: float = 1.5
 _SEARCH_CHALLENGE_STATUSES: frozenset[int] = frozenset({202, 403})
 _SEARCH_OK_STATUSES: frozenset[int] = frozenset({200}) | _SEARCH_CHALLENGE_STATUSES
 _SEARCH_CHALLENGE_DELAYS_SEC: tuple[float, ...] = (3.0, 3.0, 6.0)
-# After a challenge, keep the next queries further apart for a while.
+# After any challenged attempt, delay the next query so the IP cools down before another worker fires.
 _SEARCH_CHALLENGE_COOLDOWN_SEC: float = 3.0
 _RECENCY_MAX_AGE_DAYS: dict[str, int] = {"day": 1, "week": 7}
 _SEARCH_GATE = threading.Lock()
 _search_next_allowed: float = 0.0
+_search_connection_challenged: bool = False
 
 
 def _challenge_delay_sec(retry_index: int) -> float:
@@ -362,21 +364,22 @@ class DuckDuckGoSearchTool(Tool):
 
     def _fetch_results_html(self, data: bytes, headers: dict[str, str]) -> str:
         """Fetch DDG Lite HTML through the process-wide search gate, retrying bot challenges."""
-        global _search_next_allowed
+        global _search_next_allowed, _search_connection_challenged
         if not acquire_unless_cancelled(_SEARCH_GATE, self._cancel):
             return _SEARCH_STOPPED
+        challenged = False
         try:
+            if not wait_abortable(_search_next_allowed - time.monotonic(), self._cancel):
+                return _SEARCH_STOPPED
             retries = len(_SEARCH_CHALLENGE_DELAYS_SEC)
             for retry_index in range(retries + 1):
-                if not wait_abortable(_search_next_allowed - time.monotonic(), self._cancel):
-                    return _SEARCH_STOPPED
                 _search_next_allowed = time.monotonic() + _SEARCH_MIN_GAP_SEC
                 try:
                     # Connection errors, 429/503, and Stop are handled by the shared transport;
                     # challenge statuses (202/403) come back as HttpResult and are retried here.
                     # Shared transport connects directly; system proxies are not used, same as LLM traffic.
                     # A challenged keep-alive connection stays challenged for ~55 s whatever the
-                    # query, so every retry opens a fresh connection and uses a plain Lite GET.
+                    # query, so the next request opens a fresh connection; retries also use a plain Lite GET.
                     retry = retry_index > 0
                     url = _SEARCH_URL + "?" + data.decode("ascii") if retry else _SEARCH_URL
                     result = sync_request(
@@ -389,9 +392,10 @@ class DuckDuckGoSearchTool(Tool):
                         cancel=self._cancel,
                         include_meta=True,
                         ok_statuses=_SEARCH_OK_STATUSES,
-                        fresh_connection=retry,
+                        fresh_connection=_search_connection_challenged,
                     )
                     if result.status == 200:
+                        _search_connection_challenged = False
                         return result.body.decode("utf-8")
                 except NetworkError as e:
                     if e.code == "STOPPED":
@@ -400,13 +404,11 @@ class DuckDuckGoSearchTool(Tool):
                     return _SEARCH_UNAVAILABLE
                 except Exception as e:
                     return f"{SEARCH_ERROR_PREFIX} {e}"
+                challenged = True
+                _search_connection_challenged = True
                 if retry_index == retries:
                     break
                 delay = _challenge_delay_sec(retry_index)
-                _search_next_allowed = max(
-                    _search_next_allowed,
-                    time.monotonic() + delay + _SEARCH_CHALLENGE_COOLDOWN_SEC,
-                )
                 log.warning(
                     "web_search: DuckDuckGo bot challenge (HTTP %s); retry %s/%s in %.1fs",
                     result.status,
@@ -423,6 +425,11 @@ class DuckDuckGoSearchTool(Tool):
             )
             return _SEARCH_UNAVAILABLE
         finally:
+            if challenged:
+                _search_next_allowed = max(
+                    _search_next_allowed,
+                    time.monotonic() + _SEARCH_CHALLENGE_COOLDOWN_SEC,
+                )
             _SEARCH_GATE.release()
 
     def forward(self, query: str, recency: str | None = None) -> str:
