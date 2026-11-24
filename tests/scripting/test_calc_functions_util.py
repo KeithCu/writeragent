@@ -19,6 +19,8 @@ from plugin.scripting.venv.calc_functions_a_c import (
 from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
+    approx_equal,
+    approx_floor,
     as_nonzero,
     build_holiday_set,
     calc_function,
@@ -608,4 +610,95 @@ def test_criteria_compare_errors_as_text(crit: str, expected_count: int, expecte
     weights = [1, 2, 4, 8, 16, 32, 64]
     assert calc.countif(data, crit) == expected_count
     assert calc.sumif(data, crit, weights) == expected_sum
+
+
+@pytest.mark.parametrize(
+    ("x", "expected"),
+    [
+        (0.29 * 100, 29),
+        (-0.5, -1),
+        (-1e-17, -1),
+        (2.9999999999999996, 3),
+        (2.9999999999, 2),
+        (1234567890123.9995, 1234567890123),
+        (9007199254740991.0, 9007199254740991),
+    ],
+)
+def test_approx_floor(x: float, expected: int):
+    assert approx_floor(x) == expected
+
+
+def test_approx_floor_non_finite():
+    with pytest.raises(OverflowError):
+        approx_floor(float("inf"))
+    with pytest.raises(ValueError):
+        approx_floor(float("nan"))
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "expected"),
+    [
+        (0.1 + 0.2, 0.3, True),
+        (0.3, 0.30001, False),
+        (1e15, 1e15 + 1, False),
+        (0.0, 1e-300, False),
+        (5.0, float("inf"), False),
+        (1.7e308, -1.7e308, False),
+        (float("inf"), float("inf"), True),
+    ],
+)
+def test_approx_equal(a: float, b: float, expected: bool):
+    assert approx_equal(a, b) is expected
+
+
+@pytest.mark.parametrize(
+    ("crit", "expected"),
+    [
+        ("0.3", 3),
+        ("=0.3", 3),
+        ("<>0.3", 12),
+        ("<0.3", 2),
+        ("<=0.3", 4),
+        (">0.3", 2),
+        (">=0.3", 4),
+        ("0", 2),
+        ("FALSE", 3),
+        ("#N/A", 1),
+        ("TRUE", 3),
+        ("=TRUE", 3),
+        ("true", 3),
+        ("<>TRUE", 12),
+        (">=TRUE", 2),
+        (True, 2),
+        (False, 2),
+        ("1", 3),
+        ("<>1", 12),
+        ("<>0", 13),
+        (">FALSE", 4),
+        (">0", 4),
+        ("<1", 4),
+        (">=1", 2),
+        ("<=0", 2),
+        ("tru*", 2),
+        ("<>tru*", 13),
+        ("TRUE ", 2),
+        ("=", 2),
+        ("", 2),
+        ("<>", 13),
+    ],
+)
+def test_criteria_numbers_follow_calc(crit: object, expected: int):
+    from plugin.scripting.venv import calc_functions as calc
+
+    col = [0.1 + 0.2, 1, True, False, 0, "1", "TRUE", "text", "#N/A", 0.3, "#DIV/0!", None, None, "0.3", "FALSE"]
+    assert calc.countif(col, crit) == expected
+
+
+def test_criteria_approx_and_booleans():
+    from plugin.scripting.venv import calc_functions as calc
+
+    assert calc.countif([0.1 + 0.2], 0.3) == 1
+    assert calc.countif([1, True, "TRUE"], True) == 2
+    assert calc.countif([1, True], 1) == 2
+    assert calc.sumifs([10, 20, 40], [1, True, 2], 1) == 30
 

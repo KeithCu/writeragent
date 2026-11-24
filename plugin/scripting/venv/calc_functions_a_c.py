@@ -19,6 +19,7 @@ import numpy as np
 
 from .calc_functions_i_m import mode
 from .calc_functions_util import (
+    approx_floor,
     as_nonzero,
     collect_a_values,
     coupon_schedule,
@@ -631,8 +632,8 @@ def binomdist(*args: Any) -> float:
     stats = scipy_stats()
     if stats is None:
         return float("nan")
-    k = int(float(args[0]))
-    n = int(float(args[1]))
+    k = approx_floor(float(args[0]))
+    n = approx_floor(float(args[1]))
     p = float(args[2])
     cum = as_nonzero(args[3])
     if k < 0 or k > n or n < 0 or p < 0 or p > 1:
@@ -714,13 +715,13 @@ def char(n: Any) -> str:
 def chidist(x: Any, df: Any) -> float:
     # ScChiDist (interpr3.cxx), Excel path: x < 0 is #NUM!. ODFF returns 1
     # for x <= 0; scipy's sf(-1, df) is 1.0, and this helper follows the
-    # Excel path, same as binomdist. x == 0 stays 1. df is truncated.
+    # Excel path, same as binomdist. x == 0 stays 1. df uses approx_floor.
     # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
-    # ScChiSqDist_MS). int(df) rejected the string "3.5".
+    # ScChiSqDist_MS).
     stats = scipy_stats()
     if stats is None:
         return float("nan")
-    xv, dof = float(x), int(float(df))
+    xv, dof = float(x), approx_floor(float(df))
     if xv < 0.0 or dof < 1 or dof > 10**10:
         return float("nan")
     return float(stats.chi2.sf(xv, dof))
@@ -728,12 +729,12 @@ def chidist(x: Any, df: Any) -> float:
 
 def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
-    # p == 1 stays 0. df uses int(float()) so "3.5" truncates. df > 1e10
-    # matches Excel CHIINV and the chidist cap above.
+    # p == 1 stays 0. df uses approx_floor. df > 1e10 matches Excel CHIINV
+    # and the chidist cap above.
     stats = scipy_stats()
     if stats is None:
         return float("nan")
-    pv, dof = float(p), int(float(df))
+    pv, dof = float(p), approx_floor(float(df))
     if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
         return float("nan")
     return float(stats.chi2.isf(pv, dof))
@@ -791,7 +792,7 @@ def _binom_float(n: int, k: int) -> float:
 def combin(n: Any, k: Any) -> float:
     # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
     # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
-    return _binom_float(int(float(n)), int(float(k)))
+    return _binom_float(approx_floor(float(n)), approx_floor(float(k)))
 
 
 def combina(n: Any, k: Any) -> float:
@@ -799,8 +800,8 @@ def combina(n: Any, k: Any) -> float:
     # helper still evaluates C(n+k-1, k) in that case. n < 0 has to be
     # NaN: combina(-2, 6) is math.comb(3, 6), which is 0.
     # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
-    ni = int(float(n))
-    ki = int(float(k))
+    ni = approx_floor(float(n))
+    ki = approx_floor(float(k))
     if ni < 0 or ki < 0:
         return float("nan")
     # COMBINA(0, 0) is 1. COMBINA(0, k) for k > 0 is 0; C(k - 1, k) is k > n.
@@ -828,7 +829,7 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     stats = scipy_stats()
     if stats is None:
         return float("nan")
-    a, sd, n = float(alpha), float(stddev), int(float(size))
+    a, sd, n = float(alpha), float(stddev), approx_floor(float(size))
     if a <= 0.0 or a >= 1.0 or sd <= 0.0 or n < 1:
         return float("nan")
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
@@ -902,11 +903,11 @@ def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> f
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
-    # alpha == 1 returns n, or 0 when p == 0. int(trials) rejected "10.9".
+    # alpha == 1 returns n, or 0 when p == 0. trials uses approx_floor.
     stats = scipy_stats()
     if stats is None:
         return float("nan")
-    n, p, a = int(float(trials)), float(prob), float(alpha)
+    n, p, a = approx_floor(float(trials)), float(prob), float(alpha)
     if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
         return float("nan")
     if a == 0.0:

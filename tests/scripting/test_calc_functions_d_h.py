@@ -666,3 +666,14 @@ def test_dsum_error_text_criteria_not_blank():
     assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 2.0
 
 
+def test_d_h_approx_floor_counts_and_df():
+    assert math.isnan(calc.hypgeomdist(-0.5, 2, 3, 10))
+    assert math.isnan(calc.hypgeomdist(1, -0.5, 3, 10))
+    assert math.isnan(calc.hypgeomdist(0, 2, -0.5, 10))
+    assert calc.hypgeomdist(0.5, 2, 3, 10) == calc.hypgeomdist(0, 2, 3, 10)
+
+    assert math.isclose(calc.fdist(1, 2.5, 5), 0.4312011503716921)
+    assert calc.fdist(1, 0.29 * 100, 5) == calc.fdist(1, 29, 5)
+    assert calc.finv(0.5, 2.5, 5) == calc.finv(0.5, 2, 5)
+
+
