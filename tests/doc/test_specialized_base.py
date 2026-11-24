@@ -139,6 +139,33 @@ def test_delegate_status_inner_tool_error(
     assert result["tool_errors"] == [{"tool": "failing_structural_tool", "message": "Failed to read page objects"}]
 
 
+def test_delegate_unstarted_call_is_error(
+    writer_gateway: DelegateToSubagent,
+) -> None:
+    """An inner tool call that raises before running (e.g. marshal TimeoutError) fails the delegation."""
+    from unittest.mock import patch
+
+    ctx = _structural_registry(writer_gateway)
+
+    def _call(fn, *a, **kw):
+        if getattr(getattr(fn, "__self__", None), "name", None) == "dummy_structural_tool":
+            raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        with pytest.raises(TimeoutError):
+            tool_map["dummy_structural_tool"]()
+        return tool_map["workflow_finished"](answer="Finished anyway")
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
+
+    assert result["status"] == "error"
+    assert result["code"] == "SPECIALIZED_TOOL_ERROR"
+
+
 def test_delegate_status_incomplete_no_finish_no_tool_error(
     writer_gateway: DelegateToSubagent,
 ) -> None:
