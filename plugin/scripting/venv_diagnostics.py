@@ -25,12 +25,13 @@ from plugin.scripting.config_limits import (
 )
 from plugin.framework.subprocess_env import get_subprocess_creationflags, scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, wrap_command_for_sandbox
+from plugin.vision.vision_common import DOCLING_MIN_VERSION, DOCLING_REQUIREMENT, docling_too_old
 
 log = logging.getLogger(__name__)
 
 # Vision stack (docs/images/recognition.md §7–§13): heavy trusted-helper dependencies; probed outside the AST sandbox and not part of the curated extras.
 # Primary OCR: docling + rapidocr + onnxruntime. Fallback: paddleocr + paddle.
-# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program on PATH or its default install folder) are listed when present and never counted as Missing.
+# Optional OCR engines (easyocr, openvino, nemotron_ocr, ocrmac, the tesseract program on PATH or its default install folder) are imported/checked when present and never counted as Missing.
 # Optional: ultralytics (detection helpers), skimage (trusted helper preprocessing).
 _OCR_ENGINE_KEYS = ("easyocr", "openvino", "nemotron_ocr", "ocrmac", "tesseract")
 _NEMOTRON_RUNTIME_ERROR_KEY = "nemotron_ocr_runtime_error"  # probe key: Docling's reason when nemotron_ocr is present but cannot run
@@ -92,9 +93,8 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "pypfopt": "pyportfolioopt",
     "PyQt6.QtWebEngineWidgets": "PyQt6-WebEngine",
     "css_inline": "css-inline",
-    # Quoted so the shell does not read > as a redirect; kept in sync with _DOCLING_MIN_VERSION
-    # in plugin/vision/venv/vision_docling.py (host diagnostics cannot import that venv module).
-    "docling": '"docling>=2.145"',
+    # Quoted so the shell does not read > as a redirect.
+    "docling": f'"{DOCLING_REQUIREMENT}"',
     "language_tool_python": "language-tool-python",
     "python_docx": "python-docx",
     "sentence_transformers": "sentence-transformers",
@@ -117,18 +117,26 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
 _PROBE_JSON_PREFIX = "WA_PROBE_JSON "
 
 
+_BROKEN_SUFFIX = "_broken"
+
+
 # SystemExit from a package at import must not drop the rest of the group's results.
-def _import_try_block(key: str, module: str, *, record_error: bool = False) -> str:
+def _import_try_block(key: str, module: str, *, name: str = "", report_broken: bool = False) -> str:
     """One child try/except for one import. Source is plain Python (no f-string, walrus, or match)."""
+    stmt = f"from {module} import {name}" if name else f"import {module}"
+    top = module.partition(".")[0]
     lines = [
         "try:",
-        f"    import {module}",
+        f"    {stmt}",
         f'    out["{key}"] = "present"',
-        "except BaseException as exc:" if record_error else "except BaseException:",
+        "except BaseException as exc:" if report_broken else "except BaseException:",
         f'    out["{key}"] = None',
     ]
-    if record_error:
-        lines.append(f'    out["{key}_import_error"] = str(exc)[:200]')
+    if report_broken:
+        lines.append(f"    if not (isinstance(exc, ModuleNotFoundError) and exc.name == {top!r}):")
+        lines.append(
+            f'        out["{key}{_BROKEN_SUFFIX}"] = (" ".join(str(exc).split()) or type(exc).__name__)[:200]'
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -183,37 +191,57 @@ _NLP_PROBE_SCRIPT = _import_probe_script(
     *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
 )
 
-# Optional engines are probed with find_spec / which only, so the probe does not start torch or CUDA for them.
-# The exception is a present nemotron_ocr: it runs Docling's own NemotronOcrModel.validate_runtime (platform,
-# Python, CUDA), and torch is already loaded by the docling.document_converter import earlier in this script.
-# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py.
+# Engines are really imported in _VISION_PROBE_SCRIPT below (Docling has already loaded torch).
+# docling then docling-slim matches _check_docling_version; Tesseract reads version from stdout then stderr
+# and languages after the first header line, matching Docling's tesseract_ocr_cli_model.py.
+# A present nemotron_ocr runs Docling's NemotronOcrModel.validate_runtime (platform, Python, CUDA)
+# and its real import (docling/models/stages/ocr/nemotron_ocr_model.py:152).
+# Kept in sync with OCR_BACKENDS in plugin/vision/venv/vision_docling.py (_VISION_PROBE_SCRIPT + _OCR_ENGINE_PROBE_BODY).
 _OCR_ENGINE_PROBE_BODY = f"""\
-import importlib.util
+import importlib.metadata
 import shutil
-for key in {tuple(k for k in _OCR_ENGINE_KEYS if k != "tesseract")!r}:
+import subprocess
+for dist in ("docling", "docling-slim"):
     try:
-        out[key] = "present" if importlib.util.find_spec(key) is not None else None
-    except BaseException:
-        out[key] = None
-out["tesseract"] = "present" if any(shutil.which(p) for p in {TESSERACT_PROGRAMS!r}) else None
+        out["docling_version"] = importlib.metadata.version(dist)
+        break
+    except Exception:
+        pass
+out["tesseract"] = None
+tesseract = next((p for p in map(shutil.which, {TESSERACT_PROGRAMS!r}) if p), None)
+if tesseract:
+    try:
+        runs = [subprocess.run([tesseract, flag], stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", timeout=5, check=True) for flag in ("--version", "--list-langs")]
+        out["tesseract_version"] = ((runs[0].stdout.strip() or runs[0].stderr.strip()).splitlines() or [""])[0]
+        out["tesseract_langs"] = [line.strip() for line in runs[1].stdout.splitlines()[1:] if line.strip()]
+        out["tesseract"] = "present"
+    except BaseException as exc:
+        out["tesseract{_BROKEN_SUFFIX}"] = str(exc)[:200]
 if out.get("nemotron_ocr") == "present":
     try:
         from docling.datamodel.accelerator_options import AcceleratorOptions
         from docling.models.stages.ocr.nemotron_ocr_model import NemotronOcrModel
         NemotronOcrModel.validate_runtime(AcceleratorOptions())
+        from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
     except BaseException as exc:
         out[{_NEMOTRON_RUNTIME_ERROR_KEY!r}] = str(exc)[:300]
 """
 
+# rapidocr uses name="RapidOCR" because rapidocr/__init__.py is lazy (__getattr__), so a plain import misses broken cv2.
+# ocrmac imports ocrmac.ocrmac because ocrmac/__init__.py imports nothing.
 _VISION_PROBE_SCRIPT = _import_probe_script(
-    _import_try_block("docling", "docling.document_converter", record_error=True),
-    _import_try_block("rapidocr", "rapidocr"),
-    _import_try_block("onnxruntime", "onnxruntime"),
-    _import_try_block("paddleocr", "paddleocr"),
-    _import_try_block("paddle", "paddle"),
-    _import_try_block("ultralytics", "ultralytics"),
-    _import_try_block("skimage", "skimage"),
-    _import_try_block("css_inline", "css_inline"),
+    _import_try_block("docling", "docling.document_converter", report_broken=True),
+    _import_try_block("rapidocr", "rapidocr", name="RapidOCR", report_broken=True),
+    _import_try_block("onnxruntime", "onnxruntime", report_broken=True),
+    _import_try_block("paddleocr", "paddleocr", report_broken=True),
+    _import_try_block("paddle", "paddle", report_broken=True),
+    _import_try_block("ultralytics", "ultralytics", report_broken=True),
+    _import_try_block("skimage", "skimage", report_broken=True),
+    _import_try_block("css_inline", "css_inline", report_broken=True),
+    _import_try_block("easyocr", "easyocr", report_broken=True),
+    _import_try_block("openvino", "openvino", report_broken=True),
+    _import_try_block("nemotron_ocr", "nemotron_ocr", report_broken=True),
+    _import_try_block("ocrmac", "ocrmac.ocrmac", report_broken=True),
     _OCR_ENGINE_PROBE_BODY,
 )
 
@@ -236,7 +264,7 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
 )
 _VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
     _import_try_block("envwrap", "envwrap"),
-    _import_try_block("sentence_transformers", "sentence_transformers", record_error=True),
+    _import_try_block("sentence_transformers", "sentence_transformers"),
     _import_try_block("sqlite_vec", "sqlite_vec"),
     _import_try_block("zvec", "zvec"),
     _import_try_block("langgraph", "langgraph"),
@@ -283,7 +311,7 @@ def _run_json_probe(
     log_label: str,
 ) -> tuple[dict[str, Any], str | None]:
     """Run a one-shot ``python -c`` JSON probe outside the warm worker."""
-    # subprocess.run rejects timeout <= 0. Callers pass the 30s constants.
+    # subprocess.run rejects timeout <= 0. Callers pass the probe timeout constants.
     # The floor keeps a zero or negative value on TimeoutExpired.
     limit = max(1.0, float(timeout))
     scrubbed_env = scrub_subprocess_env(dict(os.environ))
@@ -335,7 +363,7 @@ _UI_PROBE_SCRIPT = _import_probe_script(
 # A sandbox import raises InterpreterError, which is not ImportError, so the
 # worker probe would fail the package instead of reporting it missing.
 _DUCKDB_PROBE_SCRIPT = _import_probe_script(
-    _import_try_block("duckdb", "duckdb", record_error=True),
+    _import_try_block("duckdb", "duckdb"),
 )
 
 
@@ -480,8 +508,8 @@ def _vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
 
     When docling is installed, readiness requires _docling_ocr_ready (rapidocr + onnxruntime):
     missing onnxruntime raises OCR_BACKEND_UNAVAILABLE without falling back to Paddle.
-    Paddle (paddleocr + paddle) counts as ready only when docling is absent, matching the
-    DOCLING_UNAVAILABLE fallback gate in vision.py.
+    Paddle (paddleocr + paddle) counts as ready only when docling is absent or too old, matching the
+    DOCLING_UNAVAILABLE / DOCLING_API_MISMATCH fallback gate in vision.py.
     """
     if probe.get("docling") == "present":
         ocr_backend = _docling_ocr_ready(probe)
@@ -533,13 +561,17 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
     """Present/OCR-ready/Optional formatting — paddle/ultralytics/skimage are never required Missing."""
     present = [key for key in keys if packages.get(key) == "present"]
     lines: list[str] = [f"\n{title}: {', '.join(present)}" if present else f"\n{title}:"]
-    optional_missing = [key for key in _VISION_OPTIONAL_KEYS if packages.get(key) != "present"]
+    optional_missing = [
+        key
+        for key in _VISION_OPTIONAL_KEYS
+        if packages.get(key) != "present" and f"{key}{_BROKEN_SUFFIX}" not in packages
+    ]
     if _vision_ocr_stack_ready(packages):
         engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
         lines.append(f"OCR: ready ({engine})")
         if not _docling_ocr_ready(packages):
             for key in ("docling", "rapidocr", "onnxruntime"):
-                if packages.get(key) != "present":
+                if packages.get(key) != "present" and f"{key}{_BROKEN_SUFFIX}" not in packages:
                     optional_missing.append(key)
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
@@ -550,6 +582,17 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
             lines.append(f"Missing (OCR): {', '.join(primary_missing)}")
         if optional_missing:
             lines.append(f"Optional (not installed): {', '.join(optional_missing)}")
+    docling_version = packages.get("docling_version")
+    if docling_version:
+        lines.append(f"Docling: {docling_version}")
+    if "tesseract_langs" in packages:
+        t_ver = packages.get("tesseract_version") or "tesseract"
+        langs = ", ".join(packages["tesseract_langs"]) or _("none")
+        lines.append(f"{t_ver}; {_('languages:')} {langs}")
+    for key in keys:
+        broken = packages.get(f"{key}{_BROKEN_SUFFIX}")
+        if broken:
+            lines.append(_("{0} is installed but does not work: {1}").format(key, broken))
     nemotron_error = packages.get(_NEMOTRON_RUNTIME_ERROR_KEY)
     if nemotron_error:
         lines.append(f"{_('Nemotron OCR cannot start in this venv:')} {nemotron_error}")
@@ -733,6 +776,12 @@ def _attach_external_probes(
     spec = _JSON_PROBE_SPECS[group]
     probes, failure = _run_named_json_probe(python_exe, group)
     if probes:
+        version = probes.get("docling_version")
+        if group == "vision" and version and docling_too_old(version):
+            probes["docling"] = None
+            probes["docling" + _BROKEN_SUFFIX] = _("version {0} is older than the required {1}").format(
+                version, "%d.%d" % DOCLING_MIN_VERSION
+            )
         report.packages.update(probes)
     result = GroupResult(
         key=group,
