@@ -23,8 +23,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import threading
 import time
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, Protocol, final
 
@@ -33,6 +35,7 @@ from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
@@ -211,6 +214,38 @@ def _write_research_cache(
     return _research_cache_result_fields("saved", unique_key, stem_lang=stem_lang)
 
 
+_PROFILE_LOCK_NAME = "profile.lock"
+
+
+@contextmanager
+def _profile_lock(browser_type: str) -> Generator[None]:
+    """Hold the cross-process lock for *browser_type*'s research profile.
+
+    Two LibreOffice processes must not drive one profile, because Firefox grants one session and the process
+    that launched a browser closes it under the other. The OS drops the lock when its holder exits.
+    """
+    profile_dir = browser_cdp_tool.browser_profile_dir(browser_type)
+    with open(os.path.join(profile_dir, _PROFILE_LOCK_NAME), "a", encoding="utf-8") as f:
+        try:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl  # POSIX-only stdlib module.
+
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError(f"the {browser_type} research profile is in use by another WriterAgent: {exc}") from exc
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 @final
 class LocalBrowserRefCount:
     """Shared local browser refcount and condition variable for page visits and teardown."""
@@ -219,6 +254,8 @@ class LocalBrowserRefCount:
     visits_inflight: int
     closing: bool
     runs: int
+    browser_type: str
+    held: ExitStack
     launch_lock: threading.Lock
     timeout_seconds: float
 
@@ -227,6 +264,8 @@ class LocalBrowserRefCount:
         self.visits_inflight = 0
         self.closing = False
         self.runs = 0
+        self.browser_type = ""
+        self.held = ExitStack()
         self.launch_lock = threading.Lock()
         self.timeout_seconds = timeout_seconds
 
@@ -244,7 +283,7 @@ class LocalBrowserRefCount:
             if self.visits_inflight == 0:
                 self.cond.notify_all()
 
-    def run_enter(self) -> None:
+    def run_enter(self, browser_type: str) -> None:
         """Count one execute() using the shared local browser.
 
         Waits out a teardown already in progress so this run does not attach to
@@ -256,6 +295,11 @@ class LocalBrowserRefCount:
                 self.cond.wait(1.0)
                 if time.monotonic() - start_wait > self.timeout_seconds:
                     raise RuntimeError("previous local browser still closing")
+            if self.runs == 0:
+                self.held.enter_context(_profile_lock(browser_type))
+                self.browser_type = browser_type
+            elif self.browser_type != browser_type:
+                raise RuntimeError(f"another local browser is already in use for web research ({self.browser_type})")
             self.runs += 1
 
     def finish(self) -> None:
@@ -281,11 +325,12 @@ class LocalBrowserRefCount:
         try:
             web_research_firefox.close_firefox_bidi()
             browser_cdp_tool.cleanup_local_browser()
-            web_research_firefox.remove_pidfile()
         except Exception as exc:
             log.warning("Failed to clean up local browser process: %s", exc)
         finally:
             with self.cond:
+                best_effort(self.held.close, "local browser: release profile lock")
+                self.browser_type = ""
                 self.closing = False
                 self.cond.notify_all()
 
@@ -294,6 +339,8 @@ class LocalBrowserRefCount:
             self.visits_inflight = 0
             self.closing = False
             self.runs = 0
+            self.browser_type = ""
+            self.held.close()
             self.cond.notify_all()
 
 
@@ -356,7 +403,7 @@ class CdpPageDriver:
 def _begin_shared_browser(browser_type: str) -> BrowserPageDriver:
     """Attach this run to the process-wide local browser."""
     with _browser_refcount.launch_lock:
-        _browser_refcount.run_enter()
+        _browser_refcount.run_enter(browser_type)
         try:
             if browser_type == BIDI_BROWSER_TYPE:
                 return web_research_firefox.begin_firefox_bidi()

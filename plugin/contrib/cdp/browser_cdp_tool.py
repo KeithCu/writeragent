@@ -4,14 +4,9 @@
 """
 Raw Chrome DevTools Protocol (CDP) passthrough tool.
 
-Exposes a single tool, ``browser_cdp``, that sends arbitrary CDP commands to
-the browser's DevTools WebSocket endpoint.  Talks to the local browser that
-``get_local_cdp_url`` attached for the current research run.
-
-This is the escape hatch for browser operations not covered by the main
-browser tool surface (``browser_navigate``, ``browser_click``,
-``browser_console``, etc.) — handling native dialogs, iframe-scoped
-evaluation, cookie/network control, low-level tab management, etc.
+Exposes ``browser_cdp``, which sends CDP commands to the local browser's
+DevTools WebSocket endpoint attached by ``get_local_cdp_url`` for the current
+research run.
 
 Method reference: https://chromedevtools.github.io/devtools-protocol/
 """
@@ -39,6 +34,8 @@ def tool_error(message: str, **kwargs: Any) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 logger = logging.getLogger(__name__)
+# The browser is on this machine, so a configured HTTP proxy must not see these requests.
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 CDP_DOCS_URL = "https://chromedevtools.github.io/devtools-protocol/"
 
@@ -83,19 +80,17 @@ def _run_async(coro):
 
 
 _LOCAL_BROWSER: ManagedSubprocess | None = None
-# Browser-level URL of the CDP browser the current research runs use, and its type. Both are empty when no run
-# holds one. Written only by launch (under LocalBrowserRefCount.launch_lock) and teardown; browser_cdp only
-# reads the URL, so a page visit can never start a browser.
+# Browser-level URL of the CDP browser the current research runs use; empty when no run holds one.
+# Written only by launch (under LocalBrowserRefCount.launch_lock) and teardown; browser_cdp only reads it,
+# so a page visit can never start a browser. The active browser type is owned by LocalBrowserRefCount.
 _CDP_ENDPOINT: str = ""
-_CDP_BROWSER_TYPE: str = ""
 _ENDPOINT_FILE = "cdp_endpoint"
 
 
 def cleanup_local_browser() -> None:
     """Kill the locally spawned browser and drop it from quit-time registry."""
-    global _LOCAL_BROWSER, _CDP_ENDPOINT, _CDP_BROWSER_TYPE
+    global _LOCAL_BROWSER, _CDP_ENDPOINT
     _CDP_ENDPOINT = ""
-    _CDP_BROWSER_TYPE = ""
     managed = _LOCAL_BROWSER
     if managed is None:
         return
@@ -254,7 +249,7 @@ def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) 
     return _LOCAL_BROWSER
 
 
-def _free_port() -> int:
+def free_port() -> int:
     # Chosen here because --remote-debugging-port=0 makes Chromium set navigator.webdriver, which sites block.
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -268,7 +263,7 @@ def _query_browser_endpoint(host_port: str) -> str:
     with its tab, which another research worker may own.
     """
     try:
-        with urllib.request.urlopen(f"http://{host_port}/json/version", timeout=1.0) as response:
+        with _LOCAL_OPENER.open(f"http://{host_port}/json/version", timeout=1.0) as response:
             return str(json.loads(response.read().decode()).get("webSocketDebuggerUrl") or "")
     except Exception:
         return ""
@@ -282,25 +277,18 @@ def _recorded_endpoint(profile_dir: str) -> str:
     try:
         with open(os.path.join(profile_dir, _ENDPOINT_FILE), encoding="utf-8") as f:
             recorded = f.read()
-    except FileNotFoundError:
+        host_port = urlsplit(recorded).netloc
+    except (FileNotFoundError, ValueError):  # ValueError: undecodable bytes or a malformed URL
         return ""
-    endpoint = _query_browser_endpoint(urlsplit(recorded).netloc)
+    endpoint = _query_browser_endpoint(host_port)
     return endpoint if endpoint == recorded else ""
 
 
 def _launch_cdp_browser(browser_type: str, profile_dir: str) -> str:
-    if os.path.exists(browser_type) or "/" in browser_type or "\\" in browser_type:
-        executable = browser_type
-    elif browser_type in _CDP_BROWSER_CANDIDATES:
-        candidates, default_bin, win32_paths = _CDP_BROWSER_CANDIDATES[browser_type]
-        executable = find_browser_executable(candidates, default_bin, win32_paths)
-    else:
-        search_names = [browser_type]
-        if browser_type.lower() in ["edge", "microsoft-edge"]:
-            search_names.extend(["microsoft-edge-stable", "microsoft-edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"])
-        executable = find_browser_executable(search_names, browser_type)
+    candidates, default_bin, win32_paths = _CDP_BROWSER_CANDIDATES[browser_type]
+    executable = find_browser_executable(candidates, default_bin, win32_paths)
 
-    port = _free_port()
+    port = free_port()
     cmd = [
         executable,
         f"--remote-debugging-port={port}",
@@ -319,7 +307,7 @@ def _launch_cdp_browser(browser_type: str, profile_dir: str) -> str:
             with open(os.path.join(profile_dir, _ENDPOINT_FILE), "w", encoding="utf-8") as f:
                 f.write(endpoint)
             return endpoint
-        # The profile's browser may already be running under another WriterAgent; Chromium then hands off to it and exits.
+        # A browser left by a WriterAgent that crashed may have been too busy for the first check; Chromium then hands off to it and exits.
         endpoint = _recorded_endpoint(profile_dir)
         if endpoint:
             return endpoint
@@ -329,15 +317,13 @@ def _launch_cdp_browser(browser_type: str, profile_dir: str) -> str:
 
 
 def get_local_cdp_url(browser_type: str) -> str:
-    global _CDP_ENDPOINT, _CDP_BROWSER_TYPE
-    if _CDP_ENDPOINT and _CDP_BROWSER_TYPE != browser_type:
-        raise RuntimeError(f"another local browser is already in use for web research ({_CDP_BROWSER_TYPE})")
+    global _CDP_ENDPOINT
     profile_dir = browser_profile_dir(browser_type)
     # Do not clear on entry or failure: another run may still be using a live browser too busy to answer in 1 s.
     endpoint = _recorded_endpoint(profile_dir)
     if not endpoint:
         endpoint = _launch_cdp_browser(browser_type, profile_dir)
-    _CDP_ENDPOINT, _CDP_BROWSER_TYPE = endpoint, browser_type
+    _CDP_ENDPOINT = endpoint
     return endpoint
 
 
@@ -370,6 +356,7 @@ async def _cdp_call(
         open_timeout=timeout,
         close_timeout=5,
         ping_interval=None,  # CDP server doesn't expect pings
+        proxy=None,  # An env HTTP(S)_PROXY must not be used for the local CDP socket.
     ) as ws:
         next_id = 1
         session_id: Optional[str] = None
@@ -442,123 +429,11 @@ async def _cdp_call(
 # ---------------------------------------------------------------------------
 
 
-def _browser_cdp_via_supervisor(
-    task_id: str,
-    frame_id: str,
-    method: str,
-    params: Optional[Dict[str, Any]],
-    timeout: float,
-) -> str:
-    """Route a CDP call through the live supervisor session for an OOPIF frame.
-
-    Looks up the frame in the supervisor's snapshot, extracts its child
-    ``cdp_session_id``, and dispatches ``method`` with that sessionId via
-    the supervisor's already-connected WebSocket (using
-    ``asyncio.run_coroutine_threadsafe`` onto the supervisor loop).
-    """
-    try:
-        from plugin.contrib.cdp.browser_supervisor import SUPERVISOR_REGISTRY
-    except Exception as exc:  # pragma: no cover — defensive
-        return tool_error(
-            f"CDP supervisor is not available: {exc}. frame_id routing requires "
-            f"a running supervisor attached via /browser connect or an active "
-            f"Browserbase session."
-        )
-
-    supervisor = SUPERVISOR_REGISTRY.get(task_id)
-    if supervisor is None:
-        return tool_error(
-            f"No CDP supervisor is attached for task={task_id!r}. Call "
-            f"browser_navigate or /browser connect first so the supervisor "
-            f"can attach. Once attached, browser_snapshot will populate "
-            f"frame_tree with frame_ids you can pass here."
-        )
-
-    snap = supervisor.snapshot()
-    # Search both the top frame and the children for the requested id.
-    top = snap.frame_tree.get("top")
-    frame_info: Optional[Dict[str, Any]] = None
-    if top and top.get("frame_id") == frame_id:
-        frame_info = top
-    else:
-        for child in snap.frame_tree.get("children", []) or []:
-            if child.get("frame_id") == frame_id:
-                frame_info = child
-                break
-    if frame_info is None:
-        # Check the raw frames dict too (frame_tree is capped at 30 entries)
-        with supervisor._state_lock:  # type: ignore[attr-defined]
-            raw = supervisor._frames.get(frame_id)  # type: ignore[attr-defined]
-        if raw is not None:
-            frame_info = raw.to_dict()
-
-    if frame_info is None:
-        return tool_error(
-            f"frame_id {frame_id!r} not found in supervisor state. "
-            f"Call browser_snapshot to see current frame_tree."
-        )
-
-    child_sid = frame_info.get("session_id")
-    if not child_sid:
-        # Not an OOPIF — fall back to top-level session (evaluating at page
-        # scope).  Same-origin iframes don't get their own sessionId; the
-        # agent can still use contentWindow/contentDocument from the parent.
-        return tool_error(
-            f"frame_id {frame_id!r} is not an out-of-process iframe (no "
-            f"dedicated CDP session). For same-origin iframes, use "
-            f"`browser_cdp(method='Runtime.evaluate', params={{'expression': "
-            f"\"document.querySelector('iframe').contentDocument.title\"}})` "
-            f"at the top-level page instead."
-        )
-
-    # Dispatch onto the supervisor's loop.
-    loop = supervisor._loop  # type: ignore[attr-defined]
-    if loop is None or not loop.is_running():
-        return tool_error(
-            "CDP supervisor loop is not running. Try reconnecting with "
-            "/browser connect."
-        )
-
-    async def _do_cdp():
-        return await supervisor._cdp(  # type: ignore[attr-defined]
-            method,
-            params or {},
-            session_id=child_sid,
-            timeout=timeout,
-        )
-
-    try:
-        from plugin.contrib.cdp.browser_supervisor import safe_schedule_threadsafe
-        fut = safe_schedule_threadsafe(_do_cdp(), loop)
-        if fut is None:
-            return tool_error(
-                "CDP call via supervisor failed: loop unavailable",
-                cdp_docs=CDP_DOCS_URL,
-            )
-        result_msg = fut.result(timeout=timeout + 2)
-    except Exception as exc:
-        return tool_error(
-            f"CDP call via supervisor failed: {type(exc).__name__}: {exc}",
-            cdp_docs=CDP_DOCS_URL,
-        )
-
-    payload: Dict[str, Any] = {
-        "success": True,
-        "method": method,
-        "frame_id": frame_id,
-        "session_id": child_sid,
-        "result": result_msg.get("result", {}),
-    }
-    return json.dumps(payload, ensure_ascii=False)
-
-
 def browser_cdp(
     method: str,
     params: Optional[Dict[str, Any]] = None,
     target_id: Optional[str] = None,
-    frame_id: Optional[str] = None,
     timeout: float = 30.0,
-    task_id: Optional[str] = None,
 ) -> str:
     """Send a raw CDP command.  See ``CDP_DOCS_URL`` for method documentation.
 
@@ -569,32 +444,12 @@ def browser_cdp(
             we first attach to the target (``flatten=True``) and send
             ``method`` with the resulting ``sessionId``.  Uses a fresh
             stateless CDP connection.
-        frame_id: Optional cross-origin (OOPIF) iframe ``frame_id`` from
-            ``browser_snapshot.frame_tree.children[]``.  When set (and the
-            frame is an OOPIF with a live session tracked by the CDP
-            supervisor), routes the call through the supervisor's existing
-            WebSocket — which is how you Runtime.evaluate *inside* an
-            iframe on backends where per-call fresh CDP connections would
-            hit signed-URL expiry (Browserbase) or expensive reattach.
         timeout: Seconds to wait for the call to complete.
-        task_id: Task identifier for supervisor lookup.  When ``frame_id``
-            is set, this identifies which task's supervisor to use; the
-            handler will default to ``"default"`` otherwise.
 
     Returns:
         JSON string ``{"success": True, "method": ..., "result": {...}}`` on
         success, or ``{"error": "..."}`` on failure.
     """
-    # --- Route iframe-scoped calls through the supervisor ---------------
-    if frame_id:
-        return _browser_cdp_via_supervisor(
-            task_id=task_id or "default",
-            frame_id=frame_id,
-            method=method,
-            params=params,
-            timeout=timeout,
-        )
-    del task_id  # stateless path below
 
     if not method or not isinstance(method, str):
         return tool_error(
@@ -667,109 +522,3 @@ def browser_cdp(
     if target_id:
         payload["target_id"] = target_id
     return json.dumps(payload, ensure_ascii=False)
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-
-BROWSER_CDP_SCHEMA: Dict[str, Any] = {
-    "name": "browser_cdp",
-    "description": (
-        "Send a raw Chrome DevTools Protocol (CDP) command. Escape hatch for "
-        "browser operations not covered by browser_navigate, browser_click, "
-        "browser_console, etc.\n\n"
-        "**Requires a reachable CDP endpoint.** Available when the user has "
-        "run '/browser connect' to attach to a running Chrome, Brave, Chromium, "
-        "or Edge browser, or when 'browser.cdp_url' is set in config.yaml. "
-        "Not currently wired up for cloud backends (Browserbase, Browser Use, "
-        "Firecrawl) — those expose CDP per session but live-session routing is "
-        "a follow-up. Camofox is REST-only and will never support CDP. If the "
-        "tool is in your toolset at all, a CDP endpoint is already reachable.\n\n"
-        f"**CDP method reference:** {CDP_DOCS_URL} — use web_extract on a "
-        "method's URL (e.g. '/tot/Page/#method-handleJavaScriptDialog') "
-        "to look up parameters and return shape.\n\n"
-        "**Common patterns:**\n"
-        "- List tabs: method='Target.getTargets', params={}\n"
-        "- Handle a native JS dialog: method='Page.handleJavaScriptDialog', "
-        "params={'accept': true, 'promptText': ''}, target_id=<tabId>\n"
-        "- Get all cookies: method='Network.getAllCookies', params={}\n"
-        "- Eval in a specific tab: method='Runtime.evaluate', "
-        "params={'expression': '...', 'returnByValue': true}, "
-        "target_id=<tabId>\n"
-        "- Set viewport for a tab: method='Emulation.setDeviceMetricsOverride', "
-        "params={'width': 1280, 'height': 720, 'deviceScaleFactor': 1, "
-        "'mobile': false}, target_id=<tabId>\n\n"
-        "**Usage rules:**\n"
-        "- Browser-level methods (Target.*, Browser.*, Storage.*): omit "
-        "target_id and frame_id.\n"
-        "- Page-level methods (Page.*, Runtime.*, DOM.*, Emulation.*, "
-        "Network.* scoped to a tab): pass target_id from Target.getTargets.\n"
-        "- **Cross-origin iframe scope** (Runtime.evaluate inside an OOPIF, "
-        "Page.* targeting a frame target, etc.): pass frame_id from the "
-        "browser_snapshot frame_tree output. This routes through the CDP "
-        "supervisor's live connection — the only reliable way on "
-        "Browserbase where stateless CDP calls hit signed-URL expiry.\n"
-        "- Each stateless call (without frame_id) is independent — sessions "
-        "and event subscriptions do not persist between calls. For stateful "
-        "workflows, prefer the dedicated browser tools or use frame_id "
-        "routing."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "method": {
-                "type": "string",
-                "description": (
-                    "CDP method name, e.g. 'Target.getTargets', "
-                    "'Runtime.evaluate', 'Page.handleJavaScriptDialog'."
-                ),
-            },
-            "params": {
-                "type": "object",
-                "description": (
-                    "Method-specific parameters as a JSON object. Omit or "
-                    "pass {} for methods that take no parameters."
-                ),
-                "properties": {},
-                "additionalProperties": True,
-            },
-            "target_id": {
-                "type": "string",
-                "description": (
-                    "Optional. Target/tab ID from Target.getTargets result "
-                    "(each entry's 'targetId'). Use for page-level methods "
-                    "at the top-level tab scope. Mutually exclusive with "
-                    "frame_id."
-                ),
-            },
-            "frame_id": {
-                "type": "string",
-                "description": (
-                    "Optional. Out-of-process iframe (OOPIF) frame_id from "
-                    "browser_snapshot.frame_tree.children[] where "
-                    "is_oopif=true. When set, routes the call through the "
-                    "CDP supervisor's live session for that iframe. "
-                    "Essential for Runtime.evaluate inside cross-origin "
-                    "iframes, especially on Browserbase where fresh "
-                    "per-call CDP connections can't keep up with signed "
-                    "URL rotation. For same-origin iframes, use parent "
-                    "contentWindow/contentDocument from Runtime.evaluate "
-                    "at the top-level page instead."
-                ),
-            },
-            "timeout": {
-                "type": "number",
-                "description": (
-                    "Timeout in seconds (default 30, max 300)."
-                ),
-                "default": 30,
-            },
-        },
-        "required": ["method"],
-    },
-}
-
-
-# registry.register code removed to fit WriterAgent

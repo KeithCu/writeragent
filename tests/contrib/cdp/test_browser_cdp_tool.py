@@ -65,7 +65,7 @@ def _mock_cdp_spawn(which_side_effect=None):
     with (
         patch("shutil.which", side_effect=which_fn),
         patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
-        patch("urllib.request.urlopen", side_effect=fake_urlopen),
+        patch.object(browser_cdp_tool._LOCAL_OPENER, "open", side_effect=fake_urlopen),
     ):
         try:
             yield mock_popen, mock_proc
@@ -282,7 +282,7 @@ def test_browser_cdp_reuses_launch_endpoint(tmp_path, monkeypatch):
         assert ws_url == expected_url
         with (
             patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call),
-            patch("urllib.request.urlopen") as mock_urlopen,
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open") as mock_urlopen,
         ):
             res1 = json.loads(browser_cdp_tool.browser_cdp("Target.createTarget", {"url": "about:blank"}))
             res2 = json.loads(browser_cdp_tool.browser_cdp("Target.closeTarget", {"targetId": "T1"}))
@@ -306,7 +306,7 @@ def test_browser_cdp_after_cleanup_never_spawns(already_listening, tmp_path, mon
             version_response.read.return_value = json.dumps({
                 "webSocketDebuggerUrl": recorded_url,
             }).encode("utf-8")
-            with patch("urllib.request.urlopen") as mock_urlopen:
+            with patch.object(browser_cdp_tool._LOCAL_OPENER, "open") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value = version_response
                 ws_url = get_local_cdp_url("chrome")
             assert ws_url == recorded_url
@@ -319,7 +319,7 @@ def test_browser_cdp_after_cleanup_never_spawns(already_listening, tmp_path, mon
 
         with (
             patch("subprocess.Popen") as mock_popen,
-            patch("urllib.request.urlopen") as mock_urlopen,
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open") as mock_urlopen,
         ):
             result = VisitWebpageBrowserTool(CdpPageDriver()).forward("https://example.com")
             assert result.startswith(
@@ -364,7 +364,7 @@ def test_failed_relaunch_keeps_the_running_endpoint(tmp_path, monkeypatch):
     with _mock_cdp_spawn():
         first_url = get_local_cdp_url("chrome")
         with (
-            patch("urllib.request.urlopen", side_effect=Exception("busy")),
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open", side_effect=Exception("busy")),
             patch.object(
                 browser_cdp_tool,
                 "spawn_local_browser",
@@ -410,7 +410,7 @@ def test_chosen_browser_is_launched_when_another_listens_on_9222(tmp_path, monke
         with (
             patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
-            patch("urllib.request.urlopen", side_effect=fake_urlopen),
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open", side_effect=fake_urlopen),
         ):
             ws_url = get_local_cdp_url("brave")
             args = mock_popen.call_args[0][0]
@@ -470,7 +470,7 @@ def test_stale_record_launches_again(tmp_path, monkeypatch):
         with (
             patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
-            patch("urllib.request.urlopen", side_effect=fake_urlopen),
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open", side_effect=fake_urlopen),
         ):
             ws_url = get_local_cdp_url("chrome")
             mock_popen.assert_called_once()
@@ -480,18 +480,26 @@ def test_stale_record_launches_again(tmp_path, monkeypatch):
         cleanup_local_browser()
 
 
-def test_launch_adopts_browser_started_by_another_instance(tmp_path, monkeypatch):
+def test_launch_adopts_recorded_browser_that_answers_late(tmp_path, monkeypatch):
     _isolate_home(monkeypatch, tmp_path)
     sibling_url = "ws://127.0.0.1:54321/devtools/browser/sibling-id"
     profile_dir = tmp_path / ".config" / "writeragent" / "chrome_profile"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / browser_cdp_tool._ENDPOINT_FILE).write_text(sibling_url, encoding="utf-8")
 
     mock_proc = MagicMock()
     mock_proc.pid = 4321
     mock_proc.poll.return_value = 0
     mock_proc.kill.side_effect = lambda: setattr(mock_proc.poll, "return_value", 0)
 
+    recorded_queries = 0
+
     def fake_urlopen(url, **_kwargs):
+        nonlocal recorded_queries
         if urlsplit(url).netloc == "127.0.0.1:54321":
+            recorded_queries += 1
+            if recorded_queries == 1:
+                raise Exception("Connection refused")
             resp = MagicMock()
             resp.read.return_value = json.dumps({"webSocketDebuggerUrl": sibling_url}).encode("utf-8")
             ctx_mgr = MagicMock()
@@ -499,45 +507,92 @@ def test_launch_adopts_browser_started_by_another_instance(tmp_path, monkeypatch
             return ctx_mgr
         raise Exception("Connection refused")
 
-    def fake_sleep(_seconds):
-        (profile_dir / browser_cdp_tool._ENDPOINT_FILE).write_text(sibling_url, encoding="utf-8")
-
     try:
         with (
             patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
             patch("subprocess.Popen", return_value=mock_proc),
-            patch("urllib.request.urlopen", side_effect=fake_urlopen),
-            patch("plugin.contrib.cdp.browser_cdp_tool.time.sleep", side_effect=fake_sleep),
+            patch.object(browser_cdp_tool._LOCAL_OPENER, "open", side_effect=fake_urlopen),
+            patch("plugin.contrib.cdp.browser_cdp_tool.time.sleep", return_value=None),
         ):
             assert get_local_cdp_url("chrome") == sibling_url
+            assert recorded_queries == 2
     finally:
         cleanup_local_browser()
 
 
-def test_other_browser_type_refused_while_one_is_in_use(tmp_path, monkeypatch):
+@pytest.mark.parametrize("raw_bytes", [b"\xff\xfe", b"ws://["])
+def test_damaged_record_launches_again(raw_bytes, tmp_path, monkeypatch):
     _isolate_home(monkeypatch, tmp_path)
-    seen_urls: list[str] = []
-
-    async def fake_cdp_call(ws_url, _method, _params, _target_id, _timeout):
-        seen_urls.append(ws_url)
-        return {"ok": True}
+    profile_dir = tmp_path / ".config" / "writeragent" / "chrome_profile"
+    profile_dir.mkdir(parents=True)
+    endpoint_file = profile_dir / browser_cdp_tool._ENDPOINT_FILE
+    endpoint_file.write_bytes(raw_bytes)
 
     with _mock_cdp_spawn() as (mock_popen, _mock_proc):
-        chrome_url = get_local_cdp_url("chrome")
-        assert mock_popen.call_count == 1
-        with pytest.raises(RuntimeError, match="another local browser is already in use"):
-            get_local_cdp_url("brave")
-        assert mock_popen.call_count == 1
+        ws_url = get_local_cdp_url("chrome")
+        mock_popen.assert_called_once()
+        assert endpoint_file.read_text(encoding="utf-8") == ws_url
 
-        with patch.object(browser_cdp_tool, "_cdp_call", side_effect=fake_cdp_call):
-            res = json.loads(browser_cdp_tool.browser_cdp("Target.getTargets", {}))
-            assert res["success"] is True
-            assert seen_urls == [chrome_url]
 
+def test_local_requests_ignore_proxy(tmp_path, monkeypatch):
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from websockets.sync.server import serve
+
+    _isolate_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    ws_holder: dict[str, str] = {}
+
+    def ws_handler(websocket):
+        req = json.loads(websocket.recv())
+        websocket.send(json.dumps({"id": req["id"], "result": {"targetInfos": []}}))
+
+    ws_server = serve(ws_handler, "127.0.0.1", 0)
+    ws_port = ws_server.socket.getsockname()[1]
+    ws_url = f"ws://127.0.0.1:{ws_port}/devtools/browser/proxy-test"
+
+    class VersionHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"webSocketDebuggerUrl": ws_holder["url"]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    http_server = HTTPServer(("127.0.0.1", 0), VersionHandler)
+    http_port = http_server.server_address[1]
+    recorded_url = f"ws://127.0.0.1:{http_port}/devtools/browser/proxy-test"
+    ws_holder["url"] = recorded_url
+
+    profile_dir = tmp_path / ".config" / "writeragent" / "chrome_profile"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / browser_cdp_tool._ENDPOINT_FILE).write_text(recorded_url, encoding="utf-8")
+
+    http_thread = threading.Thread(target=http_server.serve_forever)
+    ws_thread = threading.Thread(target=ws_server.serve_forever)
+    http_thread.start()
+    ws_thread.start()
+    try:
+        assert get_local_cdp_url("chrome") == recorded_url
+        browser_cdp_tool._CDP_ENDPOINT = ws_url
+        res = json.loads(browser_cdp_tool.browser_cdp("Target.getTargets", {}))
+        assert res["success"] is True
+        assert res["result"] == {"targetInfos": []}
+    finally:
         cleanup_local_browser()
-        brave_url = get_local_cdp_url("brave")
-        assert mock_popen.call_count == 2
-        assert brave_url.startswith("ws://127.0.0.1:")
+        http_server.shutdown()
+        http_server.server_close()
+        ws_server.shutdown()
+        http_thread.join(2.0)
+        ws_thread.join(2.0)
 
 
 def test_spawn_unregisters_dead_browser():

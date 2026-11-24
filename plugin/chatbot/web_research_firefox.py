@@ -21,13 +21,13 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, final
 
 from plugin.contrib.cdp.browser_cdp_tool import (
     browser_profile_dir,
     cleanup_local_browser,
     find_browser_executable,
+    free_port,
     spawn_local_browser,
 )
 from plugin.framework.errors import best_effort
@@ -36,19 +36,15 @@ from plugin.framework.thread_guard import background
 from plugin.framework.worker_pool import run_in_background
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
     from websockets.sync.client import ClientConnection
 
 log = logging.getLogger(__name__)
 
-FIREFOX_BIDI_PORT = 9222
-FIREFOX_BIDI_URL = f"ws://127.0.0.1:{FIREFOX_BIDI_PORT}/session"
 # Matches browser_cdp's per-call timeout.
 BIDI_CALL_TIMEOUT = 30.0
 # Generous launch wait for cold start (e.g. Windows ARM).
 FIREFOX_LAUNCH_TIMEOUT_SEC = 15.0
 _PIDFILE_NAME = "firefox_bidi.pid"
-_LAUNCH_LOCK_NAME = "launch.lock"
 _FIREFOX_CANDIDATES = [
     "firefox",
     "firefox-esr",
@@ -199,80 +195,34 @@ class FirefoxBidiClient:
 _CLIENT: FirefoxBidiClient | None = None
 
 
-def _pidfile_path(profile_dir: str | None = None) -> str:
-    if profile_dir is None:
-        profile_dir = browser_profile_dir("firefox", create=False)
+def _pidfile_path(profile_dir: str) -> str:
     return os.path.join(profile_dir, _PIDFILE_NAME)
 
 
 def _write_pidfile(pidfile: str, firefox_pid: int) -> None:
     with open(pidfile, "w", encoding="utf-8") as f:
-        f.write(f"{firefox_pid}\n{os.getpid()}\n")
-
-
-def remove_pidfile(*, only_if_owner: bool = True) -> None:
-    """Remove the Firefox BiDi pidfile if it exists (and is owned by this process when *only_if_owner*)."""
-    pidfile = _pidfile_path()
-    if only_if_owner:
-        try:
-            with open(pidfile, encoding="utf-8") as f:
-                lines = [line.strip() for line in f.read().splitlines() if line.strip()]
-        except FileNotFoundError:
-            return
-        if len(lines) < 2 or lines[1] != str(os.getpid()):
-            return
-    try:
-        os.remove(pidfile)
-    except FileNotFoundError:
-        pass
-
-
-def _pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        try:
-            res = ManagedSubprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=3.0,
-            )
-            return bool(re.search(rf"(?<!\d){pid}(?!\d)", res.stdout))
-        except Exception:
-            # Unknown status must mean "do not kill" so a transient failure never kills a sibling's browser.
-            return True
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        # Unknown status must mean "do not kill".
-        return True
+        f.write(f"{firefox_pid}\n")
 
 
 def _cmdline_args_matches(args: list[str], profile_dir: str) -> bool:
-    """Match exact --profile <profile_dir> and --remote-debugging-port in argv."""
+    """Match exact --profile <profile_dir> and a --remote-debugging-port flag in argv."""
     has_profile = any(
         args[i] == "--profile" and i + 1 < len(args) and args[i + 1] == profile_dir
         for i in range(len(args) - 1)
     )
-    return has_profile and f"--remote-debugging-port={FIREFOX_BIDI_PORT}" in args
+    return has_profile and any(a.startswith("--remote-debugging-port=") for a in args)
 
 
 def _cmdline_string_matches(cmdline_str: str, profile_dir: str) -> bool:
-    """Match --profile <profile_dir> and --remote-debugging-port on a raw command line."""
+    """Match --profile <profile_dir> and a --remote-debugging-port flag on a raw command line."""
     escaped = re.escape(profile_dir)
     profile_pat = rf'(?:^|\s)--profile\s+(?:"{escaped}"|{escaped})(?:\s|$)'
-    port_pat = rf"(?:^|\s)--remote-debugging-port={FIREFOX_BIDI_PORT}(?:\s|$)"
+    port_pat = r"(?:^|\s)--remote-debugging-port=\d+(?:\s|$)"
     return bool(re.search(profile_pat, cmdline_str) and re.search(port_pat, cmdline_str))
 
 
 def _cmdline_matches_firefox_profile(pid: int, profile_dir: str) -> bool:
-    """Return True if *pid* is running with exact --profile *profile_dir* and our debug port."""
+    """Return True if *pid* is running with exact --profile *profile_dir* and a debug port."""
     if pid <= 0:
         return False
     proc_cmdline = f"/proc/{pid}/cmdline"
@@ -306,18 +256,19 @@ def _cmdline_matches_firefox_profile(pid: int, profile_dir: str) -> bool:
         return False
 
 
-def _read_owned_orphan_pid(pidfile: str, profile_dir: str) -> int | None:
-    """Return Firefox PID from *pidfile* only when owner is dead and cmdline matches."""
+def _orphan_pid(pidfile: str, profile_dir: str) -> int | None:
+    """Return Firefox PID from *pidfile* when its cmdline still matches *profile_dir*.
+
+    The caller holds the profile lock, so no live WriterAgent owns that process.
+    Reading the first line also accepts the older two-line file.
+    """
     try:
         with open(pidfile, encoding="utf-8") as f:
-            lines = [line.strip() for line in f.read().splitlines() if line.strip()]
-        if len(lines) < 2:
+            first = f.readline().strip()
+        if not first:
             return None
-        ff_pid = int(lines[0])
-        owner_pid = int(lines[1])
+        ff_pid = int(first)
     except (OSError, ValueError):
-        return None
-    if _pid_is_alive(owner_pid):
         return None
     if not _cmdline_matches_firefox_profile(ff_pid, profile_dir):
         return None
@@ -336,16 +287,17 @@ def _terminate_pid(pid: int) -> None:
         os.kill(pid, signal.SIGKILL)
 
 
-def connect_firefox_bidi(open_timeout: float) -> FirefoxBidiClient:
+def connect_firefox_bidi(port: int, open_timeout: float) -> FirefoxBidiClient:
     """Connect to a listening Firefox BiDi endpoint and start one session."""
     # Lazy import: avoids paying websockets/ssl import cost at startup when browser
     # research is off, and keeps an older/missing websockets from breaking web_research import.
     from websockets.exceptions import WebSocketException
     from websockets.sync.client import connect
 
+    url = f"ws://127.0.0.1:{port}/session"
     try:
         ws = connect(
-            FIREFOX_BIDI_URL,
+            url,
             open_timeout=open_timeout,
             # Disable keepalive pings and message size cap for local BiDi pages.
             ping_interval=None,
@@ -362,59 +314,20 @@ def connect_firefox_bidi(open_timeout: float) -> FirefoxBidiClient:
     except Exception as exc:
         client.close()
         raise RuntimeError(
-            f"Firefox on port {FIREFOX_BIDI_PORT} refused a new WebDriver BiDi session: {exc}"
+            f"Firefox on port {port} refused a new WebDriver BiDi session: {exc}"
         ) from exc
     return client
 
 
-@contextmanager
-def _profile_launch_lock(profile_dir: str) -> Generator[None]:
-    """Hold the cross-process lock for launching Firefox on *profile_dir*; raise RuntimeError if another process has it.
-
-    LocalBrowserRefCount.launch_lock covers one process. Without this lock, two LibreOffice processes starting
-    together both poll the one Firefox that won the profile, and the one refused a session kills it.
-    The OS drops the lock when its holder exits.
-    """
-    with open(os.path.join(profile_dir, _LAUNCH_LOCK_NAME), "a", encoding="utf-8") as f:
-        try:
-            if sys.platform == "win32":
-                import msvcrt  # Windows-only stdlib module.
-
-                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl  # POSIX-only stdlib module.
-
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError(f"another WriterAgent is starting Firefox for web research: {exc}") from exc
-        try:
-            yield
-        finally:
-            if sys.platform == "win32":
-                import msvcrt  # Windows-only stdlib module.
-
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-
-
-def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:
+def _launch_firefox(profile_dir: str) -> FirefoxBidiClient:
     pidfile = _pidfile_path(profile_dir)
-
-    try:
-        return connect_firefox_bidi(1.0)
-    except OSError:
-        # Nothing is listening yet, so launch Firefox.
-        pass
-    except RuntimeError:
-        # Port is held by a Firefox that refused session.new. Kill only if our pidfile
-        # records a dead owner AND a live Firefox running with our exact profile dir.
-        orphan_pid = _read_owned_orphan_pid(pidfile, profile_dir)
-        if orphan_pid is None:
-            raise
-        log.warning("Killing orphaned WriterAgent Firefox (pid=%d) holding BiDi session", orphan_pid)
+    orphan_pid = _orphan_pid(pidfile, profile_dir)
+    if orphan_pid is not None:
+        log.warning("Killing orphaned WriterAgent Firefox (pid=%d) holding profile", orphan_pid)
         best_effort(lambda: _terminate_pid(orphan_pid), "firefox bidi: kill orphan")
-        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove orphan pidfile")
         time.sleep(0.3)
 
+    port = free_port()
     executable = find_browser_executable(
         _FIREFOX_CANDIDATES,
         "firefox",
@@ -425,11 +338,14 @@ def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:
         executable,
         "--no-remote",
         "--new-instance",
-        f"--remote-debugging-port={FIREFOX_BIDI_PORT}",
+        f"--remote-debugging-port={port}",
         "--profile",
         profile_dir,
-        "about:blank",
     ]
+    if sys.platform == "win32":
+        # Firefox's launcher process exits with code 0 at once without it, which would look like a handoff.
+        cmd.append("--wait-for-browser")
+    cmd.append("about:blank")
     log.info("Spawning local browser (firefox): %s", " ".join(cmd))
     managed = spawn_local_browser(cmd, label="Firefox", minimized=True)
     if managed.pid is not None:
@@ -438,14 +354,15 @@ def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:
     deadline = time.time() + FIREFOX_LAUNCH_TIMEOUT_SEC
     while time.time() < deadline:
         try:
-            return connect_firefox_bidi(1.0)
+            return connect_firefox_bidi(port, 1.0)
         except OSError:
             rc = managed.popen.poll() if managed.popen is not None else None
-            if rc is not None and rc != 0:
+            if rc is not None:
+                # Code 0 means Firefox found the profile already open.
                 raise RuntimeError(f"Firefox exited during startup (code {rc})")
             time.sleep(0.2)
     raise RuntimeError(
-        f"Firefox did not start listening for WebDriver BiDi on port {FIREFOX_BIDI_PORT} "
+        f"Firefox did not start listening for WebDriver BiDi on port {port} "
         f"after {int(FIREFOX_LAUNCH_TIMEOUT_SEC)} seconds"
     )
 
@@ -453,7 +370,8 @@ def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:
 def begin_firefox_bidi() -> FirefoxBidiClient:
     """Return a live Firefox BiDi client, launching Firefox if needed.
 
-    Caller must hold ``LocalBrowserRefCount.launch_lock``.
+    The caller holds ``LocalBrowserRefCount.launch_lock`` and a counted Firefox run,
+    so the local browser process can only be this Firefox.
     """
     global _CLIENT
     if _CLIENT is not None:
@@ -461,11 +379,8 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
             return _CLIENT
         close_firefox_bidi()
         cleanup_local_browser()
-        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove dead pidfile")
 
-    profile_dir = browser_profile_dir("firefox")
-    with _profile_launch_lock(profile_dir):
-        _CLIENT = _connect_or_launch(profile_dir)
+    _CLIENT = _launch_firefox(browser_profile_dir("firefox"))
     return _CLIENT
 
 
