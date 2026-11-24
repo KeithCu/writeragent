@@ -9,6 +9,7 @@ import os
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.textframes import FrameDelete, FrameGetInfo, FrameInsert, FrameList
+from plugin.writer.structural import GetPageObjects
 from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
 
@@ -61,8 +62,21 @@ def test_docx_text_box_listed_and_deleted_uno(ctx, doc):
         assert info.get("status") == "ok", info
         assert isinstance(info.get("shape_index"), int), info
 
+        miss = FrameGetInfo().execute(tctx, name="Frame9")
+        assert miss.get("status") == "error", miss
+        assert miss["details"]["available"] == ["Frame1"], miss
+
+        page0 = GetPageObjects().execute(tctx, page=0)
+        assert page0.get("status") == "ok", page0
+        page_boxes = [f for f in page0["frames"] if f.get("name") == "Frame1"]
+        assert len(page_boxes) == 1, page0
+        assert page_boxes[0].get("shape_name") == "Text Box 2", page_boxes[0]
+
         deleted = FrameDelete().execute(tctx, name="Frame1")
         assert deleted.get("status") == "ok", deleted
+        page0_after = GetPageObjects().execute(tctx, page=0)
+        assert page0_after.get("status") == "ok", page0_after
+        assert not any(f.get("name") == "Frame1" for f in page0_after["frames"]), page0_after
         assert not reloaded.getTextFrames().hasByName("Frame1")
         dp = reloaded.getDrawPage()
         assert not any(dp.getByIndex(i).getName() == "Text Box 2" for i in range(dp.getCount()))

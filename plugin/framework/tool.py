@@ -451,6 +451,7 @@ class ToolBase(_ToolErrorMixin, ABC):
         missing_msg: str | None = None,
         not_found_msg: str | None = None,
         list_tool: str | None = None,
+        extra_names: Callable[[], list[str]] | None = None,
     ) -> Any:
         """Helper to fetch a specific item from a document's collection.
 
@@ -461,6 +462,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             missing_msg: Error message if the collection getter is missing.
             not_found_msg: Error message if the item doesn't exist.
             list_tool: When set, adds ``details.hint`` / ``details.similar`` on a name miss.
+            extra_names: Called on a miss; names the collection serves by name but leaves out of getElementNames().
 
         Returns:
             The UNO item object, or a dict with {"status": "error", "message": ..., "available": [...]}
@@ -471,6 +473,8 @@ class ToolBase(_ToolErrorMixin, ABC):
 
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
+            if extra_names is not None:
+                available += extra_names()
             msg = not_found_msg or f"Item '{item_name}' not found."
             extra: dict[str, Any] = {
                 "item_name": item_name,

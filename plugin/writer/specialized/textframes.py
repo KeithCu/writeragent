@@ -62,23 +62,32 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
         missing_msg="Document does not support text frames.",
         not_found_msg="Text frame '%s' not found." % name,
         list_tool="frame_list",
+        extra_names=lambda: [box_name for _idx, _shape, box_name in _text_box_shapes(ctx.doc)],
     )
 
 
-def _text_box_shapes(doc: Any) -> list[tuple[int, Any, str]]:
-    """(draw-page index, shape, frame name) for every Word-style text box.
+def text_box_frame(shape: Any) -> Any | None:
+    """The hidden TextFrame holding a Word-style text box's text, or None for any other shape.
 
     A Word text box is a draw shape whose text lives in a hidden TextFrame (the shape's
     TextBoxContent). getTextFrames() hides those frames from getElementNames() but still
     serves them by name (sw/source/core/unocore/unocoll.cxx:SwXFrames::getByName vs
     SwXFrameEnumeration). Fly entries on the draw page have no TextBox property.
     """
+    if safe_get_property(shape, "TextBox", False):
+        return shape.getPropertyValue("TextBoxContent")
+    return None
+
+
+def _text_box_shapes(doc: Any) -> list[tuple[int, Any, str]]:
+    """(draw-page index, shape, frame name) for every Word-style text box."""
     page = doc.getDrawPage()
     boxes = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        if safe_get_property(shape, "TextBox", False):
-            boxes.append((i, shape, shape.getPropertyValue("TextBoxContent").getName()))
+        frame = text_box_frame(shape)
+        if frame is not None:
+            boxes.append((i, shape, frame.getName()))
     return boxes
 
 
@@ -175,7 +184,8 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         anchor = frame.getAnchor()
         text_obj = ctx.doc.getText()
         paragraph_index = None
-        if uno_same(anchor.getText(), text_obj):
+        # getAnchor() is None for an AT_PAGE frame with a page number (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor), so it has no paragraph index.
+        if anchor is not None and uno_same(anchor.getText(), text_obj):
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
             paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
