@@ -344,14 +344,11 @@ def test_frame_insert_invalid_width_and_anchor():
     assert bad_a["code"] == "INVALID_PARAM"
 
 
-def test_frame_delete_remove_text_content():
+def test_frame_delete_disposes_page_anchored_frame():
     from plugin.writer.specialized.textframes import FrameDelete
 
     frame = MagicMock()
-    anchor = MagicMock()
-    host = MagicMock()
-    anchor.getText.return_value = host
-    frame.getAnchor.return_value = anchor
+    frame.getAnchor.return_value = None
     frames = MagicMock()
     frames.hasByName.return_value = True
     frames.getByName.return_value = frame
@@ -370,7 +367,7 @@ def test_frame_delete_remove_text_content():
     with patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit):
         res = FrameDelete().execute(ctx, name="Box")
     assert res["status"] == "ok"
-    host.removeTextContent.assert_called_once_with(frame)
+    frame.dispose.assert_called_once_with()
 
 
 def test_frame_delete_unknown_hints_frame_list():
@@ -444,8 +441,6 @@ def test_frame_delete_text_box_removes_owning_shape():
     from plugin.writer.specialized.textframes import FrameDelete
 
     doc, _plain, box_frame, box_shape, draw_page = _make_text_box_doc()
-    host = MagicMock()
-    box_frame.getAnchor.return_value.getText.return_value = host
     ctx = MagicMock(doc=doc)
 
     def _commit(_tool, _doc, _title, mutate, *_a, **_k):
@@ -457,7 +452,7 @@ def test_frame_delete_text_box_removes_owning_shape():
 
     assert res["status"] == "ok"
     draw_page.remove.assert_called_once_with(box_shape)
-    host.removeTextContent.assert_not_called()
+    box_frame.dispose.assert_not_called()
 
 
 def test_frame_miss_lists_word_text_boxes():

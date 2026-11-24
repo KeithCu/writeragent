@@ -338,5 +338,5 @@ class PageSetWatermark(ToolWriterPageBase):
             "picture_watermarks_removed": removed_pictures,
             "picture_watermark": bool(_watermark_shapes(ctx.doc, PICTURE_WATERMARK_PREFIX)),
         }
-        flag_style_unreviewed(result)
+        flag_style_unreviewed(result, ctx.doc)
         return result

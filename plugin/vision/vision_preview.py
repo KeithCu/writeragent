@@ -163,8 +163,8 @@ def run_vision_insert(
         summary = _("Inserted {count} images.").format(count=len(inserted))
     else:
         summary = _("Inserted: {count} characters.").format(count=len(str(result.get("full_text") or "")))
-    if "image_kept_for_review" in inserted:
-        summary += " " + _("Image kept because Agent edit review is recording changes.")
+    if "image_kept" in inserted:
+        summary += " " + _("Image kept because LibreOffice cannot record deleting it as a tracked change.")
     return summary
 
 

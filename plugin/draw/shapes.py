@@ -1281,7 +1281,19 @@ class CreateDiagram(_AnyDocumentShapeTool):
                     "required": ["id", "text"],
                 },
             },
-            "connections": {"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "line_color": {"type": "string"}}, "required": ["from", "to"]}},
+            "connections": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "from": {"type": "string"},
+                        "to": {"type": "string"},
+                        "line_color": {"type": "string"},
+                        **_ARROWHEAD_PROPERTIES,
+                    },
+                    "required": ["from", "to"],
+                },
+            },
         },
         "required": ["nodes"],
     }
@@ -1308,6 +1320,14 @@ class CreateDiagram(_AnyDocumentShapeTool):
         for conn in connections:
             if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
+            # validate() does not check nested enums, and _set_arrowhead reads any other text as "none".
+            for key, spec in _ARROWHEAD_PROPERTIES.items():
+                marker = conn.get(key)
+                if marker is not None and marker not in spec["enum"]:
+                    return self._tool_error(
+                        f"Invalid value for connections {key}: {marker!r}. Valid options: {', '.join(spec['enum'])}",
+                        code="INVALID_PARAM",
+                    )
 
         layout_name = kwargs["layout"]
         from plugin.draw.bridge import page_size
@@ -1363,8 +1383,9 @@ class CreateDiagram(_AnyDocumentShapeTool):
             src = id_to_index[str(conn.get("from"))]
             dst = id_to_index[str(conn.get("to"))]
             conn_kwargs = {"start": src, "end": dst, "page": actual_idx}
-            if conn.get("line_color"):
-                conn_kwargs["line_color"] = conn["line_color"]
+            for key in ("line_color", *_ARROWHEAD_PROPERTIES):
+                if conn.get(key) is not None:
+                    conn_kwargs[key] = conn[key]
             result = _execute_connect_shapes(self, ctx, **conn_kwargs)
             if isinstance(result, dict) and result.get("status") != "ok":
                 cleanup_shapes()

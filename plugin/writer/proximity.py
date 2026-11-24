@@ -24,14 +24,18 @@ from __future__ import annotations
 
 import bisect
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
+from plugin.writer.search import iter_text_frame_names
 from plugin.writer.tree import collect_heading_indices, heading_ref
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
@@ -50,9 +54,10 @@ def _collect_anchored(
     container: Any,
     anchored: Any,
     builder: Any,
+    names: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     items = []
-    for name in container.getElementNames():
+    for name in container.getElementNames() if names is None else names:
         try:
             obj = container.getByName(name)
             pi = anchored(obj.getAnchor())
@@ -307,7 +312,9 @@ class ProximityService(ServiceBase):
             )
 
         if "frames" in include:
-            result["frames"] = _collect_anchored(doc.getTextFrames(), anchored, _sized_entry)
+            result["frames"] = _collect_anchored(
+                doc.getTextFrames(), anchored, _sized_entry, names=iter_text_frame_names(doc)
+            )
 
         if "comments" in include:
             comments = []

@@ -1434,12 +1434,19 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         try:
-            visual_helpers.delete_graphic(ctx.doc, graphic)
+            tracked = visual_helpers.delete_graphic(ctx.ctx, ctx.doc, graphic)
         except ToolExecutionError as exc:
             if exc.code == "IMAGE_NOT_FOUND":
                 return _image_not_found(self, image_name)
             return self._tool_error(str(exc), code=exc.code, image_name=image_name)
 
+        if tracked:
+            return {
+                "status": "ok",
+                "deleted": image_name,
+                "tracked": True,
+                "message": "Image marked for deletion as a tracked change: it stays in the document until the user accepts the change. Do not accept or reject it yourself.",
+            }
         return {"status": "ok", "deleted": image_name}
 
 

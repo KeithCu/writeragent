@@ -46,10 +46,17 @@ from typing import Any, Callable, ClassVar, Sequence
 
 from plugin.framework import keystore
 from plugin.framework.client.errors import NetworkError
-from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets, secrets_from_headers
+from plugin.framework.client.http_security import (
+    apply_redirect,
+    origin_and_path,
+    public_target,
+    redact_secrets,
+    secrets_from_headers,
+    secrets_from_target,
+)
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.config import get_config, resolve_entry_secret
-from plugin.framework.logging import is_secret_key, redact_sensitive_payload_for_log
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.send_cancellation import (
     SendCancellation,
     acquire_unless_cancelled,
@@ -64,12 +71,14 @@ from plugin.mcp_client.client_helpers import (
     DEFAULT_CONNECT_TIMEOUT_SEC,
     DEFAULT_TOOL_TIMEOUT_SEC,
     HTTP_ERROR_BODY_CHARS,
+    HTTP_ERROR_READ_BYTES,
     MAX_BODY_BYTES,
     MAX_LIST_PAGES,
     OUTCOME_UNCERTAIN_MSG,
     SSE_BOUNDARY_CARRY,
     SSE_BOUNDARY_RE,
     annotation_read_only_hint,
+    bad_header_position,
     content_dual_emits_structured,
     escape_invisible,
     format_approval_arguments,
@@ -236,6 +245,14 @@ class McpServerConnection:
                 f"environment variables. Paste the value directly, or put the token in the server's Token field.",
                 code="MCP_CLIENT_CONFIG",
             )
+        bad_header = bad_header_position(server)
+        if bad_header is not None:
+            # The name is not quoted because a pasted "Name: value" holds the credential.
+            raise McpClientError(
+                f"MCP server '{self.name}': the name of header {bad_header} in \"headers\" is not valid. "
+                f"Use only letters, digits and hyphens in the name, and put the value after the colon as a separate JSON string.",
+                code="MCP_CLIENT_CONFIG",
+            )
         self.tool_timeout: float = safe_numeric(server.get("timeout"), DEFAULT_TOOL_TIMEOUT_SEC)
         self.connect_timeout: float = safe_numeric(server.get("connect_timeout"), DEFAULT_CONNECT_TIMEOUT_SEC)
         self.trusted: bool = server_trusted(server)
@@ -258,7 +275,6 @@ class McpServerConnection:
     def _headers(self) -> dict[str, str]:
         raw_headers = self._server.get("headers")
         headers = {str(k): str(v).strip() for k, v in raw_headers.items()} if isinstance(raw_headers, dict) else {}
-        secret_hdrs = [v for k, v in headers.items() if is_secret_key(k)]
         if not any(k.lower() == "authorization" for k in headers):
             if self._token is None:
                 self._token = resolve_token(self._server)
@@ -277,7 +293,11 @@ class McpServerConnection:
             headers["Mcp-Session-Id"] = self._session_id
         if self._version_negotiated:
             headers["MCP-Protocol-Version"] = self._protocol_version
-        self._secrets = [form for s in secret_hdrs + secrets_from_headers(headers) for form in secret_spellings(s)]
+        self._secrets = [
+            form
+            for s in secrets_from_headers(headers) + secrets_from_target(self.url)
+            for form in secret_spellings(s)
+        ]
         return headers
 
     def _scrub(self, text: str) -> str:
@@ -392,9 +412,10 @@ class McpServerConnection:
         if request_id is None and resp.status in (200, 202):
             return None
         if resp.status != 200:
-            raw_err = resp.read(1200)
-            err_text = " ".join(raw_err.decode("utf-8", errors="replace").split())
-            err_head = self._scrub(err_text)[:HTTP_ERROR_BODY_CHARS]
+            raw_err = resp.read(HTTP_ERROR_READ_BYTES)
+            # Scrub before collapsing whitespace, because a credential may contain a double space or a tab.
+            err_text = self._scrub(raw_err.decode("utf-8", errors="replace"))
+            err_head = " ".join(err_text.split())[:HTTP_ERROR_BODY_CHARS]
             detail = f": {err_head}" if err_head else ""
             raise McpClientError(
                 f"MCP server '{self.name}' returned HTTP {resp.status} for {method}{detail}",

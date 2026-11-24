@@ -35,9 +35,10 @@ What is implemented today (not every Writer mutation tool):
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
 | `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
-| `style_format_text` | Yes for `properties` (Format redlines; `Char*` restore on reject, `Para*` do not; `reset` is not tracked and reports `style_unreviewed`) | No | No |
-| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`; `page_insert_break` is not in this set) | No | No |
-| Other Writer tools (comments, images, …) | No | No | No |
+| `style_format_text` | Yes for `properties` and recordable `Char*` `reset` (`Char*` restore on reject, `Para*` do not; `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
+| `image_delete`, OCR `delete_image_after_insert` | Yes while the document is recording (standalone `image_delete` in Record/Wait does not turn recording on; OCR in Record/Wait records via `run_writer_mutation_with_optional_review`) | No | No |
+| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text, which Writer records itself; `page_insert_break` is not in this set) | No | No |
+| Other Writer tools (comments, frames, shapes, …) | No | No | No |
 
 Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
@@ -256,12 +257,20 @@ sibling changes share those paragraphs.
 All safety scans are **fail-closed**: incomplete redline enumeration never backs a success claim;
 resolve-all returns user-facing messages when verification fails.
 
+### When the user records changes and agent review is Off
+
+When the user turns on Track Changes > Record while agent review is Off, operations that Writer cannot natively record are either flagged (`style_unreviewed: true`) or left undone with a reason:
+
+* **Character resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`) before resetting it. `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. `Para*`, `CharStyleName`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
+* **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` (`removeTextContent`) leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
+* **Known paths that still bypass recording:** table row/column delete (`removeByIndex` in `plugin/writer/table_helpers.py`), `image_insert` (`insertTextContent`), `frame_delete`, chart/OLE insert/delete, `shape_delete`, picture properties/replace, table formatting/merge/split, index update/delete, page break, hyperlink on existing text, paragraph `apply_style` (including `clear_direct`, which now sets `style_unreviewed`), and `WriterStreamedAppendSession.abort_and_restore` / `_finish_collapse` failure fallback.
+
 ### Limitations
 
-* **Style and page layout changes are not reviewable.** `apply_style`, `style_update`, `style_create`,
-  `style_import`, `page_set_style_properties`, `page_set_header_footer_text`,
+* **Style and page layout changes are not reviewable.** `apply_style`, `style_update`, `style_create`, `style_clone`,
+  `style_import`, `section_*`, `page_set_style_properties`, `page_set_header_footer_text`,
   `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
-  `style_unreviewed: true`; the agent is prompted to tell the user it changed a style or page layout
+  `style_unreviewed: true` when review recording is active (and, except for header/footer text and character `apply_style`, when the user has Track Changes > Record on with review Off); the agent is prompted to tell the user it changed a style or page layout
   (they don't produce redlines). `page_insert_break` is not in that set.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline

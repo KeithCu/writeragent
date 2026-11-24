@@ -1341,3 +1341,74 @@ def test_inner_call_recorder_records_editing_tool_that_raises():
     assert payload["edits"] == {}
     assert "note" not in payload
 
+
+def test_build_toolcalling_agent_prints_nothing_when_tool_with_password_fails(capsys):
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
+
+    class _SecretTool(SmolTool):
+        name = "sec"
+        description = "Secret tool."
+        inputs = {"password": {"type": "string", "description": "password"}}
+        output_type = "string"
+
+        def forward(self, password: str) -> str:
+            raise ValueError("boom")
+
+    class _ReplyTool(SmolTool):
+        name = "reply_to_user"
+        description = "Reply to user."
+        inputs = {"answer": {"type": "string", "description": "answer"}}
+        output_type = "string"
+
+        def forward(self, answer: str) -> str:
+            return answer
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="sec", arguments={"password": "hunter2"}),
+                    id="call_1",
+                    type="function",
+                )
+            ],
+        ),
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="reply_to_user", arguments={"answer": "done"}),
+                    id="call_2",
+                    type="function",
+                )
+            ],
+        ),
+    ]
+
+    with (
+        patch("plugin.chatbot.smol_agent.create_smol_model", return_value=mock_model),
+        patch("plugin.chatbot.smol_agent.get_config", return_value=5),
+    ):
+        agent = build_toolcalling_agent(
+            MagicMock(),
+            [_SecretTool(), _ReplyTool()],
+            instructions="i",
+            final_answer_tool_name="reply_to_user",
+            examples_block="e",
+        )
+        result = agent.run("t")
+
+    assert result == "done"
+    assert mock_model.generate.call_count == 2
+    assert capsys.readouterr().out == ""
+
