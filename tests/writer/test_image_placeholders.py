@@ -294,5 +294,55 @@ def test_restore_region_images_raises_on_missing_marker():
     model = MagicMock()
     model.getGraphicObjects.return_value = graphics
     item = image_placeholders._RegionImage("m1", "Logo", None, False, False)
-    with pytest.raises(ToolExecutionError, match="marker not found"):
+    with pytest.raises(ToolExecutionError, match="was lost"):
         image_placeholders.restore_region_images(model, [item])
+
+
+def test_capture_placeholder_images_refuses_link_inside_wrapper():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import image_placeholders
+
+    obj = MagicMock()
+    graphics = MagicMock()
+    graphics.hasByName.return_value = True
+    graphics.getByName.return_value = obj
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+
+    with pytest.raises(ToolExecutionError, match="without its data"):
+        image_placeholders.capture_placeholder_images(
+            model, '<div id="Logo"><a href="x"><img src=""/></a></div>'
+        )
+
+
+def test_restore_region_images_at_page_nodata_and_in_region_dispose():
+    from plugin.writer import image_placeholders
+
+    # AT_PAGE with no_data=True restores kept.graphic before setName.
+    imported_page = MagicMock()
+    graphics = MagicMock()
+    graphics.hasByName.return_value = True
+    graphics.getByName.return_value = imported_page
+    model = MagicMock()
+    model.getGraphicObjects.return_value = graphics
+
+    kept_page = image_placeholders._KeptImage(
+        "m_page", "PageLogo", MagicMock(), "ORIG_GFX", MagicMock(value="AT_PAGE"), MagicMock(), {}
+    )
+    image_placeholders.restore_region_images(
+        model, [image_placeholders._RegionImage("m_page", "PageLogo", kept_page, True, False)]
+    )
+    assert imported_page.Graphic == "ORIG_GFX"
+    imported_page.setName.assert_called_once_with("PageLogo")
+
+    # in_region=True when _deleted_by_the_edit is False disposes imported copy.
+    imported_in = MagicMock()
+    graphics.getByName.return_value = imported_in
+    kept_in = image_placeholders._KeptImage(
+        "m_in", "InLogo", MagicMock(), "G", MagicMock(value="AT_PARAGRAPH"), MagicMock(), {}
+    )
+    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False):
+        image_placeholders.restore_region_images(
+            model, [image_placeholders._RegionImage("m_in", "InLogo", kept_in, False, True)]
+        )
+    imported_in.dispose.assert_called_once()

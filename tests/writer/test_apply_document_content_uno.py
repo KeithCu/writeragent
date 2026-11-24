@@ -712,7 +712,39 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
         res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
         assert res.get("status") == "error", (res, with_table)
         assert res.get("code") == "HIDDEN_LEADING_SECTION", res
+        assert "secret" in doc.getTextSections().getByName(f"HiddenTop_{with_table}").getAnchor().getString()
         assert "tail" in text.getString()
+
+    # 2b. Negative cases for raise_if_hidden_start: visible leading section, hidden middle section, leading table.
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "vis", False)
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    assert SectionCreate().execute(tctx, name="VisTop", locator="paragraph:0")["status"] == "ok"
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK1</p>").get("status") == "ok"
+
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "head", False)
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "mid", False)
+    assert SectionCreate().execute(tctx, name="HidMid", locator="paragraph:1")["status"] == "ok"
+    assert SectionSetVisibility().execute(tctx, name="HidMid", visible=False)["status"] == "ok"
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>").get("status") == "ok"
+
+    _clear_body(doc)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("t0")
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK3</p>").get("status") == "ok"
 
     # 3. full_document with a stubbed import that loses the table fails with a header table or struck table.
     _clear_body(doc)

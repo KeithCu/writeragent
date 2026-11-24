@@ -19,7 +19,7 @@ import html as html_mod
 import logging
 import re
 import uuid
-from typing import Any, Generator, NamedTuple
+from typing import Any, Generator, NamedTuple, NoReturn
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
@@ -33,22 +33,24 @@ log = logging.getLogger("writeragent.writer")
 # get_content leaves image data out (include_images=false), so a picture comes back as
 # its frame's wrapper -- <div ... id="Name"> for paragraph/character/page anchors, <span ...
 # id="Name"> inside a line -- around <img src="">, and a floating frame is followed by a
-# clear:both <div>. Imported as is, the picture would be lost: the edit deletes the
-# original with the old text and the import makes nothing (a signature vanishes on "Accept all"),
-# and the clear:both <div> becomes an extra empty paragraph that shifts the next data-lo-style by
-# one. A picture inside a heading comes back with a <p> between the wrapper and the <img>
-# (<span id="Name"><p><img src=""/></p></span>); the optional <p> in the pattern catches it, so the
-# edit is not refused as "an image without its data".
+# clear:both <div>. An AT_PARAGRAPH image with a vertical offset is preceded by an emulation
+# <div style="height:...">&nbsp;</div>, and a draw:frame comment with newlines sits before the
+# wrapper. Imported as is, the picture would be lost: the edit deletes the original with the
+# old text and the import makes nothing (a signature vanishes on "Accept all"), the
+# emulation/clear:both <div> becomes an extra empty paragraph that shifts the next
+# data-lo-style by one (or adds a \xa0 paragraph per round), and the draw:frame comment's
+# newlines add a space mid-word. A picture inside a heading comes back with a <p> between
+# the wrapper and the <img> (<span id="Name"><p><img src=""/></p></span>); the optional <p>
+# in the pattern catches it, so the edit is not refused as "an image without its data".
+# _FRAME_IMAGE_RE shares this pattern for header/footer writes (data-less or with data).
 def _frame_image_re(img: str) -> re.Pattern[str]:
     return re.compile(
         r"(?:\n<!--Next 'div' is emulating the top height of a draw:frame\.-->\s*"
         r'(?:<div style="height:[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?)?'
         r"(?:\n<!--Next '(?:div|span)' is a draw:frame\. -->\n)?"
         r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?'
-        r"(?P<a_open><a\b[^>]*>\s*)?"
         + img
-        + r"(?P<a_close>\s*</a>)?"
-        r"\s*(?:</p>\s*)?</\1>"
+        + r"\s*(?:</p>\s*)?</\1>"
         r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
         re.IGNORECASE,
     )
@@ -94,7 +96,7 @@ def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:
         try:
             props[prop] = obj.getPropertyValue(prop)
         except Exception as exc:
-            log.debug("capture_placeholder_images: skip property %s: %s", prop, exc)
+            log.debug("read_picture: skip property %s: %s", prop, exc)
     return _KeptImage(
         marker,
         name,
@@ -106,7 +108,7 @@ def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:
     )
 
 
-def _refuse_lost_images(missing: list[str]) -> None:
+def _refuse_lost_images(missing: list[str]) -> NoReturn:
     named = (
         " It names %s, which this document does not have." % ", ".join(repr(n) for n in missing)
         if missing
@@ -218,6 +220,8 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
             in_region = False
         images.append(_RegionImage(marker, name, kept, no_data, in_region))
         if no_data:
+            # StarWriter creates no graphic for <img src="">, so supply a 1x1 PNG stand-in
+            # for the import and swap the original graphic back in restore_region_images.
             img = re.sub(
                 r'\bsrc\s*=\s*(["\'])\s*\1',
                 f'src="{_1PX_PNG_DATA_URI}"',
@@ -225,9 +229,10 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
                 count=1,
                 flags=re.IGNORECASE,
             )
-        a_open = match.group("a_open") or ""
-        a_close = match.group("a_close") or ""
-        return f'{a_open}<img name="{marker}" border="0"{img[4:]}{a_close}'
+        # StarWriter's HTML import (HtmlOptionId::NAME -> SetFormatName in
+        # sw/source/filter/html/htmlgrin.cxx) names the imported graphic from name=,
+        # and border="0" stops a hyperlinked image from gaining 53/100 mm padding.
+        return '<img name="%s" border="0"' % marker + img[4:]
 
     swapped = _FRAME_IMAGE_RE.sub(_swap, html)
     if missing or _EMPTY_IMG_RE.search(swapped):
@@ -242,15 +247,19 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
     graphics = uno_read(lambda: model.getGraphicObjects(), None)
     for image in images:
         if graphics is None or not uno_read(lambda: graphics.hasByName(image.marker), False):
-            raise ToolExecutionError(f"Kept image {image.name!r} marker not found after import")
+            raise ToolExecutionError(f"Image {image.name!r} was lost during header/footer import.")
         imported = graphics.getByName(image.marker)
         kept = image.kept
         if kept is None or getattr(kept.anchor, "value", "") == "AT_PAGE":
+            if image.no_data and kept is not None:
+                imported.Graphic = kept.graphic
             try:
                 imported.setName(image.name)
             except Exception as exc:
                 reraise_if_disposed(exc)
             continue
+        # Only a graphic anchored directly in text_obj can survive the clear; a cell
+        # original's _deleted_by_the_edit answers False even though Accept removes the table.
         if image.in_region and not _deleted_by_the_edit(model, kept.original, image.name):
             imported.dispose()
             continue
@@ -323,6 +332,13 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         except Exception as exc:
             reraise_if_disposed(exc)
             return False
+    elif getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_CHARACTER":
+        try:
+            end_check = anchor.getText().createTextCursorByRange(anchor.getStart())
+            if not end_check.goRight(1, False):
+                return False  # at the end of the last paragraph: Accept leaves it in place
+        except Exception as exc:
+            reraise_if_disposed(exc)
     return uno_read(lambda: "Delete" in redline_kinds_covering(model, point), False)
 
 

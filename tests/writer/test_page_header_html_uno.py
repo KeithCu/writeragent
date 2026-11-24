@@ -957,7 +957,9 @@ def _insert_header_logo(doc, target_text, img_path, anchor_type, *, name="LogoPi
     g.setPropertyValue("AnchorType", anchor_type)
     g.setPropertyValue("Width", 500)
     g.setPropertyValue("Height", 500)
-    if offset:
+    if anchor_type != doc.createInstance("com.sun.star.text.TextGraphicObject").getPropertyValue("AnchorType"):
+        pass
+    if offset or anchor_type.value != "AS_CHARACTER":
         g.setPropertyValue("HoriOrient", 0)
         g.setPropertyValue("HoriOrientPosition", 500)
         g.setPropertyValue("VertOrient", 0)
@@ -1020,7 +1022,7 @@ def test_header_logo_roundtrip_matrix_uno(ctx):
                         pic = graphics.getByIndex(0)
                         assert pic.getName() == "BrandLogo"
                         assert pic.getPropertyValue("AnchorType") == anchor_type
-                        if anchor_type == AT_PARAGRAPH:
+                        if anchor_type in (AT_PARAGRAPH, AT_CHARACTER):
                             assert (pic.getPropertyValue("HoriOrientPosition"), pic.getPropertyValue("VertOrientPosition")) == orig_pos
                         assert pic.getPropertyValue("Title") == "ti"
                         assert pic.getPropertyValue("Description") == "de"
@@ -1074,24 +1076,86 @@ def test_header_logo_recording_hyperlink_refusals_and_nested_scan_uno(ctx, doc):
         with patch.object(html_import, "insert_html_fragment_at_cursor"):
             err_tbl = _set(doc, ctx, "header", "<p>x</p><table><tr><td>c</td></tr></table>")
         assert err_tbl.get("status") == "error"
+        assert err_tbl.get("code") == "TABLE_INSERT_FAILED", err_tbl
         assert "Table insert produced no table in document." in err_tbl.get("message", ""), err_tbl
         assert header.getString().strip() == "abc"
 
-        # Recording: Accept and Reject each leave one logo.
-        controller = doc.getCurrentController()
-        doc.setPropertyValue("RecordChanges", True)
-        try:
-            got_rec = _get(doc, ctx, "header", include_images=True)
-            assert _set(doc, ctx, "header", got_rec["content"].replace("abc", "def")).get("status") == "ok"
-            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-            assert doc.getGraphicObjects().getCount() == 1
+        # Recording: Accept and Reject each leave one logo for AT_PARAGRAPH, AS_CHARACTER,
+        # AT_CHARACTER, and a cell original (fresh doc per case).
+        from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
+        from plugin.tests.testing_utils import TestingFactory
 
-            got_rej = _get(doc, ctx, "header", include_images=True)
-            assert _set(doc, ctx, "header", got_rej["content"].replace("def", "ghi")).get("status") == "ok"
-            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
-            assert doc.getGraphicObjects().getCount() == 1
-        finally:
-            doc.setPropertyValue("RecordChanges", False)
+        for rec_in_cell, rec_anchor in (
+            (False, AT_PARAGRAPH),
+            (False, AS_CHARACTER),
+            (False, AT_CHARACTER),
+            (True, AT_PARAGRAPH),
+        ):
+            rdoc = TestingFactory.create_native_doc(ctx, "writer")
+            try:
+                rstyle, _ = _style(rdoc)
+                rstyle.setPropertyValue("HeaderIsOn", True)
+                rheader = rstyle.getPropertyValue("HeaderText")
+                if rec_in_cell:
+                    tbl = rdoc.createInstance("com.sun.star.text.TextTable")
+                    tbl.initialize(1, 1)
+                    rheader.insertTextContent(rheader.getStart(), tbl, False)
+                    rec_target = tbl.getCellByName("A1")
+                else:
+                    rec_target = rheader
+                if rec_anchor == AT_CHARACTER:
+                    # Anchor mid-paragraph so Accept deletes it and _insert_copy runs.
+                    rec_target.setString("a")
+                    _insert_header_logo(
+                        rdoc, rec_target, img_path, rec_anchor, name=f"Rec_{rec_in_cell}_{rec_anchor.value}"
+                    )
+                    rcur = rec_target.createTextCursor()
+                    rcur.gotoEnd(False)
+                    rec_target.insertString(rcur, "bc", False)
+                else:
+                    rec_target.setString("abc")
+                    _insert_header_logo(
+                        rdoc, rec_target, img_path, rec_anchor, name=f"Rec_{rec_in_cell}_{rec_anchor.value}"
+                    )
+                rctrl = rdoc.getCurrentController()
+                rdoc.setPropertyValue("RecordChanges", True)
+                got_rec = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got_rec["content"].replace("abc", "def")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:AcceptAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, (
+                    rec_in_cell,
+                    rec_anchor,
+                    rdoc.getGraphicObjects().getCount(),
+                )
+
+                got_rej = _get(rdoc, ctx, "header", include_images=True)
+                assert _set(rdoc, ctx, "header", got_rej["content"].replace("def", "ghi")).get("status") == "ok"
+                execute_dispatch(ctx, rctrl, ".uno:RejectAllTrackedChanges")
+                assert rdoc.getGraphicObjects().getCount() == 1, (
+                    rec_in_cell,
+                    rec_anchor,
+                    rdoc.getGraphicObjects().getCount(),
+                )
+            finally:
+                rdoc.close(True)
+
+        # Edge: wrapper copied from another region (body) creates a new logo in header and leaves body untouched.
+        header.setString("")
+        body = doc.getText()
+        body.setString("body")
+        _insert_header_logo(doc, body, img_path, AT_PARAGRAPH, name="BodyLogo")
+        from plugin.writer.html_export import document_to_content
+
+        body_html = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert _set(doc, ctx, "header", body_html).get("status") == "ok"
+        assert doc.getGraphicObjects().getCount() == 2
+
+        # Edge: unknown wrapper id WITH data imports inline and takes that name.
+        import base64
+
+        b64 = base64.b64encode(_PNG_BYTES).decode("ascii")
+        assert _set(doc, ctx, "header", f'<p><span id="FreshLogo"><img src="data:image/png;base64,{b64}"/></span></p>').get("status") == "ok"
+        assert doc.getGraphicObjects().hasByName("FreshLogo")
 
         # Nested-cell logo appears in _scan_region_content / images list.
         header.setString("")

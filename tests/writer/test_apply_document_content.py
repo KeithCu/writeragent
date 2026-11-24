@@ -1689,6 +1689,17 @@ def test_all_matches_disposed_undo_manager_reraises():
             ],
             id="search",
         ),
+        pytest.param(
+            "search",
+            {"old_content": "old", "all_matches": True},
+            [
+                ("plugin.writer.search.find_literal_ranges", {"return_value": ([MagicMock()], MatchMode(True, False))}),
+                ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
+                ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
+                ("plugin.writer.html_import.replace_single_range_with_content", {"return_value": html_import_styles.WriteReport(tables_added=0)}),
+            ],
+            id="all_matches",
+        ),
     ],
 )
 def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwargs, patches):
@@ -1707,7 +1718,7 @@ def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwarg
             ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
-    assert res["message"] == "Table insert produced no table in document."
+    assert "Table insert produced no table in document." in res["message"]
 
 
 def test_table_insert_failed_inside_outline_undo_keeps_code():

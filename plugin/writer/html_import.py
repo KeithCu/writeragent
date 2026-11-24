@@ -1394,6 +1394,8 @@ def replace_xtext_with_html(
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
+        # Restore last, after trailing-paragraph cleanup: the inline copy's Frame portion
+        # is what keeps a logo-only last paragraph from being removed above.
         image_placeholders.restore_region_images(model, region_images)
 
     try:

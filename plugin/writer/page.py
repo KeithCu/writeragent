@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.framework.errors import (
+    ToolExecutionError,
     best_effort,
     is_disposal,
     make_tool_error,
@@ -1049,7 +1050,11 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                     lambda: set_header_footer_auto_height(style, region, old_auto_height),
                     "page_set_header_footer_text: rollback auto_height failed",
                 )
-            return self._tool_error(f"Error writing to {region} text on page style '{style_name}': {e}")
+            err_code = e.code if isinstance(e, ToolExecutionError) and e.code else "TOOL_EXECUTION_ERROR"
+            return self._tool_error(
+                f"Error writing to {region} text on page style '{style_name}': {e}",
+                code=err_code,
+            )
 
 
 # A field is one cursor step, but getString() expands it to the digits the reader

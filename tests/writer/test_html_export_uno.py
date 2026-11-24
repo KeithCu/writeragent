@@ -1270,6 +1270,8 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
         )
         assert res.get("status") == "ok", res
         assert doc.getGraphicObjects().getCount() == 2
+        after1 = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert re.search(r"one.*SelA.*two.*SelB.*THREE", after1, re.DOTALL), after1
 
         doc.setPropertyValue("RecordChanges", True)
         try:
@@ -1284,6 +1286,8 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
             assert res2.get("status") == "ok", res2
             execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
             assert doc.getGraphicObjects().getCount() == 2
+            after2 = document_to_content(doc, ctx, scope="full", include_images=False)
+            assert re.search(r"ONE.*<img\b.*two.*<img\b.*THREE", after2, re.DOTALL), after2
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
@@ -1297,15 +1301,38 @@ def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: A
         r0 = document_to_content(doc, ctx, scope="range", range_start=0, range_end=3, include_images=False)
         assert "FirstParaPic" in _img_ids(r0), r0
 
-        # 4. Cell picture in range read.
+        # 4. Cell picture in range and selection reads (AS_CHARACTER and AT_PARAGRAPH).
         text.setString("")
         tbl = doc.createInstance("com.sun.star.text.TextTable")
         tbl.initialize(1, 1)
         text.insertTextContent(text.getStart(), tbl, False)
         cell = tbl.getCellByName("A1")
         cell.setString("cell")
-        _add_pic(cell, AT_PARAGRAPH, "CellPic")
+        _add_pic(cell, AT_PARAGRAPH, "CellPicPara")
+        _add_pic(cell, AS_CHARACTER, "CellPicInline")
         r_cell = document_to_content(doc, ctx, scope="range", range_start=0, range_end=10, include_images=False)
-        assert "CellPic" in _img_ids(r_cell), r_cell
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(r_cell)), r_cell
+        cell_cur = cell.createTextCursor()
+        cell_cur.gotoStart(False)
+        cell_cur.gotoEnd(True)
+        controller.select(cell_cur)
+        s_cell = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(s_cell)), s_cell
+
+        # 5. Formula paragraph with a picture in range and selection reads (_copy_formula_runs).
+        text.setString("")
+        math_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        math_obj.CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
+        text.insertTextContent(text.getStart(), math_obj, False)
+        math_obj.getEmbeddedObject().Formula = "x^2"
+        _add_pic(text, AS_CHARACTER, "FormulaPic")
+        r_math = document_to_content(doc, ctx, scope="range", range_start=0, range_end=5, include_images=False)
+        assert "FormulaPic" in _img_ids(r_math), r_math
+        sel_math = text.createTextCursor()
+        sel_math.gotoStart(False)
+        sel_math.gotoEnd(True)
+        controller.select(sel_math)
+        s_math = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert "FormulaPic" in _img_ids(s_math), s_math
     finally:
         os.unlink(img_path)

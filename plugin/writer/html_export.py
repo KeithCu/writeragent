@@ -578,7 +578,9 @@ def _copy_window_to_scratch(
             temp_cursor.gotoEnd(False)
             if need_break:
                 range_copy.begin_next_paragraph(temp_text, temp_cursor)
-            # Cloned cell graphics keep their source names when unused in temp_doc.
+            # Range reads with include_images=False emit placeholders named after the clone;
+            # keeping the source name (when unused in temp_doc) prevents a later write-back
+            # (image_placeholders) from restoring a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
             for para in range_copy.iter_table_paragraphs(table):
                 copied_ruby.extend(html_ruby.ruby_spans_in_window(para, 0, len(para.getString())))

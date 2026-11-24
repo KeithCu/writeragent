@@ -505,6 +505,8 @@ def clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> int
                 except Exception:
                     log.debug("clone_graphics: skip %s", prop)
             dest_text.insertTextContent(cursor, clone, False)
+            # Keep the source name when unused in dest_doc so exported placeholders carry the
+            # real name; a same-document clone (page-style copy) keeps its automatic name.
             name = shape.getName()
             if not dest_doc.getGraphicObjects().hasByName(name):
                 best_effort(lambda: clone.setName(name), "clone_graphics: refused graphic name")

@@ -651,9 +651,8 @@ class WriteReport:
     paragraph because the content was block-level. ``added_content`` is internal (not
     reported): False when the import added nothing (e.g. ``<p></p>``), so
     ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
-    ``links_retargeted`` counts outline hyperlinks updated after a heading rename, and
-    ``stale_links`` lists ``|outline`` URLs on field-backed links that could not be
-    rewritten as tracked changes while recording. ``tables_added`` is internal (not
+    outline hyperlinks updated after a heading rename, and ``stale_links`` lists
+    ``|outline`` URLs on field-backed links that could not be rewritten as tracked changes while recording. ``tables_added`` is internal (not
     reported): tables the import added, or None when not measured. all_matches merges
     one report per match with ``extend``.
     """
