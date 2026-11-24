@@ -821,7 +821,7 @@ def test_shape_upsert_text_style_and_alignment(ctx, doc):
 
 @native_test
 @with_native_doc("draw")
-def test_shape_upsert_corner_radius_on_custom_shape_warns(ctx, doc):
+def test_shape_upsert_corner_radius_on_ellipse_warns(ctx, doc):
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
     res = UpsertShape().execute(
         tctx,
