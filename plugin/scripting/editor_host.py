@@ -885,11 +885,14 @@ class PersistentEditor:
                     return
                 if not isinstance(result, dict):
                     result = {"type": "saved", "ok": True}
-                if result.get("type") == "saved" or result.get("ok"):
+                saved = result.get("type") == "saved" or result.get("ok")
+                if saved:
                     captured.dirty = False
+                    if captured.pending_load is not None:
+                        result = {**result, "load_follows": True}
                 _send_save(result)
                 pending = captured.pending_load
-                if pending is not None and (result.get("type") == "saved" or result.get("ok")):
+                if saved and pending is not None:
                     next_on_save = captured.pending_on_save
                     next_on_closed = captured.pending_on_closed
                     captured._clear_pending()

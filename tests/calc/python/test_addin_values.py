@@ -481,7 +481,7 @@ def test_calc_formula_error_double_and_tokens() -> None:
 def test_na_nan_spill_and_round_trip() -> None:
     import pickle
     from plugin.scripting.payload_codec import host_unpack_data
-    from plugin.scripting.venv.calc_functions_util import NA_NAN
+    from plugin.scripting.venv.calc_functions_util import NA_NAN, NESTED_ARRAY_NAN
     from plugin.scripting.venv.to_wire import to_wire
 
     rec = addin_values.coerce_spill_value(NA_NAN)
@@ -495,12 +495,27 @@ def test_na_nan_spill_and_round_trip() -> None:
     assert neg_rec.error_code == 32767
 
     plain_rec = addin_values.coerce_spill_value(float("nan"))
-    assert plain_rec.kind == "n"
-    assert math.isnan(plain_rec.calc_value)
+    assert plain_rec.kind == "err"
+    assert plain_rec.error_code == 503
+    assert plain_rec.calc_value == ""
+
+    nested_rec = addin_values.coerce_spill_value(NESTED_ARRAY_NAN)
+    assert nested_rec.kind == "err"
+    assert nested_rec.error_code == 533
+    assert nested_rec.calc_value == ""
+
+    high_bits_nan = struct.unpack("d", struct.pack("Q", 0x7FF8000000010000))[0]
+    high_rec = addin_values.coerce_spill_value(high_bits_nan)
+    assert high_rec.kind == "err"
+    assert high_rec.error_code == 519
 
     na_bits = struct.unpack("Q", struct.pack("d", NA_NAN))[0]
     calc_bits = struct.unpack("Q", struct.pack("d", addin_values.calc_formula_error_double(addin_values.ERR_NA)))[0]
     assert na_bits == calc_bits
+
+    nested_bits = struct.unpack("Q", struct.pack("d", NESTED_ARRAY_NAN))[0]
+    calc_nested_bits = struct.unpack("Q", struct.pack("d", addin_values.calc_formula_error_double(533)))[0]
+    assert nested_bits == calc_nested_bits
 
     scalar_wire = pickle.loads(pickle.dumps(to_wire(NA_NAN), protocol=5))
     scalar_host = host_unpack_data(scalar_wire)

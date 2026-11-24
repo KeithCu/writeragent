@@ -42,11 +42,14 @@ const queue = [];
 let poll;
 let text = "";
 let onCh;
+let readOnly = false;
+function type(v) {{ if (!readOnly) {{ text = v; onCh && onCh(); }} }}
 const backend = {{
   create: () => Promise.resolve(),
   onChange(f) {{ onCh = f; }},
   getValue: () => text,
   setValue(v) {{ text = v; onCh && onCh(); }},
+  setReadOnly(on) {{ readOnly = !!on; }},
   setLanguage() {{}},
   setMarkers() {{}},
   setTheme() {{}},
@@ -93,6 +96,9 @@ async function deliver(m) {{ queue.push(m); poll(); await tick(); await tick(); 
     sent,
     dirty: win.waEditorUi.isDirty(),
     text,
+    readOnly,
+    dataDisabled: !!el("data-binding-input").disabled,
+    plainDisabled: !!el("chk-plain-text").disabled,
     dataBinding: el("data-binding-input").value,
   }}));
 }})();
@@ -190,3 +196,66 @@ def test_editor_shell_clean_after_save_script_stays_clean_on_late_run_reply() ->
     )
     assert out["dirty"] is False
     assert out["sent"][-1] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_request_save_locks_until_load() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s1"});
+        type("ab");
+        await deliver({type: "request_save", session_id: "s1"});
+        type("typed_while_locked");
+        await deliver({type: "saved", session_id: "s1", load_follows: true});
+        type("typed_before_load");
+        await deliver({type: "load", mode: "calc_cell", code: "next", session_id: "s2"});
+        type("next_edited");
+        """
+    )
+    assert out["text"] == "next_edited"
+    assert out["readOnly"] is False
+    assert out["dataDisabled"] is False
+    assert out["plainDisabled"] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_request_save_error_unlocks_and_keeps_text() -> None:
+    out = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s1"});
+        type("ab");
+        await deliver({type: "request_save", session_id: "s1"});
+        type("ignored");
+        await deliver({type: "error", session_id: "s1", message: "boom"});
+        """
+    )
+    assert out["text"] == "ab"
+    assert out["readOnly"] is False
+    assert out["dataDisabled"] is False
+    assert out["plainDisabled"] is False
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_saved_without_load_follows_unlocks_and_normal_save_does_not_lock() -> None:
+    locked_then_unlocked = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s1"});
+        type("ab");
+        await deliver({type: "request_save", session_id: "s1"});
+        await deliver({type: "saved", session_id: "s1"});
+        type("after_saved");
+        """
+    )
+    assert locked_then_unlocked["text"] == "after_saved"
+    assert locked_then_unlocked["readOnly"] is False
+
+    normal_save = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s1"});
+        type("ab");
+        el("btn-save").click();
+        type("still_editable");
+        """
+    )
+    assert normal_save["text"] == "still_editable"
+    assert normal_save["readOnly"] is False
