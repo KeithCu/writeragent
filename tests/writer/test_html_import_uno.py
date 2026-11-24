@@ -2370,3 +2370,32 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_html_import_math_with_style_while_recording_leaves_no_format_redline_uno(ctx: Any, doc: Any) -> None:
+    """Importing styled HTML with math while recording leaves no Format redline and rejects cleanly."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    text.setString("Initial body.")
+    orig = text.getString()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    html = '<p data-lo-style="Title">b <span style="color:#ff0000">red</span> $x^2$ t</p>'
+    try:
+        save({flag: "record"})
+        res = ApplyDocumentContent().execute(tctx, target="end", content=[html])
+        assert res.get("status") == "ok", res
+        redlines = doc.getRedlines()
+        types = [redlines.getByIndex(i).getPropertyValue("RedlineType") for i in range(redlines.getCount())]
+        assert "Format" not in types, types
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert text.getString() == orig
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

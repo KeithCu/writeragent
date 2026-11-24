@@ -1352,6 +1352,23 @@ def test_agent_format_author_begins_and_ends_even_on_error():
         mock_authors.end.assert_called_once_with(ctx, token)
 
 
+def test_paragraph_redline_author_uses_agent_in_review_and_office_when_off():
+    from plugin.writer.edit_review import paragraph_redline_author
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=True),
+        patch("plugin.writer.edit_review.review_authors.office_author", return_value="Alice Smith"),
+    ):
+        assert paragraph_redline_author(ctx) == "WriterAgent"
+
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=False),
+        patch("plugin.writer.edit_review.review_authors.office_author", return_value="Alice Smith"),
+    ):
+        assert paragraph_redline_author(ctx) == "Alice Smith"
+
+
 def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
     doc = MagicMock()
     text_range = MagicMock()

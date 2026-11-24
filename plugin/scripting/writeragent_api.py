@@ -3074,7 +3074,7 @@ class _WriterProxy:
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
+            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. To drop hand-set formatting without changing the style, use style_format_text reset. One of: none, style_props, all.
         """
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 

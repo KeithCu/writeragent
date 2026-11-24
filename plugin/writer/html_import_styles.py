@@ -32,6 +32,7 @@ from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
 from .math.html_math_segment import html_fragment_contains_mixed_math
+from .record_changes import record_changes
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -1091,9 +1092,12 @@ def apply_block_lo_styles(
                 try:
                     cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     cur.gotoEndOfParagraph(True)
-                    apply_paragraph_style_preserving_direct_char(
-                        model, cur, resolved, style_cache=style_cache,
-                    )
+                    # The paragraph is our own new insertion; recorded, the Char* restore can
+                    # leave Format redlines whose Reject keeps inserted text.
+                    with record_changes(model, False):
+                        apply_paragraph_style_preserving_direct_char(
+                            model, cur, resolved, style_cache=style_cache,
+                        )
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-style: failed to apply %r", style, exc_info=True)

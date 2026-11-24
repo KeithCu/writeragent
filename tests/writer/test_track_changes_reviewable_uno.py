@@ -1743,3 +1743,249 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
         save({_FLAG: prev})
         if len(doc.getRedlines()):
             _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "First para.")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para.", False)
+    paras = _paragraphs(doc)
+    paras[0].setPropertyValue("ParaLeftMargin", 500)
+    paras[1].setPropertyValue("ParaLeftMargin", 700)
+    orig_adjust = [p.getPropertyValue("ParaAdjust") for p in paras]
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
+            target="full_document",
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert _redline_types(doc).count("ParagraphFormat") == 2
+
+        _reject_all(doc, ctx)
+        paras = _paragraphs(doc)
+        assert abs(paras[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
+        assert abs(paras[1].getPropertyValue("ParaLeftMargin") - 700) <= 2
+        for idx, p in enumerate(paras):
+            assert p.getPropertyValue("ParaAdjust") == orig_adjust[idx]
+            assert p.createEnumeration().nextElement().getPropertyValue("CharWeight") == 100.0
+
+        res2 = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
+            target="full_document",
+        )
+        assert res2["status"] == "ok", res2
+        _accept_all(doc, ctx)
+        for p in _paragraphs(doc):
+            assert abs(p.getPropertyValue("ParaLeftMargin") - 1200) <= 2
+            assert int(p.getPropertyValue("ParaAdjust")) == 3  # ParagraphAdjust.CENTER
+            assert p.createEnumeration().nextElement().getPropertyValue("CharWeight") == 150.0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_numbering_style_set_and_reject_uno(ctx, doc):
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "Unnumbered.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"NumberingStyleName": "List 1"},
+            target="full_document",
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "ParagraphFormat" in _redline_types(doc)
+
+        _reject_all(doc, ctx)
+        p0 = _paragraphs(doc)[0]
+        assert not p0.getPropertyValue("NumberingStyleName")
+        assert p0.getPropertyValue("ListLabelString") == ""
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc):
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("ParaStyleName", "Heading 2")
+    text.insertString(cur, "Heading two", False)
+    text.insertControlCharacter(cur.getEnd(), 0, False)
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Plain body", False)
+    text.insertControlCharacter(cur.getEnd(), 0, False)
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "List item", False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    cur.setPropertyValue("NumberingStyleName", "List 1")
+    cur.setPropertyValue("NumberingLevel", 1)
+
+    paras = _paragraphs(doc)
+    assert paras[0].getPropertyValue("NumberingStyleName") != "List 1"
+    assert paras[0].getPropertyValue("ListLabelString") == ""
+    orig_h2_label = paras[0].getPropertyValue("ListLabelString")
+    orig_list_label = paras[2].getPropertyValue("ListLabelString")
+    orig_list_level = paras[2].getPropertyValue("NumberingLevel")
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res_h2 = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"ParaLeftMargin": 900},
+            target="search",
+            old_content="Heading two",
+        )
+        assert res_h2["tracked"] is False
+        assert res_h2.get("style_unreviewed") is True
+        assert "ParagraphFormat" not in _redline_types(doc)
+
+        res_list = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"ParaLeftMargin": 900},
+            target="search",
+            old_content="List item",
+        )
+        assert res_list["tracked"] is False
+        assert res_list.get("style_unreviewed") is True
+        assert "ParagraphFormat" not in _redline_types(doc)
+
+        res_plain = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"ParaLeftMargin": 900},
+            target="search",
+            old_content="Plain body",
+        )
+        assert res_plain["tracked"] is True
+        assert "ParagraphFormat" in _redline_types(doc)
+
+        _reject_all(doc, ctx)
+        paras = _paragraphs(doc)
+        assert paras[0].getPropertyValue("ListLabelString") == orig_h2_label
+        assert paras[2].getPropertyValue("ListLabelString") == orig_list_label
+        assert paras[2].getPropertyValue("NumberingLevel") == orig_list_level
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_recording_uses_agent_author_in_review_mode_uno(ctx, doc):
+    from plugin.writer import review_authors
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Author test.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    prior = review_authors.begin(ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        assert review_authors.set_office_author(ctx, "Alice") is True
+        cur = doc.getText().createTextCursor()
+        cur.gotoEnd(False)
+        doc.getText().insertString(cur, " typed", False)
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        assert res["tracked"] is True
+        para_authors = {
+            r["RedlineAuthor"] for r in _redlines(doc) if r["type"] == "ParagraphFormat"
+        }
+        assert para_authors == {review_authors.INSERT_AUTHOR}
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "Author test."
+        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_para_style_undo_then_reapply_stale_redline_limitation_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Stale redline.")
+    _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        doc.getUndoManager().undo()
+        _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 1300)
+        ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+        )
+        _reject_all(doc, ctx)
+        assert abs(_paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_char_style_records_in_review_mode_on_non_recording_doc_uno(ctx, doc):
+    from plugin.writer import review_authors
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Char style target.")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharStyleName", "Emphasis")
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    doc.setPropertyValue("RecordChanges", False)
+    try:
+        res = ApplyStyle().execute(
+            _tool_ctx(doc, ctx), style="Source Text", family="CharacterStyles", target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert doc.getPropertyValue("RecordChanges") is False
+        fmt = [r for r in _redlines(doc) if r["type"] == "Format"]
+        assert fmt and fmt[0]["RedlineAuthor"] == review_authors.INSERT_AUTHOR
+
+        _reject_all(doc, ctx)
+        portion = _paragraphs(doc)[0].createEnumeration().nextElement()
+        assert portion.getPropertyValue("CharStyleName") == "Emphasis"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})

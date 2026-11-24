@@ -71,10 +71,10 @@ from plugin.writer.edit_review import (
     annotate_review_status,
     flag_style_unreviewed,
     next_agent_edit_undo_title,
+    paragraph_redline_author,
     review_recording_enabled,
 )
 from plugin.writer.record_changes import is_recording_changes, record_changes
-from plugin.writer.review_authors import office_author
 from . import search as search_mod
 from .page import copy_page_style, get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
@@ -269,6 +269,17 @@ class _ParagraphRevert(NamedTuple):
     numbered: bool
 
 
+class _DirectFormatReport(NamedTuple):
+    """Per-cursor result of StyleFormatText: cleared names, whether any ParagraphFormat redline
+    was recorded, and whether every recordable touched paragraph was recorded (empty paragraphs
+    do not clear ``para_complete`` while another paragraph was recorded).
+    """
+
+    cleared: list[str]
+    para_recorded: bool
+    para_complete: bool
+
+
 def _expand_to_full_paragraphs(cur: Any) -> Any:
     """Expand cursor *cur* to cover the full paragraphs it touches."""
     text = cur.getText()
@@ -439,8 +450,12 @@ def _has_paragraph_format_redline(para: Any) -> bool:
     return False
 
 
-def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> tuple[list[_ParagraphRevert], bool]:
-    """Capture each changed paragraph's pre-change formatting for a ParagraphFormat redline."""
+def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None) -> tuple[list[_ParagraphRevert], bool]:
+    """Capture each touched paragraph's pre-change formatting for a ParagraphFormat redline.
+
+    Pass *style_name* to skip paragraphs already in that style without direct properties,
+    or ``None`` to capture every touched paragraph.
+    """
     read = _CountingReader()
     notes: list[str] = []
     para_enum = capture_cursor.createEnumeration()
@@ -451,7 +466,7 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> tuple[list
             name for name in _REVERT_PARA_PROPERTIES
             if para.getPropertyState(name).value == "DIRECT_VALUE"
         ]
-        if old_style == style_name and not direct:
+        if style_name is not None and old_style == style_name and not direct:
             continue
         # ParaStyleName must stay first (unknown names stop makeRedline's loop; empty falls back to default).
         props: list[Any] = [create_property_value("ParaStyleName", old_style)]
@@ -461,7 +476,9 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> tuple[list
             # Reject runs DelNumRules (DocumentRedlineManager.cxx lcl_RejectRedline); without
             # NumberingRules, hand-numbered paragraphs lose their number.
             props.append(create_property_value("NumberingRules", para.getPropertyValue("NumberingRules")))
-        # Require a label or direct NumberingRules so a heading without chapter numbering is not flagged.
+        # NumberingRules reads as direct for every paragraph in a list, headings included
+        # (the Outline list). Reject runs DelNumRules, which drops level, restart and the
+        # numbered flag.
         numbered = bool(para.getPropertyValue("ListLabelString")) or (
             para.getPropertyState("NumberingRules").value == "DIRECT_VALUE"
         )
@@ -474,7 +491,7 @@ def _paragraph_revert_states(capture_cursor: Any, style_name: str) -> tuple[list
     return states, bool(read.failures or notes)
 
 
-def _record_paragraph_styles(states: list[_ParagraphRevert], author: str) -> tuple[int, int]:
+def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tuple[int, int]:
     """Record one ParagraphFormat redline per changed paragraph, returning ``(recorded, failed)``.
 
     An existing ``ParagraphFormat`` redline is kept as the only one because it holds the state
@@ -602,7 +619,7 @@ def apply_paragraph_style_preserving_direct_char(
         report["cleared_paragraph_properties"] = reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
 
     if author is not None:
-        recorded, failed = _record_paragraph_styles(states, author)
+        recorded, failed = _record_paragraph_formats(states, author)
         report["tracked"] = recorded > 0
         unreviewed_notes: list[str] = []
         if report.get("removed_char_overrides") or (clear_direct == "all" and bool(overrides)):
@@ -1031,17 +1048,19 @@ def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
 
 
 _COLOR_PROPERTIES = ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor")
-# Paragraph-level properties without the Para* prefix; they also touch the whole
-# paragraph and record Format redlines without old-value SwRedlineExtraData.
-_NON_PARA_PREFIX_PARAGRAPH_PROPERTIES = ("NumberingStyleName", "PageDescName", "BreakType")
+# Properties of a text run; every other property of a text range belongs to its paragraph.
+_TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
+# Paragraph properties whose change Reject undoes. Reject keeps a direct page break or page
+# style (lcl_RstAttr in docfmt.cxx), so BreakType and PageDescName changes stay untracked.
+_RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType"})
 
 
-def _is_paragraph_property(name: str) -> bool:
-    return name.startswith("Para") or name in _NON_PARA_PREFIX_PARAGRAPH_PROPERTIES
+def _is_text_property(name: str) -> bool:
+    return name.startswith(_TEXT_PROPERTY_PREFIXES)
 
 
 # Writer rejects setting these to their own default, so a reset of them cannot be recorded.
-_UNRECORDABLE_CHAR_RESETS = frozenset({"CharStyleName", "CharAutoStyleName", "CharInteropGrabBag"})
+_UNRECORDABLE_CHAR_RESETS = frozenset({"CharAutoStyleName", "CharInteropGrabBag"})
 
 
 def _recordable_reset_values(cursor: Any, names: Iterable[str]) -> dict[str, Any]:
@@ -1054,7 +1073,10 @@ def _recordable_reset_values(cursor: Any, names: Iterable[str]) -> dict[str, Any
     """
     values: dict[str, Any] = {}
     for name in names:
-        if name.startswith("Char") and name not in _UNRECORDABLE_CHAR_RESETS:
+        if name == "CharStyleName":
+            # CharStyleName's property default is "", which SwUnoCursorHelper::SetCharStyle rejects.
+            values[name] = _ROOT_CHAR_STYLE
+        elif name.startswith("Char") and name not in _UNRECORDABLE_CHAR_RESETS:
             default = cursor.getPropertyDefault(name)
             if default is not None:  # void for property-map entries without a pool item
                 values[name] = default
@@ -1595,17 +1617,9 @@ def apply_to_cursors(
     cursors: list[Any],
     apply_one: Callable[[Any], Any],
     label: str,
-    *,
-    single_action: bool = True,
 ) -> tuple[list[Any], dict[str, Any] | None]:
-    # A single range is already an atomic undo action when apply_one issues one UNO call;
-    # multiple ranges or multi-call resets use the compound undo bracket so they undo as one step.
-    # No try/except here: execute_safe reports a failed apply, and catching it
-    # would turn a closed document into a generic 'Could not apply ...'.
+    # One compound undo step per tool call: one range can take many UNO calls.
     with agent_format_author(ctx.doc, ctx.ctx, cursors):
-        if len(cursors) == 1 and single_action:
-            return [apply_one(cursors[0])], None
-
         title = next_agent_edit_undo_title()
         reports: list[Any] = []
 
@@ -1622,8 +1636,14 @@ def apply_to_cursors(
             )
         if outcome.mutate_error is not None:
             error = outcome.mutate_error
-            if outcome.rolled_back:
-                return [], tool._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
+            # Not rolled back with no finished range (assumes the group closed): the first write
+            # was refused before it changed anything, so the undo group is empty.
+            if outcome.rolled_back or not reports:
+                return [], tool._tool_error(
+                    "Nothing was changed: %s" % (error,),
+                    # set_cursor_properties raises ValueError for a value Writer rejects.
+                    code="INVALID_PARAM" if isinstance(error, ValueError) else "TOOL_EXECUTION_ERROR",
+                )
             return [], tool._tool_error(
                 "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                 % (len(reports), len(cursors), error),
@@ -1686,7 +1706,8 @@ class ApplyStyle(FrameworkToolBase):
                 "Direct (hand-set) formatting on the target, ParagraphStyles only. "
                 "'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. "
                 "'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. "
-                "'all' drops every direct override, like Ctrl+M; refused with target='full_document'.")},
+                "'all' drops every direct override, like Ctrl+M; refused with target='full_document'. "
+                "To drop hand-set formatting without changing the style, use style_format_text reset.")},
         },
         "required": ["style"],
     }
@@ -1787,6 +1808,8 @@ class ApplyStyle(FrameworkToolBase):
         target: str,
         reports: list[ParagraphStyleApplyReport | None],
         doc: Any,
+        *,
+        char_tracked: bool,
     ) -> dict[str, Any]:
         res: dict[str, Any] = {
             "status": "ok",
@@ -1801,6 +1824,8 @@ class ApplyStyle(FrameworkToolBase):
         else:
             res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
         res.update(self._merge_reports(reports))
+        if char_tracked:
+            res["tracked"] = True
         if "tracked" not in res:
             flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
         if res.get("tracked"):
@@ -1831,7 +1856,11 @@ class ApplyStyle(FrameworkToolBase):
         clear_direct = cast("Literal['none', 'style_props', 'all']", clear_direct_raw)
         if clear_direct != "none":
             if family != "ParagraphStyles":
-                return self._tool_error("clear_direct only applies to family='ParagraphStyles'.", code="INVALID_PARAM")
+                return self._tool_error(
+                    "clear_direct only applies to family='ParagraphStyles'. "
+                    "Use style_format_text reset to drop hand-set character formatting.",
+                    code="INVALID_PARAM",
+                )
             if clear_direct == "all" and target == "full_document":
                 # Ctrl+M on the whole document wipes emphasis as well as fonts — force the
                 # per-range path. style_props (the default) is allowed: house font/size win
@@ -1846,11 +1875,23 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        recording = family == "ParagraphStyles" and is_recording_changes(ctx.doc)
-        author = office_author(ctx.ctx) if recording else None
-        # Recording is off during the write: LibreOffice records the Char* restore as Format
-        # redlines whose Reject drops the run's formatting and keeps the new style.
-        with (record_changes(ctx.doc, False) if recording else nullcontext()):
+        author = None
+        recording_cm: Any = nullcontext()
+        if family == "CharacterStyles":
+            if review_recording_enabled():
+                recording_cm = record_changes(ctx.doc, True)
+        elif is_recording_changes(ctx.doc):
+            author = paragraph_redline_author(ctx.ctx)
+            # Recording is off during the write: LibreOffice records the Char* restore as Format
+            # redlines whose Reject drops the run's formatting and keeps the new style.
+            recording_cm = record_changes(ctx.doc, False)
+        with recording_cm:
+            # A caret has no text to record a Format redline on.
+            char_tracked = (
+                family == "CharacterStyles"
+                and is_recording_changes(ctx.doc)
+                and not all(c.isCollapsed() for c in cursors)
+            )
             reports, err = apply_to_cursors(
                 self,
                 ctx,
@@ -1861,7 +1902,7 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        res = self._success(style_name, family, target, reports, ctx.doc)
+        res = self._success(style_name, family, target, reports, ctx.doc, char_tracked=char_tracked)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -1958,16 +1999,19 @@ class StyleFormatText(ToolWriterStyleBase):
             return prop_err
 
         reset_values = _recordable_reset_values(cursors[0], reset_names)
-        tracked = False
+        char_tracked = False
+        para_author: str | None = None
 
         # One body-spanning cursor covers tables (including nested tables) because
         # lcl_InsAttr and ResetAttrs walk every node in the range.
-        def apply_one(cursor: Any) -> list[str]:
-            pre_updates = {**reset_values, **updates} if tracked else updates
-            if pre_updates:
-                set_cursor_properties(cursor, pre_updates)
-            if not reset_names:
-                return []
+        def apply_one(cursor: Any) -> _DirectFormatReport:
+            states, incomplete = (
+                _paragraph_revert_states(_expand_to_full_paragraphs(cursor))
+                if para_author is not None
+                else ([], False)
+            )
+            pre_updates = {**reset_values, **updates} if char_tracked else updates
+            set_cursor_properties(cursor, pre_updates)
             cleared = reset_properties_to_default(cursor, reset_names)
             # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
             # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
@@ -1981,25 +2025,30 @@ class StyleFormatText(ToolWriterStyleBase):
                 except Exception as exc:
                     reraise_if_disposed(exc)
                 actually_cleared.append(name)
-            return actually_cleared
+            if para_author is None:
+                return _DirectFormatReport(actually_cleared, False, False)
+            # After the character write: Reject All works backwards, and rejecting a Format redline
+            # over a whole paragraph also drops the paragraph's direct formatting (SwDoc::ResetAttrs),
+            # so the ParagraphFormat redline must be rejected last. Rejecting it on a list item or a
+            # heading drops the list level or numbering (DelNumRules in lcl_RejectRedline), so those
+            # get none.
+            recordable = [s for s in states if s.recorded or not s.numbered]
+            recorded, failed = _record_paragraph_formats(recordable, para_author)
+            complete = recorded > 0 and not failed and not incomplete and len(recordable) == len(states)
+            return _DirectFormatReport(actually_cleared, recorded > 0, complete)
 
-        record = review_recording_enabled() and bool(updates or reset_values)
-        label = "direct formatting"
-        # Catch ValueError here so a single-cursor type rejection from setPropertyValues
-        # reports INVALID_PARAM with "Nothing was changed" (matching the multi-cursor path)
-        # instead of escaping to execute_safe as a generic tool crash; disposal already re-raised.
-        try:
-            with (record_changes(ctx.doc, True) if record else nullcontext()):
-                tracked = bool(updates or reset_values) and is_recording_changes(ctx.doc)
-                reports, err = apply_to_cursors(
-                    self, ctx, cursors, apply_one, label, single_action=not reset_names
-                )
-        except ValueError as exc:
-            return self._tool_error("Nothing was changed: %s" % exc, code="INVALID_PARAM")
+        with (record_changes(ctx.doc, True) if review_recording_enabled() else nullcontext()):
+            recording = is_recording_changes(ctx.doc)
+            char_tracked = recording and bool(reset_values or any(_is_text_property(n) for n in updates))
+            if recording and any(n in _RECORDABLE_PARA_PROPERTIES for n in all_names):
+                para_author = paragraph_redline_author(ctx.ctx)
+            reports, err = apply_to_cursors(self, ctx, cursors, apply_one, "direct formatting")
         if err is not None:
             return err
 
-        cleared_set = {name for rep in reports for name in rep}
+        tracked = char_tracked or any(r.para_recorded for r in reports)
+        para_complete = all(r.para_complete for r in reports)
+        cleared_set = {name for rep in reports for name in rep.cleared}
         reset_done = [name for name in reset_names if name in cleared_set]
         not_reset = [name for name in reset_names if name not in cleared_set]
 
@@ -2048,9 +2097,20 @@ class StyleFormatText(ToolWriterStyleBase):
                 w = _font_not_installed_warning(ctx, updates[font_prop])
                 if w:
                     warnings.append(w)
-        if tracked and any(_is_paragraph_property(name) for name in updates):
+
+        def is_untracked(name: str) -> bool:
+            if name in _RECORDABLE_PARA_PROPERTIES:
+                return not para_complete
+            if name in reset_names:
+                return name not in reset_values
+            return not _is_text_property(name)
+
+        untracked = [n for n in (*updates, *reset_done) if is_untracked(n)]
+        if recording and untracked:
             warnings.append(
-                "Paragraph properties are recorded as Format changes, but rejecting them does not restore the previous value."
+                "Not fully recorded as a tracked change (headings, list items and empty paragraphs "
+                "are not recorded, nor are page breaks, page styles and list levels): %s."
+                % ", ".join(untracked)
             )
         if not_reset:
             warnings.append(
@@ -2061,8 +2121,7 @@ class StyleFormatText(ToolWriterStyleBase):
 
         if tracked:
             res = annotate_review_status(res)
-        untracked_resets = [n for n in reset_done if not (tracked and n in reset_values)]
-        if untracked_resets or not tracked:
+        if untracked or not tracked:
             flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:
             res.update(search_mode.result_fields())
