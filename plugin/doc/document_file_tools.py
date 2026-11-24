@@ -247,19 +247,35 @@ class _AbortPrompts(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
 
     def __init__(self) -> None:
         self.request: Any = None
+        self.aborted: bool = False
 
     def handle(self, Request: Any) -> None:
-        self.request = Request.getRequest()
         abort_type = uno.getTypeByName("com.sun.star.task.XInteractionAbort")
         for continuation in Request.getContinuations():
             if continuation.queryInterface(abort_type) is not None:
                 continuation.select()
-                return
+                self.aborted = True
+                break
+        # Select Abort before reading getRequest(): PyUNO before LO 26.8 leaves
+        # AttributeError("args") set when unboxing a UNO Exception from Any.
+        try:
+            self.request = Request.getRequest()
+        except Exception:
+            self.request = None
 
 
-def _save_failure(prompts: _AbortPrompts, exc: Exception, path: str, fallback_code: str) -> _FilterError:
+def _save_failure(
+    prompts: _AbortPrompts,
+    exc: Exception,
+    path: str,
+    fallback_code: str,
+    *,
+    in_place: bool = False,
+) -> _FilterError:
     """Explain a failed save from the question LibreOffice asked, else from *exc*. Call from the except block."""
-    if isinstance(prompts.request, ChangedByOthersRequest):
+    if isinstance(prompts.request, ChangedByOthersRequest) or (
+        prompts.aborted and prompts.request is None and in_place
+    ):
         return _FilterError(
             "FILE_CHANGED_ON_DISK",
             f"{path} changed on disk or was removed after LibreOffice opened it, so it was not saved. "
@@ -274,6 +290,16 @@ def _save_failure(prompts: _AbortPrompts, exc: Exception, path: str, fallback_co
         return _FilterError(
             "FILE_LOCKED",
             f"{path} is in use by another LibreOffice session of this user, so it was not overwritten; use a different path.",
+        )
+    if (
+        prompts.aborted
+        and prompts.request is None
+        and path
+        and os.path.isfile(os.path.join(os.path.dirname(path), f".~lock.{os.path.basename(path)}#"))
+    ):
+        return _FilterError(
+            "FILE_LOCKED",
+            f"{path} is in use by another user or LibreOffice session, so it was not overwritten; use a different path.",
         )
     log.exception("%s for %s", fallback_code, path)
     return _FilterError(fallback_code, f"Failed to write {path}: {exc}")
@@ -433,7 +459,7 @@ class DocumentSave(ToolBase):
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            failure = _save_failure(prompts, exc, path or doc.getURL(), "SAVE_FAILED")
+            failure = _save_failure(prompts, exc, path or doc.getURL(), "SAVE_FAILED", in_place=in_place)
             return self._tool_error(failure.message, code=failure.code)
         return _save_result(doc)
 

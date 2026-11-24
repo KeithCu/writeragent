@@ -427,7 +427,7 @@ def test_document_save_own_path_saves_in_place(tmp_path):
     doc.storeAsURL.assert_not_called()
 
 
-def test_save_failure_explains_refused_prompt():
+def test_save_failure_explains_refused_prompt(tmp_path):
     from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest, OwnLockOnDocumentRequest
 
     prompts = _AbortPrompts()
@@ -449,6 +449,16 @@ def test_save_failure_explains_refused_prompt():
     assert "another LibreOffice session of this user" in err_own_lock.message
 
     prompts.request = None
+    prompts.aborted = True
+    err_aborted_inplace = _save_failure(prompts, RuntimeError("abort"), "/tmp/a.odt", "SAVE_FAILED", in_place=True)
+    assert err_aborted_inplace.code == "FILE_CHANGED_ON_DISK"
+
+    locked_target = tmp_path / "t.odt"
+    (tmp_path / ".~lock.t.odt#").write_text("Other,other,host,24.11.2026 10:00,file:///x;", encoding="utf-8")
+    err_aborted_locked = _save_failure(prompts, RuntimeError("abort"), str(locked_target), "EXPORT_FAILED")
+    assert err_aborted_locked.code == "FILE_LOCKED"
+
+    prompts.aborted = False
     err_fallback = _save_failure(prompts, RuntimeError("disk full"), "/tmp/a.odt", "SAVE_FAILED")
     assert err_fallback.code == "SAVE_FAILED"
     assert "Failed to write /tmp/a.odt: disk full" == err_fallback.message
