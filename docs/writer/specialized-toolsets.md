@@ -243,7 +243,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 **File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
 
 - Tool name: `delegate_to_subagent`.
-- Parameters: `domain` (sorted enum aligned with `_AVAILABLE_DOMAINS`), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
+- Parameters: `domain` (sorted enum read from `get_specialized_domain_catalog` on each call), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
 - `tier = "core"`, `long_running = True`, `is_async()` → **True** so the sidebar drain loop is not blocked.
 - Tool gathering:
   - `registry.get_tools(filter_doc_type=False, exclude_tiers=())` — **all** tiers, no doc filter (needed so specialized tools are discoverable server-side).

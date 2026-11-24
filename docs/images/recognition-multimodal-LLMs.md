@@ -133,7 +133,7 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp_server/mcp_pr
 
 ### 4. Calc parity for `image_get` (shipped)
 
-Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names (advertised in the schema only when the document type is Calc or unknown). **`page=`** is not in the Calc schema: `calc_png_Export` cannot choose a page (`GraphicExportFilter` reads only `PixelWidth`/`PixelHeight`; `DocumentToGraphicRenderer::getCurrentPage` is 1 off Writer). Writer and Draw/Impress `image_get` text names only that app's name source (`get_content`/`image_list`; `shape_get_tree`). Calc and unprobed callers keep the all-app text. Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
+Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names (advertised in the schema only when the document type is Calc or unknown). **`page=`** is not in the Calc schema: `calc_png_Export` cannot choose a page (`GraphicExportFilter` reads only `PixelWidth`/`PixelHeight`; `DocumentToGraphicRenderer::getCurrentPage` is 1 off Writer). Writer and Draw/Impress `image_get` text names only that app's name source (`get_content`/`image_list`; `shape_get_tree`). Calc and unprobed callers keep the all-app text. Lookup and selection errors name the same source (Calc and unknown: `image_list` in the images domain). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
 
 ### 5. Page render fidelity — live UNO test (shipped)
 

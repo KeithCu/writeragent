@@ -140,12 +140,7 @@ class ToolDrawTableBase(ToolDrawSpecialBase):
 
 
 class ToolDrawMathBase(ToolDrawSpecialBase):
-    """Catalog row for math_insert.
-
-    DelegateToSubagent reads its domain enum when plugin.doc registers it, after this module is
-    imported but before plugin.draw's tool modules are. A domain declared only on a tool class in
-    another module would be listed in the prompt but rejected by the enum.
-    """
+    """Catalog row for math_insert (plugin/draw/math_insert.py)."""
 
     specialized_domain: ClassVar[str | None] = "math"
     specialized_domain_description: ClassVar[str | None] = "Insert an editable LibreOffice Math formula from LaTeX or MathML on a page."
