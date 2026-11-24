@@ -1817,8 +1817,9 @@ def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, p
     mod, tunnel, cmds, _envs, background = _setup_sync_tunnel(monkeypatch, provider, "keystore:abc12345")
     mod._sync_tunnel()
 
-    assert keystore.is_locked("mcp.tunnel_provider_token") is (cause == "locked")
+    assert keystore.is_locked("mcp.tunnel_provider_token") is (cause == "locked" and provider != "tailscale")
     if provider == "tailscale":
+        assert fake_keystore.get_calls == 0
         assert len(cmds) == 1
         tunnel.stop()
         _join_recorded_background(background)
@@ -1826,6 +1827,14 @@ def test_sync_tunnel_unreadable_token_blocks_start(monkeypatch, fake_keystore, p
         assert tunnel.status == TunnelStatus.FAILED
         assert tunnel.last_error
         assert cmds == []
+
+
+def test_provider_uses_token():
+    from plugin.mcp_server.tunnel import provider_uses_token
+
+    assert provider_uses_token(" Cloudflare ") is True
+    assert provider_uses_token("Tailscale") is False
+    assert provider_uses_token("unknown") is True
 
 
 def test_sync_tunnel_starts_after_keyring_unlocks(monkeypatch, fake_keystore):

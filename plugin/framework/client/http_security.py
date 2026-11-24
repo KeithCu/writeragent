@@ -24,6 +24,8 @@ REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # UUIDs, hex keys, base64 and nanoid links are longer than this.
 _OPAQUE_SEGMENT_MIN_CHARS = 16
+# A model id follows these segments and errors must show it.
+_MODEL_ID_PARENTS = frozenset({"models", "deployments"})
 
 
 def is_credential_name(name: str) -> bool:
@@ -73,7 +75,7 @@ def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
 
 
 def secrets_from_target(url_or_path: str) -> list[str]:
-    """Credential query values and the URL userinfo password, as written and percent-decoded."""
+    """Credential query values, URL userinfo password, and opaque path segments before model ids, as written and decoded."""
     raw = url_or_path or ""
     if "://" not in raw:
         raw = "http://placeholder.invalid" + (raw if raw.startswith("/") else "/" + raw)
@@ -89,22 +91,40 @@ def secrets_from_target(url_or_path: str) -> list[str]:
     password = parsed.password
     if password:
         secrets.extend((password, urllib.parse.unquote(password)))
+    secrets.extend(_request_path_secrets(parsed.path))
     return secrets
 
 
-def secrets_from_url_path(url: str) -> list[str]:
-    """Path segments of *url* that look like an opaque credential, as written and percent-decoded.
-
-    Hosted MCP links carry their secret this way (``/s/<secret>/mcp``). Not part of
-    ``secrets_from_target``, because LLM request paths hold model names an error must show.
-    """
+def _opaque_segments(segments: list[str]) -> list[str]:
     secrets: list[str] = []
-    for segment in _parse_url(url).path.split("/"):
+    for segment in segments:
         decoded = urllib.parse.unquote(segment)
         # All-lowercase segments without digits are words ("model-context-protocol").
         if len(decoded) >= _OPAQUE_SEGMENT_MIN_CHARS and any(ch.isdigit() or ch.isupper() for ch in decoded):
             secrets.extend((segment, decoded))
     return secrets
+
+
+def _request_path_secrets(path: str) -> list[str]:
+    segments = path.split("/")
+    for idx, segment in enumerate(segments):
+        if segment in _MODEL_ID_PARENTS:
+            segments = segments[:idx]
+            break
+    return _opaque_segments(segments)
+
+
+def _public_path(path: str) -> str:
+    return redact_secrets(path, _request_path_secrets(path))
+
+
+def secrets_from_url_path(url: str) -> list[str]:
+    """Path segments of *url* that look like an opaque credential, as written and percent-decoded.
+
+    Scans the whole path for MCP links (``/s/<secret>/mcp``); ``secrets_from_target``
+    stops at model ids.
+    """
+    return _opaque_segments(_parse_url(url).path.split("/"))
 
 
 def collect_secrets(*groups: list[str] | None) -> list[str]:
@@ -131,6 +151,8 @@ def _invalid_url_error(url: str) -> NetworkError:
     Query strings stay out of the details. The same code as a bad port.
     """
     shown = (url or "").split("?", 1)[0]
+    rest = shown.partition("://")[2].partition("/")[2]
+    shown = redact_secrets(shown, _request_path_secrets(rest))
     return NetworkError("Invalid URL", code="INVALID_URL", details={"url": shown})
 
 
@@ -161,7 +183,7 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     except ValueError as exc:
         host = parsed.hostname or ""
         scheme = parsed.scheme or "http"
-        path = parsed.path or "/"
+        path = _public_path(parsed.path or "/")
         raise NetworkError("Invalid URL port", code="INVALID_URL", details={"url": f"{scheme}://{host}{path}"}) from exc
 
 
@@ -227,16 +249,16 @@ def apply_redirect(
 
 
 def public_target(url_or_path: str) -> str:
-    """Host and path for logs and error details. Query and userinfo are dropped."""
+    """Host and path for logs and error details. Query, userinfo and opaque path segments are dropped or redacted."""
     raw = url_or_path or ""
     if "://" not in raw:
         path = raw.split("?", 1)[0]
-        return path or "/"
+        return _public_path(path or "/")
     parsed = _parse_url(raw)
     host = parsed.hostname or ""
     port_num = _explicit_port(parsed)
     port = f":{port_num}" if port_num else ""
-    path = parsed.path or "/"
+    path = _public_path(parsed.path or "/")
     scheme = parsed.scheme or "http"
     return f"{scheme}://{host}{port}{path}"
 

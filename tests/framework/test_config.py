@@ -1691,20 +1691,76 @@ def test_migrate_without_store_leaves_file():
     assert after == before
 
 
-def test_unreadable_ref_reads_empty_and_survives_empty_save(fake_keystore):
+@pytest.mark.parametrize("cause", ["missing", "fail_get", "locked"])
+def test_clearing_unreadable_secret_removes_ref(fake_keystore, cause):
+    from pathlib import Path
+
     from plugin.framework import keystore
-    from plugin.framework.config import api_key_slot_value
+    from plugin.framework.config import api_key_slot_value, get_config, get_config_file_path
 
     url = "https://api.example.com"
     set_api_key_for_endpoint(url, "sk-1")
-    ref = api_key_slot_value(url)
+    save({
+        "mcp.tunnel_provider_token": "tok-1",
+        "mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "srv-1"}},
+    })
+    api_ref = api_key_slot_value(url)
+    tunnel_ref = get_config("mcp.tunnel_provider_token")
+    srv_ref = get_config("mcp_client.servers")["home"]["token"]
+    assert all(keystore.is_ref(r) for r in (api_ref, tunnel_ref, srv_ref))
 
     keystore.reset_for_tests(fake_keystore)
-    fake_keystore.fail_get = True
+    if cause == "missing":
+        fake_keystore.store.clear()
+    elif cause == "fail_get":
+        fake_keystore.fail_get = True
+    elif cause == "locked":
+        fake_keystore.locked = True
 
-    assert get_api_key_for_endpoint(url) == ""
-    save({"api_keys_by_endpoint": {url: ""}})
-    assert api_key_slot_value(url) == ref
+    save({
+        "api_keys_by_endpoint": {url: ""},
+        "mcp.tunnel_provider_token": "",
+        "mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": ""}},
+    })
+
+    assert api_key_slot_value(url) == ""
+    assert get_config("mcp.tunnel_provider_token") == ""
+    assert "token" not in get_config("mcp_client.servers")["home"]
+    raw_file = Path(get_config_file_path()).read_text(encoding="utf-8")
+    for ref in (api_ref, tunnel_ref, srv_ref):
+        assert ref not in raw_file
+
+
+def test_field_text_shows_ref_only_when_unreadable(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import (
+        api_key_field_text,
+        api_key_slot_value,
+        entry_secret_field_text,
+        get_config,
+        secret_config_field_text,
+    )
+
+    url = "https://api.example.com"
+    assert api_key_field_text(url) == ""
+    assert secret_config_field_text("mcp.tunnel_provider_token") == ""
+    assert entry_secret_field_text("mcp_client.servers", "home", "token", "") == ""
+
+    set_api_key_for_endpoint(url, "sk-1")
+    save({
+        "mcp.tunnel_provider_token": "tok-1",
+        "mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "srv-1"}},
+    })
+    assert api_key_field_text(url) == "sk-1"
+    assert secret_config_field_text("mcp.tunnel_provider_token") == "tok-1"
+    srv_raw = get_config("mcp_client.servers")["home"]["token"]
+    assert entry_secret_field_text("mcp_client.servers", "home", "token", srv_raw) == "srv-1"
+
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+    assert api_key_field_text(url) == api_key_slot_value(url)
+    assert secret_config_field_text("mcp.tunnel_provider_token") == get_config("mcp.tunnel_provider_token")
+    assert entry_secret_field_text("mcp_client.servers", "home", "token", srv_raw) == srv_raw
 
 
 def test_migrate_keeps_orphan_when_config_write_fails(fake_keystore):
@@ -1717,7 +1773,7 @@ def test_migrate_keeps_orphan_when_config_write_fails(fake_keystore):
     legacy_url = "https://openrouter.ai/api/v1"
     legacy_name = f"api_key:{legacy_url}"
     fake_keystore.store[legacy_name] = "sk-old"
-    save({"api_keys_by_endpoint": {legacy_url: "keystore:legacy01"}})
+    save({"api_keys_by_endpoint": {legacy_url: "keystore:1e9acc01"}})
     keystore.reset_for_tests(fake_keystore)
 
     with (

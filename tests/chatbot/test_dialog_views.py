@@ -452,7 +452,7 @@ class TestSettingsEnhancements:
         status_ctrl.setText.assert_called_with("✓ Connected (25ms)")
 
     @patch("plugin.chatbot.dialog_views.open_system_url")
-    @patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value="sk-saved-together-key")
+    @patch("plugin.chatbot.dialog_views.api_key_field_text", return_value="sk-saved-together-key")
     def test_provider_starter_listener_action(self, mock_get_key, mock_open_url):
         from plugin.chatbot.dialog_views import ProviderStarterListener
 
@@ -933,6 +933,7 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
     }
 
     with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", side_effect=lambda url: saved.get(url, "")), \
+         patch("plugin.chatbot.dialog_views.api_key_field_text", side_effect=lambda url: saved.get(url, "")), \
          patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
          patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
@@ -964,7 +965,7 @@ def test_sync_api_key_preset_loads_saved_key() -> None:
     listener._synced_endpoint = "https://api.groq.com/openai/v1"
     listener._apply_catalog = MagicMock()
 
-    with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", side_effect=lambda url: "sk-together" if "together" in url else "sk-groq"), \
+    with patch("plugin.chatbot.dialog_views.api_key_field_text", side_effect=lambda url: "sk-together" if "together" in url else "sk-groq"), \
          patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=True), \
          patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
@@ -2405,3 +2406,56 @@ def test_settings_ok_adopts_connections_the_editor_checked():
 
     assert mcp_client._connections == {"home": conn}
     mcp_client.drop_connections()
+
+
+def test_ref_in_key_field_is_not_used_as_a_key() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.groq.com/openai/v1"
+    api = MagicMock()
+    api.getText.return_value = "keystore:deadbeef"
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    with (
+        patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.groq.com/openai/v1"),
+        patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect),
+        patch("plugin.chatbot.dialog_views.get_control_text", return_value="keystore:deadbeef"),
+        patch("plugin.chatbot.dialog_views.drop_non_text_models", return_value=[]) as mock_drop,
+        patch("plugin.chatbot.dialog_views.cached_image_models", return_value=[]),
+        patch("plugin.chatbot.dialog_views.populate_combobox_with_lru"),
+    ):
+        assert listener._api_key_override() == ""
+        listener._apply_dropdowns("https://api.groq.com/openai/v1", models=[])
+        assert mock_drop.call_args.kwargs["api_key_override"] == ""
+
+
+def test_endpoint_change_replaces_a_ref_in_the_key_field() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.together.xyz/v1"
+    api = MagicMock()
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._synced_endpoint = "https://api.groq.com/openai/v1"
+
+    with (
+        patch("plugin.chatbot.dialog_views.api_key_field_text", return_value="sk-together"),
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect),
+        patch("plugin.chatbot.dialog_views.set_control_text") as mock_set,
+        patch("plugin.chatbot.dialog_views.get_control_text", return_value="keystore:deadbeef"),
+    ):
+        listener._sync_api_key()
+    mock_set.assert_called_once_with(api, "sk-together")

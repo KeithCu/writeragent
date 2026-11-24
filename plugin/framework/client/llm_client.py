@@ -71,12 +71,11 @@ from .errors import (
     log_chat_request_body_diag,
     log_http_500_request_diag,
     parse_provider_envelope,
-    path_without_query,
     append_zai_unknown_model_hint,
     stream_error_is_overload,
     stream_error_message,
 )
-from .http_security import redact_secrets
+from .http_security import public_target, redact_secrets, secrets_from_target
 from .http_transport import LlmHttpTransport, parse_strict_json
 from .request_controls import (
     RetryBudget,
@@ -313,17 +312,15 @@ class LlmClient:
         """Chat-only ERROR line and llama-server 500 shape. Redaction is the transport's."""
         request_model = request_model_from_body(body)
         api_key = str(self.config.get("api_key") or "").strip()
-        # Keep the existing response-body ERROR line, but never echo the key if
-        # a provider (or proxy) reflected it in the error text.
-        # A leftover ``?key=`` on the path must not land in the log. Strip the
-        # query and redact any echoed secret before logging.
-        safe_path = redact_secrets(path_without_query(path), [api_key])
+        secrets = [api_key, *secrets_from_target(path)]
+        # Never echo the API key or opaque path secrets in the log or error path.
+        safe_path = redact_secrets(public_target(path), [api_key])
         st_raw = getattr(response, "status", 500)
         try:
             st = int(st_raw)
         except (TypeError, ValueError):
             st = 500
-        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), [api_key]), self._get_provider(), safe_path, request_model)
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), secrets), self._get_provider(), safe_path, request_model)
         n_ctx = None
         if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
@@ -474,7 +471,7 @@ class LlmClient:
         )
 
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % path_without_query(path))
+        log.debug("URL: %s" % public_target(path))
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         log_chat_request_body_diag(self, path, body, headers, tools)
@@ -532,7 +529,7 @@ class LlmClient:
                     raise
                 err_msg = format_error_message(exc)
                 log.exception(failure_log)
-                raise NetworkError(err_msg, details={"url": path}) from exc
+                raise NetworkError(err_msg, details={"url": public_target(path)}) from exc
             if slot["used"] and isinstance(first_body, (bytes, bytearray)):
                 fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
                 lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
@@ -572,7 +569,7 @@ class LlmClient:
         # log.debug...
         log.debug("=== Image Request ===")
         # Path/query must not include API keys.
-        log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
+        log.debug("URL: %s" % public_target(url))
 
         # Persistent transport supports cancellation and 429/503 retries.
         try:
@@ -679,14 +676,13 @@ class LlmClient:
             headers["Content-Type"] = "multipart/form-data; boundary=%s" % boundary
             body_bytes = b"\r\n".join(parts)
 
-        log.debug("=== STT Request ===")
-        log.debug("URL: %s" % url)
-        log.debug("STT Model: %s" % model_name)
-
         # Same transport as chat so Stop closes the socket and 429/503 retries.
         # Passing api_path alone drops the endpoint's own path prefix.
         # get_url_path_and_query keeps both.
         req_path = get_url_path_and_query(url)
+        log.debug("=== STT Request ===")
+        log.debug("URL: %s" % public_target(req_path))
+        log.debug("STT Model: %s" % model_name)
         res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
@@ -830,7 +826,7 @@ class LlmClient:
                         if (not budget.emitted_any) and stream_error_is_overload(chunk) and budget.sends_left > 1:
                             self._close_connection()
                             raise StreamOverload(stream_err)
-                        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
+                        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": public_target(path)})
 
                     # Grok/xAI sends a final chunk with empty choices + usage.
                     # Anthropic SSE events have no choices array; dropping them
@@ -1049,7 +1045,7 @@ class LlmClient:
                 raise
             err_msg = format_error_message(e)
             log.exception("streaming_loop: Unexpected error")
-            raise NetworkError(err_msg, details={"url": path}) from e
+            raise NetworkError(err_msg, details={"url": public_target(path)}) from e
         finally:
             self._release_request_scope(cancel)
 
@@ -1184,7 +1180,7 @@ class LlmClient:
                     raise
                 err_msg = format_error_message(e)
                 log.exception("stream_request_with_tools failed")
-                raise NetworkError(err_msg, details={"url": path}) from e
+                raise NetworkError(err_msg, details={"url": public_target(path)}) from e
             if last_finish_reason is None and self._stop_latched(cancel):
                 last_finish_reason = "stop"
 
@@ -1257,7 +1253,7 @@ class LlmClient:
                     raise
                 err_msg = format_error_message(e)
                 log.exception("parse_sync_response failed")
-                raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
+                raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": public_target(path)}) from e
 
             log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
             if native_anthropic:

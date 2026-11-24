@@ -23,7 +23,7 @@ def test_image_default_aspect_has_sidebar_matching_options():
     with (
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
         patch("plugin.chatbot.settings_dialog.get_config", side_effect=_image_tab_get_config),
-        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.settings_dialog.api_key_field_text", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
         patch("plugin.chatbot.settings_dialog._get_module_field_specs", return_value=[]),
@@ -66,7 +66,7 @@ def test_image_aspect_display_is_translated_value_stays_english():
         patch("plugin.chatbot.settings_dialog._", side_effect=fake_gettext),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
         patch("plugin.chatbot.settings_dialog.get_config", side_effect=_image_tab_get_config),
-        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.settings_dialog.api_key_field_text", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
         patch("plugin.chatbot.settings_dialog._get_module_field_specs", return_value=[]),
@@ -774,22 +774,22 @@ def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
 def test_ok_after_unlock_keeps_key_the_locked_field_could_not_show(fake_keystore, monkeypatch):
     from plugin.chatbot.settings_dialog import _get_core_field_specs, apply_settings_result
     from plugin.framework import keystore
-    from plugin.framework.config import get_api_key_for_endpoint, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_slot_value, get_api_key_for_endpoint, save, set_api_key_for_endpoint
 
     url = "https://openrouter.ai/api"
     save({"endpoint": url})
     set_api_key_for_endpoint(url, "sk-1")
+    ref = api_key_slot_value(url)
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 
     specs = _get_core_field_specs(url)
     api_spec = next(s for s in specs if s["name"] == "api_key")
-    assert api_spec["value"] == ""
-    assert api_spec.get("keyring_locked") is True
+    assert api_spec["value"] == ref
 
     fake_keystore.locked = False
     monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0.0)
-    apply_settings_result(MagicMock(), {"api_key": ""}, specs)
+    apply_settings_result(MagicMock(), {"api_key": ref}, specs)
 
     keystore.reset_for_tests(fake_keystore)
     assert get_api_key_for_endpoint(url) == "sk-1"
@@ -798,7 +798,7 @@ def test_ok_after_unlock_keeps_key_the_locked_field_could_not_show(fake_keystore
 def test_ok_after_endpoint_switch_while_locked_keeps_target_key(fake_keystore, monkeypatch):
     from plugin.chatbot.settings_dialog import _get_core_field_specs, apply_settings_result
     from plugin.framework import keystore
-    from plugin.framework.config import get_api_key_for_endpoint, save, set_api_key_for_endpoint
+    from plugin.framework.config import api_key_field_text, get_api_key_for_endpoint, save, set_api_key_for_endpoint
 
     url_a = "https://openrouter.ai/api"
     url_b = "https://api.openai.com"
@@ -810,36 +810,109 @@ def test_ok_after_endpoint_switch_while_locked_keeps_target_key(fake_keystore, m
     # Open on A while unlocked, then lock before switching to B (as _sync_api_key does).
     specs = _get_core_field_specs(url_a)
     fake_keystore.locked = True
-    assert get_api_key_for_endpoint(url_b) == ""
+    typed_b = api_key_field_text(url_b)
+    assert keystore.is_ref(typed_b)
 
     fake_keystore.locked = False
     monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0.0)
-    apply_settings_result(MagicMock(), {"api_key": "", "endpoint": url_b}, specs)
+    apply_settings_result(MagicMock(), {"api_key": typed_b, "endpoint": url_b}, specs)
 
     keystore.reset_for_tests(fake_keystore)
     assert get_api_key_for_endpoint(url_b) == "sk-B"
 
 
-def test_locked_blank_password_field_is_not_saved(fake_keystore, monkeypatch):
+def test_untouched_locked_password_field_is_not_saved(fake_keystore, monkeypatch):
     from plugin.chatbot.settings_dialog import apply_settings_result
     from plugin.chatbot.settings_fields import build_module_field_specs
     from plugin.framework import keystore
-    from plugin.framework.config import get_secret_config, save
+    from plugin.framework.config import get_config, get_secret_config, save
 
     save({"mcp.tunnel_provider_token": "tok-secret"})
+    ref = get_config("mcp.tunnel_provider_token")
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 
     specs = build_module_field_specs("mcp", control_ids="flat")
     tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
-    assert tok_spec["value"] == ""
+    assert tok_spec["value"] == ref
 
     fake_keystore.locked = False
     monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0.0)
-    apply_settings_result(MagicMock(), {"tunnel_provider_token": ""}, specs)
+    apply_settings_result(MagicMock(), {"tunnel_provider_token": ref}, specs)
 
     keystore.reset_for_tests(fake_keystore)
     assert get_secret_config("mcp.tunnel_provider_token") == "tok-secret"
+
+
+def test_clearing_missing_secret_in_settings_removes_ref(fake_keystore):
+    from pathlib import Path
+
+    from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
+    from plugin.framework import keystore
+    from plugin.framework.config import api_key_slot_value, get_config, get_config_file_path, save, set_api_key_for_endpoint
+
+    url = "https://openrouter.ai/api"
+    save({"endpoint": url, "mcp.tunnel_provider_token": "tok-secret"})
+    set_api_key_for_endpoint(url, "sk-1")
+    api_ref = api_key_slot_value(url)
+    tunnel_ref = get_config("mcp.tunnel_provider_token")
+
+    fake_keystore.store.clear()
+    keystore.reset_for_tests(fake_keystore)
+
+    specs = get_settings_field_specs(MagicMock())
+    apply_settings_result(MagicMock(), {"api_key": "", "mcp__tunnel_provider_token": ""}, specs)
+
+    assert api_key_slot_value(url) == ""
+    assert get_config("mcp.tunnel_provider_token") == ""
+    raw_file = Path(get_config_file_path()).read_text(encoding="utf-8")
+    assert api_ref not in raw_file
+    assert tunnel_ref not in raw_file
+
+
+def test_ok_with_unrelated_change_keeps_missing_ref(fake_keystore):
+    from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
+    from plugin.framework import keystore
+    from plugin.framework.config import api_key_slot_value, get_config, save, set_api_key_for_endpoint
+
+    url = "https://openrouter.ai/api"
+    save({"endpoint": url, "mcp.tunnel_provider_token": "tok-secret"})
+    set_api_key_for_endpoint(url, "sk-1")
+    api_ref = api_key_slot_value(url)
+    tunnel_ref = get_config("mcp.tunnel_provider_token")
+
+    fake_keystore.store.clear()
+    keystore.reset_for_tests(fake_keystore)
+
+    specs = get_settings_field_specs(MagicMock())
+    apply_settings_result(
+        MagicMock(),
+        {"api_key": api_ref, "mcp__tunnel_provider_token": tunnel_ref, "temperature": "0.5"},
+        specs,
+    )
+
+    assert api_key_slot_value(url) == api_ref
+    assert get_config("mcp.tunnel_provider_token") == tunnel_ref
+
+
+def test_ref_of_previous_endpoint_is_not_saved_under_new_endpoint(fake_keystore):
+    from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
+    from plugin.framework import keystore
+    from plugin.framework.config import api_key_slot_value, save, set_api_key_for_endpoint
+
+    url_a = "https://openrouter.ai/api"
+    url_b = "https://api.openai.com"
+    save({"endpoint": url_a})
+    set_api_key_for_endpoint(url_a, "sk-A")
+    ref_a = api_key_slot_value(url_a)
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    specs = get_settings_field_specs(MagicMock())
+    apply_settings_result(MagicMock(), {"api_key": ref_a, "endpoint": url_b}, specs)
+
+    assert api_key_slot_value(url_a) == ref_a
+    assert api_key_slot_value(url_b) == ""
 
 
 def test_ok_migrates_a_server_token(fake_keystore):

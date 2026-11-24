@@ -236,3 +236,15 @@ def test_issue_url_does_not_read_uncached_key(fake_keystore):
     url = br.build_github_issue_url(extra_body="failed with sk-secret-999", ctx=None)
     assert "sk-secret-999" not in url
     assert "redacted" in url
+
+
+def test_issue_url_redacts_endpoint_path_secret():
+    from plugin.framework import config as fw_config
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    endpoint = f"https://proxy.example/s/{secret_uuid}/v1"
+    fw_config.save({"endpoint": endpoint})
+
+    url = br.build_github_issue_url(extra_body=f"request failed on /s/{secret_uuid}/v1/chat", ctx=None)
+    assert secret_uuid not in url
+    assert "redacted" in url

@@ -499,18 +499,19 @@ def test_password_field_shows_resolved_secret(fake_keystore):
     assert ctrl.getModel.return_value.HelpText == "Translated tooltip\nStored in: Fake Store"
 
 
-def test_password_field_marks_keyring_locked_when_locked(fake_keystore):
+def test_password_field_shows_ref_when_locked(fake_keystore):
     from plugin.framework import keystore
-    from plugin.framework.config import save
+    from plugin.framework.config import get_config, save
 
     save({"mcp.tunnel_provider_token": "tok-secret"})
+    ref = get_config("mcp.tunnel_provider_token")
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 
     specs = build_module_field_specs("mcp", control_ids="flat")
     tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
-    assert tok_spec["value"] == ""
-    assert tok_spec.get("keyring_locked") is True
+    assert tok_spec["value"] == ref
+    assert "keyring_locked" not in tok_spec
 
 
 def test_field_specs_config_values_maps_select_caption_to_option_value():

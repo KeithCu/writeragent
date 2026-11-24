@@ -31,7 +31,9 @@ from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url
 from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
+from plugin.framework import keystore
 from plugin.framework.config import (
+    api_key_field_text,
     api_key_slot_value,
     get_api_key_for_endpoint,
     get_config,
@@ -340,7 +342,8 @@ class SettingsDialog:
         assert self._dlg is not None
         from plugin.chatbot.config_ui_helpers import populate_endpoint_selector
 
-        api_key_val = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
+        raw_api_key = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
+        api_key_val = "" if keystore.is_ref(raw_api_key) else raw_api_key
 
         for field in field_specs:
             # get_optional returns None for a name missing from the XDL
@@ -542,7 +545,7 @@ class ProviderStarterListener(BaseActionListener):
             set_control_text(endpoint_ctrl, self._endpoint_url)
             ak_ctrl = get_optional(self._dlg, "api_key")
             if ak_ctrl:
-                set_control_text(ak_ctrl, get_api_key_for_endpoint(self._endpoint_url))
+                set_control_text(ak_ctrl, api_key_field_text(self._endpoint_url))
                 ak_ctrl.setFocus()
         open_system_url(self._ctx, self._signup_url)
 
@@ -1057,6 +1060,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if lbl_status:
             set_control_text(lbl_status, "")
 
+    def _typed_api_key(self, ak_ctrl: Any) -> str:
+        text = str(get_control_text(ak_ctrl) or "")
+        return "" if keystore.is_ref(text) else text
+
     def _api_key_override(self) -> str | None:
         """Live key field, or None when that control is absent.
 
@@ -1069,7 +1076,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         from plugin.chatbot.settings_dialog import effective_api_key
 
-        typed_key = str(get_control_text(ak_ctrl))
+        typed_key = self._typed_api_key(ak_ctrl)
         saved_endpoint = get_current_endpoint()
         target_endpoint = endpoint_from_selector_text(self._ctrl.getText())
         saved_key = get_api_key_for_endpoint(saved_endpoint)
@@ -1102,7 +1109,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def _apply_dropdowns(self, resolved: str, models: Any = None) -> None:
         ak_ctrl = get_optional(self._dlg, "api_key")
-        api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
+        api_key_ov = self._typed_api_key(ak_ctrl) if ak_ctrl else ""
         resolved_provider = _provider_for_catalog(resolved)
         identity = _catalog_family(resolved)
         same = bool(identity) and identity == self._painted_identity
@@ -1204,7 +1211,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def _api_key_field_follows_saved(self, ak_ctrl: Any, previous: str | None) -> bool:
         """True when the field is empty or still shows the saved key for *previous*."""
-        current = str(get_control_text(ak_ctrl) or "")
+        current = self._typed_api_key(ak_ctrl)
         if not current.strip():
             return True
         if not previous:
@@ -1232,7 +1239,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if ak_ctrl is not None and (force or self._api_key_field_follows_saved(ak_ctrl, previous)):
             self._syncing_api_key = True
             try:
-                set_control_text(ak_ctrl, get_api_key_for_endpoint(resolved))
+                set_control_text(ak_ctrl, api_key_field_text(resolved))
             finally:
                 self._syncing_api_key = False
             self._user_edited_key = False
