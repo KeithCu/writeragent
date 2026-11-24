@@ -807,17 +807,25 @@ def _number_label(title: str) -> str:
 def _number_passed_on(old: str, new: str, old_labels: Counter[str], new_labels: Counter[str]) -> bool:
     """True unless *old* and *new* differ only in number and nothing shows a renumbering.
 
-    In a renumbering another heading takes over the old number or gave up the new one. A label
-    several headings share ("Sales 2023: Europe", "Sales 2023: Asia") is not such a number, and a
-    title that is only a number ("Appendix A") has no text to recognise it by.
+    In a renumbering another heading takes over the old number (or its parent number) or gave
+    up the new one. A label several headings share ("Sales 2023: Europe", "Sales 2023: Asia")
+    is not such a number, and a title that is only a number ("Appendix A") has no text to
+    recognise it by.
     """
     was, now = old.casefold(), new.casefold()
     if was == now or _NUMBER_RE.sub("#", was) != _NUMBER_RE.sub("#", now):
         return True
     a, b = _number_label(old), _number_label(new)
-    if a == b or not re.search(r"\w", was[len(a):]):
+    if not re.search(r"\w", was[len(a):]):
         return False
-    return (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0)
+    while a != b:
+        if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
+            return True
+        parent_a, parent_b = re.sub(r"\.\d+$", "", a), re.sub(r"\.\d+$", "", b)
+        if parent_a == a or parent_b == b:
+            return False
+        a, b = parent_a, parent_b  # a subsection follows its chapter's number
+    return False
 
 
 def heading_renames(
@@ -884,9 +892,9 @@ _OUTLINE_NUM_PREFIX_RE = re.compile(r"\d+\.")
 def _renamed_url(url: str, successors: dict[str, str | None]) -> str | None:
     """The URL *url* should have now: itself when its heading kept its title, None when it is lost.
 
-    *successors* maps each known title to its title now. The longest match wins, as in
-    ``SwDoc::GotoOutline`` (sw/source/core/doc/docnum.cxx): "#2.1 Scope|outline" names the
-    heading "2.1 Scope" when there is one, and only otherwise "1 Scope" numbered 2.
+    *successors* maps each known title to its title now. The longest match wins: ``SwDoc::GotoOutline``
+    (sw/source/core/doc/docnum.cxx) tries a live automatic number first, and titles alone do not
+    show automatic numbering, so the full title is preferred here.
     """
     match = _OUTLINE_URL_RE.fullmatch(url)
     if match is None:

@@ -779,6 +779,23 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {"Step 1: Install": "Step 3: Install", "Step 2: Configure": "Step 1: Configure"},
             [],
         ),
+        (
+            [(1, "1 Background"), (2, "1.1 History"), (2, "1.2 Prior work"), (1, "2 Costs")],
+            [(1, "1 Costs"), (1, "2 Background"), (2, "2.1 History"), (2, "2.2 Prior work")],
+            {
+                "1 Background": "2 Background",
+                "1.1 History": "2.1 History",
+                "1.2 Prior work": "2.2 Prior work",
+                "2 Costs": "1 Costs",
+            },
+            [],
+        ),
+        (
+            [(1, "Release 2.1: Notes"), (1, "Costs")],
+            [(1, "Costs"), (1, "Release 3.1: Notes")],
+            {},
+            ["Release 2.1: Notes"],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):

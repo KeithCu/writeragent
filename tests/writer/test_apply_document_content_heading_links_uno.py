@@ -1253,6 +1253,7 @@ def test_rename_leaves_link_to_kept_numbered_title_uno(ctx, doc) -> None:
         ("first", "#Aim|outline"),
         ("second", "#2.1 Scope|outline"),
     ]
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
     _jump_to_mark(ctx, doc, "2.1 Scope|outline")
     assert _view_cursor_paragraph_text(doc) == "2.1 Scope"
 
@@ -1273,6 +1274,7 @@ def test_rename_leaves_link_to_kept_numbered_title_uno(ctx, doc) -> None:
         ("one", "#1.Scope|outline"),
         ("two", "#1.Scope|outline"),
     ]
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
     _jump_to_mark(ctx, doc, "1.Scope|outline")
     assert _view_cursor_paragraph_text(doc) == "1.Scope"
 
