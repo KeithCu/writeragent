@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO integration tests for document_open, document_save, and document_export."""
 
+import getpass
 import os
 import shutil
 import tempfile
@@ -373,7 +374,10 @@ def test_document_save_refuses_file_changed_on_disk_uno(ctx, doc):
     try:
         text = doc.getText()
         text.insertString(text.createTextCursor(), "initial", False)
-        doc.storeAsURL(path_to_file_url(target), ())
+        doc.storeToURL(
+            path_to_file_url(target),
+            (create_property_value("FilterName", "writer8"),),
+        )
 
         spy = _SpyInteractionHandler()
         desktop = get_desktop(ctx)
@@ -430,27 +434,30 @@ def test_document_export_and_save_refuse_locked_target_uno(ctx, doc):
     try:
         with open(target, "wb") as f:
             f.write(b"keep-me")
-        with open(lock_file, "w", encoding="utf-8") as f:
-            f.write("Someone Else,other,otherhost,24.11.2026 10:00,file:///x;")
-
         text = doc.getText()
         text.insertString(text.createTextCursor(), "content", False)
         orig_url = doc.getURL()
         tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        for lock_entry in (
+            "Someone Else,other,otherhost,24.11.2026 10:00,file:///x;",
+            f"Test User,{getpass.getuser()},otherhost,24.11.2026 10:00,file:///other-profile;",
+        ):
+            with open(lock_file, "w", encoding="utf-8") as f:
+                f.write(lock_entry)
 
-        res_export = DocumentExport().execute(tool_ctx, path=target)
-        assert res_export["status"] == "error", res_export
-        assert res_export["code"] == "FILE_LOCKED"
-        with open(target, "rb") as f:
-            assert f.read() == b"keep-me"
-        assert doc.getURL() == orig_url
+            res_export = DocumentExport().execute(tool_ctx, path=target)
+            assert res_export["status"] == "error", res_export
+            assert res_export["code"] == "FILE_LOCKED"
+            with open(target, "rb") as f:
+                assert f.read() == b"keep-me"
+            assert doc.getURL() == orig_url
 
-        res_save = DocumentSave().execute(tool_ctx, path=target)
-        assert res_save["status"] == "error", res_save
-        assert res_save["code"] == "FILE_LOCKED"
-        with open(target, "rb") as f:
-            assert f.read() == b"keep-me"
-        assert doc.getURL() == orig_url
+            res_save = DocumentSave().execute(tool_ctx, path=target)
+            assert res_save["status"] == "error", res_save
+            assert res_save["code"] == "FILE_LOCKED"
+            with open(target, "rb") as f:
+                assert f.read() == b"keep-me"
+            assert doc.getURL() == orig_url
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

@@ -256,6 +256,7 @@ def test_document_save_as_formats(tmp_path):
     call_url, call_props = doc.storeAsURL.call_args.args
     assert call_url == docx_path.as_uri()
     assert next(p.Value for p in call_props if p.Name == "FilterName") == "MS Word 2007 XML"
+    assert any(p.Name == "InteractionHandler" for p in call_props)
 
 
 def test_document_save_lossy_warning(tmp_path):
@@ -285,6 +286,7 @@ def test_document_export(tmp_path):
     call_url, call_props = doc.storeToURL.call_args.args
     assert call_url == pdf_path.as_uri()
     assert next(p.Value for p in call_props if p.Name == "FilterName") == "writer_pdf_Export"
+    assert any(p.Name == "InteractionHandler" for p in call_props)
 
 
 def test_document_save_and_export_missing_folder(tmp_path):
@@ -364,7 +366,7 @@ def test_document_export_sheet_not_supported(tmp_path):
 
 
 @pytest.mark.parametrize(("filename", "sheet"), [("open.csv", "One"), ("open.xlsx", None)])
-def test_document_export_sheet_refuses_open_path(tmp_path, filename, sheet):
+def test_document_export_refuses_open_path(tmp_path, filename, sheet):
     doc = _make_calc_doc(("One", "Two"))
     target_path = tmp_path / filename
     with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
@@ -426,7 +428,7 @@ def test_document_save_own_path_saves_in_place(tmp_path):
 
 
 def test_save_failure_explains_refused_prompt():
-    from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest
+    from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest, OwnLockOnDocumentRequest
 
     prompts = _AbortPrompts()
     prompts.request = ChangedByOthersRequest()
@@ -440,6 +442,11 @@ def test_save_failure_explains_refused_prompt():
     err_locked = _save_failure(prompts, RuntimeError("boom"), "/tmp/a.odt", "EXPORT_FAILED")
     assert err_locked.code == "FILE_LOCKED"
     assert "Alice" in err_locked.message
+
+    prompts.request = OwnLockOnDocumentRequest()
+    err_own_lock = _save_failure(prompts, RuntimeError("boom"), "/tmp/a.odt", "SAVE_FAILED")
+    assert err_own_lock.code == "FILE_LOCKED"
+    assert "another LibreOffice session of this user" in err_own_lock.message
 
     prompts.request = None
     err_fallback = _save_failure(prompts, RuntimeError("disk full"), "/tmp/a.odt", "SAVE_FAILED")

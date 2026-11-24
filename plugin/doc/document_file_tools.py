@@ -17,7 +17,7 @@ from typing import Any, NamedTuple
 
 import uno
 import unohelper
-from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest
+from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest, OwnLockOnDocumentRequest
 from com.sun.star.task import XInteractionHandler
 
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
@@ -269,6 +269,11 @@ def _save_failure(prompts: _AbortPrompts, exc: Exception, path: str, fallback_co
         return _FilterError(
             "FILE_LOCKED",
             f"{path} is in use by {prompts.request.UserInfo or 'another user'}, so it was not overwritten; use a different path.",
+        )
+    if isinstance(prompts.request, OwnLockOnDocumentRequest):
+        return _FilterError(
+            "FILE_LOCKED",
+            f"{path} is in use by another LibreOffice session of this user, so it was not overwritten; use a different path.",
         )
     log.exception("%s for %s", fallback_code, path)
     return _FilterError(fallback_code, f"Failed to write {path}: {exc}")

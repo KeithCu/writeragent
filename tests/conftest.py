@@ -601,6 +601,7 @@ class MockXStatusListener: pass
 class MockXInteractionHandler: pass
 class MockChangedByOthersRequest(Exception): pass
 class MockLockedOnSavingRequest(Exception): pass
+class MockOwnLockOnDocumentRequest(Exception): pass
 
 task = _create_mock_module("com.sun.star.task")
 setattr(task, "XJobExecutor", MockXJobExecutor)
@@ -619,6 +620,7 @@ setattr(frame, "XTerminateListener", MockBase)
 document = _create_mock_module("com.sun.star.document")
 setattr(document, "ChangedByOthersRequest", MockChangedByOthersRequest)
 setattr(document, "LockedOnSavingRequest", MockLockedOnSavingRequest)
+setattr(document, "OwnLockOnDocumentRequest", MockOwnLockOnDocumentRequest)
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")
 _create_mock_module("com.sun.star.ui.UIElementType")
