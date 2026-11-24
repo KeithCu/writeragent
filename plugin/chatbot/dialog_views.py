@@ -1120,10 +1120,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
         for ctrl, fallback, lru_key, remote in rows:
             if ctrl:
-                # Use the last painted model on the same provider so user edits in
-                # the box are preserved without being inserted into the dropdown.
-                # After a provider switch, discard leftover box text (e.g. OpenRouter
-                # ``inception/mercury-2.5`` on Together) and refill from LRU/defaults.
+                # Same provider: refill from the last painted id. Box text that differs is the
+                # user's edit, possibly half typed, so keep the box and do not list the text.
+                # ``fallback`` (the saved model) applies only before the first paint; after a
+                # switch it belongs to another provider.
+                # Provider switch: discard the box text. A leftover id (e.g. OpenRouter
+                # ``inception/mercury-2.5`` on Together) is often missing from ``DEFAULT_MODELS``,
+                # so ``_is_incompatible_model_for_provider`` will not drop it.
                 current = self._painted_models.get(lru_key, fallback) if same_provider else ""
                 typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
                 shown = populate_combobox_with_lru(
