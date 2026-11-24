@@ -1790,3 +1790,36 @@ def test_reset_direct_char_formatting_reads_language_from_start():
 
     cursor.setPropertiesToDefault.assert_called_once_with(("CharWeight", "CharLocale"))
     assert cursor_vals == start_langs
+
+
+def test_reset_direct_char_formatting_uses_given_language():
+    from plugin.doc.text_helpers import reset_direct_char_formatting
+
+    def _prop(name, attrs=0):
+        p = MagicMock()
+        p.Name = name
+        p.Attributes = attrs
+        return p
+
+    info = MagicMock()
+    info.getProperties.return_value = [_prop("CharWeight"), _prop("CharLocale")]
+
+    at_start = MagicMock()
+    at_start.getPropertyValue.side_effect = lambda name: {"CharLocale": "en-US", "CharLocaleAsian": "", "CharLocaleComplex": ""}[name]
+
+    cursor_vals = {"CharLocale": None, "CharLocaleAsian": None, "CharLocaleComplex": None}
+
+    def _cursor_set(name, val):
+        cursor_vals[name] = val
+
+    cursor = MagicMock()
+    cursor.getPropertySetInfo.return_value = info
+    cursor.getPropertyValue.side_effect = lambda name: cursor_vals[name]
+    cursor.setPropertyValue.side_effect = _cursor_set
+    cursor.getText.return_value.createTextCursorByRange.return_value = at_start
+
+    given = {"CharLocale": "fr-FR", "CharLocaleAsian": "zh-CN", "CharLocaleComplex": "he-IL"}
+    reset_direct_char_formatting(cursor, given)
+
+    assert cursor_vals == given
+    at_start.getPropertyValue.assert_not_called()

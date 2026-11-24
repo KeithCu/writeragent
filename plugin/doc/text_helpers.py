@@ -453,18 +453,24 @@ def writable_char_names(rng: Any) -> list[str] | None:
     ]
 
 
-def reset_direct_char_formatting(cursor: Any) -> None:
+def language_at_start(rng: Any) -> dict[str, Any]:
+    """Language properties at the start of *rng*; a mixed-language range reads as None."""
+    at_start = rng.getText().createTextCursorByRange(rng.getStart())
+    return {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+
+
+def reset_direct_char_formatting(cursor: Any, language: Mapping[str, Any] | None = None) -> None:
     """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
 
     Resetting any one Char* name on an empty paragraph drops its whole character
-    attribute set, language included, so the language is read first and put back.
-    The language is read at the range start because a mixed-language range reads as None.
+    attribute set, language included, so the language is read first and put back
+    (*language* is for callers that want another paragraph's language).
     """
     names = writable_char_names(cursor)
     if names is None:
         return
-    at_start = cursor.getText().createTextCursorByRange(cursor.getStart())
-    language = {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
+    if language is None:
+        language = language_at_start(cursor)
     reset_properties_to_default(cursor, names)
     for name, value in language.items():
         if cursor.getPropertyValue(name) != value:
