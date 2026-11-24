@@ -67,11 +67,8 @@ def test_get_selected_image_bytes_raises_when_export_returns_none():
     assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
-class _FakeDisposedException(Exception):
+class DisposedException(Exception):
     pass
-
-
-_FakeDisposedException.__name__ = "DisposedException"
 
 
 @pytest.mark.parametrize(
@@ -84,7 +81,7 @@ _FakeDisposedException.__name__ = "DisposedException"
 @pytest.mark.parametrize(
     "exc_factory",
     [
-        lambda: _FakeDisposedException("disposed"),
+        lambda: DisposedException("disposed"),
         lambda: DocumentDisposedError("closed"),
     ],
 )
@@ -892,7 +889,7 @@ def test_run_and_insert_disposed_during_export_ends_the_run():
 
     def _export(_ctx, graphic_obj):
         if graphic_obj is second_graphic:
-            raise _FakeDisposedException("closed")
+            raise DisposedException("closed")
         return b"png"
 
     first_graphic = MagicMock()
