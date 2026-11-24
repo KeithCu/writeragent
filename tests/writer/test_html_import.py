@@ -2297,32 +2297,44 @@ def test_insert_inline_at_cursor_plain_decodes_complete_entities():
 
 
 def test_insert_mixed_html_and_math_decodes_tex_entities():
-    from plugin.writer import html_import
+    import re as _re
+    from plugin.writer import field_restore, html_import
+    from plugin.writer.math.html_math_segment import MathSegment
     from plugin.writer.math.math_mml_convert import MathConversionResult
 
     model = MagicMock()
     cursor = MagicMock()
+    token_re = _re.compile(r"\[\[WA-MATH:([a-zA-Z0-9]+):(\d+)\]\]")
+    hits = [(cursor, token_re.match("[[WA-MATH:n1:0]]"))]
     with (
+        patch.object(field_restore, "find_tokens", return_value=hits),
         patch.object(html_import, "convert_latex_to_starmath", return_value=MathConversionResult(ok=True, starmath="a < b", error_message=None)) as conv,
         patch.object(html_import, "insert_writer_math_formula"),
     ):
-        html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "$a &lt; b$")
+        html_import._place_formulas(model, MagicMock(), MagicMock(), [MathSegment("tex", "a &lt; b", False)], "n1")
     assert conv.call_args.args[1] == "a < b"
 
 
 def test_insert_mixed_html_and_math_failed_tex_fallback_decodes_entities():
-    from plugin.writer import html_import
+    import re as _re
+    from plugin.writer import field_restore, html_import
+    from plugin.writer.math.html_math_segment import MathSegment
     from plugin.writer.math.math_mml_convert import MathConversionResult
 
     model = MagicMock()
     cursor = MagicMock()
-    with patch.object(
-        html_import,
-        "convert_latex_to_starmath",
-        return_value=MathConversionResult(ok=False, starmath="", error_message="bad"),
+    token_re = _re.compile(r"\[\[WA-MATH:([a-zA-Z0-9]+):(\d+)\]\]")
+    hits = [(cursor, token_re.match("[[WA-MATH:n1:0]]"))]
+    with (
+        patch.object(field_restore, "find_tokens", return_value=hits),
+        patch.object(
+            html_import,
+            "convert_latex_to_starmath",
+            return_value=MathConversionResult(ok=False, starmath="", error_message="bad"),
+        ),
     ):
-        attempts = html_import._insert_mixed_html_and_math_at_cursor(
-            model, MagicMock(), cursor, r"$\badcmd{a} &lt; b$"
+        attempts = html_import._place_formulas(
+            model, MagicMock(), MagicMock(), [MathSegment("tex", r"\badcmd{a} &lt; b", False)], "n1"
         )
     cursor.getText.return_value.insertString.assert_called_once_with(
         cursor, r"[Math import failed] \badcmd{a} < b", False
