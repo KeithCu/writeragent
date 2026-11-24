@@ -12,6 +12,7 @@ from com.sun.star.awt.FontSlant import ITALIC, NONE, OBLIQUE
 from com.sun.star.text.TextContentAnchorType import (
     AS_CHARACTER,
     AT_CHARACTER,
+    AT_PAGE,
     AT_PARAGRAPH,
 )
 
@@ -288,4 +289,40 @@ def test_delete_graphic_recording_off_removes_immediately_uno(ctx: Any, doc: Any
     doc.setPropertyValue("RecordChanges", False)
     assert delete_graphic(ctx, doc, graphic) is False
     assert doc.getGraphicObjects().hasByName(name) is False
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_delete_graphic_page_anchored_uno(ctx: Any, doc: Any) -> None:
+    logo = logo_32_path()
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep this body text", False)
+
+    graphic = insert_image_at_locator(ctx, doc, logo, width_mm=10, height_mm=10)
+    graphic.setName("PagePic")
+    graphic.setPropertyValue("AnchorType", AT_PAGE)
+    graphic.setPropertyValue("AnchorPageNo", 1)
+    assert graphic.getAnchor() is None
+    expected_body = text.getString()
+
+    doc.setPropertyValue("RecordChanges", False)
+    assert delete_graphic(ctx, doc, graphic) is False
+    assert doc.getGraphicObjects().hasByName("PagePic") is False
+
+    doc.getUndoManager().undo()
+    assert doc.getGraphicObjects().hasByName("PagePic") is True
+    assert doc.getGraphicObjects().getByName("PagePic").getPropertyValue("AnchorType") == AT_PAGE
+
+    page = doc.getDrawPage()
+    count_before = page.getCount()
+    shape = doc.createInstance(DRAW_GRAPHIC_SERVICE)
+    page.add(shape)
+    shape.setName("PageDrawPic")
+    shape.setPropertyValue("AnchorType", AT_PAGE)
+    shape.setPropertyValue("AnchorPageNo", 1)
+    assert shape.getAnchor() is None
+    assert delete_graphic(ctx, doc, shape) is False
+    assert page.getCount() == count_before
+    assert text.getString() == expected_body
 

@@ -55,7 +55,7 @@ make run_eval EVAL_ARGS="--models openai/gpt-oss-120b:nitro -n 2 -j 1"
 pytest tests/scripts/test_eval_auth.py tests/scripts/test_eval_judge_llm.py tests/scripts/test_benchmark_cli.py
 ```
 
-(`test_eval_judge_llm` requires `dspy-ai` from `make eval-deps`.)
+(None of these tests needs `dspy-ai`.)
 
 ## Open
 

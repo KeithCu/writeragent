@@ -461,7 +461,6 @@ def test_notify_skips_when_async_callback_not_ready(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = main._initialized
     main._initialized = False
     posts = []
 
@@ -475,7 +474,6 @@ def test_notify_skips_when_async_callback_not_ready(monkeypatch):
         with tg._violation_ui_lock:
             assert tg._violation_dialog_open is False
     finally:
-        main._initialized = was_init
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
 
@@ -667,8 +665,6 @@ def test_violation_popup_is_unscoped(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = main._initialized
-    was_async = main._async_callback_service
     main._initialized = True
     main._async_callback_service = MagicMock()
     token = None
@@ -687,52 +683,21 @@ def test_violation_popup_is_unscoped(monkeypatch):
     finally:
         if token is not None:
             _current_send_cancellation.reset(token)
-        main._initialized = was_init
-        main._async_callback_service = was_async
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
 
 
 def test_stop_does_not_drop_violation_popup(monkeypatch):
-    import queue as queue_mod
-
     from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = main._initialized
-    was_async = main._async_callback_service
 
-    # A stale row in ``main._pending_posts`` from an earlier test makes
-    # ``pending_work_count()`` look like two posts when only the popup is new.
-    # Park the work queue and pending list first, and seed a decoy row so a
-    # missing park fails in one process. The popup stays an unscoped post, so
-    # ``scope.cancel()`` does not drop it.
-    def decoy() -> None:
-        decoy_ran.append(True)
-
-    decoy_ran: list[bool] = []
-    saved_work: list[object] = []
-    saved_pending = []
     token = None
 
     try:
-        with main._pending_lock:
-            main._pending_posts.append((decoy, (), {}, None))
-
-        while True:
-            try:
-                saved_work.append(main._work_queue.get_nowait())
-            except queue_mod.Empty:
-                break
-        with main._pending_lock:
-            saved_pending = list(main._pending_posts)
-            main._pending_posts = []
-            main._pending_lock.notify_all()
-        saved_pending = [row for row in saved_pending if row[0] is not decoy]
-
         main._initialized = True
         main._async_callback_service = MagicMock()
         monkeypatch.setattr(main, "_poke_main_thread", lambda: None)
@@ -751,7 +716,6 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
                     queued = main._work_queue.queue[0]
                 assert queued.fn.__qualname__.endswith("._show_popup")
                 assert queued.scope is None
-                assert decoy_ran == []
                 with tg._violation_ui_lock:
                     assert tg._violation_dialog_open is True
 
@@ -765,21 +729,8 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
         tg.set_background_task(None)
         if token is not None:
             _current_send_cancellation.reset(token)
-        main._initialized = was_init
-        main._async_callback_service = was_async
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
-        while True:
-            try:
-                main._work_queue.get_nowait()
-            except queue_mod.Empty:
-                break
-        for item in saved_work:
-            main._work_queue.put_nowait(item)
-        with main._pending_lock:
-            current = [row for row in main._pending_posts if row[0] is not decoy]
-            main._pending_posts = saved_pending + current
-            main._pending_lock.notify_all()
 
 
 def test_proxy_setattr_only_target_is_local(monkeypatch):

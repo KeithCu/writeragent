@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 import uno
 
-from plugin.framework.constants import folder_search_enabled
+from plugin.framework.constants import HTML_WRITER_FILTER, folder_search_enabled
 from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
@@ -556,7 +556,6 @@ def resolve_path_or_name(
     return None, f"No file matching {raw!r}"
 
 
-HTML_WRITER_FILTER = "HTML (StarWriter)"
 # Extensions list in filter/source/config/fragments/types/generic_HTML.xcu.
 _HTML_EXTENSIONS = frozenset({".html", ".htm", ".xhtml"})
 
