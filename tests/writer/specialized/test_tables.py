@@ -750,7 +750,7 @@ def test_writer_table_copy_layout_ignores_split_suffix_for_size():
 
 def test_copy_table_copies_merged_d2_by_name():
     """HTML copy walks getCellNames() so merged/irregular cells like D2 are not dropped."""
-    from plugin.writer.range_copy import _copy_table
+    from plugin.writer.range_copy import copy_table
 
     src = FakeTable(
         5,
@@ -758,6 +758,7 @@ def test_copy_table_copies_merged_d2_by_name():
         cells={"A1": "Title", "D2": "Telèfon responsable"},
         cell_names=_MERGED_BANNER_NAMES,
     )
+    src.getName = lambda: "Table1"
     written = {}
 
     class DestCell:
@@ -781,6 +782,9 @@ def test_copy_table_copies_merged_d2_by_name():
             self.rows = rows
             self.cols = cols
 
+        def setName(self, name):
+            self.name = name
+
         def getCellByName(self, name):
             return DestCell(name)
 
@@ -788,12 +792,15 @@ def test_copy_table_copies_merged_d2_by_name():
             raise AssertionError("position walk must not run when names exist")
 
     dest_table = DestTable()
+    dest_text = FakeBodyText()
     dest_doc = SimpleNamespace(
         createInstance=lambda unused_service: dest_table,
-        getText=lambda: FakeBodyText(),
+        getText=lambda: dest_text,
+        getTextTables=lambda: SimpleNamespace(hasByName=lambda _n: False),
     )
-    _copy_table(src, dest_doc)
+    copy_table(src, dest_doc, dest_text, SimpleNamespace(), None)
     assert dest_table.rows == 5 and dest_table.cols == 4
+    assert dest_table.name == "Table1"
     assert written.get("D2") == "Telèfon responsable"
     assert "B1" not in written
 

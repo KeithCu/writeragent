@@ -644,3 +644,146 @@ def test_outline_rewrite_keeps_inherited_look_uno(ctx, doc):
     res2 = _apply(doc, ctx, old_content="42", content="47")
     assert res2.get("status") == "ok", res2
     _check_portions(_OUTLINE_LONG)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_title_replace_keeps_link_on_accept_and_reject_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.record_changes import record_changes
+
+    helper = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+    frame = doc.getCurrentController().getFrame()
+
+    def _run_case(url, old, new, is_outline):
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "1. ", url)
+        _append_linked(text, cursor, old, url)
+        _append_linked(text, cursor, "\t5", url)
+
+        with record_changes(doc, True):
+            res = _apply(doc, ctx, old_content=old, content=new)
+        assert res.get("status") == "ok", (old, new, res)
+        if is_outline:
+            links = res.get("hyperlinks", [])
+            assert len(links) == 1 and links[0]["hyperlink_updated"] is False, res
+            assert "hyperlink_note" in links[0], res
+
+        redlines = doc.getRedlines()
+        for idx in range(redlines.getCount()):
+            assert str(redlines.getByIndex(idx).getPropertyValue("RedlineType")) != "Format"
+
+        helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+        plain = new.replace("<b>", "").replace("</b>", "")
+        para = text.createEnumeration().nextElement()
+        assert para.getString() == f"1. {plain}\t5"
+        portions = para.createEnumeration()
+        checked = 0
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            if str(p.getString() or ""):
+                assert str(p.getPropertyValue("HyperLinkURL") or "") == url
+                checked += 1
+        assert checked > 0
+
+        # Rebuild and test Reject restores original link intact.
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "1. ", url)
+        _append_linked(text, cursor, old, url)
+        _append_linked(text, cursor, "\t5", url)
+        with record_changes(doc, True):
+            _apply(doc, ctx, old_content=old, content=new)
+        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        para = text.createEnumeration().nextElement()
+        assert para.getString() == f"1. {old}\t5"
+        portions = para.createEnumeration()
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            if str(p.getString() or ""):
+                assert str(p.getPropertyValue("HyperLinkURL") or "") == url
+
+    _run_case(_OUTLINE, "Old title", "New title", True)
+    _run_case(_OUTLINE, "Old title", "<b>New title</b>", True)
+    _run_case(_OUTLINE, "Old title", "Old titles", True)
+    _run_case(_BOOKMARK, "Old title", "New title", False)
+    _run_case(_BOOKMARK, "Old title", "<b>New title</b>", False)
+    _run_case(_BOOKMARK, "Old title", "Old titles", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_replace_over_two_adjacent_links_keeps_both_on_reject_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.record_changes import record_changes
+
+    url_a = "https://a.example.com/"
+    url_b = "https://b.example.com/"
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Alpha ", url_a)
+    _append_linked(text, cursor, "Beta", url_b)
+
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="Alpha Beta", content="Gamma")
+    assert res.get("status") == "ok", res
+
+    helper = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+    helper.executeDispatch(
+        doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
+    )
+
+    para = text.createEnumeration().nextElement()
+    assert para.getString() == "Alpha Beta"
+    portions = para.createEnumeration()
+    runs = []
+    while enum_has_more(portions):
+        p = portions.nextElement()
+        s = str(p.getString() or "")
+        if s:
+            runs.append((s, str(p.getPropertyValue("HyperLinkURL") or "")))
+    assert runs == [("Alpha ", url_a), ("Beta", url_b)], runs
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_replace_over_partly_linked_text_does_not_spread_the_link_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.record_changes import record_changes
+
+    text, cursor = _clear(doc)
+    text.insertString(cursor, "START ", False)
+    _append_linked(text, cursor, "Old title", _BOOKMARK)
+    text.insertString(cursor, " END", False)
+
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="START Old title END", content="START New title END")
+    assert res.get("status") == "ok", res
+    helper = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+    helper.executeDispatch(
+        doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ()
+    )
+    para = text.createEnumeration().nextElement()
+    portions = para.createEnumeration()
+    urls = [
+        (str(p.getString() or ""), str(p.getPropertyValue("HyperLinkURL") or ""))
+        for p in iter(lambda: portions.nextElement() if enum_has_more(portions) else None, None)
+        if str(p.getString() or "")
+    ]
+    assert all(u == "" for _s, u in urls), urls
+
+
+@native_test
+@with_native_doc("writer")
+def test_outline_replace_after_emoji_uno(ctx, doc):
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "😀 ", _OUTLINE)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+
+    res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
+    assert res.get("status") == "ok", res
+    assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW

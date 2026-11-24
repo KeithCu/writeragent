@@ -583,20 +583,26 @@ def _paragraph_has_non_text_portion(
 
 
 
-def _cursor_paragraph_has_visible_text(cursor: Any) -> bool:
-    """True if the paragraph containing *cursor* has non-whitespace text or a non-text portion (image/field)."""
-    def visible() -> bool:
+def _cursor_paragraph_has_content(cursor: Any) -> bool:
+    """True if the paragraph containing *cursor* has any text (spaces included) or a non-text portion."""
+    def has_content() -> bool:
         text_obj = cursor.getText()
         para = text_obj.createTextCursorByRange(cursor.getStart())
         para.gotoStartOfParagraph(False)
         para.gotoEndOfParagraph(True)
-        return bool((para.getString() or "").strip()) or _paragraph_has_non_text_portion(para)
+        # A cursor enumerates paragraphs; the portions are one level down.
+        return para.getString() != "" or any(
+            _paragraph_has_non_text_portion(p, ignore_markers=True)
+            for p in iter_elements(para.createEnumeration())
+        )
 
     # Fail safe: treat as non-empty so end-path prep still runs.
-    return uno_read(visible, True)
+    return uno_read(has_content, True)
 
 
-def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str) -> Any:
+def _ensure_empty_absorb_for_styled_insert(
+    text: Any, cursor: Any, position: str, *, recording: bool
+) -> Any:
     """Place *cursor* in a paragraph safe for styled HTML import (``apply_styles=True``).
 
     StarWriter HTML import behavior (verified with headed/native UNO probes):
@@ -604,12 +610,15 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
     - **Paragraph start** (``target=beginning`` after ``gotoStart``): imported ``<p>`` blocks are
       inserted as *new* paragraphs *before* the current one — the first block does **not** merge
       into existing text — so no prep is required; styling by paragraph index leaves neighbors alone.
-    - **Paragraph end** (``target=end``) when the absorb paragraph has visible text: the first
+    - **Paragraph end** (``target=end``) when the absorb paragraph has content: the first
       imported ``<p>`` *merges* into that paragraph, so applying ``data-lo-style`` would restyle
       neighbor text. Insert ``PARAGRAPH_BREAK`` first; LibreOffice leaves the cursor in the new
-      empty trailing paragraph, which the import then absorbs (no leftover empty absorb para).
-      StarWriter leaves a trailing empty paragraph after import here.
-    - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
+      empty trailing paragraph, which the import then absorbs. The opened paragraph inherits the
+      previous paragraph's direct font (weight, size, colour) on purpose, so appended text
+      continues it. While recording a break is always opened, because absorbing an empty last
+      paragraph would leave it in the import's style after Reject.
+    - **Empty absorb paragraph** (blank doc / already-empty trailing, when not recording): merge
+      is harmless — no prep.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
     selections go through ``_replace_whole_paragraphs``, other non-collapsed
@@ -618,7 +627,7 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
     """
     if position != "end":
         return cursor
-    if not _cursor_paragraph_has_visible_text(cursor):
+    if not recording and not _cursor_paragraph_has_content(cursor):
         return cursor
     # 0 == com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
     # A failed break must not continue. The import would merge into the
@@ -982,8 +991,12 @@ def insert_content_at_position(
         # Non-collapsed inline selections go through _insert_inline in place, keeping the host paragraph
         # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
-            cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        if caret:
+            cursor = _ensure_empty_absorb_for_styled_insert(
+                text, cursor, position, recording=record_changes.is_recording_changes(model),
+            )
+        if position == "end":
+            report = _import_and_drop_leftover(model, ctx, cursor, content)
+        elif caret:
             report = _insert_at_caret(model, ctx, cursor, content, styled)
         elif inline:
             report = _insert_inline(model, ctx, cursor, content)

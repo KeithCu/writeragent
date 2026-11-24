@@ -212,8 +212,8 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
             truncated_out.append(msg)
 
 
-def _hyperlink_urls(portions: list[tuple[Any, str]], trim_start: int, trim_end: int) -> list[str]:
-    """One URL per hyperlink run inside the copied window, in order.
+def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
+    """One URL per hyperlink run of a paragraph, in order.
 
     The XHTML filter emits one ``<a>`` per run, not per text portion, and it
     rewrites the fragment. A bold split or a preserve-format replace leaves two
@@ -223,11 +223,8 @@ def _hyperlink_urls(portions: list[tuple[Any, str]], trim_start: int, trim_end: 
     """
     urls = []
     previous = None
-    offset = 0
     for portion, chunk in portions:
-        chunk_start, chunk_end = offset, offset + len(chunk)
-        offset = chunk_end
-        if max(chunk_start, trim_start) >= min(chunk_end, trim_end):
+        if not chunk:
             continue
         url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
         if not url:
@@ -287,6 +284,13 @@ def _put_outline_urls(content: str, urls: list[str]) -> str:
     return _restore_anchor_hrefs(content, outline_urls, _EXPORTED_OUTLINE_HREF_RE)
 
 
+def _body_hyperlink_urls(model: Any) -> list[str]:
+    urls: list[str] = []
+    for para in range_copy.iter_xtext_paragraphs(model.getText()):
+        urls.extend(_hyperlink_urls(list(_visible_portions(para))))
+    return urls
+
+
 def _restore_outline_hrefs(model: Any, content: str) -> str:
     """Full-read counterpart of the range path's _restore_anchor_hrefs.
 
@@ -303,11 +307,8 @@ def _restore_outline_hrefs(model: Any, content: str) -> str:
     """
     if 'href="#a_' not in content:
         return content
-    urls: list[str] = []
     try:
-        for para in range_copy.iter_xtext_paragraphs(model.getText()):
-            portions = list(_visible_portions(para))
-            urls.extend(_hyperlink_urls(portions, 0, sum(len(chunk) for _unused, chunk in portions)))
+        urls = _body_hyperlink_urls(model)
     except Exception as exc:
         reraise_if_disposed(exc)
         log.debug("_restore_outline_hrefs: portion walk failed", exc_info=True)
@@ -378,11 +379,10 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
     return trim_start, trim_end
 
 
-# (element, visible para text, after_table) -> (trim_start, trim_end) in visible
-# coordinates (_visible_portions, tracked deletions removed), or None to skip the element.
-# The pair is always returned, even when nothing is cut, because paint_direct_formatting
-# and _hyperlink_urls index portions with it.
-_Window = Callable[[Any, str, bool], "tuple[int, int] | None"]
+# (element, visible para text, tables just before it) -> (tables inside the window,
+# (trim_start, trim_end) in visible coordinates (_visible_portions, tracked deletions
+# removed) or None to skip the element). Tables are read whole.
+_Window = Callable[[Any, str, "list[Any]"], "tuple[list[Any], tuple[int, int] | None]"]
 
 
 def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _Window]:
@@ -390,10 +390,12 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
     def past_end(el: Any) -> bool:
         return starts_at_or_after(text, el.getStart(), source.getEnd())
 
-    def window(el: Any, para_text: str, _after_table: bool) -> tuple[int, int] | None:
-        if not _element_overlaps(text, el, source):
-            return None
-        return _trim_to_source(text, el, para_text, source)
+    def window(el: Any, para_text: str, tables: list[Any]) -> tuple[list[Any], tuple[int, int] | None]:
+        # A table has no getStart; its anchor is a point inside its first cell.
+        inside = [t for t in tables if _element_overlaps(text, t.getAnchor(), source)]
+        if past_end(el) or not _element_overlaps(text, el, source):
+            return inside, None
+        return inside, _trim_to_source(text, el, para_text, source)
 
     return past_end, window
 
@@ -410,9 +412,10 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
     walker = text.createTextCursor()
     walker.gotoStart(False)
     running = 0
+    prev_end = -1
 
-    def window(el: Any, para_text: str, after_table: bool) -> tuple[int, int] | None:
-        nonlocal running
+    def window(el: Any, para_text: str, tables: list[Any]) -> tuple[list[Any], tuple[int, int] | None]:
+        nonlocal running, prev_end
         gap = text.createTextCursorByRange(walker.getStart())
         gap.gotoRange(el.getStart(), True)
         running += len(get_string_without_tracked_deletions(gap))
@@ -420,14 +423,19 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
         # that paragraph (SwXParagraphEnumerationImpl::IgnoreLastElement in
         # sw/source/core/unocore/unoobj2.cxx), so the break before it is not in the gap text.
         # The gap is collapsed when the table opens the document: gotoStart steps past it.
-        if after_table and not gap.isCollapsed():
+        if tables and not gap.isCollapsed():
             running += 1
         walker.gotoRange(el.getStart(), False)
         para_start = running
-        para_end = para_start + len(para_text)
-        if para_end <= start or para_start >= end:
-            return None
-        return max(0, start - para_start), len(para_text) - max(0, para_end - end)
+        # Adjacent tables count as one block: from after the previous paragraph's break to the
+        # break before this one. A table that opens the document has no offsets of its own and
+        # is read with offset 0.
+        tables_start, prev_end = prev_end + 1, para_start + len(para_text)
+        tables_end = max(tables_start, para_start - 1)
+        inside = tables if tables_start < end and tables_end >= start else []
+        if prev_end <= start or para_start >= end:
+            return inside, None
+        return inside, (max(0, start - para_start), len(para_text) - max(0, prev_end - end))
 
     return (lambda _el: False), window
 
@@ -476,26 +484,27 @@ def _copy_window_to_scratch(
     past_end: Callable[[Any], bool],
     window: _Window,
     walk_warnings: list[str] | None,
-) -> tuple[list[str], list[Any], list[tuple[str, str, bool]]] | None:
+) -> tuple[list[Any], list[tuple[str, str, bool]]] | None:
     """Copy elements matching *window* into *temp_doc*.
 
-    Returns (copied_urls, copied_ruby, math_records), or None when no element was copied.
+    Returns (copied_ruby, math_records), or None when no element was copied.
     """
     temp_text = temp_doc.getText()
     temp_cursor = temp_text.createTextCursor()
     style_cache: dict[str, Any] = {}
     enum = text.createEnumeration()
     added_any = False
-    copied_urls = []
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
 
-    after_table = False
+    tables: list[Any] = []
+    need_break = False
     for el in iter_elements(enum):
         if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
-            after_table = True
+            tables.append(el)
             continue
-        if past_end(el):
+        done = past_end(el)
+        if done and not tables:
             break
         # Paragraphs always have ParaStyleName.
         style = el.getPropertyValue("ParaStyleName") or ""
@@ -507,26 +516,28 @@ def _copy_window_to_scratch(
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
 
-        trim = window(el, para_text, after_table)
-        after_table = False
+        inside, trim = window(el, para_text, tables)
+        tables = []
+        for table in inside:
+            temp_cursor.gotoEnd(False)
+            if need_break:
+                range_copy.begin_next_paragraph(temp_text, temp_cursor)
+            range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
+            for para in range_copy.iter_table_paragraphs(table):
+                copied_ruby.extend(html_ruby.ruby_spans_in_window(para, 0, len(para.getString())))
+            need_break = False
+            added_any = True
+        if done:
+            break
         if trim is None:
             continue
         trim_start, trim_end = trim
         para_text = para_text[trim_start:trim_end]
-
-        applied = False
-        if not added_any:
-            temp_cursor.gotoStart(False)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
-        else:
-            temp_cursor.gotoEnd(False)
-            temp_text.insertControlCharacter(temp_cursor, range_copy.PARAGRAPH_BREAK, False)
-            # After insertControlCharacter the cursor is still before the break, not in the
-            # new paragraph. Move into it before setting style/content, otherwise setString
-            # clobbers the previous paragraph instead of filling the new one.
-            temp_cursor.gotoNextParagraph(False)
-            temp_cursor.gotoEndOfParagraph(True)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
+        temp_cursor.gotoEnd(False)
+        if need_break:
+            range_copy.begin_next_paragraph(temp_text, temp_cursor)
+        need_break = True
+        applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
 
         if not has_formula:
             temp_cursor.setString(para_text)
@@ -535,14 +546,13 @@ def _copy_window_to_scratch(
         else:
             _copy_formula_runs(portions, trim_start, trim_end, temp_text, temp_cursor, math_records)
 
-        copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
         # Collect source spans and rewrite the exported HTML after XHTML.
         copied_ruby.extend(html_ruby.ruby_spans_in_window(el, trim_start, trim_end))
         added_any = True
 
-    return (copied_urls, copied_ruby, math_records) if added_any else None
+    return (copied_ruby, math_records) if added_any else None
 
 
 def _export_semantic(doc: Any, *, read_ruby: bool) -> tuple[str, bool | None]:
@@ -599,7 +609,7 @@ def _range_to_content_via_temp_doc(
         copied = _copy_window_to_scratch(model, text, temp_doc, past_end, window, walk_warnings)
         if copied is None:
             return ""
-        copied_urls, copied_ruby, math_records = copied
+        copied_ruby, math_records = copied
 
         try:
             content, _unused_ruby = _export_semantic(temp_doc, read_ruby=False)
@@ -608,7 +618,7 @@ def _range_to_content_via_temp_doc(
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             content = _export_starwriter_html(temp_doc)
-        content = _restore_anchor_hrefs(content, copied_urls, _ANCHOR_HREF_RE)
+        content = _restore_anchor_hrefs(content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE)
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
         content = html_ruby.inject_ruby_into_html(content, copied_ruby)

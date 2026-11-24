@@ -2437,3 +2437,57 @@ def test_apply_style_undo_unavailable_names_the_style():
     assert res["message"].startswith("Cannot apply style 'Heading 1'")
 
 
+def test_capture_direct_char_overrides_skips_run_only_names_without_failure():
+    from types import SimpleNamespace
+    from plugin.writer.styles import _capture_direct_char_overrides
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: (
+        "Text" if name == "TextPortionType" else 150.0 if name == "CharWeight" else "Emphasis"
+    )
+    info = SimpleNamespace(
+        getProperties=lambda: [
+            SimpleNamespace(Name="CharWeight", Attributes=0),
+            SimpleNamespace(Name="CharStyleName", Attributes=0),
+        ]
+    )
+    portion.getPropertySetInfo.return_value = info
+
+    style = MagicMock()
+    style.getPropertySetInfo.return_value = SimpleNamespace(
+        hasPropertyByName=lambda name: name == "CharWeight"
+    )
+    style.getPropertyValue.side_effect = lambda name: 100.0 if name == "CharWeight" else RuntimeError("missing")
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda name: name == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.return_value = "Standard"
+
+    def _enum(items):
+        it = iter(items)
+        sentinel = object()
+        nxt = [next(it, sentinel)]
+        return SimpleNamespace(
+            hasMoreElements=lambda: nxt[0] is not sentinel,
+            nextElement=lambda: (nxt[0], nxt.__setitem__(0, next(it, sentinel)))[0],
+        )
+
+    para.createEnumeration.side_effect = lambda: _enum([portion])
+
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value.getByName.return_value = style
+    cursor = MagicMock()
+    cursor.createEnumeration.side_effect = lambda: _enum([para])
+
+    overrides, failures, _notes = _capture_direct_char_overrides(doc, cursor, {})
+    assert failures == 0
+    assert len(overrides) == 1
+    assert overrides[0][1] == {"CharWeight": 150.0}
+
+    # A style read that raises on a property the style *does* have still counts as a failure.
+    style.getPropertyValue.side_effect = RuntimeError("unreadable")
+    overrides2, failures2, _notes2 = _capture_direct_char_overrides(doc, cursor, {})
+    assert failures2 == 1
+    assert overrides2 == []
+
+

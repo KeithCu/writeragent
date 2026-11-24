@@ -83,7 +83,7 @@ def test_insert_branch_succeeds_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content="more")
     assert res.get("status") == "ok", res
-    assert normalize_linebreaks(doc.getText().getString()) == "seed\nmore\n"
+    assert normalize_linebreaks(doc.getText().getString()) == "seed\nmore"
 
 
 @native_test

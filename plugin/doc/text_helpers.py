@@ -627,9 +627,9 @@ def visible_portions(
         except Exception as exc:
             log.debug("visible portion getString failed (%s)", type(exc).__name__)
             continue
-        # A Frame portion (as-character formula/object) has no text but html export
-        # still needs it in place; it adds zero to offsets.
-        if chunk or portion_type == "Frame":
+        # A Frame has no text and a field can show none, but HTML export needs
+        # both in place; they add zero to offsets.
+        if chunk or portion_type in ("Frame", "TextField"):
             yield portion, chunk
 
 
