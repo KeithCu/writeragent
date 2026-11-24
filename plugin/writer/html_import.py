@@ -33,12 +33,13 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks as _normalize,
 )
 from plugin.doc.visual_helpers import is_graphic_object
+from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
-from .html_export import HTML_FILTER, strip_html_boilerplate
+from .html_export import strip_html_boilerplate
 from .math.html_math_segment import (
     html_fragment_contains_mixed_math,
     html_fragment_contains_tex_math,
@@ -153,7 +154,7 @@ def insert_html_fragment_at_cursor(
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if advance else None
     with with_temp_buffer(prepared) as (_path, file_url):
-        filter_name = HTML_FILTER
+        filter_name = HTML_WRITER_FILTER
         filter_props = (create_property_value("FilterName", filter_name),)
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)

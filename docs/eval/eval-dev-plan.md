@@ -12,7 +12,7 @@ hybrid/LO roadmap. Phase F `=PY` dest rows (`py_refuse_overlap`,
 `py_no_bulk_read`) and DrawWorld (flowchart tree + `shape_connect`) are
 **shipped** in the string 17.
 
-This plan covers the WriterAgent prompt optimization + evaluation system (`scripts/prompt_optimization/`). Ranking boards stay `--backend string` (those 17). `--backend auto` is the mixed pack, not a replacement leaderboard. Specialized Draw/Calc work uses a bounded inner `LlmClient` loop (`delegate_to_subagent` → domain schemas → `specialized_workflow_finished`), not SmolAgents. See `ideas.md` for the original ~50 ideas; the shipped pack is the 18 in `dataset.py`.
+This plan covers the WriterAgent prompt optimization + evaluation system (`scripts/prompt_optimization/`). Ranking boards stay `--backend string` (those 17). `--backend auto` is the mixed pack, not a replacement leaderboard. Specialized Draw/Calc work uses a bounded inner `LlmClient` loop (`delegate_to_subagent` → domain schemas → `workflow_finished`), not SmolAgents. See `ideas.md` for the original ~50 ideas; the shipped pack is the 18 in `dataset.py`.
 
 ## Current Status
 
@@ -35,7 +35,7 @@ The 50 test cases live in [`ideas.md`](ideas.md) (20 Writer, 20 Calc, 5 Draw, 5 
 `DrawWorld` in `eval_worlds.py` shipped the tree/`shape_connect` path (no separate `--backend drawjson`). Remaining gaps: `image_generate`, vision/multimodal, and LO geometry/z-order. **Screenshots are not needed**.
 
 **Recommended path (non-LO first)**:
-- **DrawWorld** (shipped; this section used to call it DrawJSONBackend): Maintains a mutable JSON tree. Mock `get_draw_tree`, `shape_upsert` (flowchart-*, connectors), `shape_connect`, `shape_group`, `shape_summary`. `dispatch_string_tool` extended for Draw tools. Final state for judging = serialized tree JSON (structural diff on nodes, connections, text, geometry with tolerances) or LLM-as-Judge on tree.
+- **DrawWorld** (shipped): Maintains a mutable JSON tree. Mock `shape_get_tree`, `shape_upsert` (flowchart-*, connectors), `shape_connect`, `shape_group`, `shape_get_summary`. `dispatch_string_tool` extended for Draw tools. Final state for judging = serialized tree JSON (structural diff on nodes, connections, text, geometry with tolerances) or LLM-as-Judge on tree.
 - `plugin/draw/tree.py:GetDrawTree` is the perfect "DOM" — recursive JSON with `type`, `text`, `geometry`, `connected_start`/`connected_end` (by name/text), `children` for groups. Its description explicitly says "Use this instead of requesting a screenshot to understand the layout, text, connections, and hierarchy of objects (like flowcharts or diagrams)."
 - For `image_generate` (`plugin/writer/images.py`, `plugin/writer/image_utils.py`): Mock `ImageService.image_generate` to return fixed temp path; state adds an "image" node to tree or HTML sentinel. Judge on tool result JSON (`status: "ok"`) + presence in final tree.
 - Verification: Extend `eval_core.py` for tree-based `expected_contains` (node paths) or JSON-aware judge. No pixel comparison.
@@ -78,19 +78,19 @@ See previous analysis for architecture diagram (StringBackend → DrawJSONBacken
 
 ### E. LO Transition Strategy
 - Keep `--backend string` (WriterWorld / DrawWorld / CalcWorld) as primary for speed/CI.
-- LO for validation of specialized tools (`ToolWriterSpecialBase`, `ToolDrawSpecialBase`, `get_draw_tree`).
+- LO for validation of specialized tools (`ToolWriterSpecialBase`, `ToolDrawSpecialBase`, `shape_get_tree`).
 - Update `AGENTS.md` prompt optimization section with hybrid guidance.
 
 ### F. Calc `=PY()` placement (shipped in the 17-task pack)
 
-**Hypothesis:** a few limitation words on main chat beat a second specialized domain. Dest / spill / peek live on `write_formula_range` (`plugin/calc/cells.py`); MIPROv2 can later rewrite that description plus the remaining `CALC_FORMULA_SYNTAX` / pointer in `CALC_CORE_DIRECTIVES` (`plugin/framework/prompts.py`).
+**Hypothesis:** a few limitation words on main chat beat a second specialized domain. Dest / spill / peek live on `write_range` (`plugin/calc/cells.py`); MIPROv2 can later rewrite that description plus the remaining `CALC_FORMULA_SYNTAX` / pointer in `CALC_CORE_DIRECTIVES` (`plugin/framework/prompts.py`).
 
-Calc chat no longer delegates `domain="python"`; models must `write_formula_range` of `=PY("result = …"; DataRange)` into an **empty cell outside DataRange**. Rows in `dataset.py`:
+Calc chat no longer delegates `domain="python"`; models must `write_range` of `=PY("result = …"; DataRange)` into an **empty cell outside DataRange**. Rows in `dataset.py`:
 
 | id | Ask | Pass | Fail | Status |
 |----|-----|------|------|--------|
 | refuse overlap | put the formula in **H1**, data A1:H500 | dest J1/I1 and says H1 is inside the range | writes H1 | **shipped** (`py_refuse_overlap`) |
-| no bulk read | unique-rows via `=PY` | no `read_cell_range` of A1:H500 / the spill | dumping the block into chat | **shipped** (`py_no_bulk_read`) |
+| no bulk read | unique-rows via `=PY` | no `read_range` of A1:H500 / the spill | dumping the block into chat | **shipped** (`py_no_bulk_read`) |
 | unique beside | drop dupes on A1:H500 onto the sheet | `=PY` dest **J1** (or first empty col / other sheet) | dest inside A1:H500; `domain=python`; chat-only | dropped (pack stays even) |
 | in-place reframe | write unique rows **back onto** A1:H500 | same as unique beside + short circular explanation | `=PY` in A1 | dropped |
 
@@ -113,11 +113,11 @@ Source plan: [`oss-20b-eval.md`](oss-20b-eval.md). Scores:
 - `CALC_CORE_DIRECTIVES` is structured: `FORMULAS:` (per-row relative
   Do-because) then `SORT:` last (routing + plain `has_header`
   constraint). The sort because-clause does **not** name
-  `write_formula_range` / `=PY`.
+  `write_range` / `=PY`.
 - Tax oracle `_tax_formula_ok` accepts equivalent relative 8% forms
   (`B2*0.08`, `0.08*B2`, `B2*8%`, `8/100`, `$` / spaces / decimal comma)
   without loosening wrong-row, wrong-factor, or Price-column junk.
-- `write_formula_range` fails loud when a JSON leaf count does not match
+- `write_range` fails loud when a JSON leaf count does not match
   the A1 cell count (string `CalcWorld` too).
 - String `CalcWorld` fill-down of one formula into a 1-D range uses
   `formula_fill.expand_single_formula` (production); JSON arrays stay

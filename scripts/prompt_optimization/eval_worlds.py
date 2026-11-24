@@ -28,6 +28,7 @@ from plugin.calc.manipulator import (
     _values_length_mismatch_message,
     parse_then_by,
 )
+from plugin.draw.tree import short_shape_type
 from plugin.framework.json_utils import safe_json_loads
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
@@ -599,6 +600,33 @@ class WriterWorld:
         return {"status": "ok", "message": f"Applied {style_name}."}
 
 
+# Same resolution as _execute_upsert_shape in plugin/draw/shapes.py: these names are UNO
+# shapes, a UNO type name passes through, and every other name is a CustomShape preset.
+_BASIC_SHAPE_TYPES = {"text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
+_SHAPE_DEFAULTS: dict[str, Any] = {"text": "", "x": 1000, "y": 1000, "width": 2000, "height": 1000}
+
+
+def _draw_node_type(shape_type: str) -> tuple[str, str | None]:
+    mapped = _BASIC_SHAPE_TYPES.get(shape_type)
+    if mapped:
+        return mapped, None
+    if "." in shape_type or shape_type.endswith("Shape"):
+        return short_shape_type(shape_type), None
+    return "CustomShape", shape_type
+
+
+def _line_ends(args: dict[str, Any]) -> tuple[dict[str, str], str | None]:
+    out: dict[str, str] = {}
+    for key in ("line_start", "line_end"):
+        marker = args.get(key)
+        if marker is None:
+            continue
+        if marker not in ("none", "arrow"):
+            return {}, f"Invalid value for {key}: {marker!r}. Valid options: none, arrow"
+        out[key] = marker
+    return out, None
+
+
 class DrawWorld:
     """Draw page: shapes, z-order (list order), and connectors."""
 
@@ -620,26 +648,23 @@ class DrawWorld:
         action: str = "create",
         index: int | None = None,
         shape_type: str = "rectangle",
-        text: str = "",
-        x: int = 1000,
-        y: int = 1000,
-        width: int = 2000,
-        height: int = 1000,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        extra = dict(kwargs)
+        line_ends, err = _line_ends(kwargs)
+        if err:
+            return {"status": "error", "message": err}
+        props = {k: kwargs[k] for k in _SHAPE_DEFAULTS if kwargs.get(k) is not None}
         if action == "create":
             idx = self._next_index
             self._next_index += 1
+            node_type, preset = _draw_node_type(shape_type)
             entry = {
                 "index": idx,
-                "type": shape_type,
-                "text": text,
-                "x": x,
-                "y": y,
-                "width": width,
-                "height": height,
-                "custom_shape_type": shape_type if "flowchart" in shape_type.lower() else None,
+                "type": node_type,
+                "custom_shape_type": preset,
+                **_SHAPE_DEFAULTS,
+                **props,
+                **line_ends,
             }
             self.shapes.append(entry)
             return {
@@ -655,16 +680,8 @@ class DrawWorld:
             found = next((s for s in self.shapes if s["index"] == index), None)
             if not found:
                 return {"status": "error", "message": f"Shape index {index} not found"}
-            if "x" in extra:
-                found["x"] = extra["x"]
-            if "y" in extra:
-                found["y"] = extra["y"]
-            if "width" in extra:
-                found["width"] = extra["width"]
-            if "height" in extra:
-                found["height"] = extra["height"]
-            if "text" in extra:
-                found["text"] = extra["text"]
+            found.update(props)
+            found.update(line_ends)
             return {"status": "ok", "message": "Shape updated", "page": 0}
         return {"status": "error", "message": f"Unknown action {action}"}
 
@@ -681,14 +698,11 @@ class DrawWorld:
         indexes = {s["index"] for s in self.shapes}
         if start_i not in indexes or end_i not in indexes:
             return {"status": "error", "message": "Failed to find shapes at given indices."}
-        arrowheads: dict[str, str] = {}
-        for key in ("line_start", "line_end"):
-            marker = kwargs.get(key)
-            if marker not in (None, "none", "arrow"):
-                return {"status": "error", "message": f"Invalid value for {key}: {marker!r}. Valid options: none, arrow"}
-            # shape_get_tree omits an end without an arrowhead, so only "arrow" is stored.
-            if marker == "arrow":
-                arrowheads[key] = marker
+        raw_ends, err = _line_ends(kwargs)
+        if err:
+            return {"status": "error", "message": err}
+        # shape_get_tree omits an end without an arrowhead, so only "arrow" is stored.
+        arrowheads = {k: v for k, v in raw_ends.items() if v == "arrow"}
         label = str(kwargs.get("label") or kwargs.get("text") or "")
         entry: dict[str, Any] = {"from_index": start_i, "to_index": end_i, **arrowheads}
         if label:
@@ -738,6 +752,13 @@ class DrawWorld:
             }
             if s.get("custom_shape_type"):
                 node["custom_shape_type"] = s["custom_shape_type"]
+            style: dict[str, str] = {}
+            if s.get("line_start") == "arrow":
+                style["LineStartName"] = "Arrow"
+            if s.get("line_end") == "arrow":
+                style["LineEndName"] = "Arrow"
+            if style:
+                node["style"] = style
             dests = starts.get(s["index"]) or []
             srcs = ends.get(s["index"]) or []
             if dests:
@@ -775,7 +796,8 @@ class DrawWorld:
             "shapes": [
                 {
                     "index": s["index"],
-                    "type": s["type"],
+                    "type": f"com.sun.star.drawing.{s['type']}",
+                    **({"custom_shape_type": s["custom_shape_type"]} if s.get("custom_shape_type") else {}),
                     "x": s["x"],
                     "y": s["y"],
                     "width": s["width"],

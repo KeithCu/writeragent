@@ -6,15 +6,7 @@
 
 import pytest
 
-from plugin.framework import queue_executor as qe
 from tests.framework.thread_safety import UnoThreadSafetySession
-
-
-@pytest.fixture(autouse=True)
-def _reset_thread_safety_hooks():
-    """Prevent Layer B hooks from leaking between framework tests."""
-    yield
-    qe.main.install(qe.Policy.production, designated=None, poke=None)
 
 
 @pytest.fixture

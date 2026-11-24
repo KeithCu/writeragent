@@ -25,6 +25,8 @@ _PO = Path(__file__).resolve().parent
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
+from oracles import first_rendering  # noqa: E402
+
 
 if dspy is not None:
     class JudgeSignature(dspy.Signature):
@@ -117,7 +119,7 @@ def score_with_judge(
         j_result = judge_mod(
             document_content=document_content,
             user_question=user_question,
-            model_answer=model_answer,
+            model_answer=first_rendering(model_answer),
             gold_answer=gold_answer or "N/A",
             rubric=rubric or "N/A",
             task_category=task_category,
@@ -218,7 +220,7 @@ def score_with_judge_llm(
         f"Task category: {task_category}\n\n"
         f"Document (input):\n{document_content}\n\n"
         f"User question:\n{user_question}\n\n"
-        f"Model answer:\n{model_answer}\n\n"
+        f"Model answer:\n{first_rendering(model_answer)}\n\n"
         f"Gold reference (optional):\n{gold_answer}\n\n"
         f"Rubric (optional):\n{rubric}"
     )
@@ -702,6 +704,7 @@ def run_eval_on_examples_llm(
                 schema_density=schema_density,
                 fixture=getattr(ex, "fixture", ""),
             )
+            gold = first_rendering(gold)
             if gerr and not quiet:
                 print(f"  Gold generation error: {gerr}")
             if not quiet:

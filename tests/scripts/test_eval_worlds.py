@@ -9,6 +9,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
@@ -89,6 +91,78 @@ def test_draw_connect_records_arrowheads() -> None:
     res_bad = draw.shape_connect(start=0, end=1, line_end="triangle")
     assert res_bad["status"] == "error"
     assert len(draw.get_tree()["connections"]) == 2
+
+
+def test_draw_edit_updates_shape() -> None:
+    draw = DrawWorld()
+    draw.shape_upsert(action="create", shape_type="rectangle", text="Old", x=100, y=200, width=300, height=400)
+    draw.shape_upsert(action="create", shape_type="rectangle", text="Next")
+    draw.shape_connect(start=0, end=1)
+
+    res = draw.shape_upsert(action="edit", index=0, text="New", x=500, width=900)
+    assert res["status"] == "ok"
+    tree = draw.get_tree()["tree"]
+    assert tree[0]["text"] == "New"
+    assert tree[0]["geometry"] == {"x": 500, "y": 200, "width": 900, "height": 400}
+    assert tree[1]["connected_start"]["text"] == "New"
+
+    res_clear = draw.shape_upsert(action="edit", index=0, text="")
+    assert res_clear["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["text"] == ""
+
+
+def test_draw_upsert_records_arrowheads() -> None:
+    draw = DrawWorld()
+    res = draw.shape_upsert(action="create", shape_type="line", line_end="arrow", line_start="none")
+    assert res["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineEndName": "Arrow"}
+
+    res_edit = draw.shape_upsert(action="edit", index=0, line_end="none", line_start="arrow")
+    assert res_edit["status"] == "ok"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
+
+    bad_create = draw.shape_upsert(action="create", shape_type="line", line_end="triangle")
+    assert bad_create["status"] == "error"
+    assert len(draw.get_tree()["tree"]) == 1
+
+    bad_edit = draw.shape_upsert(action="edit", index=0, line_end="triangle")
+    assert bad_edit["status"] == "error"
+    assert draw.get_tree()["tree"][0]["style"] == {"LineStartName": "Arrow"}
+
+
+@pytest.mark.parametrize(
+    ("shape_type", "expected_type", "expected_preset"),
+    [
+        ("rectangle", "CustomShape", "rectangle"),
+        ("ellipse", "CustomShape", "ellipse"),
+        ("diamond", "CustomShape", "diamond"),
+        ("flowchart-connector", "CustomShape", "flowchart-connector"),
+        ("text", "TextShape", None),
+        ("line", "LineShape", None),
+        ("connector", "ConnectorShape", None),
+        ("EllipseShape", "EllipseShape", None),
+        ("com.sun.star.drawing.RectangleShape", "RectangleShape", None),
+    ],
+)
+def test_draw_node_types_match_production(
+    shape_type: str,
+    expected_type: str,
+    expected_preset: str | None,
+) -> None:
+    import oracles
+
+    draw = DrawWorld()
+    draw.shape_upsert(action="create", shape_type=shape_type, text="Node")
+    node = draw.get_tree()["tree"][0]
+    assert node["type"] == expected_type
+    assert node.get("custom_shape_type") == expected_preset
+
+    summary = draw.get_draw_summary()["shapes"][0]
+    assert summary["type"] == f"com.sun.star.drawing.{expected_type}"
+    assert summary.get("custom_shape_type") == expected_preset
+
+    if shape_type == "flowchart-connector":
+        assert oracles.is_draw_connector(node) is False
 
 
 def test_calc_py_dest_snapshot() -> None:
