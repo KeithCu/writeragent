@@ -1267,6 +1267,7 @@ def test_arm_spill_registry_loads_and_arms_sheets(monkeypatch: pytest.MonkeyPatc
 
     s1 = CalcSheetStub("Sheet1")
     s2 = CalcSheetStub("Sheet2")
+    s1.getCellByPosition(0, 0).setFormula('=PY("a")')
     s1.getCellByPosition(0, 1).setValue(10.0)
     s2.getCellByPosition(1, 2).setValue(20.0)
     doc = CalcDocStub(sheets=[s1, s2], url="file:///arm-sheets.ods", props={"RuntimeUID": "uid-arm-sheets"})
@@ -1286,6 +1287,8 @@ def test_arm_spill_registry_loads_and_arms_sheets(monkeypatch: pytest.MonkeyPatc
     try:
         _spill.arm_spill_registry(MagicMock(), doc, st)
         assert st.loaded is True
+        assert st.spills[("Sheet1", 0, 0)].seen is True
+        assert st.spills[("Sheet2", 0, 0)].seen is False
         assert "Sheet1" in st.listeners and "Sheet2" in st.listeners
         assert "MissingSheet" not in st.listeners
         assert st.used_ends["Sheet1"] == (1, 0)
@@ -1390,22 +1393,100 @@ def test_perform_deferred_spill_preserves_pending_delta(monkeypatch: pytest.Monk
     st = WorkbookState.for_doc(doc)
     assert st is not None
 
-    # Witness was (3, 0); a pending row insert moved existing content to row 4 before B's spill.
+    # Block A was at row 2..3 (used_ends=(3, 0)). A pending row insert shifted A to row 3..4
+    # and B to row 4 before B's 3-row spill runs.
     st.used_ends["Sheet1"] = (3, 0)
-    sheet.getCellByPosition(0, 4).setValue(1.0)
-    sheet.getCellByPosition(0, 6).setFormula('=PY("b")')
+    st.spills[("Sheet1", 2, 0)] = _spill.SpillRecord(code="a", rows=2, cols=1)
+    sheet.getCellByPosition(0, 3).setFormula('=PY("a")')
+    sheet.getCellByPosition(0, 4).setFormula('=PY("b")')
 
     _spill.perform_deferred_spill(
         "Sheet1",
-        6,
+        4,
         0,
-        [[1], [2]],
+        [[1], [2], [3]],
         doc=doc,
         sheet=sheet,
         code="b",
         key=st.key,
     )
 
-    # B's write extended the sheet from (6, 0) to (7, 0) (+1 row); the pending +1 structural
-    # delta from (3, 0) to (4, 0) is preserved, so used_ends advances to (3 + 1, 0) = (4, 0).
-    assert st.used_ends["Sheet1"] == (4, 0)
+    # B's write extended used_end from (4, 0) to (6, 0) (+2 rows); witness advances (3+2, 0) = (5, 0).
+    assert st.used_ends["Sheet1"] == (5, 0)
+
+    # Pending modify pass sees delta = (6, 0) - (5, 0) = (1, 0), remapping A without clearing.
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+    assert ("Sheet1", 2, 0) not in st.spills
+    assert ("Sheet1", 3, 0) in st.spills
+    assert sheet.getCellByPosition(0, 4).getFormula() == '=PY("b")'
+    assert sheet.getCellByPosition(0, 5).getValue() == 2.0
+    assert sheet.getCellByPosition(0, 6).getValue() == 3.0
+
+
+def test_spill_row_delete_with_adjacent_py_drops_without_clearing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deleting row 5 shifts A6's =PY(y) into A5 with delta (-1, 0); A5's old record must drop, not keep."""
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///row-del-adj-py.ods")
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+
+    # Before delete: A5 =PY("x") spilled 1x4 (B5:D5), A6 =PY("y") had user data in B6:D6 (used_end=(5, 3)).
+    # After deleting row 5: A5 now holds =PY("y") and user data is at B5:D5 (used_end=(4, 3)).
+    st.used_ends["Sheet1"] = (5, 3)
+    st.spills[("Sheet1", 4, 0)] = _spill.SpillRecord(code="x", rows=1, cols=4)
+    sheet.getCellByPosition(0, 4).setFormula('=PY("y")')
+    sheet.getCellByPosition(1, 4).setValue(101.0)
+    sheet.getCellByPosition(2, 4).setValue(102.0)
+
+    # Pass 1: negative delta (-1, 0) drops x's record and leaves user data untouched.
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+    assert ("Sheet1", 4, 0) not in st.spills
+    assert sheet.getCellByPosition(1, 4).getValue() == 101.0
+    assert sheet.getCellByPosition(2, 4).getValue() == 102.0
+
+    # Pass 2: subsequent unrelated edit with delta (0, 0) still leaves user data untouched.
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+    assert sheet.getCellByPosition(1, 4).getValue() == 101.0
+    assert sheet.getCellByPosition(2, 4).getValue() == 102.0
+
+
+def test_spill_adjacent_records_remap_both_directions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Adjacent records remapping into each other's old keys must not overwrite one another."""
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    # Shift down (5->6, 6->7, 7->8)
+    sheet_down = CalcSheetStub("Sheet1")
+    doc_down = CalcDocStub(sheets=[sheet_down], url="file:///remap-down.ods")
+    st_down = WorkbookState.for_doc(doc_down)
+    assert st_down is not None
+    for row, code, cols in ((5, "a", 2), (6, "b", 3), (7, "c", 4)):
+        st_down.spills[("Sheet1", row, 0)] = _spill.SpillRecord(code=code, rows=1, cols=cols)
+        sheet_down.getCellByPosition(0, row + 1).setFormula(f'=PY("{code}")')
+    st_down.used_ends["Sheet1"] = (7, 0)
+
+    _fire_sheet_modify(MagicMock(), doc_down, sheet_down)
+    assert set(st_down.spills) == {("Sheet1", 6, 0), ("Sheet1", 7, 0), ("Sheet1", 8, 0)}
+    assert (st_down.spills[("Sheet1", 6, 0)].code, st_down.spills[("Sheet1", 6, 0)].cols) == ("a", 2)
+    assert (st_down.spills[("Sheet1", 7, 0)].code, st_down.spills[("Sheet1", 7, 0)].cols) == ("b", 3)
+    assert (st_down.spills[("Sheet1", 8, 0)].code, st_down.spills[("Sheet1", 8, 0)].cols) == ("c", 4)
+
+    # Shift up with reverse dict order (7->6, 6->5, 5->4)
+    sheet_up = CalcSheetStub("Sheet1")
+    doc_up = CalcDocStub(sheets=[sheet_up], url="file:///remap-up.ods")
+    st_up = WorkbookState.for_doc(doc_up)
+    assert st_up is not None
+    for row, code, cols in ((7, "c", 4), (6, "b", 3), (5, "a", 2)):
+        st_up.spills[("Sheet1", row, 0)] = _spill.SpillRecord(code=code, rows=1, cols=cols)
+        sheet_up.getCellByPosition(0, row - 1).setFormula(f'=PY("{code}")')
+    st_up.used_ends["Sheet1"] = (7, 0)
+
+    _fire_sheet_modify(MagicMock(), doc_up, sheet_up)
+    assert set(st_up.spills) == {("Sheet1", 4, 0), ("Sheet1", 5, 0), ("Sheet1", 6, 0)}
+    assert (st_up.spills[("Sheet1", 4, 0)].code, st_up.spills[("Sheet1", 4, 0)].cols) == ("a", 2)
+    assert (st_up.spills[("Sheet1", 5, 0)].code, st_up.spills[("Sheet1", 5, 0)].cols) == ("b", 3)
+    assert (st_up.spills[("Sheet1", 6, 0)].code, st_up.spills[("Sheet1", 6, 0)].cols) == ("c", 4)

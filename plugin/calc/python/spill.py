@@ -36,6 +36,7 @@ from plugin.calc.python.formula_locator_cache import (
     FormulaOrigin,
     collect_matching_formula_origins,
     is_matching_py_formula,
+    iter_range_formula_texts,
     locate_formula_cell_in_doc,
 )
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
@@ -118,13 +119,12 @@ def _user_formula_in_rect(sheet: Any, row: int, col: int, rows: int, cols: int) 
         log.debug("_user_formula_in_rect: could not read the spilled range", exc_info=True)
         return None
     for addr in rect.queryContentCells(CELL_FLAG_FORMULA).getRangeAddresses() or ():
-        for r in range(int(addr.StartRow), int(addr.EndRow) + 1):
-            for c in range(int(addr.StartColumn), int(addr.EndColumn) + 1):
-                if (r, c) == (row, col):
-                    continue
-                formula = str(sheet.getCellByPosition(c, r).getFormula() or "")
-                if _ERROR_LITERAL_RE.fullmatch(formula) is None:
-                    return (c, r)
+        sub_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        for r, c, formula in iter_range_formula_texts(sheet, sub_range):
+            if (r, c) == (row, col):
+                continue
+            if _ERROR_LITERAL_RE.fullmatch(formula) is None:
+                return (c, r)
     return None
 
 
@@ -154,9 +154,10 @@ def _classify_orphan_record(
     Returns (action, new_coords) where action is one of:
     - "remap": exactly one match on the sheet and the used-area end shifted by the same delta
       (insert/delete of rows or columns before the block).
-    - "keep": origin still holds a =PY formula, old code is absent elsewhere, and delta != (0, 0)
-      (in-place code edit in the same debounce window as another edit; note a different =PY
-      formula could have shifted into this cell).
+    - "keep": origin still holds a =PY formula, old code is absent elsewhere, and the used-area
+      end grew without shrinking (delta[0] >= 0, delta[1] >= 0, delta != (0, 0)), which covers an
+      in-place code edit in the same debounce window as added cells; row/column deletes give a
+      negative component and drop so a shifted-in =PY formula never inherits the old rectangle.
     - "drop_and_clear": zero matches on the sheet, formula was seen this session (not stale at
       open), used-area end is unchanged (delta == (0, 0)), and the origin is now empty or a
       different =PY formula (not overwritten with a constant or non-PY formula).
@@ -171,7 +172,7 @@ def _classify_orphan_record(
     if len(matches) > 1:
         return ("drop", None)
     origin_is_py = is_py_formula_text(formula_str)
-    if origin_is_py and delta is not None and delta != (0, 0):
+    if origin_is_py and delta is not None and delta[0] >= 0 and delta[1] >= 0 and delta != (0, 0):
         return ("keep", None)
     if record.seen and delta == (0, 0) and (origin_empty or origin_is_py):
         return ("drop_and_clear", None)
@@ -230,10 +231,13 @@ def cleanup_orphans(
                         if removed_rec is not None and clear:
                             if _user_formula_in_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols) is None:
                                 _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
-                    for old_k, new_k in to_remap:
-                        rec = state.spills.pop(old_k, None)
-                        if rec is not None:
-                            state.spills[new_k] = rec
+                    moved = [
+                        (new_k, state.spills.pop(old_k))
+                        for old_k, new_k in to_remap
+                        if old_k in state.spills
+                    ]
+                    for new_k, rec in moved:
+                        state.spills[new_k] = rec
                     save_spill_registry_for_doc(doc, state)
 
             state.used_ends[sheet_name] = _used_end(sheet)
@@ -618,6 +622,11 @@ def _spill_is_blocked(
     return False
 
 
+def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord) -> bool:
+    formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
+    return is_matching_py_formula(formula, record.code) if record.code else is_py_formula_text(formula)
+
+
 def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
     """Load the document's spill registry and arm modify listeners on sheets with records (UI thread)."""
     if not state.loaded:
@@ -626,10 +635,18 @@ def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
     if not state.spills:
         return
     sheets = doc.getSheets()
-    for sheet_name in {name for name, _r, _c in state.spills}:
-        sheet = uno_read(lambda: sheets.getByName(sheet_name), None)
-        if sheet is not None:
-            _arm_sheet(ctx, doc, state, sheet, sheet_name)
+    armed: dict[str, Any] = {}
+    for (sheet_name, frow, fcol), record in state.spills.items():
+        if sheet_name not in armed:
+            sheet = uno_read(lambda: sheets.getByName(sheet_name), None)
+            armed[sheet_name] = sheet
+            if sheet is not None:
+                _arm_sheet(ctx, doc, state, sheet, sheet_name)
+        else:
+            sheet = armed[sheet_name]
+        if sheet is not None and not record.seen:
+            if uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record), False):
+                record.seen = True
 
 
 def prepare_auto_spill(

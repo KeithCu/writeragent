@@ -917,13 +917,17 @@ def test_py_spill_cut_paste_leaves_block_and_drops_record_uno(ctx, doc):
 @with_native_doc("calc")
 def test_py_spill_user_formula_referencing_origin_blocks_during_recalc_uno(ctx, doc):
     """During a real =PY() recalc, a user formula inside the rectangle referencing the origin still blocks."""
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import prepare_auto_spill
+
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
     assert st is not None
     try:
-        code1 = "result = [[10, 20]]"
+        code = "result = [[10, 20]]"
         origin_cell = sheet.getCellByPosition(0, 0)
-        origin_cell.setFormula(f'=PY("{code1}")')
+        origin_cell.setFormula(f'=PY("{code}")')
         perform_deferred_spill(
             sheet.Name,
             0,
@@ -931,20 +935,22 @@ def test_py_spill_user_formula_referencing_origin_blocks_during_recalc_uno(ctx, 
             [[10.0, 20.0]],
             doc=doc,
             sheet=sheet,
-            code=code1,
+            code=code,
             key=st.key,
         )
         assert sheet.getCellByPosition(1, 0).getValue() == 20.0
 
-        # Put a user formula referencing A1 inside the spill rectangle, then recalculate A1.
+        # Put a user formula referencing A1 inside the spill rectangle, then recalculate with the same code.
         sheet.getCellByPosition(1, 0).setFormula("=A1+1")
-        origin_cell.setFormula('=PY("result = [[99, 30]]")')
         doc.calculateAll()
         _wait_spill_settled(doc)
 
-        assert origin_cell.getString() == "#SPILL!" or origin_cell.getValue() == 99.0
         b1_formula = sheet.getCellByPosition(1, 0).getFormula()
-        assert b1_formula == "=A1+1", f"got {b1_formula!r}, origin={origin_cell.getString()!r}"
+        assert b1_formula == "=A1+1", f"got {b1_formula!r}"
+        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
+        assert prepare_auto_spill(ctx, doc, st, origin, code, [[10.0, 20.0]]) == "#SPILL!"
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), code)
+        assert entry is not None and "previous spill" in entry.message
     finally:
         _wait_spill_settled(doc)
         WorkbookState.forget_key(st.key)

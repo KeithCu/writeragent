@@ -142,21 +142,13 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
     return uno_read(_probe, None)
 
 
-def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) -> tuple[Any, int, int] | None:
-    """Query formula cells on sheet. Returns a match only when exactly one origin matches.
-
-    Duplicate ``=PY("same")`` cells are indistinguishable (XAddIn has no calling cell);
-    first-match would spill into the wrong formula. Matrix/array formulas are one origin
-    (top-left of the formula range).
-    """
-    matches = collect_matching_formula_origins(sheet, code_str, doc=doc)
-    if len(matches) == 1:
-        return matches[0]
-    return None
-
-
 def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
-    """All matching formula origins on *sheet* (one per queryContentCells range)."""
+    """All matching formula origins on *sheet* (one per queryContentCells range).
+
+    Callers that need a unique origin check ``len == 1``: duplicate ``=PY("same")``
+    cells are indistinguishable (XAddIn has no calling cell), so first-match would
+    spill into the wrong formula. Matrix/array formulas are one origin (top-left).
+    """
     found: list[tuple[Any, int, int]] = []
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
     count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
