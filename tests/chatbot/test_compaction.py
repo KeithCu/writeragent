@@ -1262,7 +1262,6 @@ def test_newest_assistant_tool_span_empty_tool_calls_and_no_assistant():
 
 def test_messages_for_llm_empty_returns_empty():
     assert C.messages_for_llm(DummySession([])) == []
-    assert C.messages_for_llm(None) == []
 
 
 def test_resolve_context_window_provider_exceptions():

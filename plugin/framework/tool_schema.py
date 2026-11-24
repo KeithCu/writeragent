@@ -528,15 +528,19 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
 
     agent_label_for = getattr(tool, "agent_label_for", None)
     if agent_label_for is not None:
-        from plugin.framework.prompts import format_specialized_domains_description
+        from plugin.framework.prompts import format_specialized_domains_description, get_specialized_domain_catalog
 
         # For MCP schemas, use a compact description to avoid duplicating the long domain list
         # (the detailed domain guidance lives in the 'domain' property description instead).
         # The full verbose guidance with examples is still used in chat system prompts.
         desc = f"{desc} See the 'domain' property for available areas and the 'task' parameter rules.".strip()
-        props["domain"]["description"] = format_specialized_domains_description(
-            agent_label=agent_label_for(doc_type=doc_type)
-        )
+        label = agent_label_for(doc_type=doc_type)
+        props["domain"]["description"] = format_specialized_domains_description(agent_label=label)
+        # get_parameters keeps chat-tier domains so execute() can refuse them by name; MCP lists omit them.
+        # With no doc_type, agent_label_for answers "Writer" while the enum must merge all apps.
+        props["domain"]["enum"] = [
+            e["domain"] for e in get_specialized_domain_catalog(agent_label=label if doc_type else None, for_mcp=True)
+        ]
 
     input_schema = _normalize_schema_for_strict_providers(input_schema, for_mcp=True)
     props = input_schema["properties"]

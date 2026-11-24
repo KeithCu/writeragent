@@ -268,8 +268,8 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _tools(
             _tc("shape_connect", {"start": 0, "end": 1}, "conn_1"),
             _tc("shape_connect", {"start": 1, "end": 2}, "conn_2"),
-            _tc("shape_connect", {"start": 2, "end": 3, "label": "Yes"}, "conn_3"),
-            _tc("shape_connect", {"start": 2, "end": 1, "label": "No"}, "conn_4"),
+            _tc("shape_connect", {"start": 2, "end": 3}, "conn_3"),
+            _tc("shape_connect", {"start": 2, "end": 1}, "conn_4"),
         ),
         _tools(
             _tc(

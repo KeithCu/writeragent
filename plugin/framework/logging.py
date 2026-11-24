@@ -248,8 +248,6 @@ class OptionalFlushFileHandler(logging.FileHandler):
                 # reopen below; a closed-but-not-None stream would stay dead.
                 self.stream = None
             backup = self.baseFilename + ".1"
-            if os.path.exists(backup):
-                os.remove(backup)
             os.replace(self.baseFilename, backup)
             self.stream = self._open()
         except OSError:
