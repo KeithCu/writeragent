@@ -1089,6 +1089,105 @@ def test_streamed_append_abort_and_restore_uno(ctx, doc):
     assert doc.getText().getString() == "Orig. Plain"
 
 
+@native_test
+@with_native_doc("writer")
+def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
+    from com.sun.star.awt.FontWeight import BOLD, NORMAL
+    from plugin.framework.uno_context import enum_has_more
+
+    def _runs():
+        out = []
+        para = doc.getText().createEnumeration().nextElement()
+        portions = para.createEnumeration()
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            s = str(p.getString() or "")
+            if s:
+                out.append((s, float(p.getPropertyValue("CharWeight"))))
+        return out
+
+    # Bold longest first -> <D><I><D>, Accept bold, Reject original runs
+    _reset(doc, ctx, "Alpha b")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(6, True)
+    cur.setPropertyValue("CharWeight", BOLD)
+    with _recording(doc):
+        rng = doc.getText().createTextCursor()
+        rng.gotoStart(False)
+        rng.gotoEnd(True)
+        fmt.replace_preserving_format(doc, rng, "Swap", ctx)
+    assert [r["type"] for r in _redlines(doc)] == ["Delete", "Insert", "Delete"]
+    _accept_all(doc, ctx)
+    assert _runs() == [("Swap", float(BOLD))]
+
+    _reset(doc, ctx, "Alpha b")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharWeight", NORMAL)
+    cur.gotoStart(False)
+    cur.goRight(6, True)
+    cur.setPropertyValue("CharWeight", BOLD)
+    with _recording(doc):
+        rng = doc.getText().createTextCursor()
+        rng.gotoStart(False)
+        rng.gotoEnd(True)
+        fmt.replace_preserving_format(doc, rng, "Swap", ctx)
+    _reject_all(doc, ctx)
+    assert _runs() == [("Alpha ", float(BOLD)), ("b", float(NORMAL))], _runs()
+
+    # Plain longest last -> Accept plain
+    _reset(doc, ctx, "Note: blah blah")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharWeight", NORMAL)
+    cur.gotoStart(False)
+    cur.goRight(5, True)
+    cur.setPropertyValue("CharWeight", BOLD)
+    with _recording(doc):
+        rng = doc.getText().createTextCursor()
+        rng.gotoStart(False)
+        rng.gotoEnd(True)
+        fmt.replace_preserving_format(doc, rng, "Updated", ctx)
+    _accept_all(doc, ctx)
+    assert _runs() == [("Updated", float(NORMAL))], _runs()
+
+    # Emoji prefix and run -> Accept plain, Reject restores emoji
+    _reset(doc, ctx, "😀 plain")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharWeight", NORMAL)
+    cur.gotoStart(False)
+    cur.goRight(len("😀 "), True)
+    cur.setPropertyValue("CharWeight", BOLD)
+    with _recording(doc):
+        rng = doc.getText().createTextCursor()
+        rng.gotoStart(False)
+        rng.gotoEnd(True)
+        fmt.replace_preserving_format(doc, rng, "New", ctx)
+    _accept_all(doc, ctx)
+    assert _runs() == [("New", float(NORMAL))], _runs()
+
+    _reset(doc, ctx, "😀 plain")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("CharWeight", NORMAL)
+    cur.gotoStart(False)
+    cur.goRight(len("😀 "), True)
+    cur.setPropertyValue("CharWeight", BOLD)
+    with _recording(doc):
+        rng = doc.getText().createTextCursor()
+        rng.gotoStart(False)
+        rng.gotoEnd(True)
+        fmt.replace_preserving_format(doc, rng, "New", ctx)
+    _reject_all(doc, ctx)
+    assert _runs() == [("😀 ", float(BOLD)), ("plain", float(NORMAL))], _runs()
+
+
 def _paragraphs(doc):
     out = []
     e = doc.getText().createEnumeration()

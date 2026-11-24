@@ -47,8 +47,24 @@ log = logging.getLogger(__name__)
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 _DRAW_SHAPE_SERVICE = "com.sun.star.drawing.Shape"
+_TEXT_TABLE_SERVICE = "com.sun.star.text.TextTable"
 # uno_read default where None is a real UNO result.
 FAILED: Any = object()
+
+
+def _is_text_table(obj: Any) -> bool:
+    return uno_read(lambda: obj.supportsService(_TEXT_TABLE_SERVICE) is True, False, object_type="TextRange")
+
+
+def redline_bounds(redline: Any) -> tuple[Any, Any, Any]:
+    """Return ``(text, start, end)`` of a tracked change; a start at a table is the table's anchor."""
+    start = redline.getPropertyValue("RedlineStart")
+    end = redline.getPropertyValue("RedlineEnd")
+    # SwXRedline::getPropertyValue (sw/source/core/unocore/unoredline.cxx, SwNodeType::Table case)
+    # returns SwXTextTable for RedlineStart when a deletion starts at a table, which has no getText().
+    if _is_text_table(start):
+        start = start.getAnchor()
+    return end.getText(), start, end
 
 
 def iter_elements(enum: Any) -> Generator[Any, None, None]:
@@ -489,12 +505,13 @@ def visible_portions(
     Pass a shared *state* across consecutive paragraphs of one ``XText`` so
     deletions spanning multiple paragraphs stay hidden.
     """
+    if state is None:
+        state = DeletionState()
     try:
         portion_enum = para.createEnumeration()
     except Exception:
+        state.in_delete = False
         return
-    if state is None:
-        state = DeletionState()
     seen = 0
     while enum_has_more(portion_enum):
         if limit is not None and seen >= limit:
@@ -537,23 +554,123 @@ def visible_portions(
 
 
 def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> str:
-    """Visible text of one paragraph via ``visible_portions``.
+    """Visible text of one paragraph via ``visible_portions``."""
+    return "".join(chunk for _unused, chunk in visible_portions(para, state=state))
 
-    Falls back to ``getString()`` only when the portion enum cannot be opened.
-    An empty walk after a successful enum is kept
-    empty so tracked-only paragraphs do not re-include deleted text.
+
+class TrackedDeletions:
+    """The pending Delete redlines of a Writer document, read once."""
+
+    def __init__(self, doc: Any) -> None:
+        self._bounds: list[tuple[Any, Any, Any]] = []
+        redlines = uno_read(lambda: doc.getRedlines(), None)
+        if redlines is None or uno_read(lambda: redlines.hasElements() is True, False) is not True:
+            return
+        enum = uno_read(lambda: redlines.createEnumeration(), None)
+        for rl in iter_elements(enum):
+            if uno_read(lambda: str(rl.getPropertyValue("RedlineType")), None) != "Delete":
+                continue
+            bounds = uno_read(lambda: redline_bounds(rl), None)
+            if bounds is not None and bounds[0] is not None:
+                self._bounds.append(bounds)
+
+    def __bool__(self) -> bool:
+        return bool(self._bounds)
+
+    def state_at(self, text_range: Any) -> DeletionState:
+        """Return ``DeletionState`` at the start of *text_range* (XText, cursor, paragraph, or table)."""
+        if not self._bounds:
+            return DeletionState()
+        if _is_text_table(text_range):
+            point = uno_read(lambda: text_range.getAnchor(), None, object_type="TextTable")
+        else:
+            point = None
+            # getStart() skips a leading table; seed from the first enumerated element if it is a table.
+            enum = uno_read(lambda: text_range.createEnumeration(), None, object_type="TextRange")
+            if enum is not None:
+                for first in iter_elements(enum):
+                    if _is_text_table(first):
+                        point = uno_read(lambda: first.getAnchor(), None, object_type="TextTable")
+                    break
+            if point is None:
+                point = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
+        if point is None:
+            return DeletionState()
+        for text, start, end in self._bounds:
+            # Half-open [start, end): the end marker sits at end and has already been passed.
+            inside = uno_read(
+                lambda: text.compareRegionStarts(start, point) >= 0
+                and text.compareRegionStarts(point, end) == 1,
+                False,
+                object_type="TextRange",
+            )
+            if inside:
+                return DeletionState(in_delete=True)
+        return DeletionState()
+
+    def covers(self, text_range: Any) -> bool:
+        """True when *text_range* lies wholly inside one pending Delete redline."""
+        if not self._bounds:
+            return False
+        rng_start = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
+        rng_end = uno_read(lambda: text_range.getEnd(), None, object_type="TextRange")
+        if rng_start is None or rng_end is None:
+            return False
+        for text, start, end in self._bounds:
+            covered = uno_read(
+                lambda: text.compareRegionStarts(start, rng_start) >= 0
+                and text.compareRegionEnds(rng_end, end) >= 0,
+                False,
+                object_type="TextRange",
+            )
+            if covered:
+                return True
+        return False
+
+
+def iter_table_paragraphs(table: Any) -> Iterator[tuple[Any, DeletionState]]:
+    """Yield ``(para, state)`` for every paragraph in *table*, including nested tables.
+
+    Each cell starts with a fresh ``DeletionState()``. Consumers must walk each
+    paragraph with its yielded *state* before advancing to the next item.
     """
-    chunks = list(visible_portions(para, state=state))
-    if chunks:
-        return "".join(chunk for _unused, chunk in chunks)
     try:
-        para.createEnumeration()
-    except Exception:
+        names = table.getCellNames() or ()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("iter_table_paragraphs: getCellNames failed: %s", exc)
+        return
+    for name in names:
         try:
-            return para.getString()
-        except Exception:
-            return ""
-    return ""
+            cell = table.getCellByName(name)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("iter_table_paragraphs: getCellByName failed: %s", exc)
+            continue
+        if cell is not None:
+            yield from iter_xtext_paragraphs(cell, DeletionState())
+
+
+def iter_xtext_paragraphs(text_obj: Any, state: DeletionState) -> Iterator[tuple[Any, DeletionState]]:
+    """Yield ``(para, state)`` for every paragraph in *text_obj*, including tables.
+
+    Lazy: the consumer must walk each paragraph with the yielded *state* before
+    advancing to the next item so ``state.in_delete`` reflects that paragraph's
+    markers. A table reached while ``state.in_delete`` is true is skipped;
+    otherwise each cell gets a fresh ``DeletionState()``.
+    """
+    try:
+        enum = text_obj.createEnumeration()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("iter_xtext_paragraphs: createEnumeration failed: %s", exc)
+        return
+    for el in iter_elements(enum):
+        if _is_text_table(el):
+            if not state.in_delete:
+                yield from iter_table_paragraphs(el)
+            continue
+        yield el, state
 
 
 def _table_visible_text(table: Any) -> str:
@@ -576,7 +693,7 @@ def _visible_blocks(para_enum: Any, state: DeletionState) -> Iterator[tuple[Any,
     try:
         for element in iter_elements(para_enum):
             opened = state.in_delete
-            if uno_read(lambda: element.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextRange"):
+            if _is_text_table(element):
                 yield None, "" if opened else _table_visible_text(element), opened
             else:
                 yield element, _paragraph_visible_text(element, state), opened
@@ -621,23 +738,9 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
 
 
 @main_thread_only
-def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
-    """For each element of a text enumeration: does it start inside a tracked deletion?
-
-    For readers that jump to one paragraph. The list is all False, without a portion
-    walk, when the document has no redlines.
-    """
-    # A portion walk costs 1.0–1.7 s per 1000 paragraphs over the bridge; hasElements() is under 1 ms.
-    if not uno_read(lambda: model.getRedlines().hasElements() is True, False):
-        return [False] * len(elements)
-    state = DeletionState()
-    flags: list[bool] = []
-    for element in elements:
-        flags.append(state.in_delete)
-        if uno_read(lambda: element.supportsService(_PARAGRAPH_SERVICE) is True, False):
-            for _unused in visible_portions(element, state=state):
-                pass
-    return flags
+def visible_range_text(doc: Any, text_range: Any) -> str:
+    """Return *text_range* visible text, seeded from *doc*'s pending tracked deletions."""
+    return get_string_without_tracked_deletions(text_range, TrackedDeletions(doc).state_at(text_range))
 
 
 @main_thread_only
@@ -650,7 +753,7 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
     # A portion walk costs 1.0–1.7 s per 1000 paragraphs over the bridge; hasElements() is under 1 ms.
     if not uno_read(lambda: model.getRedlines().hasElements() is True, False):
         return [False] * len(elements)
-    state = DeletionState()
+    state = TrackedDeletions(model).state_at(elements[0]) if elements else DeletionState()
     flags: list[bool] = []
     for element in elements:
         flags.append(state.in_delete)
@@ -707,11 +810,15 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                     log.debug("build_heading_tree could not get OutlineLevel: %s", e)
 
                 if isinstance(outline_level, int) and outline_level > 0:
+                    text = get_string_without_tracked_deletions(element, DeletionState(flags[para_index]))
+                    if not text.strip() and (flags[para_index] or element.getString().strip()):
+                        stack[-1]["body_paragraphs"] += 1
+                        continue
                     while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
                         stack.pop()
                     node: HeadingTreeNode = {
                         "level": outline_level,
-                        "text": get_string_without_tracked_deletions(element, DeletionState(flags[para_index])),
+                        "text": text,
                         "para_index": para_index,
                         "children": [],
                         "body_paragraphs": 0,
@@ -723,7 +830,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                     stack.append(node)
                 else:
                     stack[-1]["body_paragraphs"] += 1
-            elif uno_call(lambda: element.supportsService("com.sun.star.text.TextTable"), "Check supportsService TextTable"):
+            elif _is_text_table(element):
                 stack[-1]["body_paragraphs"] += 1
         return root
     except UnoObjectError:
@@ -747,7 +854,7 @@ def get_selection_text(model: Any) -> str | None:
         if doc_type == _doc_type.DocumentType.WRITER:
             rng = selected_text_range(controller)
             if not rng:
-                vc = uno_call(lambda: controller.getViewCursor(), "Get view cursor")
+                vc = uno_call(controller.getViewCursor, "Get view cursor")
                 if vc:
                     return uno_call(vc.getString, "Get view cursor string")
             else:
@@ -805,7 +912,8 @@ def read_visible_body(model: Any, positions: Sequence[Any] = ()) -> tuple[str, l
     offsets: list[int | None] = [None] * len(positions)
     parts: list[str] = []
     start = 0
-    for para, chunk, opened in _visible_blocks(uno_call(whole.createEnumeration, "Enumerate body"), DeletionState()):
+    state = TrackedDeletions(model).state_at(whole)
+    for para, chunk, opened in _visible_blocks(uno_call(whole.createEnumeration, "Enumerate body"), state):
         chunk = normalize_linebreaks(chunk)
         if pending and para is not None:
             para_end = uno_read(para.getEnd, None)

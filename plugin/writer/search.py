@@ -26,11 +26,13 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, ca
 
 from plugin.doc.text_helpers import (
     FAILED,
+    TrackedDeletions,
     get_string_without_tracked_deletions,
     go_right,
     iter_elements,
     normalize_linebreaks,
     starts_at_or_after,
+    visible_range_text,
     with_view_cursor_left_body_locked,
 )
 from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
@@ -314,11 +316,11 @@ def prepare_old_content(raw: Any) -> str:
     return normalize_search_string_for_find(plain)
 
 
-# LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
-# across such a deletion ("a) no pressuposto" around a struck word) is never found.
+# LibreOffice search also matches text a pending tracked change deleted, so matches inside
+# one deletion are filtered out and a phrase that runs across a deletion is not found.
 _TRACKED_DELETION_HINT = (
-    " This document has pending tracked deletions: the search also sees the deleted text, so a"
-    " phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
+    " This document has pending tracked deletions: matches inside deleted text are left out,"
+    " and a phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
 )
 
 
@@ -469,10 +471,11 @@ def find_text_ranges(
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
 
+    deletions = TrackedDeletions(model)
     matches = []
     found = model.findNext(cursor, sd)
     while found:
-        if not body_only or uno_same(found.getText(), model.getText()):
+        if not deletions.covers(found) and (not body_only or uno_same(found.getText(), model.getText())):
             measure = found.getText().createTextCursor()
             measure.gotoStart(False)
             measure.gotoRange(found.getStart(), True)
@@ -539,9 +542,11 @@ def _paragraph_matches_part(
 
 
 def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]:
+    deletions = TrackedDeletions(doc)
     found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
-        yield found
+        if not deletions.covers(found):
+            yield found
         found = find_next_after_match(doc, found, sd)
 
 
@@ -567,13 +572,19 @@ def _iter_lo_matches(
     yield from _iter_descriptor_hits(doc, sd, after=after)
 
 
-def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int, mode: MatchMode) -> Any | None:
+def _chain_hit_range(
+    found: Any,
+    parts: list[str],
+    anchor_idx: int,
+    mode: MatchMode,
+    deletions: TrackedDeletions,
+) -> Any | None:
     text = found.getText()
 
     anchor_cursor = text.createTextCursorByRange(found)
     anchor_cursor.gotoStartOfParagraph(False)
     anchor_cursor.gotoEndOfParagraph(True)
-    anchor_para_text = get_string_without_tracked_deletions(anchor_cursor)
+    anchor_para_text = get_string_without_tracked_deletions(anchor_cursor, deletions.state_at(anchor_cursor))
 
     is_anchor_first = (anchor_idx == 0)
     is_anchor_last = (anchor_idx == len(parts) - 1)
@@ -614,7 +625,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int, mode: MatchM
 
         check_cursor = text.createTextCursorByRange(forward_cursor)
         check_cursor.gotoEndOfParagraph(True)
-        para_text = get_string_without_tracked_deletions(check_cursor)
+        para_text = get_string_without_tracked_deletions(check_cursor, deletions.state_at(check_cursor))
 
         is_last = i == len(parts) - 1
         ok, offset_len = _paragraph_matches_part(para_text, parts[i], mode, head=is_last)
@@ -632,7 +643,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int, mode: MatchM
 
         check_cursor = text.createTextCursorByRange(backward_cursor)
         check_cursor.gotoEndOfParagraph(True)
-        para_text = get_string_without_tracked_deletions(check_cursor)
+        para_text = get_string_without_tracked_deletions(check_cursor, deletions.state_at(check_cursor))
 
         is_first = i == 0
         ok, offset_len = _paragraph_matches_part(para_text, parts[i], mode, tail=is_first)
@@ -667,8 +678,9 @@ def _iter_chain_matches(
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx], fold=mode.folded)
     sd.SearchCaseSensitive = mode.case_sensitive
+    deletions = TrackedDeletions(doc)
     for found in _iter_descriptor_hits(doc, sd, after=after):
-        match_range = _chain_hit_range(found, parts, anchor_idx, mode)
+        match_range = _chain_hit_range(found, parts, anchor_idx, mode, deletions)
         if match_range is not None:
             yield match_range
 
@@ -1059,12 +1071,12 @@ class LocationLabeler:
         return describe_match_location(found, self.doc, label_cache=self._cache)
 
 
-def enclosing_paragraph_text(found: Any) -> str:
+def enclosing_paragraph_text(doc: Any, found: Any) -> str:
     def paragraph() -> str:
         _text, cur = _text_and_cursor(found)
         cur.gotoStartOfParagraph(False)
         cur.gotoEndOfParagraph(True)
-        return get_string_without_tracked_deletions(cur)
+        return visible_range_text(doc, cur)
 
     para = uno_read(paragraph, FAILED)
     if para is not FAILED:
@@ -1356,7 +1368,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
-        return doc.findFirst(sd)
+        return next(_iter_descriptor_hits(doc, sd), None)
     return _collect_capped(doc, sd)
 
 
@@ -1505,7 +1517,7 @@ MAX_MISS_HAYSTACK_CHARS = 2_000_000
 def get_search_miss_haystack(doc: Any) -> str:
     """Read document body, text frames (Word text boxes included), and header/footer regions (without tracked deletions) for near-miss search."""
     try:
-        body_text = get_string_without_tracked_deletions(doc.getText())
+        body_text = visible_range_text(doc, doc.getText())
     except Exception as exc:
         reraise_if_disposed(exc)
         log.warning("Failed to read document body for search miss: %s", exc)
@@ -1517,7 +1529,7 @@ def get_search_miss_haystack(doc: Any) -> str:
         for name in iter_text_frame_names(doc):
             try:
                 frame = frames.getByName(name)
-                frame_text = get_string_without_tracked_deletions(frame.getText())
+                frame_text = visible_range_text(doc, frame.getText())
                 if frame_text:
                     parts.append(frame_text)
             except Exception as exc:
@@ -1530,7 +1542,7 @@ def get_search_miss_haystack(doc: Any) -> str:
     seen_regions: set[str] = set()
     for _style, _region, xtext in _iter_header_footer_texts(doc):
         try:
-            region_text = get_string_without_tracked_deletions(xtext)
+            region_text = visible_range_text(doc, xtext)
         except Exception as exc:
             reraise_if_disposed(exc)
             log.warning("Failed to read header/footer text for search miss: %s", exc)
@@ -1690,6 +1702,7 @@ class SearchInDocument(ToolBase):
         def add(text: str, location: str, context: str) -> None:
             matches.append({"text": text, "location": location, "context": context})
 
+        deletions = TrackedDeletions(doc)
         total_count = 0
         warning = None
         while found is not None and total_count < MAX_SEARCH_HITS:
@@ -1705,13 +1718,14 @@ class SearchInDocument(ToolBase):
                 # failures are not treated as benign empty hits with a silent count.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
-            total_count += 1
-            if len(matches) < max_results:
-                add(
-                    hit_text,
-                    labeler.describe(found),
-                    enclosing_paragraph_text(found),
-                )
+            if not deletions.covers(found):
+                total_count += 1
+                if len(matches) < max_results:
+                    add(
+                        hit_text,
+                        labeler.describe(found),
+                        enclosing_paragraph_text(doc, found),
+                    )
             try:
                 # hit_text is non-empty here, so skip find_next_after_match's second getString.
                 found = doc.findNext(found.getEnd(), sd)

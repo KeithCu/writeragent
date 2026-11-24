@@ -17,11 +17,11 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
-   NA_NAN shows #N/A (na, xmatch miss, textsplit padding), and NESTED_ARRAY_NAN shows
-   Err:533 (filter with no match and no if_empty).
-3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!"). The add-in shows that
-   error. Used where the cell must show a token other than #NUM! and the helper catches its own
-   parse errors (lookup, text, array and regression helpers).
+   NA_NAN shows #N/A (na, xmatch miss, textsplit padding), NESTED_ARRAY_NAN shows
+   Err:533 (filter with no match and no if_empty), and DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1).
+3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", or a propagated
+   Err:<n> token). The add-in shows that error. Used where the cell must show a token other
+   than #NUM! and the helper catches its own parse errors (lookup, text, array and regression helpers).
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -47,10 +47,12 @@ def formula_error_nan(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", 0x7FF8000000000000 | code))[0]
 
 
-# 0x7FFF is FormulaError::NotAvailable, 533 is FormulaError::NestedArray. They are ordinary NaNs in Python;
+# 0x7FFF is FormulaError::NotAvailable, 532 is FormulaError::DivisionByZero,
+# 533 is FormulaError::NestedArray. They are ordinary NaNs in Python;
 # the worker does not import plugin.calc.
 NA_NAN: float = formula_error_nan(0x7FFF)
 NESTED_ARRAY_NAN: float = formula_error_nan(533)
+DIV0_NAN: float = formula_error_nan(532)
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
@@ -374,6 +376,23 @@ def finite_or_nan(x: float) -> float:
     return x if math.isfinite(x) else float("nan")
 
 
+def number_text(val: float) -> str:
+    """A number as Calc's General format shows it: 15 significant digits, "E+020" exponents.
+
+    COUNTIF patterns and TEXTJOIN compare and join this text (ScQueryEvaluator::getCellString,
+    sc/source/core/data/queryevaluator.cxx; SvNFEngine::GetInputLineString, svl/source/numbers/zforlist.cxx).
+    """
+    if not math.isfinite(val):
+        return str(val)
+    if val.is_integer() and abs(val) < 2**53:
+        return str(int(val))
+    mantissa, exp = f"{val:.14e}".split("e")
+    power = int(exp)
+    if -15 < power < 15:
+        return f"{Decimal(f'{val:.15g}'):f}"
+    return f"{mantissa.rstrip('0').rstrip('.')}E{power:+04d}"
+
+
 def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
     """Extract 1D float arrays of matching length, keeping only pairs where both cells are finite numbers."""
     # conversion failures are left to the worker exception path, which returns #VALUE!
@@ -607,7 +626,9 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             return op == "<>"
 
         if isinstance(val, (bool, np.bool_)):
-            return op == "<>"
+            if c_num is not None or op not in ("=", "<>"):
+                return op == "<>"
+            val = "TRUE" if val else "FALSE"
 
         v_num = _to_float_or_none(val) if isinstance(val, (int, float, np.integer, np.floating)) else None
         if v_num is not None and math.isnan(v_num):
@@ -615,18 +636,20 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
 
         if c_num is not None and v_num is not None:
             return _CMP[op](v_num, c_num)
-        if (c_num is None) != (v_num is None):
-            if c_num is not None and isinstance(val, str) and op in ("=", "<>"):
-                matched = wildcard_fullmatch(c_pattern, str(val))
+        if c_num is not None:
+            if isinstance(val, str) and op in ("=", "<>"):
+                matched = wildcard_fullmatch(c_pattern, val)
                 return matched if op == "=" else not matched
             return op == "<>"
-        v_str = str(val)
+        # With a text criterion Calc compares every cell by its text for = and <>
+        # (isQueryByString, queryevaluator.cxx).
+        v_str = str(val) if v_num is None else number_text(v_num)
         if op == "=":
             return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":
             return not wildcard_fullmatch(c_pattern, v_str)
-        # In Calc an error cell matches no ordering criterion (COUNTIF(…;">a") skips it).
-        if is_error_token(v_str):
+        # Ordering criteria with text skip numbers and errors (COUNTIF(…;">a")).
+        if v_num is not None or is_error_token(v_str):
             return False
         return _CMP[op](v_str.casefold(), c_pattern.casefold())
 

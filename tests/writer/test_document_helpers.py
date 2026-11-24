@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -71,6 +72,13 @@ class _MockDoc:
 
     def getUndoManager(self):
         return self.undo
+
+    def getRedlines(self):
+        return SimpleNamespace(
+            hasElements=lambda: False,
+            getCount=lambda: 0,
+            createEnumeration=lambda: SimpleNamespace(hasMoreElements=lambda: False),
+        )
 
 
 class _UserDefinedPropertySetInfo:

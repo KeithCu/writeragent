@@ -337,3 +337,30 @@ def test_sheet_filter_registry_invalid_param_and_no_filter_call():
     assert res_get["status"] == "error"
     assert res_get["code"] == "INVALID_PARAM"
     ctx_get.doc.getSheets.assert_not_called()
+
+
+def test_sheet_filter_prepare_tool_call_keeps_numeric_value():
+    from plugin.calc.sheet_filter_criteria import parse_sheet_filter_criterion
+    from plugin.framework.tool import prepare_tool_call
+
+    tool = get_tools().get("sheet_apply_filter")
+    prep = prepare_tool_call(
+        tool,
+        SimpleNamespace(doc_type="calc"),
+        "sheet_apply_filter",
+        {
+            "range": ["A1:B10"],
+            "criteria": [
+                {"field": 0, "operator": "GREATER", "value": 10},
+                {"field": 1, "operator": "EQUAL", "value": "5", "is_numeric": "true"},
+            ],
+        },
+    )
+    assert prep.error is None
+    c0 = parse_sheet_filter_criterion(prep.kwargs["criteria"][0], True)
+    c1 = parse_sheet_filter_criterion(prep.kwargs["criteria"][1], False)
+    assert c0.is_numeric is True
+    assert c0.numeric_value == 10.0
+    assert prep.kwargs["criteria"][1]["is_numeric"] is True
+    assert c1.is_numeric is True
+    assert c1.numeric_value == 5.0

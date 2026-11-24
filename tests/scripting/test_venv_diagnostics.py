@@ -1058,6 +1058,34 @@ def test_ocr_engine_probe_reports_broken_tesseract():
     assert "Exec format error" in ns["out"]["tesseract_broken"]
 
 
+def _nemotron_probe_modules(validate_runtime, *, broken_pipeline: bool = False, broken_v2: bool = False):
+    import types
+
+    class _FakeNemotronOcrModel:
+        @classmethod
+        def validate_runtime(cls, accelerator_options):
+            validate_runtime(accelerator_options)
+
+    accel_mod = types.ModuleType("docling.datamodel.accelerator_options")
+    accel_mod.AcceleratorOptions = lambda **kw: types.SimpleNamespace(**kw)  # type: ignore[attr-defined]
+    nemotron_mod = types.ModuleType("docling.models.stages.ocr.nemotron_ocr_model")
+    nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
+    nemo_root = types.ModuleType("nemotron_ocr")
+    nemo_inf = types.ModuleType("nemotron_ocr.inference")
+    nemo_ckpt = types.ModuleType("nemotron_ocr.inference.pipeline")
+    nemo_ckpt.CHECKPOINT_FILES = ()  # type: ignore[attr-defined]
+    nemo_pipe = types.ModuleType("nemotron_ocr.inference.pipeline_v2")
+    nemo_pipe.NemotronOCRV2 = object  # type: ignore[attr-defined]
+    return {
+        "docling.datamodel.accelerator_options": accel_mod,
+        "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
+        "nemotron_ocr": nemo_root,
+        "nemotron_ocr.inference": nemo_inf,
+        "nemotron_ocr.inference.pipeline": None if broken_pipeline else nemo_ckpt,
+        "nemotron_ocr.inference.pipeline_v2": None if broken_v2 else nemo_pipe,
+    }
+
+
 @pytest.mark.parametrize(
     ("raises", "broken_pipeline", "broken_v2", "expected"),
     [
@@ -1068,39 +1096,15 @@ def test_ocr_engine_probe_reports_broken_tesseract():
     ],
 )
 def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_pipeline, broken_v2, expected):
-    import types
-
-    class _FakeNemotronOcrModel:
-        @classmethod
-        def validate_runtime(cls, _accelerator_options):
-            if raises is not None:
-                raise raises
-
-    accel_mod = types.ModuleType("docling.datamodel.accelerator_options")
-    accel_mod.AcceleratorOptions = lambda: None  # type: ignore[attr-defined]
-    nemotron_mod = types.ModuleType("docling.models.stages.ocr.nemotron_ocr_model")
-    nemotron_mod.NemotronOcrModel = _FakeNemotronOcrModel  # type: ignore[attr-defined]
-    nemo_root = types.ModuleType("nemotron_ocr")
-    nemo_inf = types.ModuleType("nemotron_ocr.inference")
-    nemo_ckpt = types.ModuleType("nemotron_ocr.inference.pipeline")
-    nemo_ckpt.CHECKPOINT_FILES = ()  # type: ignore[attr-defined]
-    nemo_pipe = types.ModuleType("nemotron_ocr.inference.pipeline_v2")
-    nemo_pipe.NemotronOCRV2 = object  # type: ignore[attr-defined]
+    def _validate(_options):
+        if raises is not None:
+            raise raises
 
     ns: dict[str, Any] = {"out": {"nemotron_ocr": "present"}}
     with (
+        patch.object(sys, "argv", ["-c"]),
         patch("shutil.which", return_value=None),
-        patch.dict(
-            sys.modules,
-            {
-                "docling.datamodel.accelerator_options": accel_mod,
-                "docling.models.stages.ocr.nemotron_ocr_model": nemotron_mod,
-                "nemotron_ocr": nemo_root,
-                "nemotron_ocr.inference": nemo_inf,
-                "nemotron_ocr.inference.pipeline": None if broken_pipeline else nemo_ckpt,
-                "nemotron_ocr.inference.pipeline_v2": None if broken_v2 else nemo_pipe,
-            },
-        ),
+        patch.dict(sys.modules, _nemotron_probe_modules(_validate, broken_pipeline=broken_pipeline, broken_v2=broken_v2)),
     ):
         exec(_OCR_ENGINE_PROBE_BODY, ns)
 
@@ -1110,6 +1114,60 @@ def test_ocr_engine_probe_reports_nemotron_runtime_error(raises, broken_pipeline
         assert actual is None
     else:
         assert actual is not None and expected in actual
+
+
+@pytest.mark.parametrize(
+    ("argv", "expect_error"),
+    [
+        (["-c", "cpu"], True),
+        (["-c", "cuda"], False),
+        (["-c"], False),
+    ],
+)
+def test_ocr_engine_probe_validates_nemotron_with_device(argv, expect_error):
+    def _validate(options):
+        if getattr(options, "device", "auto") == "cpu":
+            raise RuntimeError("Nemotron OCR requires a CUDA accelerator.")
+
+    ns: dict[str, Any] = {"out": {"nemotron_ocr": "present"}}
+    with (
+        patch.object(sys, "argv", argv),
+        patch("shutil.which", return_value=None),
+        patch.dict(sys.modules, _nemotron_probe_modules(_validate)),
+    ):
+        exec(_OCR_ENGINE_PROBE_BODY, ns)
+
+    actual = ns["out"].get(_NEMOTRON_RUNTIME_ERROR_KEY)
+    if expect_error:
+        assert actual is not None and "CUDA accelerator" in actual
+    else:
+        assert actual is None
+
+
+@pytest.mark.parametrize(
+    ("group", "vision_params", "expected_tail"),
+    [
+        ("vision", {"device": " cpu "}, "cpu"),
+        ("vision", {}, "script"),
+        ("nlp", {"device": "cpu"}, "script"),
+    ],
+)
+def test_named_probe_passes_configured_vision_device(group, vision_params, expected_tail):
+    import plugin.scripting.venv_diagnostics as diag
+
+    completed = subprocess.CompletedProcess([], 0, stdout=f"{diag._PROBE_JSON_PREFIX}{{}}\n", stderr="")
+    with (
+        patch("plugin.scripting.venv_diagnostics.merge_vision_params", return_value=vision_params),
+        patch("plugin.scripting.venv_diagnostics.wrap_command_for_sandbox", side_effect=lambda cmd, **_kw: cmd),
+        patch("plugin.scripting.venv_diagnostics.subprocess.run", return_value=completed) as mock_run,
+    ):
+        diag._run_named_json_probe("/x/python", group)
+
+    cmd = mock_run.call_args.args[0]
+    if expected_tail == "script":
+        assert cmd == ["/x/python", "-c", diag._JSON_PROBE_SPECS[group].script]
+    else:
+        assert cmd == ["/x/python", "-c", diag._JSON_PROBE_SPECS[group].script, expected_tail]
 
 
 def test_vision_nemotron_runtime_error_shown_not_missing():
