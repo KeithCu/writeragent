@@ -1314,8 +1314,8 @@ def test_d4_think_then_look_up_not_tool_calls(ctx):
     decided = []
     for row in snaps:
         decided.extend(row.get("decided_tools") or [])
-    assert "delegate_to_subagent" in decided or "final_answer" in decided or "web_search" in decided, (
-        "D4 expected research tools after look up, got %r" % snaps[-8:]
+    assert "delegate_to_subagent" in decided, (
+        "D4 expected the research delegate after look up, got %r" % snaps[-8:]
     )
     _hello_ok()
 
@@ -3543,7 +3543,7 @@ def test_r7_style_parallel_looped(ctx):
 
 @native_test
 def test_r8_accept_and_stop(ctx):
-    """Stop then Accept on a HITL approval: the gated tool runs at most once and the turn settles."""
+    """Stop then Accept on a HITL approval: the research delegate is chosen exactly once and the turn settles."""
     from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
 
     _reset_mock_runtime()

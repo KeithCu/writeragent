@@ -949,7 +949,7 @@ class TestPaintMessageItems:
 
     def test_stop_text_folds_like_any_other_chunk(self):
         """The stop line is not detected by comparing text. The turn writes it."""
-        session = MagicMock(history_notice="")
+        session = MagicMock()
         session.messages = [{"role": "assistant", "content": "partial answer", "_open_transcript": True}]
         assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is True
         assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
@@ -957,7 +957,7 @@ class TestPaintMessageItems:
 
     def test_user_message_already_present_returns_true_without_duplication(self):
         """User message recorded at send time returns True so panel paints it immediately."""
-        session = MagicMock(history_notice="")
+        session = MagicMock()
         session.messages = [{"role": "user", "content": "What is Python?"}]
         assert fold_transcript_chunk(session, "What is Python?", role="user") is True
         assert len(session.messages) == 1
