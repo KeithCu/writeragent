@@ -21,12 +21,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.agents import ToolCallingAgent, ToolOutput
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool as SmolTool
-from plugin.contrib.smolagents.utils import AgentToolExecutionError
+from plugin.contrib.smolagents.utils import AgentError, AgentToolExecutionError
 from plugin.chatbot import smol_examples
 from plugin.framework.errors import ToolExecutionError, make_tool_error, resolve_exception_message
 from plugin.framework.client.llm_client import LlmClient
@@ -46,7 +46,7 @@ def get_config(key: str) -> Any:
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Generator, Sequence
 
     from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.send_cancellation import SendCancellation
@@ -181,7 +181,8 @@ class InnerCallRecorder(SmolToolAdapter):
     Specialized loops hand that log to apply_inner_outcome to grade the delegation.
     ``safe=True`` turns a raising tool into an error result. An exception that leaves
     ``forward`` means the tool did not run (except at interpreter shutdown); it is logged
-    as a failed call and re-raised, which ends the model's current turn.
+    as a failed call and re-raised, which ends the model's current turn. The agent calls
+    ``record_not_run`` for calls it skips.
     """
 
     _calls: list[InnerToolCall]
@@ -195,13 +196,17 @@ class InnerCallRecorder(SmolToolAdapter):
         super().__init__(tool, tctx, safe=True, inputs_style="specialized")
         self._calls = calls
 
+    def record_not_run(self, reason: str) -> None:
+        """Record a call that did not run (failed before execution or skipped after an earlier failure)."""
+        error = make_tool_error(f"Tool '{self.name}' did not run: {reason}")
+        # mutating=False: no editing tool ran, so record_edits keeps NO_EDIT_TOOL_NOTE.
+        self._calls.append(InnerToolCall(self.name, error, mutating=False))
+
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         try:
             result = super().forward(*args, **kwargs)
         except Exception as exc:
-            error = make_tool_error(f"Tool '{self.name}' did not run: {resolve_exception_message(exc)}")
-            # mutating=False: no editing tool ran, so record_edits keeps NO_EDIT_TOOL_NOTE.
-            self._calls.append(InnerToolCall(self.name, error, mutating=False))
+            self.record_not_run(resolve_exception_message(exc))
             raise
         self._calls.append(InnerToolCall(self.name, result, self.mutating))
         return result
@@ -429,12 +434,64 @@ def create_smol_model(
 
 
 class WriterAgentToolCallingAgent(ToolCallingAgent):
-    """ToolCallingAgent that skips smolagents' pre-validation for ``SmolToolAdapter`` tools.
+    """ToolCallingAgent customized for ``SmolToolAdapter`` validation and partial-turn memory.
 
     Smolagents validates argument types and unknown keys before the tool runs,
     which would reject coerced values (such as ``"1"`` or ``"true"``) and extra
     keys before WriterAgent's ``prepare_tool_call`` can coerce or drop them.
+    ``process_tool_calls`` also preserves results of earlier calls in a multi-call
+    turn when a later call fails.
     """
+
+    def process_tool_calls(
+        self,
+        chat_message: ChatMessage,
+        memory_step: ActionStep,
+    ) -> Generator[ToolCall | ToolOutput, None, None]:
+        """Keep what already ran when a call fails.
+
+        The base method (plugin/contrib/smolagents/agents.py ToolCallingAgent.process_tool_calls)
+        fills the memory step only after every call succeeded. Without this the model
+        sees only the error and may repeat an edit that landed.
+        """
+        requested: dict[str, ToolCall] = {}
+        outputs: dict[str, ToolOutput] = {}
+        try:
+            for item in super().process_tool_calls(chat_message, memory_step):
+                if isinstance(item, ToolCall):
+                    requested[item.id] = item
+                else:
+                    outputs[item.id] = item
+                yield item
+        except AgentError:
+            if len(requested) > 1:
+                self._record_partial_turn(memory_step, requested, outputs)
+            raise
+
+    def _record_partial_turn(
+        self,
+        memory_step: ActionStep,
+        requested: dict[str, ToolCall],
+        outputs: dict[str, ToolOutput],
+    ) -> None:
+        """Populate step memory with ran, failed, and skipped calls and record skipped tools."""
+        lines: list[str] = []
+        saw_failure = False
+        for i, call in enumerate(requested.values(), 1):
+            output = outputs.get(call.id)
+            if output is not None:
+                lines.append(f"Call {i} ({call.name}) ran:\n{output.observation}")
+            elif not saw_failure:
+                saw_failure = True
+                lines.append(f"Call {i} ({call.name}) failed; its error is below.")
+            else:
+                lines.append(f"Call {i} ({call.name}) did not run because an earlier call failed.")
+                tool = self.tools.get(call.name)
+                # A skipped finish call is already graded as an unfinished run.
+                if isinstance(tool, InnerCallRecorder) and not tool.is_final_answer_tool:
+                    tool.record_not_run("an earlier call in the same turn failed")
+        memory_step.tool_calls = list(requested.values())
+        memory_step.observations = "\n".join(lines)
 
     def execute_tool_call(self, tool_name: str, arguments: dict[str, str] | str) -> Any:
         tool = self.tools.get(tool_name)

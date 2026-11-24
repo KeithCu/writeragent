@@ -139,7 +139,6 @@ class _DelegationCapture:
     calls: list[InnerToolCall] = field(default_factory=list)
     # Forwarded to the outer agent as an instruction payload (e.g. sheet_create).
     captured_tool_results: list[dict[str, Any]] = field(default_factory=list)
-    create_sheet_ran: bool = False
     # Outer agent must transition to Ready instead of continuing with tools after peer delivery.
     peer_send_invoked: bool = False
     peer_result_send_invoked: bool = False
@@ -537,8 +536,6 @@ class DelegateToSubagent(ToolBase):
             examples_key = f"{agent_label.lower()}:{domain}"
 
             def tool_call_handler(step: Any) -> None:
-                if step.name == "sheet_create":
-                    cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
                 if domain == "document_research" and step.name == "research_delegate_read" and ctx.chat_append_callback:
@@ -605,10 +602,9 @@ class DelegateToSubagent(ToolBase):
 
         # Outer never sees sheet_create's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
-        if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
+        if domain == "sheets" or cap.captured_tool_results:
             payload = attach_sheets_create_completion_instruction(
                 payload,
-                create_sheet_ran=cap.create_sheet_ran,
                 tool_results=cap.captured_tool_results,
             )
 

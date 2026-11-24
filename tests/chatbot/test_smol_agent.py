@@ -1508,3 +1508,285 @@ def test_build_toolcalling_agent_prints_nothing_when_tool_with_password_fails(ca
     assert mock_model.generate.call_count == 2
     assert capsys.readouterr().out == ""
 
+
+def _assistant_tool_calls_msg(*calls: tuple[str, dict, str]):
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+
+    return ChatMessage(
+        role=MessageRole.ASSISTANT,
+        content="",
+        tool_calls=[
+            ChatMessageToolCall(
+                function=ChatMessageToolCallFunction(name=name, arguments=args),
+                id=call_id,
+                type="function",
+            )
+            for name, args, call_id in calls
+        ],
+    )
+
+
+def _make_partial_turn_agent(mock_model, *, extra_tools=()):
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.framework.tool import ToolBase, ToolContext
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    class _EditTool(ToolBase):
+        name = "edit_doc"
+        description = "Mutates document."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs):
+            del ctx, kwargs
+            return {"status": "ok", "n": 1}
+
+    class _OtherTool(ToolBase):
+        name = "other_tool"
+        description = "Another tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self) -> bool:
+            return False
+
+        def execute(self, ctx: ToolContext, **kwargs):
+            del ctx, kwargs
+            return {"status": "ok"}
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+    calls: list[InnerToolCall] = []
+    tools = [
+        InnerCallRecorder(_EditTool(), ctx, calls),
+        InnerCallRecorder(_OtherTool(), ctx, calls),
+        *[InnerCallRecorder(t, ctx, calls) for t in extra_tools],
+        InnerCallRecorder(SpecializedWorkflowFinished(), ctx, calls),
+    ]
+    with (
+        patch("plugin.chatbot.smol_agent.create_smol_model", return_value=mock_model),
+        patch("plugin.chatbot.smol_agent.get_config", return_value=5),
+    ):
+        agent = build_toolcalling_agent(
+            ctx,
+            tools,
+            instructions="i",
+            final_answer_tool_name="workflow_finished",
+            examples_block="e",
+        )
+    return agent, calls
+
+
+def _flatten_messages(messages) -> str:
+    parts: list[str] = []
+    for m in messages:
+        content = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(str(block.get("text", "")))
+                else:
+                    parts.append(str(block))
+        else:
+            parts.append(str(content or ""))
+    return "\n".join(parts)
+
+
+def test_partial_turn_preserves_ran_failed_and_skipped_in_model_messages():
+    seen_messages = []
+    mock_model = MagicMock()
+
+    def _generate(messages, **kwargs):
+        del kwargs
+        seen_messages.append(_flatten_messages(messages))
+        if len(seen_messages) == 1:
+            return _assistant_tool_calls_msg(
+                ("edit_doc", {}, "c1"),
+                ("edit_doc", {}, "c2"),
+                ("edit_doc", {}, "c3"),
+            )
+        return _assistant_tool_calls_msg(("workflow_finished", {"answer": "done"}, "c4"))
+
+    mock_model.generate.side_effect = _generate
+    agent, _calls = _make_partial_turn_agent(mock_model)
+
+    edit_attempts = 0
+
+    def _call(fn, *a, **kw):
+        nonlocal edit_attempts
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            edit_attempts += 1
+            if edit_attempts == 2:
+                raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        result = agent.run("t")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["answer"] == "done"
+    assert edit_attempts == 2
+    second_req = seen_messages[1]
+    assert '"n": 1' in second_req
+    assert "Call 1 (edit_doc) ran:" in second_req
+    assert "Call 2 (edit_doc) failed; its error is below." in second_req
+    assert "Call 3 (edit_doc) did not run because an earlier call failed." in second_req
+
+
+def test_partial_turn_skipped_other_tool_grades_error_with_edits():
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        _assistant_tool_calls_msg(
+            ("edit_doc", {}, "c1"),
+            ("edit_doc", {}, "c2"),
+            ("other_tool", {}, "c3"),
+        ),
+        _assistant_tool_calls_msg(("workflow_finished", {"answer": "done"}, "c4")),
+    ]
+    agent, calls = _make_partial_turn_agent(mock_model)
+
+    edit_attempts = 0
+
+    def _call(fn, *a, **kw):
+        nonlocal edit_attempts
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            edit_attempts += 1
+            if edit_attempts == 2:
+                raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        ans = agent.run("t")
+
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "error"
+    assert out["code"] == "SPECIALIZED_TOOL_ERROR"
+    assert out["edits"] == {"edit_doc": 1}
+    assert [e["tool"] for e in out["tool_errors"]] == ["edit_doc", "other_tool"]
+
+
+def test_partial_turn_skipped_call_recovered_by_retry():
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        _assistant_tool_calls_msg(
+            ("edit_doc", {}, "c1"),
+            ("edit_doc", {}, "c2"),
+            ("other_tool", {}, "c3"),
+        ),
+        _assistant_tool_calls_msg(
+            ("edit_doc", {}, "c4"),
+            ("other_tool", {}, "c5"),
+            ("workflow_finished", {"answer": "done"}, "c6"),
+        ),
+    ]
+    agent, calls = _make_partial_turn_agent(mock_model)
+
+    edit_attempts = 0
+
+    def _call(fn, *a, **kw):
+        nonlocal edit_attempts
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            edit_attempts += 1
+            if edit_attempts == 2:
+                raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        ans = agent.run("t")
+
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "ok"
+    assert len(out["recovered_tool_errors"]) == 2
+    assert out["edits"] == {"edit_doc": 2}
+
+
+def test_partial_turn_unknown_tool_preserves_earlier_and_grades_skipped():
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    seen_messages = []
+    mock_model = MagicMock()
+
+    def _generate(messages, **kwargs):
+        del kwargs
+        seen_messages.append(_flatten_messages(messages))
+        if len(seen_messages) == 1:
+            return _assistant_tool_calls_msg(
+                ("edit_doc", {}, "c1"),
+                ("no_such_tool", {}, "c2"),
+                ("other_tool", {}, "c3"),
+            )
+        return _assistant_tool_calls_msg(("workflow_finished", {"answer": "done"}, "c4"))
+
+    mock_model.generate.side_effect = _generate
+    agent, calls = _make_partial_turn_agent(mock_model)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        ans = agent.run("t")
+
+    assert '"n": 1' in seen_messages[1]
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "error"
+    assert out["edits"] == {"edit_doc": 1}
+    assert [e["tool"] for e in out["tool_errors"]] == ["other_tool"]
+
+
+def test_partial_turn_skipped_workflow_finished_not_recorded():
+    from plugin.contrib.smolagents.models import ChatMessage, MessageRole
+    from plugin.doc.specialized_catalog import normalize_inner_result
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        _assistant_tool_calls_msg(
+            ("edit_doc", {}, "c1"),
+            ("no_such_tool", {}, "c2"),
+            ("workflow_finished", {"answer": "done"}, "c3"),
+        ),
+        ChatMessage(role=MessageRole.ASSISTANT, content="stopped without finish"),
+    ]
+    agent, calls = _make_partial_turn_agent(mock_model)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        ans = agent.run("t", max_steps=2)
+
+    assert [c.name for c in calls] == ["edit_doc"]
+    out = normalize_inner_result(ans, ["structural"], calls)
+    assert out["status"] == "incomplete"
+    assert out["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
+    assert out["edits"] == {"edit_doc": 1}
+
+
+def test_single_failing_call_leaves_observations_and_tool_calls_none():
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        _assistant_tool_calls_msg(("edit_doc", {}, "c1")),
+        _assistant_tool_calls_msg(("workflow_finished", {"answer": "done"}, "c2")),
+    ]
+    agent, _calls = _make_partial_turn_agent(mock_model)
+
+    def _call(fn, *a, **kw):
+        if getattr(getattr(fn, "__self__", None), "name", None) == "edit_doc":
+            raise TimeoutError("Main thread busy")
+        return fn(*a, **kw)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+        agent.run("t")
+
+    first_action = agent.memory.steps[1]
+    assert first_action.observations is None
+    assert first_action.tool_calls is None
+
+

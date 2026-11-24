@@ -102,3 +102,14 @@ def test_format_grammar_status_done_matches_complete_line() -> None:
 )
 def test_format_grammar_status_request_and_failed(payload: dict, expected: str) -> None:
     assert format_grammar_status(payload) == expected
+
+
+def test_is_grammar_status() -> None:
+    from plugin.chatbot.grammar_status import is_grammar_status
+
+    assert is_grammar_status(format_grammar_status({"phase": "request", "preview": "hi", "length": 2}))
+    assert is_grammar_status(
+        format_grammar_status({"phase": "request", "preview": "hi", "length": 2, "result": "Detecting language"})
+    )
+    assert not is_grammar_status("Ready")
+    assert not is_grammar_status("")

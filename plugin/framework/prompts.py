@@ -80,12 +80,12 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
 SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = "If sheets were created, they are not populated (tab exists; no cells copied). Do write_range onto the new tab(s) with source to copy a block, or with values."
 
 
-def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, create_sheet_ran: bool = False, tool_results: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any]:
+def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, tool_results: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any]:
     """Attach create≠populate ``instruction`` on the payload the outer reads.
 
     Same field as web research (`instruction`). Use after a sheets specialized hop
-    when ``sheet_create`` ran, an inner tool result already carried ``instruction``,
-    or the finish text reports a new empty sheet.
+    when an inner tool result already carried ``instruction``, or the finish text
+    reports a new empty sheet.
     """
     if payload.get("status") != "ok":
         return payload
@@ -102,7 +102,7 @@ def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, crea
                     break
     if inst is None:
         blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer")).lower()
-        if create_sheet_ran or "no cells copied" in blob or "new sheet named" in blob:
+        if "no cells copied" in blob or "new sheet named" in blob:
             inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     if not inst:
         return payload

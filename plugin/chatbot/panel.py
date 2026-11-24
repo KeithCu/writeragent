@@ -66,6 +66,7 @@ from plugin.scripting.audio_recorder_service import is_audio_recording_supported
 
 from plugin.chatbot.grammar_status import (
     format_grammar_status,
+    is_grammar_status,
 )
 from plugin.chatbot.chat_sidebar_mode import SidebarModeController
 from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
@@ -640,6 +641,12 @@ class SendButtonListener(BaseActionListener):
             else:
                 log.debug("_set_status: NO CONTROL for '%s'" % text)
 
+    def _clear_grammar_status(self) -> None:
+        """Clear the status field only when it still shows a grammar or language line."""
+        with suppress_disposed("_clear_grammar_status", logger=log):
+            if self.status_control and is_grammar_status(self.status_control.getText()):
+                self._set_status("")
+
     def _on_grammar_status(self, **data: Any) -> None:
         """Show native grammar proofreader progress in the sidebar status field."""
         if self._panel_teardown or self.ctx is None:
@@ -649,13 +656,24 @@ class SendButtonListener(BaseActionListener):
         # including Calc and Draw.
         if self.cached_doc_type != "writer":
             return
+        phase = data.get("phase")
         text = format_grammar_status(data)
 
         def _write() -> None:
             if self._panel_teardown or self.ctx is None:
                 return
+            if phase == "cleared":
+                self._clear_grammar_status()
+                return
             if self._send_busy or self._approval_event is not None:
                 return
+            if phase == "failed":
+                # Importing grammar_settings at module top loads the whole Writer package with the panel.
+                from plugin.writer.locale import grammar_settings
+
+                if not grammar_settings.is_grammar_enabled():
+                    self._clear_grammar_status()
+                    return
             self._set_status(text)
 
         try:

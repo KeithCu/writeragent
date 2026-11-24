@@ -513,19 +513,23 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     mock_execute_on_main,
     smol_agent_mocks,
 ):
-    """Outer hop payload gets web-research-style `instruction` after sheet_create."""
+    """Outer hop payload gets web-research-style `instruction` after sheet_create succeeds."""
     from plugin.calc.sheets import CreateSheet
-    from plugin.contrib.smolagents.memory import ToolCall
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     registry, ctx = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
+    sheets = MagicMock()
+    sheets.hasByName.return_value = False
+    sheets.getCount.return_value = 1
+    ctx.doc.getSheets.return_value = sheets
 
-    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
-        if tool_call_handler:
-            tool_call_handler(ToolCall(name="sheet_create", arguments={"sheet": "Q1 Actuals"}, id="1"))
+    def fake_run_inner(inner_ctx, smol_tools, **kwargs):
+        del inner_ctx, kwargs
+        adapter = next(t for t in smol_tools if t.name == "sheet_create")
+        adapter(sheet="Q1 Actuals")
         return {
             "status": "ok",
             "finished": True,
@@ -534,12 +538,83 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
         }
 
     gateway = registry.get("delegate_to_subagent")
-    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_executor_cls:
-        mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
+    with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
         result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")
 
     assert result["status"] == "ok"
     assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+
+
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
+def test_calc_sheets_delegate_error_create_omits_instruction(
+    mock_get_calc_context,
+    mock_execute_on_main,
+    smol_agent_mocks,
+):
+    """Failed sheet_create does not attach the not-populated instruction."""
+    from plugin.calc.sheets import CreateSheet
+
+    mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
+    sheets = MagicMock()
+    sheets.getElementNames.return_value = ("Sheet1",)
+    ctx.doc.getSheets.return_value = sheets
+
+    def fake_run_inner(inner_ctx, smol_tools, **kwargs):
+        del inner_ctx, kwargs
+        adapter = next(t for t in smol_tools if t.name == "sheet_create")
+        adapter(sheet="Sheet1")
+        return {
+            "status": "ok",
+            "finished": True,
+            "answer": "Done",
+            "message": "Done.",
+        }
+
+    gateway = registry.get("delegate_to_subagent")
+    with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = gateway.execute_safe(ctx, domain="sheets", task="Create Sheet1")
+
+    assert result["status"] == "error"
+    assert "instruction" not in result
+
+
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
+def test_calc_sheets_delegate_unrun_create_omits_instruction(
+    mock_get_calc_context,
+    mock_execute_on_main,
+    smol_agent_mocks,
+):
+    """Pre-execution tool_call_handler for sheet_create alone does not attach instruction."""
+    from plugin.calc.sheets import CreateSheet
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
+
+    def fake_run_inner(inner_ctx, smol_tools, tool_call_handler=None, **kwargs):
+        del inner_ctx, smol_tools, kwargs
+        if tool_call_handler:
+            tool_call_handler(ToolCall(name="sheet_create", arguments={"sheet": "Q1 Actuals"}, id="1"))
+        return {
+            "status": "ok",
+            "finished": True,
+            "answer": "Done",
+            "message": "Done.",
+        }
+
+    gateway = registry.get("delegate_to_subagent")
+    with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = gateway.execute_safe(ctx, domain="sheets", task="Create Q1 Actuals")
+
+    assert result["status"] == "ok"
+    assert "instruction" not in result
 
 
 def test_outer_turn_is_peer_work_probe_failure_returns_false():

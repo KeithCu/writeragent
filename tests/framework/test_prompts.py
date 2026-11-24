@@ -204,20 +204,18 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
         "message": "Specialized task complete.",
     }
     forwarded = attach_sheets_create_completion_instruction(
-        finish, create_sheet_ran=True, tool_results=[inner]
+        finish, tool_results=[inner]
     )
     assert forwarded["instruction"] == inst
     assert forwarded["answer"] == "Created Q1 Actuals"
 
     listed = attach_sheets_create_completion_instruction(
         {"status": "ok", "answer": "Sheet1, Sheet2"},
-        create_sheet_ran=False,
     )
     assert "instruction" not in listed
 
     reported = attach_sheets_create_completion_instruction(
         {"status": "ok", "answer": "New sheet named 'Sample' created; no cells copied."},
-        create_sheet_ran=False,
     )
     assert reported["instruction"] == inst
 
@@ -480,13 +478,9 @@ def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
         {"status": "ok", "instruction": custom},
         {"status": "ok", "instruction": "second instruction is ignored"},
     ]
-    out = attach_sheets_create_completion_instruction(finish, create_sheet_ran=False, tool_results=tool_results)
+    out = attach_sheets_create_completion_instruction(finish, tool_results=tool_results)
     assert out["instruction"] == custom
     assert "instruction" not in finish
-
-    # Inner instruction wins over the sheet_create fallback.
-    out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
-    assert out2["instruction"] == custom
 
 
 def _doc_stub_for_services(*services: str) -> MagicMock:
