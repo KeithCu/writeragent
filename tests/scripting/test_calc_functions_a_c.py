@@ -61,9 +61,9 @@ def test_aggregate_stubs_and_bools():
     assert calc.aggregate(11, 4, [4.0]) == 0.0
     assert calc.aggregate(13, 4, [1.0, 2.0, 2.0, 3.0]) == 2.0
     assert calc.aggregate(13, 4, [2.0, 2.0, 1.0, 1.0]) == 1.0
-    assert math.isnan(calc.aggregate(13, 4, [1.0, 2.0, 3.0]))
+    assert calc.aggregate(13, 4, [1.0, 2.0, 3.0]) == "#VALUE!"
     # Bools are dropped before MODE. Two TRUEs and one 2 are not a mode.
-    assert math.isnan(calc.aggregate(13, 4, [True, True, 2.0]))
+    assert calc.aggregate(13, 4, [True, True, 2.0]) == "#VALUE!"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         assert math.isnan(calc.aggregate(8, 4, []))
@@ -452,6 +452,8 @@ def test_a_c_approx_floor_counts_and_df():
     assert calc.chidist(5.0, 0.29 * 100) == calc.chidist(5.0, 29)
     assert calc.chiinv(0.5, 0.29 * 100) == calc.chiinv(0.5, 29)
     assert calc.confidence(0.05, 2.0, 0.29 * 100) == calc.confidence(0.05, 2.0, 29)
+    assert calc.cumipmt(0.01, 30, 1000, 1, 0.29 * 100, 0) == calc.cumipmt(0.01, 30, 1000, 1, 29, 0)
+    assert calc.cumipmt(0.01, 30, 1000, 0.9999999999999999, 5, 0) == calc.cumipmt(0.01, 30, 1000, 1, 5, 0)
 
 
 def test_aggregate_error_codes_and_count_modes():

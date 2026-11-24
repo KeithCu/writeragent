@@ -231,10 +231,10 @@ def test_int_shift():
         _int_shift("invalid", 1, left=True)
     assert math.isnan(_int_shift(1, float("inf"), left=True))
     assert math.isnan(_int_shift(float("inf"), 1, left=False))
-    # Shift cap |shift| <= 53
-    assert not math.isnan(_int_shift(1, 53, left=True))
-    assert math.isnan(_int_shift(1, 54, left=True))
-    assert math.isnan(_int_shift(1, -54, left=True))
+    # Shift is only limited by float64 overflow on left shifts; large right shifts become 0.
+    assert _int_shift(1, 54, left=True) == 2.0**54
+    assert _int_shift(1, -54, left=True) == 0.0
+    assert math.isnan(_int_shift(1, 1024, left=True))
 
 
 def test_criteria_reduce():

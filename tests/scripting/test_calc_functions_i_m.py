@@ -236,11 +236,11 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("linest-blank", "linest", ([None, None],), "#VALUE!"),
     ("linest-zero", "linest", ([0, 0],), [0.0, 0.0]),
     ("linest-inf", "linest", ([_INF, 1],), [_NAN, _NAN]),
-    ("linest-scalar-x", "linest", (5, 3), "#VALUE!"),
-    ("linest-one-sample", "linest", ([5], [3]), "#VALUE!"),
+    ("linest-scalar-x", "linest", (5, 3), "Err:504"),
+    ("linest-one-sample", "linest", ([5], [3]), "Err:504"),
     ("logest-blank", "logest", ([None, None],), "#VALUE!"),
     ("logest-inf", "logest", ([_INF, 1],), [_NAN, _NAN]),
-    ("logest-scalar-x", "logest", (5, 3), "#VALUE!"),
+    ("logest-scalar-x", "logest", (5, 3), "Err:504"),
     ("loginv-zero", "loginv", (0, 0, 1), _NAN),
     ("loginv-inf", "loginv", (_INF, 0, 1), _NAN),
     ("loginv-sd-zero", "loginv", (0.5, 0, 0), _NAN),
@@ -280,8 +280,8 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("mmult-zero", "mmult", ([[0]], [[0]]), [[0.0]]),
     ("mmult-inf", "mmult", ([[_INF]], [[1]]), [[_INF]]),
     ("mmult-shape", "mmult", ([[1, 2]], [[1, 2]]), "#VALUE!"),
-    ("mode-text", "mode", (["text", "text"],), _NAN),
-    ("mode-blank", "mode", ([None, None],), _NAN),
+    ("mode-text", "mode", (["text", "text"],), "#VALUE!"),
+    ("mode-blank", "mode", ([None, None],), "#VALUE!"),
     ("mode-zero", "mode", ([0, 0, 1],), 0),
     ("mode-inf", "mode", ([_INF, _INF, 1],), _INF),
     # Non-finite MROUND returns NaN without raising from math.floor. Zero multiple is already tested.
@@ -478,7 +478,14 @@ def test_mode_mixed_types():
     assert calc.mode([1, 1, 2, "a"]) == 1.0
     assert calc.mode(1, 2, 2) == 2.0
     assert calc.mode([1, True, True]) == 1.0
-    assert math.isnan(calc.mode(["text", "text"]))
+    assert calc.mode(["text", "text"]) == "#VALUE!"
+
+
+def test_linest_size_before_samples():
+    assert calc.linest([1, 2, 3], [1, 2]) == "Err:502"
+    assert calc.linest([1, 2], [[1, 2], [3, 5]]) == "Err:504"
+    fit = calc.linest([[1, 2], [3, 4]], [[1, 2], [3, 4]])
+    assert isinstance(fit, list) and np.allclose(fit, [1.0, 0.0], atol=1e-9)
 
 
 def test_irr_guess_minus_one_and_overflow():
