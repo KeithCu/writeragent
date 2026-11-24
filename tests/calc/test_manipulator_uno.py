@@ -514,3 +514,41 @@ def test_range_sort_then_by_reports_tie_only_move(ctx, doc):
     assert "no rows moved" not in res.get("message", "")
     col_a = [sheet.getCellByPosition(0, r).getString() for r in range(5)]
     assert col_a == ["Product", "Tool", "Device", "Widget", "Gadget"]
+
+
+@native_test
+@with_native_doc("calc")
+def test_sort_range_bad_key_refused_before_any_sort(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    res_w1 = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1:B3"], "values": [["Name", "Val"], ["Z", 2], ["A", 1]]},
+    )
+    assert res_w1.get("status") == "ok", res_w1
+    res_w2 = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["D1:E3"], "values": [["K", "V"], ["b", 2], ["a", 1]]},
+    )
+    assert res_w2.get("status") == "ok", res_w2
+
+    undo_mgr = doc.getUndoManager()
+    undo_mgr.undo()
+    undo_titles_before = undo_mgr.getAllUndoActionTitles()
+    redo_titles_before = undo_mgr.getAllRedoActionTitles()
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "sort_range",
+        {"range": ["A1:B3", "D1:D3"], "sort_column": 1, "ascending": True, "has_header": True},
+    )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_PARAM", res
+    assert "D1:D3" in res.get("message", ""), res
+    assert [sheet.getCellByPosition(0, r).getString() for r in range(3)] == ["Name", "Z", "A"]
+    assert undo_mgr.getAllUndoActionTitles() == undo_titles_before
+    assert undo_mgr.getAllRedoActionTitles() == redo_titles_before

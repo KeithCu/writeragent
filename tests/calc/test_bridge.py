@@ -13,7 +13,7 @@ from plugin.calc.bridge import (
     filter_agent_sheet_names,
     is_agent_visible_sheet,
 )
-from plugin.framework.errors import UnoObjectError, is_disposal
+from plugin.framework.errors import CalcError, UnoObjectError, is_disposal
 import pytest
 
 
@@ -457,8 +457,9 @@ def test_resolve_cell_multi_cell_named_range_raises():
     sheets.hasByName.return_value = False
     doc.getSheets.return_value = sheets
 
-    with pytest.raises(UnoObjectError, match="A1:B3"):
+    with pytest.raises(CalcError, match="A1:B3") as exc_info:
         CalcBridge(doc).resolve_cell("Block")
+    assert exc_info.value.code == "INVALID_PARAM"
 
 
 def test_resolve_cell_a1_uses_sheet_name_default():

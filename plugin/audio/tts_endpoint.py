@@ -32,6 +32,8 @@ _TTS_FORMAT_WORDS_RE = re.compile(r"\b(mp3|pcm|wav)\b")
 # ffmpeg atempo (0.5-2.0), AudioQueue/afplay, and WMP's documented examples.
 _LOCAL_RATE_MIN = 0.5
 _LOCAL_RATE_MAX = 2.0
+# OpenAI documents speed 0.25-4.0 on /audio/speech, and Featherless returns 422 above 4.0 for Kokoro.
+_SPEECH_API_MAX_SPEED = 4.0
 
 
 def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
@@ -339,7 +341,7 @@ def download_endpoint_speech(
             "response_format": response_format,
         }
         if native:
-            payload["speed"] = speed
+            payload["speed"] = min(speed, _SPEECH_API_MAX_SPEED)
         if eff_voice:
             payload["voice"] = eff_voice
         log.info(
