@@ -158,7 +158,13 @@ def run_trusted_vision(
         context: dict[str, Any] = {"source": "graphic_name", "image_name": name_str} if name_str else {"source": "selection"}
         return png_bytes, local_params, context
 
-    png_bytes, params_out, context = main.call(_export_on_main_thread)
+    try:
+        png_bytes, params_out, context = main.call(_export_on_main_thread)
+    except Exception as exc:
+        # list_graphic_objects raises LibreOffice's own DisposedException for a closed Writer
+        # document (sw/source/uibase/uno/unotxdoc.cxx:SwXTextDocument::ThrowIfInvalid).
+        reraise_if_disposed(exc)
+        raise
     if len(png_bytes) > VISION_IMAGE_MAX_BYTES:
         raise ToolExecutionError(
             _("Image is too large to send to the vision worker ({size} bytes; limit {limit}).").format(

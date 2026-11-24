@@ -20,7 +20,13 @@ from dataclasses import dataclass
 from html import escape as _html_escape
 from typing import Any, Iterator, Literal
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import (
+    DeletionState,
+    TrackedDeletions,
+    iter_elements,
+    iter_xtext_paragraphs,
+    visible_portions,
+)
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import (
@@ -216,8 +222,8 @@ def iter_writer_math_objects(model: Any) -> Iterator[WriterMathHit]:
     text = model.getText() if hasattr(model, "getText") else None
     if text is None:
         return
-    for para in _iter_body_paragraphs(text):
-        yield from _math_hits_in_paragraph(para)
+    for para, state in iter_xtext_paragraphs(text, TrackedDeletions(model).state_at(text)):
+        yield from _math_hits_in_paragraph(para, state)
 
 
 def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
@@ -452,33 +458,16 @@ def read_starmath(embed: Any) -> str:
     return uno_read(lambda: str(embed.getEmbeddedObject().Formula or "").strip(), "")
 
 
-def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
-    """Yield paragraphs in document order, descending into table cells."""
-    enum = uno_read(lambda: text_obj.createEnumeration(), None)
-    for el in iter_elements(enum):
-        if uno_read(lambda: bool(el.supportsService("com.sun.star.text.TextTable")), False):
-            cell_names: tuple[Any, ...] = uno_read(lambda: tuple(el.getCellNames() or ()), ())
-            for name in cell_names:
-                cell = uno_read(lambda: el.getCellByName(name), None)
-                if cell is not None:
-                    yield from _iter_body_paragraphs(cell)
-            continue
-        if hasattr(el, "createEnumeration"):
-            yield el
-
-
-def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
+def _math_hits_in_paragraph(para: Any, state: DeletionState) -> list[WriterMathHit]:
     embeds: list[Any] = []
     non_ws_text = False
-    portion_enum = uno_read(lambda: para.createEnumeration(), None)
-    for portion in iter_elements(portion_enum):
+    for portion, chunk in visible_portions(para, state=state):
         emb = portion_math_embed(portion)
         if emb is not None:
             # Writer can report one as-character object in two portions; count it once.
             if not any(uno_same(emb, seen) for seen in embeds):
                 embeds.append(emb)
             continue
-        chunk = uno_read(lambda: portion.getString() or "", "")
         if chunk.strip() and chunk != OBJECT_REPLACEMENT:
             non_ws_text = True
 

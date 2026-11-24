@@ -341,7 +341,7 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document 
 
 ### Shared hidden Writer factory
 
-**Done (Writer side):** [`new_blank_writer(ctx, *, target=...)`](../../plugin/framework/scratch_writer.py) in
+**Done (Writer side):** [`new_blank_writer(ctx)`](../../plugin/framework/scratch_writer.py) in
 `scratch_writer.py` is the shared factory. `create_hidden_html_writer`, the range export
 (`_range_to_content_via_temp_doc`), `xtext_to_content`'s hidden Writer and `html_to_plain_text` all
 go through it. Every hidden scratch document is opened and closed through
@@ -357,11 +357,12 @@ body string is "").
 
 Scratch Writers from `new_blank_writer` load with `page_preview_view_prop()` (`ViewId=7`, `SwPagePreview`) by default: closing a normal `SwView` clears Writer's global active-view pointer (`~SwViewGlueDocShell`), which causes LibreOffice's Manage Changes dialog (`SwRedlineAcceptDlg`) to dereference null and abort. Page-preview controllers have no `getViewCursor`.
 
-**Now shared:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) also creates its hidden
-Writer through `new_blank_writer(..., page_preview=False)` and reuses it from an idle list, calling
-`clear_writer_body(..., keep_chars=1)` between pastes so a default-template letterhead
-is not pasted into the cell and previous paste formatting does not carry over (it keeps the
-default `SwView` because it needs `XSelectionSupplier.select` and `getTransferable`).
+**Now shared:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) creates its hidden
+Writer through `load_scratch_document` (a normal `SwView`, never closed, so a non-emptiable
+template stays open rather than clearing Writer's active-view pointer; it needs
+`XSelectionSupplier.select` and `getTransferable`, which `SwPagePreview` lacks) and reuses it from an
+idle list, calling `clear_writer_body(..., keep_chars=1)` between pastes so a default-template
+letterhead is not pasted into the cell and previous paste formatting does not carry over.
 
 ### Smaller cleanups
 

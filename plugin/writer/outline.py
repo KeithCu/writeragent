@@ -33,7 +33,7 @@ from plugin.writer.specialized_base import enum_param
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_heading_nodes
+from plugin.doc.text_helpers import iter_heading_nodes, visible_range_text
 
 
 class GetDocumentTree(ToolBase):
@@ -88,7 +88,7 @@ def collect_document_stats(
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    full_text = get_string_without_tracked_deletions(cursor)
+    full_text = visible_range_text(doc, cursor)
     char_count = len(full_text)
     word_count = len(full_text.split())
 
