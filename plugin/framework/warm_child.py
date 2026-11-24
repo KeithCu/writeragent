@@ -491,20 +491,20 @@ class WarmChild(ChildSlot):
         self._retired: bool = False
         self._killed_by_us: bool = False
         self._death_hook_fired: bool = False
-        self._cancel_pending: bool = False
+        # Stop scope of the lease in progress; only the pipe-lock holder reads or writes it.
+        self._lease_cancel: SendCancellation | None = None
         self._supervisor._register(self)
 
     def kill(self) -> bool:
-        """Signal the child as ours. On an empty slot, cancel a spawn that has not published yet.
+        """Signal the child as ours.
 
-        The read and the cancel flag share one lock hold with ``_publish``, so a
-        publish either sees the cancel or stores a child this call signals.
+        A request that must not outlive this kill passes its ``SendCancellation`` to
+        ``lease`` and cancels it before calling ``kill``; a publish then either sees the
+        cancel or stores a child this call signals.
         """
         with self._lifecycle_lock:
             self._killed_by_us = True
             child = self.child
-            if child is None:
-                self._cancel_pending = True
         if child is None:
             return True
         return self._signal_and_drop(child)
@@ -515,8 +515,8 @@ class WarmChild(ChildSlot):
     def _publish_refusal(self) -> dict[str, Any] | None:
         if self._retired or self._supervisor.is_shutting_down():
             return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
-        if self._cancel_pending:
-            return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was cancelled.")
+        if is_cancelled(self._lease_cancel):
+            return error_dict("CANCELLED", f"{self.spec.name} spawn was cancelled.")
         return None
 
     def diagnostic_tail(self) -> str:
@@ -542,8 +542,6 @@ class WarmChild(ChildSlot):
             self._retired = True
             self._killed_by_us = True
             child = self.child
-            if child is None:
-                self._cancel_pending = True
         if child is not None:
             self._drop_child(child)
             child.abandon()
@@ -568,9 +566,10 @@ class WarmChild(ChildSlot):
         """Acquire the pipe lock (with optional wait polling), spawn if needed, yield ``Lease`` or an error dict.
 
         ``wait`` controls lock acquisition: ``None`` blocks until the lock is free (or ``cancel`` /
-        ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``cancel`` and ``refuse`` are
-        invoked only while waiting for the lock—not after it is held, because ``begin_io`` makes this
+        ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``refuse`` is consulted
+        only while waiting for the lock—not after it is held, because ``begin_io`` makes this
         thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
+        ``cancel`` is also checked when a spawned child is published.
         """
         acquire_end: float | None = None
         if wait is not None and wait > 0:
@@ -604,10 +603,9 @@ class WarmChild(ChildSlot):
             if self._io_lock.acquire(timeout=slice_timeout):
                 break
         try:
-            # cancel/refuse are not consulted after the lock is held: begin_io() makes
-            # this thread the io_owner, so refuse would false-trigger self-reentry.
-            with self._lifecycle_lock:
-                self._cancel_pending = False
+            # refuse is not consulted after the lock is held: begin_io() makes this thread the
+            # io_owner, so refuse would false-trigger self-reentry. cancel is checked again at publish.
+            self._lease_cancel = cancel
             if self._supervisor.is_shutting_down() or self._retired:
                 yield error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
                 return
@@ -647,10 +645,17 @@ class WarmChild(ChildSlot):
                 self._end_child_io(child)
                 self._last_active = time.monotonic()
         finally:
+            self._lease_cancel = None
             self._io_lock.release()
 
-    def request(self, payload: dict[str, Any], deadline: Deadline) -> dict[str, Any]:
-        with self.lease(deadline) as leased:
+    def request(
+        self,
+        payload: dict[str, Any],
+        deadline: Deadline,
+        *,
+        cancel: SendCancellation | None = None,
+    ) -> dict[str, Any]:
+        with self.lease(deadline, cancel=cancel) as leased:
             if isinstance(leased, dict):
                 return leased
             try:

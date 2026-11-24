@@ -459,9 +459,6 @@ def _should_paint_writeragent_status_bar(
     return False
 
 
-_GRAMMAR_ENGINE_KEYS = frozenset({"doc.grammar_proofreader_enabled", "doc.grammar_proofreader_model"})
-
-
 class WriterAgentGrammarStatus(GrammarStatus):
     """WriterAgent: sidebar bus plus optional status-bar fallback."""
 
@@ -476,7 +473,7 @@ class WriterAgentGrammarStatus(GrammarStatus):
 
     def _on_config_changed(self, **data: Any) -> None:
         """End the status-bar line when the grammar engine or model changes; the old result no longer applies."""
-        if not _GRAMMAR_ENGINE_KEYS.isdisjoint(data.get("keys") or ()):
+        if grammar_settings.engine_settings_changed(data.get("keys") or ()):
             self._status_bar.done("", routine=True)
 
     def _deliver(
@@ -516,14 +513,16 @@ class WriterAgentGrammarStatus(GrammarStatus):
 
 
 _STATUS_SINK: GrammarStatus | None = None
+_STATUS_SINK_LOCK = threading.Lock()
 
 
 def get_grammar_status() -> GrammarStatus:
     """Return the active GrammarStatus sink (chosen once per product)."""
     global _STATUS_SINK
-    if _STATUS_SINK is None:
-        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
-    return _STATUS_SINK
+    with _STATUS_SINK_LOCK:
+        if _STATUS_SINK is None:
+            _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
+        return _STATUS_SINK
 
 
 def set_grammar_status(sink: GrammarStatus | None) -> None:

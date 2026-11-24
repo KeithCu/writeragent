@@ -1100,7 +1100,6 @@ def test_kill_signals_child_published_before_its_lock_hold(tmp_path: Any, superv
         assert warm.kill() is True
         assert child.was_signaled() is True
         assert warm.child is None
-        assert warm._cancel_pending is False
     finally:
         warm._lifecycle_lock = real_lock
         warm.retire()
@@ -1170,5 +1169,89 @@ def test_lease_refuses_signaled_child_not_yet_dropped(
             assert isinstance(leased, dict)
             assert leased["code"] == "WORKER_SPAWN_FAILED"
         assert warm.child is None
+    finally:
+        warm.retire()
+
+
+def test_cancel_before_lease_clears_the_slot_refuses_spawn(tmp_path: Any, supervisor: Supervisor) -> None:
+    from plugin.framework.send_cancellation import SendCancellation
+
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    scope = SendCancellation()
+    scope.register_on_cancel(warm.kill)
+    real_lock = warm._io_lock
+    cancelled_once = False
+
+    class _LockProxy:
+        def acquire(self, *args: Any, **kwargs: Any) -> bool:
+            nonlocal cancelled_once
+            acquired = real_lock.acquire(*args, **kwargs)
+            if acquired and not cancelled_once:
+                cancelled_once = True
+                scope.cancel()
+            return acquired
+
+        def release(self) -> None:
+            real_lock.release()
+
+    warm._io_lock = _LockProxy()  # type: ignore[assignment]
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert warm.child is None
+
+        with warm.lease(Deadline(10.0)) as leased2:
+            assert not isinstance(leased2, dict)
+        assert warm.child is not None
+    finally:
+        warm._io_lock = real_lock
+        warm.retire()
+
+
+def test_cancel_of_idle_child_before_ensure_live_does_not_respawn(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from plugin.framework.send_cancellation import SendCancellation
+
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    try:
+        with warm.lease(Deadline(10.0)) as first:
+            assert not isinstance(first, dict)
+        assert warm._generation == 1
+
+        scope = SendCancellation()
+        scope.register_on_cancel(warm.kill)
+        orig_ensure = warm._ensure_live
+
+        def _cancel_then_ensure(deadline: Deadline) -> dict[str, Any] | None:
+            scope.cancel()
+            return orig_ensure(deadline)
+
+        monkeypatch.setattr(warm, "_ensure_live", _cancel_then_ensure)
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert warm._generation == 1
+        assert warm.child is None
+    finally:
+        warm.retire()
+
+
+def test_cancelled_scope_of_one_lease_does_not_refuse_the_next(tmp_path: Any, supervisor: Supervisor) -> None:
+    from plugin.framework.send_cancellation import SendCancellation
+
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    scope1 = SendCancellation()
+    scope1.cancel()
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope1) as leased1:
+            assert isinstance(leased1, dict)
+            assert leased1["code"] == "CANCELLED"
+
+        scope2 = SendCancellation()
+        with warm.lease(Deadline(10.0), cancel=scope2) as leased2:
+            assert not isinstance(leased2, dict)
+        assert warm.child is not None
     finally:
         warm.retire()
